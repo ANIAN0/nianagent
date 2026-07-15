@@ -1,0 +1,43 @@
+# 依赖
+/node_modules/
+
+# Eve 运行时与构建产物
+/.eve/
+/.workflow-data/
+/.nitro/
+/.output/
+/dist/
+
+# Next.js 构建产物
+/.next/
+/out/
+
+# 测试与验收产物
+/coverage/
+workplace/**/.venv/
+workplace/**/.pytest_cache/
+workplace/**/__pycache__/
+workplace/**/.coverage
+workplace/**/htmlcov/
+workplace/**/artifacts/
+
+# 本地环境变量；示例文件允许提交
+.env*
+!.env.example
+
+# 调试日志
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# 平台与本机工具状态
+/.vercel/
+.DS_Store
+Thumbs.db
+*.pem
+
+# TypeScript 生成文件
+*.tsbuildinfo
+next-env.d.ts
