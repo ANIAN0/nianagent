@@ -51,7 +51,7 @@ importers:
         specifier: 1.1.1
         version: 1.1.1(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       eve:
-        specifier: ^0.24.3
+        specifier: ^0.24.4
         version: 0.24.4(ai@7.0.28(zod@4.4.3))(jiti@2.7.0)
       lucide-react:
         specifier: 1.16.0
@@ -105,6 +105,18 @@ importers:
       typescript:
         specifier: 6.0.3
         version: 6.0.3
+
+  agents/knowledge-base:
+    dependencies:
+      eve:
+        specifier: ^0.24.4
+        version: 0.24.4(ai@7.0.28(zod@4.4.3))(jiti@2.7.0)
+
+  agents/work-assistant:
+    dependencies:
+      eve:
+        specifier: ^0.24.4
+        version: 0.24.4(ai@7.0.28(zod@4.4.3))(jiti@2.7.0)
 
 packages:
 

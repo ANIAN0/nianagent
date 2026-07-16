@@ -11,14 +11,16 @@
     "dev": "next dev",
     "start": "next start",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "build:eve": "eve build",
-    "dev:eve": "eve dev",
-    "start:eve": "eve start"
+    "build:eve": "pnpm --dir agents/knowledge-base build && pnpm --dir agents/work-assistant build",
+    "dev:eve:knowledge-base": "pnpm --dir agents/knowledge-base dev",
+    "dev:eve:work-assistant": "pnpm --dir agents/work-assistant dev",
+    "start:eve:knowledge-base": "pnpm --dir agents/knowledge-base start",
+    "start:eve:work-assistant": "pnpm --dir agents/work-assistant start"
   },
   "dependencies": {
     "@vercel/connect": "0.2.2",
     "ai": "^7.0.26",
-    "eve": "^0.24.3",
+    "eve": "^0.24.4",
     "zod": "4.4.3",
     "@radix-ui/react-use-controllable-state": "1.2.2",
     "@shikijs/core": "4.1.0",

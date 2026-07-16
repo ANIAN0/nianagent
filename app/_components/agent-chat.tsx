@@ -2,7 +2,8 @@
 
 import type { UserContent } from "ai";
 import { useEveAgent } from "eve/react";
-import { AlertCircleIcon } from "lucide-react";
+import { AlertCircleIcon, LibraryBigIcon, ListTodoIcon } from "lucide-react";
+import Link from "next/link";
 import {
   Conversation,
   ConversationContent,
@@ -17,12 +18,18 @@ import {
 import { cn } from "@/lib/utils";
 import { AgentMessage } from "./agent-message";
 
-const AGENT_NAME = "nianagent";
+type AgentId = "knowledge-base" | "work-assistant";
+
+const AGENTS: Record<AgentId, { href: string; label: string }> = {
+  "knowledge-base": { href: "/knowledge-base", label: "知识库管理员" },
+  "work-assistant": { href: "/work-assistant", label: "工作助手" },
+};
 
 type AgentStatus = ReturnType<typeof useEveAgent>["status"];
 
-export function AgentChat() {
-  const agent = useEveAgent();
+export function AgentChat({ agentId }: { readonly agentId: AgentId }) {
+  const agent = useEveAgent({ agent: agentId });
+  const activeAgent = AGENTS[agentId];
   const isBusy = agent.status === "submitted" || agent.status === "streaming";
   const isEmpty = agent.data.messages.length === 0;
 
@@ -61,11 +68,12 @@ export function AgentChat() {
   return (
     <main className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
       {isEmpty ? null : (
-        <header className="flex h-14 shrink-0 items-center justify-center gap-3 pl-4 pr-2">
+        <header className="flex h-14 shrink-0 items-center justify-between gap-3 px-4">
           <span className="flex min-w-0 items-center gap-2">
-            <span className="truncate text-muted-foreground text-sm">{AGENT_NAME}</span>
+            <span className="truncate text-muted-foreground text-sm">{activeAgent.label}</span>
             <StatusDot status={agent.status} />
           </span>
+          <AgentSwitcher agentId={agentId} />
         </header>
       )}
 
@@ -110,12 +118,36 @@ export function AgentChat() {
       >
         {isEmpty ? (
           <div className="flex flex-col items-center gap-3 text-center">
-            <h1 className="font-medium text-5xl tracking-tighter">{AGENT_NAME}</h1>
+            <AgentIcon agentId={agentId} />
+            <h1 className="font-medium text-5xl tracking-tighter">{activeAgent.label}</h1>
+            <AgentSwitcher agentId={agentId} />
           </div>
         ) : null}
         <div className="w-full">{composer}</div>
       </div>
     </main>
+  );
+}
+
+function AgentIcon({ agentId }: { readonly agentId: AgentId }) {
+  const Icon = agentId === "knowledge-base" ? LibraryBigIcon : ListTodoIcon;
+
+  return <Icon className="size-8 text-muted-foreground" />;
+}
+
+function AgentSwitcher({ agentId }: { readonly agentId: AgentId }) {
+  return (
+    <nav className="flex items-center gap-2 text-sm text-muted-foreground">
+      {(Object.entries(AGENTS) as [AgentId, (typeof AGENTS)[AgentId]][]).map(([id, item]) =>
+        id === agentId ? (
+          <span key={id}>{item.label}</span>
+        ) : (
+          <Link className="underline underline-offset-4" href={item.href} key={id}>
+            {item.label}
+          </Link>
+        ),
+      )}
+    </nav>
   );
 }
 

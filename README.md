@@ -7,8 +7,16 @@
 
 ## 当前状态
 
-当前代码是 Eve + Next.js 的标准初始化模板。本地工作区选择、多会话目录绑定和本地
-sandbox backend 尚未实现。
+当前应用包含两个通过 Eve 多 Agent 机制独立运行的 Agent：
+
+- 知识库管理员：`agents/knowledge-base/`
+- 工作助手：`agents/work-assistant/`
+
+Next.js 将它们分别挂载到 `/eve/agents/knowledge-base/eve/v1/*` 和
+`/eve/agents/work-assistant/eve/v1/*`。两者有各自的 Agent 配置、指令、频道和会话，互不
+作为子 Agent 调用。
+
+本地工作区选择、多会话目录绑定和本地 sandbox backend 尚未实现。
 
 ## 核心定位
 
@@ -78,7 +86,7 @@ pnpm install
 pnpm dev
 ```
 
-生产式本地运行需要先构建 Eve 输出，再构建并启动 Next.js：
+生产式本地运行需要先构建两个 Eve Agent，再构建并启动 Next.js：
 
 ```powershell
 pnpm build:eve

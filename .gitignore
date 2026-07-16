@@ -1,11 +1,11 @@
 # 依赖
-/node_modules/
+**/node_modules/
 
 # Eve 运行时与构建产物
-/.eve/
-/.workflow-data/
-/.nitro/
-/.output/
+**/.eve/
+**/.workflow-data/
+**/.nitro/
+**/.output/
 /dist/
 
 # Next.js 构建产物
