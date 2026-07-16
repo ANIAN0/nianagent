@@ -1,5 +1,3 @@
-import { defineAgent } from "eve";
+import { createNianAgent } from "@nianagent/agent-core/agent-definition";
 
-export default defineAgent({
-  model: "anthropic/claude-sonnet-5",
-});
+export default createNianAgent("knowledge-base");

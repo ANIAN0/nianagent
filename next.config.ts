@@ -1,7 +1,9 @@
 import type { NextConfig } from "next";
 import { withEve } from "eve/next";
 
-const nextConfig: NextConfig = {};
+const nextConfig: NextConfig = {
+  transpilePackages: ["@nianagent/agent-core"],
+};
 
 export default withEve(nextConfig, {
   agents: {

@@ -9,6 +9,7 @@
     "start": "eve start"
   },
   "dependencies": {
+    "@nianagent/agent-core": "workspace:*",
     "eve": "^0.24.4"
   }
 }

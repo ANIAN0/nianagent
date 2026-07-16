@@ -4,6 +4,7 @@ import type { UserContent } from "ai";
 import { useEveAgent } from "eve/react";
 import { AlertCircleIcon, LibraryBigIcon, ListTodoIcon } from "lucide-react";
 import Link from "next/link";
+import { useRef, useState } from "react";
 import {
   Conversation,
   ConversationContent,
@@ -16,6 +17,8 @@ import {
   PromptInputTextarea,
 } from "@/components/ai-elements/prompt-input";
 import { cn } from "@/lib/utils";
+import type { PublicModelCatalogEntry } from "@nianagent/agent-core/model-catalog";
+import { MODEL_SELECTION_HEADER } from "@nianagent/agent-core/model-selection";
 import { AgentMessage } from "./agent-message";
 
 type AgentId = "knowledge-base" | "work-assistant";
@@ -27,8 +30,20 @@ const AGENTS: Record<AgentId, { href: string; label: string }> = {
 
 type AgentStatus = ReturnType<typeof useEveAgent>["status"];
 
-export function AgentChat({ agentId }: { readonly agentId: AgentId }) {
-  const agent = useEveAgent({ agent: agentId });
+export function AgentChat({
+  agentId,
+  models,
+}: {
+  readonly agentId: AgentId;
+  readonly models: readonly PublicModelCatalogEntry[];
+}) {
+  const [modelId, setModelId] = useState(models[0]!.id);
+  const modelIdRef = useRef(modelId);
+  modelIdRef.current = modelId;
+  const agent = useEveAgent({
+    agent: agentId,
+    headers: () => ({ [MODEL_SELECTION_HEADER]: modelIdRef.current }),
+  });
   const activeAgent = AGENTS[agentId];
   const isBusy = agent.status === "submitted" || agent.status === "streaming";
   const isEmpty = agent.data.messages.length === 0;
@@ -73,7 +88,15 @@ export function AgentChat({ agentId }: { readonly agentId: AgentId }) {
             <span className="truncate text-muted-foreground text-sm">{activeAgent.label}</span>
             <StatusDot status={agent.status} />
           </span>
-          <AgentSwitcher agentId={agentId} />
+          <div className="flex items-center gap-3">
+            <ModelSelector
+              disabled={isBusy}
+              modelId={modelId}
+              models={models}
+              onChange={setModelId}
+            />
+            <AgentSwitcher agentId={agentId} />
+          </div>
         </header>
       )}
 
@@ -120,12 +143,48 @@ export function AgentChat({ agentId }: { readonly agentId: AgentId }) {
           <div className="flex flex-col items-center gap-3 text-center">
             <AgentIcon agentId={agentId} />
             <h1 className="font-medium text-5xl tracking-tighter">{activeAgent.label}</h1>
-            <AgentSwitcher agentId={agentId} />
+            <div className="flex items-center gap-3">
+              <ModelSelector
+                disabled={isBusy}
+                modelId={modelId}
+                models={models}
+                onChange={setModelId}
+              />
+              <AgentSwitcher agentId={agentId} />
+            </div>
           </div>
         ) : null}
         <div className="w-full">{composer}</div>
       </div>
     </main>
+  );
+}
+
+function ModelSelector({
+  disabled,
+  modelId,
+  models,
+  onChange,
+}: {
+  readonly disabled: boolean;
+  readonly modelId: string;
+  readonly models: readonly PublicModelCatalogEntry[];
+  readonly onChange: (modelId: string) => void;
+}) {
+  return (
+    <select
+      aria-label="选择模型"
+      className="h-8 rounded-md border bg-background px-2 text-sm text-foreground"
+      disabled={disabled}
+      onChange={(event) => onChange(event.target.value)}
+      value={modelId}
+    >
+      {models.map((model) => (
+        <option key={model.id} value={model.id}>
+          {model.label}
+        </option>
+      ))}
+    </select>
   );
 }
 

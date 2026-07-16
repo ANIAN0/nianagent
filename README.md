@@ -79,6 +79,26 @@ Windows 本地服务
 
 ## 开发
 
+### 模型配置
+
+模型白名单统一维护在 `packages/agent-core/config/models.json`。每个条目包含页面使用的 `id`、`label`，
+OpenAI-compatible 服务使用的 `providerModelId`、上下文窗口大小，以及允许使用该模型的
+Agent。`defaultModelId` 指定所有 Agent 共用的默认模型。
+
+`@nianagent/agent-core` 是 Next.js 与两个独立 Eve Agent 的共享 workspace 包。Agent 只通过
+包名导入共享运行时代码，使 Eve 开发模式能把该依赖完整纳入不可变源码快照；禁止从 Agent
+根目录使用相对路径越界导入仓库根源码。
+
+Provider 地址和密钥通过服务端环境变量配置：
+
+```powershell
+OPENAI_BASE_URL=https://<provider-endpoint>/v1
+OPENAI_API_KEY=<provider-api-key>
+```
+
+页面只会收到模型的 `id` 和 `label`。用户可以在同一会话中切换模型，选择会从下一次发送
+开始生效；服务端会再次按 Agent 白名单校验，浏览器不能提交任意 Provider 模型。
+
 安装依赖并启动本地开发服务：
 
 ```powershell
@@ -86,13 +106,19 @@ pnpm install
 pnpm dev
 ```
 
-生产式本地运行需要先构建两个 Eve Agent，再构建并启动 Next.js：
+生产式本地运行使用根级命令构建并启动完整应用：
 
 ```powershell
-pnpm build:eve
 pnpm build
 pnpm start
 ```
+
+`pnpm build` 会先构建两个 Eve Agent，再构建 Next.js。`pnpm start` 会同时启动 Next.js
+和两个 Eve 服务（分别监听 `4274`、`4275`）。不要单独执行 `next start`，否则只有页面服务，
+发送消息时代理目标不会监听。
+
+根目录 `.env` 是模型 Provider 的唯一配置来源；`pnpm start` 会将其传给两个 Eve 进程。不要在
+各 Agent 目录复制 `.env`，以免 Provider 地址和密钥出现不一致。
 
 修改 Eve Agent 代码前，先阅读当前安装版本的 `node_modules/eve/docs/README.md`，再阅读
 与本次修改相关的专题文档。

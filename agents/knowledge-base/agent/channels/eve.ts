@@ -1,10 +1,3 @@
-import { eveChannel } from "eve/channels/eve";
-import { localDev, placeholderAuth, vercelOidc } from "eve/channels/auth";
+import { createNianEveChannel } from "@nianagent/agent-core/eve-channel";
 
-export default eveChannel({
-  auth: [
-    vercelOidc(),
-    localDev(),
-    placeholderAuth(),
-  ],
-});
+export default createNianEveChannel("knowledge-base");

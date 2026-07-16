@@ -1,0 +1,19 @@
+{
+  "defaultModelId": "longcat-2",
+  "models": [
+    {
+      "id": "longcat-2",
+      "label": "LongCat 2.0",
+      "providerModelId": "LongCat-2.0",
+      "contextWindowTokens": 1000000,
+      "agents": ["knowledge-base", "work-assistant"]
+    },
+    {
+      "id": "openrouter-free",
+      "label": "OpenRouter Free",
+      "providerModelId": "openrouter/free",
+      "contextWindowTokens": 200000,
+      "agents": ["knowledge-base", "work-assistant"]
+    }
+  ]
+}
