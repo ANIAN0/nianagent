@@ -1,11 +1,11 @@
 import { defaultEveAuth, eveChannel } from "eve/channels/eve";
-import { localDev, placeholderAuth, vercelOidc } from "eve/channels/auth";
+import { localDev } from "eve/channels/auth";
 import { getModelForAgent, type AgentId } from "./model-catalog";
 import { MODEL_SELECTION_HEADER, modelSelectionContext } from "./model-selection";
 
 export function createNianEveChannel(agentId: AgentId) {
   return eveChannel({
-    auth: [vercelOidc(), localDev(), placeholderAuth()],
+    auth: [localDev()],
     onMessage(ctx) {
       const modelId = ctx.eve.request.headers.get(MODEL_SELECTION_HEADER);
       const selected = getModelForAgent(agentId, modelId);

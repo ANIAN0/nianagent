@@ -2,7 +2,15 @@
 
 import type { UserContent } from "ai";
 import { useEveAgent } from "eve/react";
-import { AlertCircleIcon, LibraryBigIcon, ListTodoIcon } from "lucide-react";
+import {
+  AlertCircleIcon,
+  BotIcon,
+  CheckIcon,
+  ChevronsUpDownIcon,
+  LibraryBigIcon,
+  ListTodoIcon,
+  type LucideIcon,
+} from "lucide-react";
 import Link from "next/link";
 import { useRef, useState } from "react";
 import {
@@ -13,9 +21,23 @@ import {
 import {
   PromptInput,
   type PromptInputMessage,
+  PromptInputFooter,
+  PromptInputSelect,
+  PromptInputSelectContent,
+  PromptInputSelectItem,
+  PromptInputSelectTrigger,
+  PromptInputSelectValue,
   PromptInputSubmit,
   PromptInputTextarea,
+  PromptInputTools,
 } from "@/components/ai-elements/prompt-input";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import type { PublicModelCatalogEntry } from "@nianagent/agent-core/model-catalog";
 import { MODEL_SELECTION_HEADER } from "@nianagent/agent-core/model-selection";
@@ -23,10 +45,28 @@ import { AgentMessage } from "./agent-message";
 
 type AgentId = "knowledge-base" | "work-assistant";
 
-const AGENTS: Record<AgentId, { href: string; label: string }> = {
-  "knowledge-base": { href: "/knowledge-base", label: "知识库管理员" },
-  "work-assistant": { href: "/work-assistant", label: "工作助手" },
+const AGENTS: Record<
+  AgentId,
+  { href: string; icon: LucideIcon; label: string; description: string }
+> = {
+  "knowledge-base": {
+    href: "/knowledge-base",
+    icon: LibraryBigIcon,
+    label: "知识库管理员",
+    description: "知识沉淀与检索",
+  },
+  "work-assistant": {
+    href: "/work-assistant",
+    icon: ListTodoIcon,
+    label: "工作助手",
+    description: "任务与日常协作",
+  },
 };
+
+const AGENT_LIST = Object.entries(AGENTS) as [
+  AgentId,
+  (typeof AGENTS)[AgentId],
+][];
 
 type AgentStatus = ReturnType<typeof useEveAgent>["status"];
 
@@ -45,6 +85,7 @@ export function AgentChat({
     headers: () => ({ [MODEL_SELECTION_HEADER]: modelIdRef.current }),
   });
   const activeAgent = AGENTS[agentId];
+  const ActiveAgentIcon = activeAgent.icon;
   const isBusy = agent.status === "submitted" || agent.status === "streaming";
   const isEmpty = agent.data.messages.length === 0;
 
@@ -76,26 +117,31 @@ export function AgentChat({
   const composer = (
     <PromptInput onSubmit={handleSubmit}>
       <PromptInputTextarea placeholder="Send a message…" />
-      <PromptInputSubmit onStop={agent.stop} status={agent.status} />
+      <PromptInputFooter>
+        <PromptInputTools>
+          <ModelSelector
+            disabled={isBusy}
+            modelId={modelId}
+            models={models}
+            onChange={setModelId}
+          />
+        </PromptInputTools>
+        <PromptInputSubmit
+          className="static right-auto bottom-auto"
+          onStop={agent.stop}
+          status={agent.status}
+        />
+      </PromptInputFooter>
     </PromptInput>
   );
 
   return (
     <main className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
       {isEmpty ? null : (
-        <header className="flex h-14 shrink-0 items-center justify-between gap-3 px-4">
-          <span className="flex min-w-0 items-center gap-2">
-            <span className="truncate text-muted-foreground text-sm">{activeAgent.label}</span>
+        <header className="flex h-14 shrink-0 items-center justify-between gap-3 px-4 sm:px-6">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <AgentSwitcher agentId={agentId} compact />
             <StatusDot status={agent.status} />
-          </span>
-          <div className="flex items-center gap-3">
-            <ModelSelector
-              disabled={isBusy}
-              modelId={modelId}
-              models={models}
-              onChange={setModelId}
-            />
-            <AgentSwitcher agentId={agentId} />
           </div>
         </header>
       )}
@@ -140,18 +186,14 @@ export function AgentChat({
         )}
       >
         {isEmpty ? (
-          <div className="flex flex-col items-center gap-3 text-center">
-            <AgentIcon agentId={agentId} />
-            <h1 className="font-medium text-5xl tracking-tighter">{activeAgent.label}</h1>
-            <div className="flex items-center gap-3">
-              <ModelSelector
-                disabled={isBusy}
-                modelId={modelId}
-                models={models}
-                onChange={setModelId}
-              />
-              <AgentSwitcher agentId={agentId} />
+          <div className="flex flex-col items-center gap-5 text-center">
+            <div className="flex flex-col items-center gap-3">
+              <span className="flex size-11 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+                <ActiveAgentIcon className="size-5" />
+              </span>
+              <h1 className="font-medium text-5xl tracking-tighter">{activeAgent.label}</h1>
             </div>
+            <AgentSwitcher agentId={agentId} />
           </div>
         ) : null}
         <div className="w-full">{composer}</div>
@@ -172,40 +214,116 @@ function ModelSelector({
   readonly onChange: (modelId: string) => void;
 }) {
   return (
-    <select
-      aria-label="选择模型"
-      className="h-8 rounded-md border bg-background px-2 text-sm text-foreground"
+    <PromptInputSelect
       disabled={disabled}
-      onChange={(event) => onChange(event.target.value)}
+      onValueChange={onChange}
       value={modelId}
     >
-      {models.map((model) => (
-        <option key={model.id} value={model.id}>
-          {model.label}
-        </option>
-      ))}
-    </select>
+      <PromptInputSelectTrigger
+        aria-label="选择模型"
+        className="h-8 gap-1.5 px-2 text-xs sm:text-sm"
+        size="sm"
+      >
+        <BotIcon className="size-3.5 shrink-0 opacity-70" />
+        <PromptInputSelectValue placeholder="选择模型" />
+      </PromptInputSelectTrigger>
+      <PromptInputSelectContent align="start" position="popper">
+        {models.map((model) => (
+          <PromptInputSelectItem key={model.id} value={model.id}>
+            {model.label}
+          </PromptInputSelectItem>
+        ))}
+      </PromptInputSelectContent>
+    </PromptInputSelect>
   );
 }
 
-function AgentIcon({ agentId }: { readonly agentId: AgentId }) {
-  const Icon = agentId === "knowledge-base" ? LibraryBigIcon : ListTodoIcon;
+function AgentSwitcher({
+  agentId,
+  compact = false,
+}: {
+  readonly agentId: AgentId;
+  readonly compact?: boolean;
+}) {
+  const active = AGENTS[agentId];
+  const ActiveIcon = active.icon;
 
-  return <Icon className="size-8 text-muted-foreground" />;
-}
+  if (compact) {
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            aria-label="切换 Agent"
+            className="h-8 max-w-[min(100%,16rem)] gap-1.5 px-2 font-medium text-muted-foreground hover:text-foreground"
+            size="sm"
+            type="button"
+            variant="ghost"
+          >
+            <ActiveIcon className="size-3.5 shrink-0" />
+            <span className="truncate">{active.label}</span>
+            <ChevronsUpDownIcon className="size-3.5 shrink-0 opacity-50" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-56">
+          {AGENT_LIST.map(([id, item]) => {
+            const Icon = item.icon;
+            const selected = id === agentId;
+            return (
+              <DropdownMenuItem
+                asChild
+                className="cursor-pointer gap-2"
+                key={id}
+              >
+                <Link href={item.href}>
+                  <Icon className="size-4 shrink-0" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium">{item.label}</span>
+                    <span className="block truncate text-muted-foreground text-xs">
+                      {item.description}
+                    </span>
+                  </span>
+                  {selected ? <CheckIcon className="size-4 shrink-0 text-foreground" /> : null}
+                </Link>
+              </DropdownMenuItem>
+            );
+          })}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }
 
-function AgentSwitcher({ agentId }: { readonly agentId: AgentId }) {
+  // 空状态：分段切换，与原版居中标题形成一套克制的产品控件
   return (
-    <nav className="flex items-center gap-2 text-sm text-muted-foreground">
-      {(Object.entries(AGENTS) as [AgentId, (typeof AGENTS)[AgentId]][]).map(([id, item]) =>
-        id === agentId ? (
-          <span key={id}>{item.label}</span>
-        ) : (
-          <Link className="underline underline-offset-4" href={item.href} key={id}>
+    <nav
+      aria-label="选择 Agent"
+      className="inline-flex items-center rounded-lg bg-muted/80 p-0.5 ring-1 ring-border/60"
+    >
+      {AGENT_LIST.map(([id, item]) => {
+        const Icon = item.icon;
+        const selected = id === agentId;
+        const className = cn(
+          "inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm transition-colors",
+          selected
+            ? "bg-background font-medium text-foreground shadow-xs"
+            : "text-muted-foreground hover:text-foreground",
+        );
+
+        if (selected) {
+          return (
+            <span aria-current="page" className={className} key={id}>
+              <Icon className="size-3.5 shrink-0" />
+              {item.label}
+            </span>
+          );
+        }
+
+        return (
+          <Link className={className} href={item.href} key={id}>
+            <Icon className="size-3.5 shrink-0" />
             {item.label}
           </Link>
-        ),
-      )}
+        );
+      })}
     </nav>
   );
 }
