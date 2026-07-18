@@ -19,7 +19,10 @@ import {
 } from "@/components/ui/dialog";
 import { withWorkflowDebugAgent } from "../agent-href";
 import { useWorkflowDebugAgent } from "../agent-context";
-import { CopyableText } from "../display-utils/copyable-text";
+import {
+  CopyableJsonBlock,
+  CopyableText,
+} from "../display-utils/copyable-text";
 import { RelativeTime } from "../display-utils/relative-time";
 import { workflowDebugRpc } from "../rpc-client";
 import { t } from "../i18n/zh-CN";
@@ -140,7 +143,7 @@ export function HooksPanel() {
     : rows;
 
   return (
-    <div className="flex gap-4">
+    <div className="flex flex-col gap-4 lg:flex-row">
       <div className="min-w-0 flex-1 space-y-3">
         <div className="flex flex-wrap items-center gap-2">
           <Input
@@ -300,9 +303,7 @@ export function HooksPanel() {
                 </dd>
               </div>
             </dl>
-            <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-[10px]">
-              {JSON.stringify(selected, null, 2)}
-            </pre>
+            <CopyableJsonBlock maxHeightClass="max-h-48" value={selected} />
             <Button
               className="h-8 w-full"
               onClick={() => {

@@ -501,7 +501,8 @@ export async function getBindingByWorkspaceId(
 }
 
 /** 最近目录集合默认条数上限（去重后）。 */
-export const RECENT_ROOT_SETS_DEFAULT_LIMIT = 8;
+/** 绑定表单「最近使用」默认只回显最近 3 组目录集合 */
+export const RECENT_ROOT_SETS_DEFAULT_LIMIT = 3;
 
 /** 扫描历史 binding 的行数上限（再在内存中按路径集合去重）。 */
 const RECENT_ROOT_SETS_SCAN_LIMIT = 48;

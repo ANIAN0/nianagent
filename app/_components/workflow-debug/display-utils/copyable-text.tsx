@@ -106,17 +106,18 @@ export function CopyIconButton({
         <button
           aria-label={copied ? t("copied") : t("copy")}
           className={cn(
-            "inline-flex shrink-0 items-center gap-1 rounded p-0.5 text-muted-foreground transition-opacity hover:bg-muted hover:text-foreground",
+            "inline-flex shrink-0 items-center gap-1 rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
             alwaysShow
-              ? "opacity-70 hover:opacity-100"
-              : "opacity-0 group-hover/copy:opacity-100 group-hover/payload:opacity-100",
+              ? "opacity-80 hover:opacity-100"
+              : "opacity-0 group-hover/copy:opacity-100 group-hover/payload:opacity-100 focus-visible:opacity-100",
             className,
           )}
           onClick={handleCopy}
           type="button"
         >
           {copied ? (
-            <CheckIcon className="size-3 text-emerald-600" />
+            <CheckIcon className="size-3 text-emerald-600 dark:text-emerald-400" />
           ) : (
             <CopyIcon className="size-3" />
           )}

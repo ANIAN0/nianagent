@@ -228,13 +228,13 @@ function BoundAgentChat({
       className="flex h-dvh flex-col overflow-hidden bg-background text-foreground"
       data-session-epoch={sessionEpoch}
     >
-      <header className="flex h-14 shrink-0 items-center justify-between gap-3 px-4 sm:px-6">
-        <div className="flex min-w-0 items-center gap-2.5">
+      <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-border/60 px-3 sm:gap-3 sm:px-6">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-2.5">
           <AgentSwitcher agentId={agentId} compact />
           <StatusDot status={agent.status} />
           <RootsBadge roots={binding.roots} />
         </div>
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -274,10 +274,11 @@ function BoundAgentChat({
           >
             <Link href={`/workflow-debug?agent=${agentId}`}>
               <BugIcon className="size-3.5" />
-              <span className="hidden sm:inline">Workflow 调试</span>
+              <span className="hidden md:inline">调试</span>
             </Link>
           </Button>
           <Button
+            aria-label="新会话"
             className="h-8 gap-1.5 px-2 text-muted-foreground hover:text-foreground"
             onClick={onNewSession}
             size="sm"
@@ -285,7 +286,7 @@ function BoundAgentChat({
             variant="ghost"
           >
             <PlusIcon className="size-3.5" />
-            新会话
+            <span className="hidden sm:inline">新会话</span>
           </Button>
         </div>
       </header>
@@ -340,11 +341,11 @@ function BoundAgentChat({
               <span className="flex size-11 items-center justify-center rounded-xl bg-muted text-muted-foreground">
                 <activeAgent.icon className="size-5" />
               </span>
-              <h1 className="font-medium text-5xl tracking-tighter">
+              <h1 className="font-medium text-4xl tracking-tight text-balance sm:text-5xl">
                 {activeAgent.label}
               </h1>
-              <p className="max-w-sm text-muted-foreground text-sm">
-                工作区已绑定。发送消息开始会话；刷新后将恢复同一 Eve session。
+              <p className="max-w-sm text-muted-foreground text-sm text-pretty">
+                工作区已绑定。发送消息开始会话；刷新后将恢复同一会话。
               </p>
             </div>
           </div>
@@ -425,7 +426,7 @@ export function AgentChat({
               <span className="flex size-11 items-center justify-center rounded-xl bg-muted text-muted-foreground">
                 <ActiveAgentIcon className="size-5" />
               </span>
-              <h1 className="font-medium text-5xl tracking-tighter">
+              <h1 className="font-medium text-4xl tracking-tight text-balance sm:text-5xl">
                 {activeAgent.label}
               </h1>
             </div>
@@ -612,24 +613,38 @@ function StatusDot({ status }: { readonly status: AgentStatus }) {
     status === "error"
       ? "bg-destructive"
       : isLive
-        ? "bg-emerald-500"
+        ? "bg-emerald-600 dark:bg-emerald-400"
         : status === "ready"
           ? "bg-muted-foreground"
           : "bg-muted-foreground/50";
 
+  const label =
+    status === "error"
+      ? "错误"
+      : isLive
+        ? "生成中"
+        : status === "ready"
+          ? "就绪"
+          : "空闲";
+
   return (
-    <span className="relative flex size-1">
+    <span
+      aria-label={label}
+      className="relative flex size-1.5"
+      role="status"
+      title={label}
+    >
       {isLive ? (
         <span
           className={cn(
-            "absolute inline-flex size-full animate-ping rounded-full opacity-75",
+            "absolute inline-flex size-full animate-ping rounded-full opacity-75 motion-reduce:animate-none",
             tone,
           )}
         />
       ) : null}
       <span
         className={cn(
-          "relative inline-flex size-1 rounded-full transition-colors",
+          "relative inline-flex size-1.5 rounded-full transition-colors",
           tone,
         )}
       />

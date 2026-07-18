@@ -16,6 +16,7 @@ import type { AgentId } from "@nianagent/agent-core/model-catalog";
 import { useWorkflowDebugAgent } from "../agent-context";
 import { workflowDebugRpc } from "../rpc-client";
 import { t } from "../i18n/zh-CN";
+import { SectionTabs } from "./section-tabs";
 import { cn } from "@/lib/utils";
 
 type BridgeState = "probing" | "ok" | "fail";
@@ -77,12 +78,12 @@ export function DebugShell({
 
   return (
     <div className="flex min-h-dvh flex-col bg-background text-foreground">
-      <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b px-4 sm:px-6">
-        <div className="flex min-w-0 items-center gap-3">
+      <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b px-3 sm:gap-3 sm:px-6">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           <Button asChild className="h-8 gap-1.5 px-2" size="sm" variant="ghost">
             <Link href={chatHref}>
               <ArrowLeftIcon className="size-3.5" />
-              {t("backToChat")}
+              <span className="hidden sm:inline">{t("backToChat")}</span>
             </Link>
           </Button>
           <div className="min-w-0">
@@ -94,24 +95,26 @@ export function DebugShell({
             </p>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
           <span
             className={cn(
               "hidden items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] sm:inline-flex",
               bridge === "ok" &&
-                "border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200",
+                "border-emerald-600/30 bg-emerald-600/10 text-emerald-800 dark:border-emerald-400/30 dark:bg-emerald-400/10 dark:text-emerald-200",
               bridge === "fail" &&
                 "border-destructive/40 bg-destructive/10 text-destructive",
               bridge === "probing" && "text-muted-foreground",
             )}
+            role="status"
             title={t("preflightHint")}
           >
             <span
               className={cn(
                 "size-1.5 rounded-full",
-                bridge === "ok" && "bg-emerald-500",
+                bridge === "ok" && "bg-emerald-600 dark:bg-emerald-400",
                 bridge === "fail" && "bg-destructive",
-                bridge === "probing" && "animate-pulse bg-muted-foreground",
+                bridge === "probing" &&
+                  "animate-pulse bg-muted-foreground motion-reduce:animate-none",
               )}
             />
             {bridge === "ok"
@@ -162,32 +165,18 @@ export function DebugShell({
 
       {!pathname.includes("/workflow-debug/") ||
       pathname.endsWith("/workflow-debug") ? (
-        <nav
-          aria-label="调试分区"
-          className="mx-auto flex w-full max-w-7xl gap-1 border-b px-4 pt-3 sm:px-6"
-        >
-          {(
-            [
-              ["runs", t("tabRuns")],
-              ["hooks", t("tabHooks")],
-              ["workflows", t("tabWorkflows")],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              className={cn(
-                "h-9 rounded-t-md px-3 text-sm transition-colors",
-                tab === id
-                  ? "border border-b-0 bg-background font-medium"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              key={id}
-              onClick={() => setTab(id)}
-              type="button"
-            >
-              {label}
-            </button>
-          ))}
-        </nav>
+        <div className="mx-auto w-full max-w-7xl border-b px-4 py-3 sm:px-6">
+          <SectionTabs
+            ariaLabel="调试分区"
+            items={[
+              { id: "runs", label: t("tabRuns") },
+              { id: "hooks", label: t("tabHooks") },
+              { id: "workflows", label: t("tabWorkflows") },
+            ]}
+            onChange={setTab}
+            value={tab}
+          />
+        </div>
       ) : null}
 
       <div

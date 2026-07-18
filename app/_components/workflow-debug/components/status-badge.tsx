@@ -33,32 +33,65 @@ export function StatusBadge({
   readonly className?: string;
 }) {
   const s = status.toLowerCase();
-  const dot =
-    s === "running"
-      ? "bg-blue-500"
-      : s === "completed"
-        ? "bg-emerald-500"
-        : s === "failed"
-          ? "bg-red-500"
-          : s === "cancelled"
-            ? "bg-yellow-500"
-            : s === "pending"
-              ? "bg-gray-400"
-              : "bg-gray-400";
-
+  // 语义色：失败走 destructive；其余用可在 light/dark 下辨认的色点（非装饰性 rainbow）
+  const dot = statusDotClass(s);
   const label = STATUS_LABEL[s] ?? (status || "—");
 
   return (
     <span className={cn("inline-flex flex-row items-center gap-2", className)}>
       <span className="inline-flex items-center gap-1.5">
-        <span className={cn("size-2 shrink-0 rounded-full", dot)} />
-        <span className="font-medium text-muted-foreground text-xs">{label}</span>
+        <span
+          aria-hidden
+          className={cn("size-2 shrink-0 rounded-full", dot)}
+        />
+        <span className="font-medium text-foreground/80 text-xs">{label}</span>
       </span>
       {durationMs !== undefined ? (
-        <span className="text-muted-foreground/70 text-xs">
+        <span className="text-muted-foreground text-xs">
           ({formatDuration(durationMs)})
         </span>
       ) : null}
     </span>
   );
+}
+
+/** 状态点色阶：供 Events / Trace 等列表复用，保持语义一致。 */
+export function statusDotClass(statusOrEventType: string): string {
+  const s = statusOrEventType.toLowerCase();
+  if (
+    s === "failed" ||
+    s === "step_failed" ||
+    s === "run_failed" ||
+    s === "workflow_failed" ||
+    s.includes("fail")
+  ) {
+    return "bg-destructive";
+  }
+  if (
+    s === "completed" ||
+    s === "step_completed" ||
+    s === "run_completed" ||
+    s === "wait_completed" ||
+    s === "hook_disposed"
+  ) {
+    return "bg-emerald-600 dark:bg-emerald-400";
+  }
+  if (
+    s === "running" ||
+    s === "step_started" ||
+    s === "run_started" ||
+    s === "hook_received"
+  ) {
+    return "bg-blue-600 dark:bg-blue-400";
+  }
+  if (s === "cancelled" || s === "run_cancelled" || s === "step_retrying") {
+    return "bg-amber-600 dark:bg-amber-400";
+  }
+  if (s === "attr_set") {
+    return "bg-teal-600 dark:bg-teal-400";
+  }
+  if (s === "pending") {
+    return "bg-muted-foreground/70";
+  }
+  return "bg-muted-foreground/50";
 }

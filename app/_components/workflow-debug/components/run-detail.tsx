@@ -31,6 +31,7 @@ import type { Span } from "../trace/types";
 import { EventsPanel } from "./events-panel";
 import { GraphPanel } from "./graph-panel";
 import { RunActions } from "./run-actions";
+import { SectionTabs } from "./section-tabs";
 import { SpanDetailPanel } from "./span-detail-panel";
 import { StatusBadge } from "./status-badge";
 import { StreamViewer } from "./stream-viewer";
@@ -308,35 +309,19 @@ export function RunDetail({ runId }: { readonly runId: string }) {
         </div>
       </div>
 
-      <nav
-        aria-label={t("sectionNav")}
-        className="flex flex-wrap gap-1 border-b pb-0"
-      >
-        {(
-          [
-            ["trace", t("sectionTrace")],
-            ["events", t("sectionEvents")],
-            ["graph", t("sectionGraph")],
-            ["hooks", t("sectionHooks")],
-            ["streams", t("sectionStreams")],
-            ["actions", t("sectionActions")],
-          ] as const
-        ).map(([id, label]) => (
-          <button
-            className={cn(
-              "h-9 rounded-t-md px-3 text-sm transition-colors",
-              activeTab === id
-                ? "border border-b-0 bg-background font-medium"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-            key={id}
-            onClick={() => setTab(id)}
-            type="button"
-          >
-            {label}
-          </button>
-        ))}
-      </nav>
+      <SectionTabs
+        ariaLabel={t("sectionNav")}
+        items={[
+          { id: "trace", label: t("sectionTrace") },
+          { id: "events", label: t("sectionEvents") },
+          { id: "graph", label: t("sectionGraph") },
+          { id: "hooks", label: t("sectionHooks") },
+          { id: "streams", label: t("sectionStreams") },
+          { id: "actions", label: t("sectionActions") },
+        ]}
+        onChange={(id) => setTab(id as DetailTab)}
+        value={activeTab}
+      />
 
       {activeTab === "trace" ? (
         <div className="flex min-h-0 flex-1 flex-col gap-3 lg:flex-row">

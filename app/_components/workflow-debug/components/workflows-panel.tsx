@@ -64,7 +64,7 @@ export function WorkflowsPanel() {
   }, [manifest, filter]);
 
   return (
-    <div className="flex gap-4">
+    <div className="flex flex-col gap-4 lg:flex-row">
       <div className="min-w-0 flex-1 space-y-3">
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="mr-auto font-medium text-sm">{t("sectionGraph")}</h2>

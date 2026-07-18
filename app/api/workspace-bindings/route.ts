@@ -65,9 +65,10 @@ export async function GET(request: Request) {
 
   const [pwsh, recent] = await Promise.all([
     checkPwshAvailable(),
-    listRecentRootSets(
-      agentFilter ? { agentId: agentFilter } : undefined,
-    ),
+    listRecentRootSets({
+      limit: 3,
+      ...(agentFilter ? { agentId: agentFilter } : {}),
+    }),
   ]);
 
   // 仅序列化公开字段，禁止夹带 canonicalPath

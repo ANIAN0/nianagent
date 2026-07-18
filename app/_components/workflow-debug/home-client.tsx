@@ -17,14 +17,10 @@ function HomeInner({ initialAgent }: { readonly initialAgent?: AgentId }) {
   return (
     <WorkflowDebugAgentProvider initialAgent={initialAgent}>
       <DebugShell>
-        <div className="mb-4 rounded-lg border bg-muted/20 px-3 py-2 text-muted-foreground text-xs leading-relaxed">
-          <span className="font-medium text-foreground">{t("appTitle")}</span>
-          {" · "}
-          {t("surfaceRuns")} / {t("surfaceHooks")} / {t("surfaceWorkflows")}
-          {" · "}
-          {t("surfaceRunDetail")}（{t("surfaceTrace")} / {t("surfaceStream")} /{" "}
-          {t("surfaceActions")}）
-        </div>
+        {/* 单行说明即可：标题已在壳层 header，避免重复信息噪声 */}
+        <p className="mb-4 text-muted-foreground text-xs leading-relaxed">
+          {t("appSubtitle")}
+        </p>
         {tab === "hooks" ? (
           <HooksPanel />
         ) : tab === "workflows" ? (

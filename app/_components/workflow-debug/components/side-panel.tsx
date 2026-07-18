@@ -20,13 +20,17 @@ export function SidePanel({
   /** 图浏览等场景加宽侧栏 */
   readonly wide?: boolean;
 }) {
+  // 关闭时完全收起：禁止半透明占位（易误认为可交互灰态）
+  if (!open) {
+    return null;
+  }
+
   return (
     <aside
-      aria-hidden={!open}
+      aria-label={title}
       className={cn(
-        "hidden shrink-0 flex-col rounded-lg border bg-card lg:flex",
-        wide ? "w-[min(36rem,42vw)]" : "w-80",
-        open ? "opacity-100" : "opacity-60",
+        "flex w-full shrink-0 flex-col rounded-lg border bg-card lg:flex",
+        wide ? "lg:w-[min(36rem,42vw)]" : "lg:w-80",
       )}
     >
       <div className="flex h-11 items-center justify-between border-b px-3">

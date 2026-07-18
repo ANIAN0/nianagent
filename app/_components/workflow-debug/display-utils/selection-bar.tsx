@@ -23,15 +23,17 @@ export function SelectionBar({
   return (
     <div
       className={cn(
-        "fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-lg bg-primary px-4 py-2.5 text-primary-foreground shadow-lg",
+        "fixed bottom-6 left-1/2 z-50 flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-3 rounded-lg bg-primary px-4 py-2.5 text-primary-foreground shadow-md",
         className,
       )}
+      role="toolbar"
+      aria-label={t("selectionCount").replace("{n}", String(selectionCount))}
     >
       <span className="font-medium text-sm">
         {t("selectionCount").replace("{n}", String(selectionCount))}
       </span>
       {actions ? (
-        <div className="flex items-center gap-2 border-primary-foreground/20 border-l pl-3">
+        <div className="flex items-center gap-2 border-primary-foreground/20 border-s pl-3">
           {actions}
         </div>
       ) : null}

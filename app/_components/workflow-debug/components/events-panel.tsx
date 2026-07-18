@@ -32,6 +32,7 @@ import { RelativeTime } from "../display-utils/relative-time";
 import { workflowDebugRpc } from "../rpc-client";
 import { t } from "../i18n/zh-CN";
 import type { WorkflowEvent } from "../trace/types";
+import { statusDotClass } from "./status-badge";
 import { cn } from "@/lib/utils";
 
 function eventTime(ev: WorkflowEvent): number {
@@ -43,36 +44,6 @@ function eventTime(ev: WorkflowEvent): number {
     return Number.isNaN(n) ? 0 : n;
   }
   return 0;
-}
-
-function statusDotClass(eventType: string): string {
-  if (
-    eventType === "step_failed" ||
-    eventType === "run_failed" ||
-    eventType === "workflow_failed"
-  ) {
-    return "bg-red-500";
-  }
-  if (eventType === "run_cancelled" || eventType === "step_retrying") {
-    return "bg-amber-500";
-  }
-  if (
-    eventType === "step_completed" ||
-    eventType === "run_completed" ||
-    eventType === "wait_completed" ||
-    eventType === "hook_disposed"
-  ) {
-    return "bg-emerald-500";
-  }
-  if (
-    eventType === "step_started" ||
-    eventType === "run_started" ||
-    eventType === "hook_received"
-  ) {
-    return "bg-blue-500";
-  }
-  if (eventType === "attr_set") return "bg-teal-500";
-  return "bg-muted-foreground";
 }
 
 function eventRowKey(ev: WorkflowEvent, index: number): string {
@@ -238,7 +209,8 @@ export function EventsPanel({
                 >
                   <button
                     aria-expanded={open}
-                    className="mt-0.5 shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    aria-label={open ? "收起事件" : "展开事件"}
+                    className="mt-0.5 shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                     onClick={() => void toggleExpand(key, ev)}
                     type="button"
                   >
@@ -249,7 +221,7 @@ export function EventsPanel({
                     )}
                   </button>
                   <button
-                    className="flex min-w-0 flex-1 items-start gap-2 text-left hover:opacity-90"
+                    className="flex min-w-0 flex-1 items-start gap-2 rounded-sm text-left hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                     onClick={() => void toggleExpand(key, ev)}
                     type="button"
                   >

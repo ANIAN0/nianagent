@@ -44,7 +44,12 @@ export function SpanDetailPanel({
         <div className="flex h-11 items-center border-b px-3">
           <h3 className="font-medium text-sm">{t("sidePanel")}</h3>
         </div>
-        <p className="p-3 text-muted-foreground text-sm">{t("noSelection")}</p>
+        <div className="flex flex-1 flex-col items-start justify-center gap-1 p-4">
+          <p className="text-foreground text-sm">{t("noSelection")}</p>
+          <p className="text-muted-foreground text-xs leading-relaxed">
+            在左侧时间线点击一个 Span 查看属性、事件与原始数据。
+          </p>
+        </div>
       </aside>
     );
   }
@@ -63,7 +68,7 @@ export function SpanDetailPanel({
     data && typeof data.status === "string" ? data.status : "";
 
   return (
-    <aside className="flex w-full shrink-0 flex-col border-l bg-card lg:w-80 lg:rounded-lg lg:border">
+    <aside className="flex w-full shrink-0 flex-col rounded-lg border bg-card lg:w-80">
       <div className="flex h-11 items-center justify-between border-b px-3">
         <div className="min-w-0">
           <h3 className="truncate font-medium text-sm">{span.name}</h3>
