@@ -12,10 +12,11 @@ import {
   LibraryBigIcon,
   ListTodoIcon,
   PlusIcon,
+  ShieldIcon,
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Conversation,
   ConversationContent,
@@ -44,10 +45,17 @@ import {
 import { cn } from "@/lib/utils";
 import type { PublicModelCatalogEntry } from "@nianagent/agent-core/model-catalog";
 import { MODEL_SELECTION_HEADER } from "@nianagent/agent-core/model-selection";
-import { WORKSPACE_CAPABILITY_HEADER } from "@nianagent/agent-core/workspace-constants";
+import {
+  SESSION_ACCEPT_EDITS_HEADER,
+  SESSION_GLOBAL_BYPASS_HEADER,
+  TRUST_CALL_ID_HEADER,
+  TRUST_SCOPE_HEADER,
+  WORKSPACE_CAPABILITY_HEADER,
+} from "@nianagent/agent-core/workspace-constants";
 import { AgentMessage } from "./agent-message";
 import {
   clearChatSession,
+  INSTALLED_EVE_VERSION,
   loadChatSession,
   saveChatSession,
   type ChatAgentId,
@@ -63,6 +71,11 @@ import {
   WorkspaceBindingForm,
   type BindingSuccess,
 } from "./workspace-binding-form";
+import {
+  SessionPermissionControls,
+  type SessionModes,
+} from "./session-permission-controls";
+import type { ApprovalSubmitPayload } from "./approval-decision-card";
 
 type AgentId = ChatAgentId;
 
@@ -88,6 +101,10 @@ const AGENT_LIST = Object.entries(AGENTS) as [
   AgentId,
   (typeof AGENTS)[AgentId],
 ][];
+
+/** 顶栏三个会话操作固定使用同一文字尺度，避免组件默认样式造成视觉分级。 */
+const HEADER_ACTION_CLASS_NAME =
+  "h-8 gap-1.5 px-2 !text-sm !leading-5 text-muted-foreground hover:text-foreground";
 
 type AgentStatus = ReturnType<typeof useEveAgent>["status"];
 
@@ -116,6 +133,7 @@ function BoundAgentChat({
   readonly initialSession: unknown;
   readonly initialEvents: readonly unknown[];
   readonly sessionEpoch: string;
+  /** 丢弃 Eve cursor、保留工作区绑定，开始新对话 */
   readonly onNewSession: () => void;
 }) {
   const [modelId, setModelId] = useState(models[0]!.id);
@@ -129,12 +147,38 @@ function BoundAgentChat({
   const sessionRef = useRef<unknown>(initialSession);
   const eventsRef = useRef<unknown[]>([...initialEvents]);
 
+  // 会话模式：无 sessionId 时用 pending；有 id 后 PATCH 固化
+  const [pendingModes, setPendingModes] = useState<SessionModes>({
+    acceptEdits: false,
+    globalBypass: false,
+  });
+  const [modesSolidified, setModesSolidified] = useState(false);
+  const [modeSyncing, setModeSyncing] = useState(false);
+  const [modeSyncError, setModeSyncError] = useState<string | null>(null);
+  const modesRef = useRef(pendingModes);
+  modesRef.current = pendingModes;
+  const modesSolidifiedRef = useRef(modesSolidified);
+  modesSolidifiedRef.current = modesSolidified;
+  const solidifyInFlight = useRef(false);
+
   const agent = useEveAgent({
     agent: agentId,
-    headers: () => ({
-      [MODEL_SELECTION_HEADER]: modelIdRef.current,
-      [WORKSPACE_CAPABILITY_HEADER]: capabilityRef.current,
-    }),
+    headers: () => {
+      const headers: Record<string, string> = {
+        [MODEL_SELECTION_HEADER]: modelIdRef.current,
+        [WORKSPACE_CAPABILITY_HEADER]: capabilityRef.current,
+      };
+      // 未固化成功前：每条 send 带模式意图头（D-008 首 turn）
+      if (!modesSolidifiedRef.current) {
+        headers[SESSION_ACCEPT_EDITS_HEADER] = modesRef.current.acceptEdits
+          ? "1"
+          : "0";
+        headers[SESSION_GLOBAL_BYPASS_HEADER] = modesRef.current.globalBypass
+          ? "1"
+          : "0";
+      }
+      return headers;
+    },
     // 完整 Eve session cursor + event log，禁止仅恢复消息文本
     initialSession: (initialSession ?? undefined) as never,
     initialEvents: (initialEvents ?? undefined) as never,
@@ -160,6 +204,126 @@ function BoundAgentChat({
 
   sessionRef.current = agent.session;
   eventsRef.current = [...agent.events];
+
+  const sessionId =
+    typeof agent.session?.sessionId === "string" && agent.session.sessionId
+      ? agent.session.sessionId
+      : undefined;
+
+  const patchSessionModes = useCallback(
+    async (modes: SessionModes, sid: string) => {
+      setModeSyncing(true);
+      setModeSyncError(null);
+      try {
+        const res = await fetch("/api/session-permissions", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            capability: capabilityRef.current,
+            agentId,
+            sessionId: sid,
+            acceptEdits: modes.acceptEdits,
+            globalBypass: modes.globalBypass,
+          }),
+        });
+        const body = (await res.json()) as { error?: { message?: string } };
+        if (!res.ok) {
+          throw new Error(body.error?.message ?? `HTTP ${res.status}`);
+        }
+        setModesSolidified(true);
+        setModeSyncError(null);
+      } catch (err) {
+        setModesSolidified(false);
+        setModeSyncError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setModeSyncing(false);
+      }
+    },
+    [agentId],
+  );
+
+  // 获得真实 sessionId：优先 GET 已有行（刷新恢复）；无行则 PATCH 固化当前 pending
+  useEffect(() => {
+    if (!sessionId || modesSolidified || solidifyInFlight.current) return;
+    solidifyInFlight.current = true;
+    void (async () => {
+      try {
+        // capability 走请求头，避免出现在 URL / 访问日志
+        const qs = new URLSearchParams({
+          agentId,
+          sessionId,
+        });
+        const res = await fetch(`/api/session-permissions?${qs.toString()}`, {
+          headers: {
+            [WORKSPACE_CAPABILITY_HEADER]: capabilityRef.current,
+          },
+        });
+        if (res.ok) {
+          const body = (await res.json()) as {
+            ok?: boolean;
+            state?: {
+              acceptEdits?: boolean;
+              globalBypass?: boolean;
+              updatedAt?: string;
+            };
+          };
+          // 有真实库行（updatedAt 非 epoch 0）则恢复 UI 并视为已固化
+          if (
+            body.ok &&
+            body.state &&
+            body.state.updatedAt &&
+            body.state.updatedAt !== new Date(0).toISOString()
+          ) {
+            const restored: SessionModes = {
+              acceptEdits: Boolean(body.state.acceptEdits),
+              globalBypass: Boolean(body.state.globalBypass),
+            };
+            setPendingModes(restored);
+            modesRef.current = restored;
+            setModesSolidified(true);
+            setModeSyncError(null);
+            return;
+          }
+        }
+        await patchSessionModes(modesRef.current, sessionId);
+      } catch {
+        await patchSessionModes(modesRef.current, sessionId);
+      } finally {
+        solidifyInFlight.current = false;
+      }
+    })();
+  }, [sessionId, modesSolidified, patchSessionModes, agentId]);
+
+  const handleModesChange = useCallback(
+    (next: SessionModes) => {
+      setPendingModes(next);
+      modesRef.current = next;
+      if (sessionId && modesSolidified) {
+        void patchSessionModes(next, sessionId);
+      }
+      // 无 sessionId 或未固化：仅 pending；下一条 send 带头
+    },
+    [sessionId, modesSolidified, patchSessionModes],
+  );
+
+  const handleApprovalSubmit = useCallback(
+    async (payload: ApprovalSubmitPayload) => {
+      const headers: Record<string, string> = {};
+      if (payload.trustScope) {
+        headers[TRUST_SCOPE_HEADER] = payload.trustScope;
+      }
+      // callId 用于 pending 精确绑定 / deny 清理（与 requestId 可能不同）
+      if (payload.toolCallId?.trim()) {
+        headers[TRUST_CALL_ID_HEADER] = payload.toolCallId.trim();
+      }
+      await agent.send({
+        inputResponses: payload.responses,
+        message: payload.message,
+        headers: Object.keys(headers).length > 0 ? headers : undefined,
+      });
+    },
+    [agent],
+  );
 
   const activeAgent = AGENTS[agentId];
   const isBusy = agent.status === "submitted" || agent.status === "streaming";
@@ -207,6 +371,17 @@ function BoundAgentChat({
       <PromptInputTextarea placeholder="发送消息…" />
       <PromptInputFooter>
         <PromptInputTools>
+          <SessionPermissionControls
+            modes={pendingModes}
+            syncError={modeSyncError}
+            syncing={modeSyncing}
+            onChange={handleModesChange}
+            onRetrySync={
+              sessionId
+                ? () => void patchSessionModes(pendingModes, sessionId)
+                : undefined
+            }
+          />
           <ModelSelector
             disabled={isBusy}
             modelId={modelId}
@@ -228,18 +403,32 @@ function BoundAgentChat({
       className="flex h-dvh flex-col overflow-hidden bg-background text-foreground"
       data-session-epoch={sessionEpoch}
     >
-      <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-border/60 px-3 sm:gap-3 sm:px-6">
-        <div className="flex min-w-0 items-center gap-2 sm:gap-2.5">
+      <header className="flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border/60 px-3 py-2 sm:gap-3 sm:px-6">
+        <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-2.5">
           <AgentSwitcher agentId={agentId} compact />
           <StatusDot status={agent.status} />
           <RootsBadge roots={binding.roots} />
         </div>
         <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
+          <Button
+            asChild
+            className={HEADER_ACTION_CLASS_NAME}
+            size="sm"
+            variant="ghost"
+          >
+            <Link
+              href={`/tool-trust?agent=${encodeURIComponent(agentId)}`}
+              title="管理本工作区已记住的工具信任规则"
+            >
+              <ShieldIcon className="size-3.5" />
+              <span className="hidden md:inline">工具信任</span>
+            </Link>
+          </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
                 aria-label="导出当前会话"
-                className="h-8 gap-1.5 px-2 text-muted-foreground hover:text-foreground"
+                className={HEADER_ACTION_CLASS_NAME}
                 disabled={isEmpty}
                 size="sm"
                 type="button"
@@ -268,7 +457,7 @@ function BoundAgentChat({
           </DropdownMenu>
           <Button
             asChild
-            className="h-8 gap-1.5 px-2 text-muted-foreground hover:text-foreground"
+            className={HEADER_ACTION_CLASS_NAME}
             size="sm"
             variant="ghost"
           >
@@ -278,15 +467,16 @@ function BoundAgentChat({
             </Link>
           </Button>
           <Button
-            aria-label="新会话"
-            className="h-8 gap-1.5 px-2 text-muted-foreground hover:text-foreground"
+            aria-label="新对话（保留工作区绑定）"
+            className={HEADER_ACTION_CLASS_NAME}
             onClick={onNewSession}
             size="sm"
+            title="丢弃当前 Eve 会话，保留已绑定工作区"
             type="button"
             variant="ghost"
           >
             <PlusIcon className="size-3.5" />
-            <span className="hidden sm:inline">新会话</span>
+            <span className="hidden sm:inline">新对话</span>
           </Button>
         </div>
       </header>
@@ -295,9 +485,25 @@ function BoundAgentChat({
         <div className="mx-auto w-full max-w-3xl shrink-0 px-4 pt-2 sm:px-6">
           <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm">
             <AlertCircleIcon className="mt-0.5 size-4 shrink-0 text-destructive" />
-            <div>
-              <p className="font-medium">请求失败</p>
-              <p className="mt-0.5 text-muted-foreground">{agent.error.message}</p>
+            <div className="min-w-0 flex-1 space-y-2">
+              <div>
+                <p className="font-medium">请求失败</p>
+                <p className="mt-0.5 break-words text-muted-foreground">
+                  {agent.error.message}
+                </p>
+                <p className="mt-1 text-muted-foreground text-xs">
+                  若刚升级过 eve 或重启过 Agent，升级前会话无法继续（Workflow step
+                  名含框架版本）。可点「新对话」保留工作区后重试。
+                </p>
+              </div>
+              <Button
+                onClick={onNewSession}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                新对话（保留工作区）
+              </Button>
             </div>
           </div>
         </div>
@@ -317,9 +523,7 @@ function BoundAgentChat({
                 }
                 key={message.id}
                 message={message}
-                onInputResponses={(inputResponses) =>
-                  agent.send({ inputResponses })
-                }
+                onApprovalSubmit={handleApprovalSubmit}
               />
             ))}
           </ConversationContent>
@@ -401,19 +605,39 @@ export function AgentChat({
         capability: result.capability,
         session: null,
         events: [],
+        eveVersion: INSTALLED_EVE_VERSION,
       });
     },
     [agentId],
   );
 
+  /**
+   * 新对话：保留 workspace binding，丢弃 Eve continuation（升级/失效会话的恢复路径）。
+   * 需要换目录时再清 binding（见下方未绑定态重新绑定）。
+   */
   const handleNewSession = useCallback(() => {
+    if (binding && capability) {
+      setInitialSession(null);
+      setInitialEvents([]);
+      setSessionEpoch(
+        `${binding.workspaceId}:${capability.slice(0, 8)}:${Date.now()}`,
+      );
+      saveChatSession(agentId, {
+        binding,
+        capability,
+        session: null,
+        events: [],
+        eveVersion: INSTALLED_EVE_VERSION,
+      });
+      return;
+    }
     clearChatSession(agentId);
     setBinding(null);
     setCapability(null);
     setInitialSession(null);
     setInitialEvents([]);
     setSessionEpoch(`new:${Date.now()}`);
-  }, [agentId]);
+  }, [agentId, binding, capability]);
 
   const bound = binding && capability;
 

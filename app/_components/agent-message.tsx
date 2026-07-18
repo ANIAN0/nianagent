@@ -26,6 +26,13 @@ import {
 } from "@/components/ai-elements/tool";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { ApprovalDecisionCard } from "./approval-decision-card";
+import {
+  Callout,
+  FileToolApprovalBody,
+  isFileSensitiveTool,
+  PathField,
+} from "./file-tool-approval-body";
 
 /** 失败/拒绝态必须展开卡片，避免用户只看到折叠头而看不到 errorText（DEF-013）。 */
 function toolShouldForceOpen(state: EveDynamicToolPart["state"]): boolean {
@@ -58,6 +65,8 @@ export type AgentInputResponse = {
   readonly text?: string;
 };
 
+export type { ApprovalSubmitPayload } from "./approval-decision-card";
+
 type EveFilePart = Extract<EveMessagePart, { type: "file" }>;
 
 export function AgentMessage({
@@ -66,14 +75,16 @@ export function AgentMessage({
   capability,
   isStreaming,
   message,
-  onInputResponses,
+  onApprovalSubmit,
 }: {
   readonly agentId: string;
   readonly canRespond: boolean;
   readonly capability: string;
   readonly isStreaming: boolean;
   readonly message: EveMessage;
-  readonly onInputResponses: (responses: readonly AgentInputResponse[]) => void | Promise<void>;
+  readonly onApprovalSubmit: (
+    payload: import("./approval-decision-card").ApprovalSubmitPayload,
+  ) => void | Promise<void>;
 }) {
   const lastTextIndex = message.parts.reduce(
     (last, part, index) => (part.type === "text" ? index : last),
@@ -92,7 +103,7 @@ export function AgentMessage({
             canRespond={canRespond}
             capability={capability}
             key={partKey(part, index)}
-            onInputResponses={onInputResponses}
+            onApprovalSubmit={onApprovalSubmit}
             part={part}
             showCaret={isStreaming && message.role === "assistant" && index === lastTextIndex}
           />
@@ -106,14 +117,16 @@ function AgentMessagePart({
   agentId,
   canRespond,
   capability,
-  onInputResponses,
+  onApprovalSubmit,
   part,
   showCaret,
 }: {
   readonly agentId: string;
   readonly canRespond: boolean;
   readonly capability: string;
-  readonly onInputResponses: (responses: readonly AgentInputResponse[]) => void | Promise<void>;
+  readonly onApprovalSubmit: (
+    payload: import("./approval-decision-card").ApprovalSubmitPayload,
+  ) => void | Promise<void>;
   readonly part: EveMessagePart;
   readonly showCaret: boolean;
 }) {
@@ -143,7 +156,7 @@ function AgentMessagePart({
           agentId={agentId}
           canRespond={canRespond}
           capability={capability}
-          onInputResponses={onInputResponses}
+          onApprovalSubmit={onApprovalSubmit}
           part={part}
         />
       );
@@ -157,29 +170,33 @@ function DynamicToolPartView({
   agentId,
   canRespond,
   capability,
-  onInputResponses,
+  onApprovalSubmit,
   part,
 }: {
   readonly agentId: string;
   readonly canRespond: boolean;
   readonly capability: string;
-  readonly onInputResponses: (responses: readonly AgentInputResponse[]) => void | Promise<void>;
+  readonly onApprovalSubmit: (
+    payload: import("./approval-decision-card").ApprovalSubmitPayload,
+  ) => void | Promise<void>;
   readonly part: EveDynamicToolPart;
 }) {
   const forceOpen = toolShouldForceOpen(part.state);
   const powerShellTool = isPowerShellTool(part.toolName);
+  const fileTool = isFileSensitiveTool(part.toolName);
+  const needsHostVerify = powerShellTool || fileTool;
   const [open, setOpen] = useState(forceOpen);
-  const [hostCwdVerified, setHostCwdVerified] = useState(!powerShellTool);
+  const [hostVerified, setHostVerified] = useState(!needsHostVerify);
 
   // 状态转入错误/审批时重新展开（defaultOpen 只在首挂生效）
   useEffect(() => {
     if (forceOpen) setOpen(true);
   }, [forceOpen, part.state, part.toolCallId]);
 
-  // 每次新工具调用都要求重新解析宿主 cwd，不能沿用上一条命令的结果。
+  // 每次新工具调用都要求重新解析宿主路径，不能沿用上一条的结果。
   useEffect(() => {
-    setHostCwdVerified(!powerShellTool);
-  }, [part.toolCallId, powerShellTool]);
+    setHostVerified(!needsHostVerify);
+  }, [part.toolCallId, needsHostVerify]);
 
   const errorText = resolveToolErrorText(part);
   const output = part.state === "output-available" ? part.output : undefined;
@@ -197,17 +214,25 @@ function DynamicToolPartView({
           <PowerShellToolBody
             agentId={agentId}
             capability={capability}
-            onHostCwdVerifiedChange={setHostCwdVerified}
+            onHostCwdVerifiedChange={setHostVerified}
+            part={part}
+          />
+        ) : fileTool ? (
+          <FileToolApprovalBody
+            agentId={agentId}
+            capability={capability}
+            onHostPathVerifiedChange={setHostVerified}
             part={part}
           />
         ) : (
           <ToolInput input={part.input} />
         )}
         <InputRequestActions
-          approvalBlocked={powerShellTool && !hostCwdVerified}
+          approvalBlocked={needsHostVerify && !hostVerified}
           canRespond={canRespond}
+          isPowerShell={powerShellTool}
           part={part}
-          onInputResponses={onInputResponses}
+          onApprovalSubmit={onApprovalSubmit}
         />
         <ToolOutput errorText={errorText} output={output} />
       </ToolContent>
@@ -322,69 +347,63 @@ function PowerShellToolBody({
   return (
     <div className="space-y-3 text-sm">
       {description ? (
-        <div>
-          <p className="text-muted-foreground text-xs">目的</p>
-          <p className="mt-0.5">{description}</p>
+        <div className="space-y-1">
+          <p className="text-[12px] font-medium text-muted-foreground">目的</p>
+          <p className="text-sm leading-relaxed">{description}</p>
         </div>
       ) : null}
-      <div>
-        <p className="text-muted-foreground text-xs">命令</p>
-        <pre className="mt-0.5 overflow-x-auto rounded-md border bg-muted/40 p-2 font-mono text-xs whitespace-pre-wrap">
+      <div className="space-y-1">
+        <p className="text-[12px] font-medium text-muted-foreground">命令</p>
+        <pre className="overflow-x-auto rounded-md border border-border/80 bg-muted/40 p-3 font-mono text-[12px] leading-relaxed whitespace-pre-wrap">
           {command || "（空）"}
         </pre>
       </div>
-      <div className="grid gap-2 sm:grid-cols-2">
-        <div>
-          <p className="text-muted-foreground text-xs">逻辑 cwd</p>
-          <p className="mt-0.5 break-all font-mono text-xs">{cwd || "（未指定）"}</p>
-        </div>
-        <div>
-          <p className="text-muted-foreground text-xs">解析后的宿主 cwd</p>
-          {loading ? (
-            <p className="mt-0.5 text-muted-foreground text-xs">解析中…</p>
-          ) : previewError ? (
-            <p className="mt-0.5 text-destructive text-xs" role="alert">
-              {previewError}
-            </p>
-          ) : hostCwd ? (
-            <p className="mt-0.5 break-all font-mono text-xs">{hostCwd}</p>
-          ) : (
-            <p className="mt-0.5 text-muted-foreground text-xs">—</p>
-          )}
-        </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <PathField label="逻辑 cwd" value={cwd || "（未指定）"} mono />
+        <PathField
+          label="解析后的宿主 cwd"
+          loading={loading}
+          error={previewError}
+          value={hostCwd}
+          mono
+        />
       </div>
       {alias || displayRoot ? (
-        <p className="text-muted-foreground text-xs">
+        <div className="flex flex-wrap gap-x-3 gap-y-1 text-[12px] text-muted-foreground">
           {alias ? (
-            <>
-              alias: <span className="font-mono text-foreground">{alias}</span>
-            </>
+            <span>
+              alias{" "}
+              <code className="rounded bg-muted px-1 py-px font-mono text-foreground">
+                {alias}
+              </code>
+            </span>
           ) : null}
-          {alias && displayRoot ? " · " : null}
           {displayRoot ? (
-            <>
-              绑定根展示路径:{" "}
-              <span className="break-all font-mono text-foreground">{displayRoot}</span>
-            </>
+            <span className="min-w-0 break-all">
+              绑定根{" "}
+              <code className="rounded bg-muted px-1 py-px font-mono text-foreground">
+                {displayRoot}
+              </code>
+            </span>
           ) : null}
-        </p>
+        </div>
       ) : null}
-      <p className="rounded-md border border-amber-500/30 bg-amber-500/5 px-2 py-1.5 text-amber-900 text-xs dark:text-amber-100/90">
+      <Callout tone="warning">
         这不是操作系统沙箱，也不是目录挂载。批准后命令以当前 Windows
         用户权限在解析后的宿主目录中运行。
-      </p>
+      </Callout>
       {outsideHint ? (
-        <p
-          className="rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-destructive text-xs"
-          role="status"
-        >
+        <Callout tone="danger">
           命令正文含盘符或 UNC 路径迹象，批准后可能访问绑定目录以外的位置。
-        </p>
+        </Callout>
       ) : null}
-      {/* 保留原始 JSON 便于调试，折叠感用 muted 小字 */}
-      <details className="text-muted-foreground text-xs">
-        <summary className="cursor-pointer select-none">原始工具输入</summary>
-        <div className="mt-1">
+      <details className="group text-[12px] text-muted-foreground">
+        <summary className="cursor-pointer select-none list-none font-medium outline-none focus-visible:underline [&::-webkit-details-marker]:hidden">
+          <span className="underline-offset-2 group-open:underline">
+            原始工具输入
+          </span>
+        </summary>
+        <div className="mt-2">
           <ToolInput input={part.input} />
         </div>
       </details>
@@ -532,12 +551,16 @@ function formatBytes(size: number | undefined): string | undefined {
 function InputRequestActions({
   approvalBlocked,
   canRespond,
-  onInputResponses,
+  isPowerShell,
+  onApprovalSubmit,
   part,
 }: {
   readonly approvalBlocked: boolean;
   readonly canRespond: boolean;
-  readonly onInputResponses: (responses: readonly AgentInputResponse[]) => void | Promise<void>;
+  readonly isPowerShell: boolean;
+  readonly onApprovalSubmit: (
+    payload: import("./approval-decision-card").ApprovalSubmitPayload,
+  ) => void | Promise<void>;
   readonly part: EveDynamicToolPart;
 }) {
   const inputRequest = part.toolMetadata?.eve?.inputRequest;
@@ -549,27 +572,58 @@ function InputRequestActions({
   const selectedOption = inputRequest.options?.find(
     (option) => option.id === inputResponse?.optionId,
   );
+  const alreadyResponded = Boolean(inputResponse);
+  const respondedSummary = alreadyResponded
+    ? `已响应：${selectedOption?.label ?? inputResponse?.text ?? inputResponse?.optionId ?? "已提交"}`
+    : undefined;
+
+  // 敏感工具（approve/deny 确认）走分级审批卡；其它 input 请求保留通用选项按钮
+  const isToolApproval =
+    inputRequest.display === "confirmation" ||
+    (inputRequest.options?.some((o) => o.id === "approve") &&
+      inputRequest.options?.some((o) => o.id === "deny"));
+
+  if (isToolApproval) {
+    return (
+      <ApprovalDecisionCard
+        alreadyResponded={alreadyResponded}
+        approvalBlocked={approvalBlocked}
+        canRespond={canRespond}
+        isPowerShell={isPowerShell}
+        prompt={inputRequest.prompt}
+        requestId={inputRequest.requestId}
+        toolCallId={part.toolCallId}
+        respondedSummary={respondedSummary}
+        onSubmit={onApprovalSubmit}
+      />
+    );
+  }
 
   return (
-    <div className="space-y-3 rounded-md border border-yellow-500/30 bg-yellow-500/5 p-3">
-      <p className="text-muted-foreground text-sm">{inputRequest.prompt}</p>
+    <section
+      aria-label="输入请求"
+      className="space-y-3 rounded-md border border-border bg-card p-4 shadow-[0_2px_2px_rgba(0,0,0,0.04)]"
+    >
+      <p className="text-sm leading-relaxed">{inputRequest.prompt}</p>
       {inputResponse ? (
-        <p className="font-medium text-sm">
-          Responded: {selectedOption?.label ?? inputResponse.text ?? inputResponse.optionId}
+        <p className="font-medium text-sm text-muted-foreground">
+          {respondedSummary}
         </p>
       ) : (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 border-t border-border/70 pt-3">
           {inputRequest.options?.map((option) => (
             <Button
-              disabled={!canRespond || (approvalBlocked && option.id === "approve")}
+              disabled={!canRespond}
               key={option.id}
               onClick={() => {
-                void onInputResponses([
-                  {
-                    optionId: option.id,
-                    requestId: inputRequest.requestId,
-                  },
-                ]);
+                void onApprovalSubmit({
+                  responses: [
+                    {
+                      optionId: option.id,
+                      requestId: inputRequest.requestId,
+                    },
+                  ],
+                });
               }}
               size="sm"
               type="button"
@@ -580,7 +634,7 @@ function InputRequestActions({
           ))}
         </div>
       )}
-    </div>
+    </section>
   );
 }
 
