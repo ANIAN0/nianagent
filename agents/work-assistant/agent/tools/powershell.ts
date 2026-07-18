@@ -1,8 +1,11 @@
 import { defineTool } from "eve/tools";
-import { always } from "eve/tools/approval";
 import { z } from "zod";
 import { executePowerShellTool } from "@nianagent/agent-core/workspace-tools";
 import { POWERSHELL_TOOL_DESCRIPTION } from "@nianagent/agent-core/workspace-protocol";
+import {
+  decideSensitiveToolApproval,
+  runExecuteTrustBarrier,
+} from "@nianagent/agent-core/tool-approval-policy";
 
 export default defineTool({
   description: POWERSHELL_TOOL_DESCRIPTION,
@@ -29,8 +32,16 @@ export default defineTool({
       .optional()
       .describe("超时毫秒，默认 120000，最大 600000"),
   }),
-  approval: always(),
+  approval: (ctx) => decideSensitiveToolApproval(ctx, "work-assistant"),
   async execute(input, ctx) {
+    await runExecuteTrustBarrier({
+      agentId: "work-assistant",
+      sessionId: ctx.session.id,
+      toolName: ctx.toolName,
+      toolInput: input,
+      callId: ctx.callId,
+      auth: ctx.session.auth,
+    });
     return executePowerShellTool({
       agentId: "work-assistant",
       auth: ctx.session.auth,

@@ -1,8 +1,11 @@
 import { defineTool } from "eve/tools";
-import { always } from "eve/tools/approval";
 import { executeEditFileTool } from "@nianagent/agent-core/workspace-tools";
 import { EDIT_FILE_TOOL_DESCRIPTION } from "@nianagent/agent-core/workspace-protocol";
 import { editFileInputSchema } from "@nianagent/agent-core/edit-file-schema";
+import {
+  decideSensitiveToolApproval,
+  runExecuteTrustBarrier,
+} from "@nianagent/agent-core/tool-approval-policy";
 
 /**
  * Claude Code / Keydex 风格局部编辑：精确字符串替换。
@@ -12,8 +15,16 @@ import { editFileInputSchema } from "@nianagent/agent-core/edit-file-schema";
 export default defineTool({
   description: EDIT_FILE_TOOL_DESCRIPTION,
   inputSchema: editFileInputSchema,
-  approval: always(),
+  approval: (ctx) => decideSensitiveToolApproval(ctx, "knowledge-base"),
   async execute(input, ctx) {
+    await runExecuteTrustBarrier({
+      agentId: "knowledge-base",
+      sessionId: ctx.session.id,
+      toolName: ctx.toolName,
+      toolInput: input,
+      callId: ctx.callId,
+      auth: ctx.session.auth,
+    });
     return executeEditFileTool({
       agentId: "knowledge-base",
       auth: ctx.session.auth,
