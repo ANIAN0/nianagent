@@ -7,10 +7,28 @@
     "./agent-definition": "./src/agent-definition.ts",
     "./eve-channel": "./src/eve-channel.ts",
     "./model-catalog": "./src/model-catalog.ts",
-    "./model-selection": "./src/model-selection.ts"
+    "./model-selection": "./src/model-selection.ts",
+    "./workspace-binding": "./src/workspace-binding.ts",
+    "./workspace-schema": "./src/workspace-schema.ts",
+    "./workspace-store": "./src/workspace-store.ts",
+    "./workspace-constants": "./src/workspace-constants.ts",
+    "./workspace-auth": "./src/workspace-auth.ts",
+    "./workspace-paths": "./src/workspace-paths.ts",
+    "./workspace-tools": "./src/workspace-tools.ts",
+    "./workspace-protocol": "./src/workspace-protocol.ts",
+    "./workspace-context": "./src/workspace-context.ts",
+    "./workspace-command-guard": "./src/workspace-command-guard.ts",
+    "./workspace-instructions": "./src/workspace-instructions.ts",
+    "./host-workspace-sandbox": "./src/host-workspace-sandbox.ts",
+    "./host-powershell": "./src/host-powershell.ts",
+    "./host-workspace-search": "./src/host-workspace-search.ts",
+    "./host-workspace-edit": "./src/host-workspace-edit.ts",
+    "./edit-file-schema": "./src/edit-file-schema.ts"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.11",
-    "eve": "^0.24.4"
+    "@tursodatabase/database": "0.4.4",
+    "eve": "^0.24.4",
+    "zod": "^4.4.3"
   }
 }
