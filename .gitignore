@@ -41,3 +41,9 @@ Thumbs.db
 # TypeScript 生成文件
 *.tsbuildinfo
 next-env.d.ts
+
+# 本地临时探测/草稿脚本（禁止入库）
+.tmp*
+**/.tmp*
+*.dig
+undefined.dig
