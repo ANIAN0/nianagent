@@ -167,12 +167,19 @@ function DynamicToolPartView({
   readonly part: EveDynamicToolPart;
 }) {
   const forceOpen = toolShouldForceOpen(part.state);
+  const powerShellTool = isPowerShellTool(part.toolName);
   const [open, setOpen] = useState(forceOpen);
+  const [hostCwdVerified, setHostCwdVerified] = useState(!powerShellTool);
 
   // 状态转入错误/审批时重新展开（defaultOpen 只在首挂生效）
   useEffect(() => {
     if (forceOpen) setOpen(true);
   }, [forceOpen, part.state, part.toolCallId]);
+
+  // 每次新工具调用都要求重新解析宿主 cwd，不能沿用上一条命令的结果。
+  useEffect(() => {
+    setHostCwdVerified(!powerShellTool);
+  }, [part.toolCallId, powerShellTool]);
 
   const errorText = resolveToolErrorText(part);
   const output = part.state === "output-available" ? part.output : undefined;
@@ -186,16 +193,18 @@ function DynamicToolPartView({
         type="dynamic-tool"
       />
       <ToolContent>
-        {isPowerShellTool(part.toolName) ? (
+        {powerShellTool ? (
           <PowerShellToolBody
             agentId={agentId}
             capability={capability}
+            onHostCwdVerifiedChange={setHostCwdVerified}
             part={part}
           />
         ) : (
           <ToolInput input={part.input} />
         )}
         <InputRequestActions
+          approvalBlocked={powerShellTool && !hostCwdVerified}
           canRespond={canRespond}
           part={part}
           onInputResponses={onInputResponses}
@@ -233,10 +242,12 @@ function commandMayAccessOutsideBinding(command: string): boolean {
 function PowerShellToolBody({
   agentId,
   capability,
+  onHostCwdVerifiedChange,
   part,
 }: {
   readonly agentId: string;
   readonly capability: string;
+  readonly onHostCwdVerifiedChange: (verified: boolean) => void;
   readonly part: EveDynamicToolPart;
 }) {
   const { command, cwd, description } = readPowerShellInput(part.input);
@@ -253,6 +264,7 @@ function PowerShellToolBody({
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    onHostCwdVerifiedChange(false);
     if (!needsPreview || !cwd || !capability) {
       return;
     }
@@ -292,6 +304,7 @@ function PowerShellToolBody({
         setAlias(body.preview.alias ?? null);
         setDisplayRoot(body.preview.displayRoot ?? null);
         setPreviewError(null);
+        onHostCwdVerifiedChange(true);
       } catch (err) {
         if (cancelled) return;
         setPreviewError(err instanceof Error ? err.message : String(err));
@@ -302,7 +315,7 @@ function PowerShellToolBody({
     return () => {
       cancelled = true;
     };
-  }, [agentId, capability, cwd, needsPreview, part.toolCallId]);
+  }, [agentId, capability, cwd, needsPreview, onHostCwdVerifiedChange, part.toolCallId]);
 
   const outsideHint = commandMayAccessOutsideBinding(command);
 
@@ -517,10 +530,12 @@ function formatBytes(size: number | undefined): string | undefined {
 }
 
 function InputRequestActions({
+  approvalBlocked,
   canRespond,
   onInputResponses,
   part,
 }: {
+  readonly approvalBlocked: boolean;
   readonly canRespond: boolean;
   readonly onInputResponses: (responses: readonly AgentInputResponse[]) => void | Promise<void>;
   readonly part: EveDynamicToolPart;
@@ -546,7 +561,7 @@ function InputRequestActions({
         <div className="flex flex-wrap gap-2">
           {inputRequest.options?.map((option) => (
             <Button
-              disabled={!canRespond}
+              disabled={!canRespond || (approvalBlocked && option.id === "approve")}
               key={option.id}
               onClick={() => {
                 void onInputResponses([
