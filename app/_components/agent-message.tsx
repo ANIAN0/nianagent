@@ -14,6 +14,7 @@ import {
   KeyRoundIcon,
   XCircleIcon,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
 import {
@@ -26,6 +27,31 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
+/** 失败/拒绝态必须展开卡片，避免用户只看到折叠头而看不到 errorText（DEF-013）。 */
+function toolShouldForceOpen(state: EveDynamicToolPart["state"]): boolean {
+  return (
+    state === "approval-requested" ||
+    state === "approval-responded" ||
+    state === "output-error" ||
+    state === "output-denied"
+  );
+}
+
+/** 从 tool part 提取可见错误文案（含拒绝原因）。 */
+function resolveToolErrorText(part: EveDynamicToolPart): string | undefined {
+  if (part.state === "output-error") {
+    const text = part.errorText?.trim();
+    return text && text.length > 0 ? text : "工具执行失败（无详细错误信息）";
+  }
+  if (part.state === "output-denied") {
+    const reason = part.approval?.reason?.trim();
+    return reason && reason.length > 0
+      ? `已拒绝：${reason}`
+      : "用户已拒绝该工具调用";
+  }
+  return undefined;
+}
+
 export type AgentInputResponse = {
   readonly optionId?: string;
   readonly requestId: string;
@@ -35,12 +61,16 @@ export type AgentInputResponse = {
 type EveFilePart = Extract<EveMessagePart, { type: "file" }>;
 
 export function AgentMessage({
+  agentId,
   canRespond,
+  capability,
   isStreaming,
   message,
   onInputResponses,
 }: {
+  readonly agentId: string;
   readonly canRespond: boolean;
+  readonly capability: string;
   readonly isStreaming: boolean;
   readonly message: EveMessage;
   readonly onInputResponses: (responses: readonly AgentInputResponse[]) => void | Promise<void>;
@@ -58,7 +88,9 @@ export function AgentMessage({
       <MessageContent>
         {message.parts.map((part, index) => (
           <AgentMessagePart
+            agentId={agentId}
             canRespond={canRespond}
+            capability={capability}
             key={partKey(part, index)}
             onInputResponses={onInputResponses}
             part={part}
@@ -71,12 +103,16 @@ export function AgentMessage({
 }
 
 function AgentMessagePart({
+  agentId,
   canRespond,
+  capability,
   onInputResponses,
   part,
   showCaret,
 }: {
+  readonly agentId: string;
   readonly canRespond: boolean;
+  readonly capability: string;
   readonly onInputResponses: (responses: readonly AgentInputResponse[]) => void | Promise<void>;
   readonly part: EveMessagePart;
   readonly showCaret: boolean;
@@ -103,27 +139,244 @@ function AgentMessagePart({
       return <AuthorizationPrompt part={part} />;
     case "dynamic-tool":
       return (
-        <Tool
-          defaultOpen={part.state === "approval-requested" || part.state === "approval-responded"}
-        >
-          <ToolHeader
-            state={part.state}
-            title={part.toolName}
-            toolName={part.toolName}
-            type="dynamic-tool"
-          />
-          <ToolContent>
-            <ToolInput input={part.input} />
-            <InputRequestActions
-              canRespond={canRespond}
-              part={part}
-              onInputResponses={onInputResponses}
-            />
-            <ToolOutput errorText={part.errorText} output={part.output} />
-          </ToolContent>
-        </Tool>
+        <DynamicToolPartView
+          agentId={agentId}
+          canRespond={canRespond}
+          capability={capability}
+          onInputResponses={onInputResponses}
+          part={part}
+        />
       );
   }
+}
+
+/**
+ * 工具卡片：失败/审批时强制展开；错误文案走 ToolOutput role=alert。
+ */
+function DynamicToolPartView({
+  agentId,
+  canRespond,
+  capability,
+  onInputResponses,
+  part,
+}: {
+  readonly agentId: string;
+  readonly canRespond: boolean;
+  readonly capability: string;
+  readonly onInputResponses: (responses: readonly AgentInputResponse[]) => void | Promise<void>;
+  readonly part: EveDynamicToolPart;
+}) {
+  const forceOpen = toolShouldForceOpen(part.state);
+  const [open, setOpen] = useState(forceOpen);
+
+  // 状态转入错误/审批时重新展开（defaultOpen 只在首挂生效）
+  useEffect(() => {
+    if (forceOpen) setOpen(true);
+  }, [forceOpen, part.state, part.toolCallId]);
+
+  const errorText = resolveToolErrorText(part);
+  const output = part.state === "output-available" ? part.output : undefined;
+
+  return (
+    <Tool onOpenChange={setOpen} open={open}>
+      <ToolHeader
+        state={part.state}
+        title={part.toolName}
+        toolName={part.toolName}
+        type="dynamic-tool"
+      />
+      <ToolContent>
+        {isPowerShellTool(part.toolName) ? (
+          <PowerShellToolBody
+            agentId={agentId}
+            capability={capability}
+            part={part}
+          />
+        ) : (
+          <ToolInput input={part.input} />
+        )}
+        <InputRequestActions
+          canRespond={canRespond}
+          part={part}
+          onInputResponses={onInputResponses}
+        />
+        <ToolOutput errorText={errorText} output={output} />
+      </ToolContent>
+    </Tool>
+  );
+}
+
+function isPowerShellTool(toolName: string): boolean {
+  return toolName === "powershell" || toolName.endsWith("__powershell");
+}
+
+function readPowerShellInput(input: unknown): {
+  command: string;
+  cwd: string;
+  description: string;
+} {
+  if (!input || typeof input !== "object") {
+    return { command: "", cwd: "", description: "" };
+  }
+  const o = input as Record<string, unknown>;
+  return {
+    command: typeof o.command === "string" ? o.command : "",
+    cwd: typeof o.cwd === "string" ? o.cwd : "",
+    description: typeof o.description === "string" ? o.description : "",
+  };
+}
+
+function commandMayAccessOutsideBinding(command: string): boolean {
+  return /(?:^|[\s"'`(=,[\]{])(?:[A-Za-z]:[\\/]|\\\\|\/\/)/.test(command);
+}
+
+function PowerShellToolBody({
+  agentId,
+  capability,
+  part,
+}: {
+  readonly agentId: string;
+  readonly capability: string;
+  readonly part: EveDynamicToolPart;
+}) {
+  const { command, cwd, description } = readPowerShellInput(part.input);
+  const needsPreview =
+    part.state === "approval-requested" ||
+    part.state === "approval-responded" ||
+    part.state === "input-available" ||
+    part.state === "output-available" ||
+    part.state === "output-error";
+  const [hostCwd, setHostCwd] = useState<string | null>(null);
+  const [alias, setAlias] = useState<string | null>(null);
+  const [displayRoot, setDisplayRoot] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!needsPreview || !cwd || !capability) {
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setPreviewError(null);
+    void (async () => {
+      try {
+        const res = await fetch("/api/workspace-path-preview", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            agentId,
+            capability,
+            logicalPath: cwd,
+          }),
+        });
+        const body = (await res.json()) as {
+          ok?: boolean;
+          preview?: {
+            hostPath?: string;
+            alias?: string;
+            displayRoot?: string;
+            logicalPath?: string;
+          };
+          error?: { message?: string };
+        };
+        if (cancelled) return;
+        if (!res.ok || !body.ok || !body.preview?.hostPath) {
+          setHostCwd(null);
+          setAlias(null);
+          setDisplayRoot(null);
+          setPreviewError(body.error?.message ?? "无法解析宿主 cwd");
+          return;
+        }
+        setHostCwd(body.preview.hostPath);
+        setAlias(body.preview.alias ?? null);
+        setDisplayRoot(body.preview.displayRoot ?? null);
+        setPreviewError(null);
+      } catch (err) {
+        if (cancelled) return;
+        setPreviewError(err instanceof Error ? err.message : String(err));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [agentId, capability, cwd, needsPreview, part.toolCallId]);
+
+  const outsideHint = commandMayAccessOutsideBinding(command);
+
+  return (
+    <div className="space-y-3 text-sm">
+      {description ? (
+        <div>
+          <p className="text-muted-foreground text-xs">目的</p>
+          <p className="mt-0.5">{description}</p>
+        </div>
+      ) : null}
+      <div>
+        <p className="text-muted-foreground text-xs">命令</p>
+        <pre className="mt-0.5 overflow-x-auto rounded-md border bg-muted/40 p-2 font-mono text-xs whitespace-pre-wrap">
+          {command || "（空）"}
+        </pre>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div>
+          <p className="text-muted-foreground text-xs">逻辑 cwd</p>
+          <p className="mt-0.5 break-all font-mono text-xs">{cwd || "（未指定）"}</p>
+        </div>
+        <div>
+          <p className="text-muted-foreground text-xs">解析后的宿主 cwd</p>
+          {loading ? (
+            <p className="mt-0.5 text-muted-foreground text-xs">解析中…</p>
+          ) : previewError ? (
+            <p className="mt-0.5 text-destructive text-xs" role="alert">
+              {previewError}
+            </p>
+          ) : hostCwd ? (
+            <p className="mt-0.5 break-all font-mono text-xs">{hostCwd}</p>
+          ) : (
+            <p className="mt-0.5 text-muted-foreground text-xs">—</p>
+          )}
+        </div>
+      </div>
+      {alias || displayRoot ? (
+        <p className="text-muted-foreground text-xs">
+          {alias ? (
+            <>
+              alias: <span className="font-mono text-foreground">{alias}</span>
+            </>
+          ) : null}
+          {alias && displayRoot ? " · " : null}
+          {displayRoot ? (
+            <>
+              绑定根展示路径:{" "}
+              <span className="break-all font-mono text-foreground">{displayRoot}</span>
+            </>
+          ) : null}
+        </p>
+      ) : null}
+      <p className="rounded-md border border-amber-500/30 bg-amber-500/5 px-2 py-1.5 text-amber-900 text-xs dark:text-amber-100/90">
+        这不是操作系统沙箱，也不是目录挂载。批准后命令以当前 Windows
+        用户权限在解析后的宿主目录中运行。
+      </p>
+      {outsideHint ? (
+        <p
+          className="rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-destructive text-xs"
+          role="status"
+        >
+          命令正文含盘符或 UNC 路径迹象，批准后可能访问绑定目录以外的位置。
+        </p>
+      ) : null}
+      {/* 保留原始 JSON 便于调试，折叠感用 muted 小字 */}
+      <details className="text-muted-foreground text-xs">
+        <summary className="cursor-pointer select-none">原始工具输入</summary>
+        <div className="mt-1">
+          <ToolInput input={part.input} />
+        </div>
+      </details>
+    </div>
+  );
 }
 
 function AttachmentPart({ part }: { readonly part: EveFilePart }) {

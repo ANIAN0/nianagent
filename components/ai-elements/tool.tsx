@@ -41,13 +41,13 @@ export type ToolHeaderProps = {
 );
 
 const statusLabels: Record<ToolPart["state"], string> = {
-  "approval-requested": "Awaiting Approval",
-  "approval-responded": "Responded",
-  "input-available": "Running",
-  "input-streaming": "Pending",
-  "output-available": "Completed",
-  "output-denied": "Denied",
-  "output-error": "Error",
+  "approval-requested": "待审批",
+  "approval-responded": "已响应",
+  "input-available": "执行中",
+  "input-streaming": "准备中",
+  "output-available": "已完成",
+  "output-denied": "已拒绝",
+  "output-error": "错误",
 };
 
 const statusIcons: Record<ToolPart["state"], ReactNode> = {
@@ -111,7 +111,7 @@ export type ToolInputProps = ComponentProps<"div"> & {
 export const ToolInput = ({ className, input, ...props }: ToolInputProps) => (
   <div className={cn("space-y-2 overflow-hidden", className)} {...props}>
     <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
-      Parameters
+      参数
     </h4>
     <div className="rounded-md bg-muted/50">
       <CodeBlock code={JSON.stringify(input, null, 2)} language="json" />
@@ -129,6 +129,25 @@ export const ToolOutput = ({ className, output, errorText, ...props }: ToolOutpu
     return null;
   }
 
+  // 错误优先：失败态必须醒目展示文案，不与成功 Result 混排
+  if (errorText) {
+    return (
+      <div className={cn("space-y-2", className)} {...props}>
+        <h4 className="font-medium text-destructive text-xs uppercase tracking-wide">
+          错误
+        </h4>
+        <div
+          className="overflow-x-auto rounded-md border border-destructive/30 bg-destructive/10 p-3 text-destructive text-xs"
+          role="alert"
+        >
+          <pre className="whitespace-pre-wrap break-words font-mono leading-relaxed">
+            {errorText}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
   let Output = <div>{output as ReactNode}</div>;
 
   if (typeof output === "object" && !isValidElement(output)) {
@@ -140,15 +159,9 @@ export const ToolOutput = ({ className, output, errorText, ...props }: ToolOutpu
   return (
     <div className={cn("space-y-2", className)} {...props}>
       <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
-        {errorText ? "Error" : "Result"}
+        结果
       </h4>
-      <div
-        className={cn(
-          "overflow-x-auto rounded-md text-xs [&_table]:w-full",
-          errorText ? "bg-destructive/10 text-destructive" : "bg-muted/50 text-foreground",
-        )}
-      >
-        {errorText && <div>{errorText}</div>}
+      <div className="overflow-x-auto rounded-md bg-muted/50 text-foreground text-xs [&_table]:w-full">
         {Output}
       </div>
     </div>
