@@ -23,11 +23,14 @@
     "./host-powershell": "./src/host-powershell.ts",
     "./host-workspace-search": "./src/host-workspace-search.ts",
     "./host-workspace-edit": "./src/host-workspace-edit.ts",
-    "./edit-file-schema": "./src/edit-file-schema.ts"
+    "./edit-file-schema": "./src/edit-file-schema.ts",
+    "./workflow-debug-world": "./src/workflow-debug-world.ts",
+    "./workflow-debug-bridge": "./src/workflow-debug-bridge.ts"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.11",
     "@tursodatabase/database": "0.4.4",
+    "cbor-x": "^1.6.4",
     "eve": "^0.24.4",
     "zod": "^4.4.3"
   }
