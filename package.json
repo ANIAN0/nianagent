@@ -35,7 +35,7 @@
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "cmdk": "1.1.1",
-    "eve": "^0.24.4",
+    "eve": "^0.25.1",
     "lucide-react": "1.16.0",
     "motion": "12.40.0",
     "nanoid": "5.1.11",
@@ -47,7 +47,6 @@
     "streamdown": "2.5.0",
     "tailwind-merge": "3.6.0",
     "tailwindcss": "4.3.0",
-    "use-stick-to-bottom": "1.1.4",
     "zod": "4.4.3"
   },
   "devDependencies": {

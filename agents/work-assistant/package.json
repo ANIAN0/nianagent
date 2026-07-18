@@ -11,6 +11,6 @@
   "dependencies": {
     "@nianagent/agent-core": "workspace:*",
     "cbor-x": "^1.6.4",
-    "eve": "^0.24.4"
+    "eve": "^0.25.1"
   }
 }

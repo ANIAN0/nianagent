@@ -75,7 +75,7 @@ Windows 本地服务
 
 ### Eve 升级与同 World 重验
 
-1. 保持 manifest 中 `eve` 的 **semver 范围**（如 `^0.24.4`），不要精确 pin。
+1. 保持 manifest 中 `eve` 的 **semver 范围**（如 `^0.25.1`），不要精确 pin。
 2. 升级后启动 Agent，确认 bridge 预检通过：可解析 eve 安装、runtime 可导入、`getWorld` 可用且 World 已就绪。
 3. 若 Eve 迁移了 vendored 路径，先更新 `workflow-debug-world.ts` 解析逻辑再预检。
 4. 对真实 run 做只读 `fetchRun` + 至少一次受控写（如 cancel/health），确认状态落在该 Agent 的 `.eve/.workflow-data`。

@@ -1,3 +1,5 @@
+import evePackage from "eve/package.json";
+
 export type ChatAgentId = "knowledge-base" | "work-assistant";
 
 export type StoredBindingRoot = {
@@ -11,16 +13,34 @@ export type StoredBinding = {
   readonly roots: readonly StoredBindingRoot[];
 };
 
+/**
+ * 当前前端/依赖树解析到的 eve 版本。
+ * Workflow step 名含 `step//eve@<version>//...`；主版本线变化后旧 cursor 无法 replay。
+ */
+export const INSTALLED_EVE_VERSION: string = evePackage.version;
+
 /** sessionStorage 中的完整恢复载荷（含 Eve cursor + events + capability）。 */
 export type ChatSessionSnapshot = {
   readonly binding: StoredBinding;
   readonly capability: string;
   readonly session: unknown;
   readonly events: readonly unknown[];
+  /**
+   * 写入时的 eve 包版本。缺失或与 {@link INSTALLED_EVE_VERSION} 不一致时，
+   * 丢弃 session/events，保留 binding（升级/重装后旧 durable run 不可恢复）。
+   */
+  readonly eveVersion?: string;
 };
 
 function storageKey(agentId: ChatAgentId): string {
   return `nianagent:chat:${agentId}`;
+}
+
+/** 旧 cursor 是否仍可尝试恢复（仅版本字符串一致时）。 */
+export function isChatCursorCompatible(
+  snapshot: Pick<ChatSessionSnapshot, "eveVersion">,
+): boolean {
+  return snapshot.eveVersion === INSTALLED_EVE_VERSION;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -66,6 +86,10 @@ export function parseChatSessionSnapshot(
   if (events !== undefined && events !== null && !Array.isArray(events)) {
     return null;
   }
+  const eveVersion =
+    typeof raw.eveVersion === "string" && raw.eveVersion.length > 0
+      ? raw.eveVersion
+      : undefined;
   return {
     binding: {
       workspaceId: raw.binding.workspaceId,
@@ -75,9 +99,14 @@ export function parseChatSessionSnapshot(
     capability: raw.capability,
     session: session ?? null,
     events: Array.isArray(events) ? events : [],
+    eveVersion,
   };
 }
 
+/**
+ * 读出快照；若 eve 版本与当前安装不一致，剥离失效 cursor/事件并写回
+ *（保留 workspace binding + capability）。
+ */
 export function loadChatSession(
   agentId: ChatAgentId,
 ): ChatSessionSnapshot | null {
@@ -91,7 +120,19 @@ export function loadChatSession(
       sessionStorage.removeItem(storageKey(agentId));
       return null;
     }
-    return snap;
+    if (isChatCursorCompatible(snap)) {
+      return snap;
+    }
+    // 升级前后 step//eve@x.y.z 不一致 → ReplayDivergenceError；勿恢复旧 cursor
+    const migrated: ChatSessionSnapshot = {
+      binding: snap.binding,
+      capability: snap.capability,
+      session: null,
+      events: [],
+      eveVersion: INSTALLED_EVE_VERSION,
+    };
+    sessionStorage.setItem(storageKey(agentId), JSON.stringify(migrated));
+    return migrated;
   } catch {
     try {
       sessionStorage.removeItem(storageKey(agentId));
@@ -109,7 +150,11 @@ export function saveChatSession(
   if (typeof window === "undefined") return;
   try {
     if (snapshot.binding.agentId !== agentId) return;
-    sessionStorage.setItem(storageKey(agentId), JSON.stringify(snapshot));
+    const withVersion: ChatSessionSnapshot = {
+      ...snapshot,
+      eveVersion: snapshot.eveVersion ?? INSTALLED_EVE_VERSION,
+    };
+    sessionStorage.setItem(storageKey(agentId), JSON.stringify(withVersion));
   } catch {
     // quota / private mode：忽略，不影响当前会话
   }
