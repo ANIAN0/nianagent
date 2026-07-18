@@ -17,6 +17,8 @@ import {
 export { WorkspaceStoreError } from "./workspace-binding";
 import {
   WORKSPACE_SCHEMA_V1_SQL,
+  WORKSPACE_SCHEMA_V2_SQL,
+  WORKSPACE_SCHEMA_V3_SQL,
   WORKSPACE_SCHEMA_VERSION,
 } from "./workspace-schema";
 
@@ -327,8 +329,9 @@ async function closeDatabaseQuietly(db: Database): Promise<void> {
  * Next 写路径：每次操作短连接。
  * 禁止进程内长连接：Turso 0.4.4 多进程下长连接会导致写入对其它进程（Agent）不可见，
  * 甚至在外部 checkpoint 后出现“写成功但库内查无”的分叉视图。
+ * 供 tool-trust-store 等 Next 独占写模块复用。
  */
-async function withWritableDb<T>(
+export async function withWritableDb<T>(
   dbPath: string,
   fn: (db: Database) => Promise<T>,
 ): Promise<T> {
@@ -351,8 +354,9 @@ async function withWritableDb<T>(
 /**
  * Agent / 查询路径：每次 SELECT 短连接并关闭。
  * 避免缓存连接停留在过期快照上。
+ * 供 tool-trust-store 等只读查询复用；不执行 migration。
  */
-async function withReadableDb<T>(
+export async function withReadableDb<T>(
   dbPath: string,
   fn: (db: Database) => Promise<T>,
 ): Promise<T> {
@@ -372,18 +376,89 @@ async function withReadableDb<T>(
   }
 }
 
+/**
+ * v3 内容唯一索引前：去掉同内容重复行（保留 created_at 最早的一条）。
+ * 避免历史随机 id 直插产生的重复块死 UNIQUE INDEX。
+ */
+async function dedupeToolTrustRulesBeforeV3(db: Database): Promise<void> {
+  const rows = (await db
+    .prepare(
+      `SELECT id, workspace_id, agent_id, tool_name, match_type, pattern,
+              ifnull(logical_cwd, '') AS cwd_key, created_at
+       FROM tool_trust_rules
+       ORDER BY created_at ASC, id ASC`,
+    )
+    .all()) as Array<{
+    id: string;
+    workspace_id: string;
+    agent_id: string;
+    tool_name: string;
+    match_type: string;
+    pattern: string;
+    cwd_key: string;
+    created_at: string;
+  }>;
+
+  const seen = new Set<string>();
+  const dropIds: string[] = [];
+  for (const row of rows) {
+    const key = [
+      row.workspace_id,
+      row.agent_id,
+      row.tool_name,
+      row.match_type,
+      row.pattern,
+      row.cwd_key,
+    ].join("\0");
+    if (seen.has(key)) {
+      dropIds.push(row.id);
+    } else {
+      seen.add(key);
+    }
+  }
+  if (dropIds.length === 0) return;
+  const del = db.prepare(`DELETE FROM tool_trust_rules WHERE id = ?`);
+  for (const id of dropIds) {
+    await del.run(id);
+  }
+}
+
 export async function migrateWorkspaceSchema(db: Database): Promise<void> {
   const migrate = db.transaction(async () => {
     await db.exec(WORKSPACE_SCHEMA_V1_SQL);
-    const row = (await db
+    await db.exec(WORKSPACE_SCHEMA_V2_SQL);
+
+    // v3：先去重再建内容唯一索引与 epoch 表
+    const v3Applied = (await db
       .prepare("SELECT version FROM schema_migrations WHERE version = ?")
-      .get(WORKSPACE_SCHEMA_VERSION)) as { version: number } | undefined;
-    if (!row) {
-      await db
-        .prepare(
-          "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
-        )
-        .run(WORKSPACE_SCHEMA_VERSION, new Date().toISOString());
+      .get(3)) as { version: number } | undefined;
+    if (!v3Applied) {
+      try {
+        await dedupeToolTrustRulesBeforeV3(db);
+      } catch (err) {
+        // 表尚不存在时跳过（纯新库随后 CREATE IF NOT EXISTS）
+        const message = err instanceof Error ? err.message : String(err);
+        if (!/no such table/i.test(message)) throw err;
+      }
+      await db.exec(WORKSPACE_SCHEMA_V3_SQL);
+    } else {
+      // 已登记 v3 时仍保证对象存在（幂等 exec）
+      await db.exec(WORKSPACE_SCHEMA_V3_SQL);
+    }
+
+    // 逐版本登记，便于从 v1 库升级到当前版本
+    const appliedAt = new Date().toISOString();
+    for (let version = 1; version <= WORKSPACE_SCHEMA_VERSION; version++) {
+      const row = (await db
+        .prepare("SELECT version FROM schema_migrations WHERE version = ?")
+        .get(version)) as { version: number } | undefined;
+      if (!row) {
+        await db
+          .prepare(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+          )
+          .run(version, appliedAt);
+      }
     }
   });
   try {
