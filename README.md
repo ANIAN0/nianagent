@@ -16,16 +16,17 @@ Next.js 将它们分别挂载到 `/eve/agents/knowledge-base/eve/v1/*` 和
 `/eve/agents/work-assistant/eve/v1/*`。两者有各自的 Agent 配置、指令、频道和会话，互不
 作为子 Agent 调用。
 
-本地工作区选择、多会话目录绑定和本地 sandbox backend 尚未实现。
+本地多目录会话 binding（Turso）、host-workspace 工具边界、聊天刷新恢复与 Workflow 调试页已接入（见下文）。
 
 ## 核心定位
 
 - 同一个本地服务可以同时承载多个 Eve session。
-- 每个 session 在创建时选择并绑定一个本地项目目录。
-- 不同 session 可以绑定不同项目目录，并保持各自独立的工作区状态。
-- 项目目录一旦绑定，在该 session 生命周期内保持不变；切换目录应创建新 session。
-- Eve 逻辑工作区 `/workspace` 映射到该 session 绑定的 Windows 项目目录。
-- 浏览器只连接本机 Next.js 服务，不直接访问文件系统。
+- 每个 session 在创建前选择并绑定一个或多个本地项目目录（不可重叠/父子）。
+- 不同 session 可以绑定不同目录集合，并保持各自独立的工作区状态。
+- 目录一旦绑定，在该 session 生命周期内不可变；切换目录须「新会话」。
+- 工具使用逻辑路径 `/workspace/<alias>/...`，由 host-workspace backend 映射到绑定根。
+- 浏览器只连接本机 Next.js；capability 仅存于当前标签 `sessionStorage`；库中仅存 digest。
+- Workflow 调试经 Agent-owned bridge（`getWorld()` 同一 World），Next 仅同源代理。
 
 ```text
 Windows 本地服务
@@ -44,27 +45,41 @@ Windows 本地服务
 具体的目录选择协议和 sandbox backend 仍需单独设计；不得把浏览器提交的任意路径未经
 校验地交给文件或命令执行工具。
 
-### Sandbox
+### Sandbox 与工具边界
 
-`nianagent` 使用本地专用 sandbox backend，使同一服务中的不同 session 可以映射到不同
-的 Windows 项目目录。它不复用 Vercel Sandbox，也不把 Hugging Face 的 AgentFS 适配层
-作为本地运行前提。
+`nianagent` 使用 **host-workspace** 自定义 `SandboxBackend`：
 
-本地 backend 需要在两种执行模型中正式选定一种：
+- **双轨路径**：工具 path / powershell cwd 用逻辑路径 `/workspace/<alias>/...`（realpath/reparse containment）；会话 system 注入 **A1**（alias + displayPath，不含 canonical）；审批卡展示与执行同源的 **宿主 cwd**。
+- 逻辑路径 **不是** 磁盘挂载；powershell 的 `command` 为 Windows 语义，禁止在 command 内写 `/workspace/...`。
+- 默认 `bash` 禁用；`write_file`、`edit_file`（Claude Code 风格精确替换）与 `powershell` 需 durable approval；审批须可见宿主 cwd。
+- PowerShell 固定为 `pwsh`（PowerShell 7），无 PS 5.1 / Git Bash 回退；
+- **不是** OS 级沙箱：经批准的命令仍以当前 Windows 用户权限运行。
 
-1. 直接在 Windows 宿主机的绑定目录中执行，兼容本机工具链，但隔离能力较弱。
-2. 通过 Docker bind mount 将绑定目录映射到容器 `/workspace`，隔离更强，但依赖
-   Docker Desktop，并需要处理 Windows 文件系统性能、权限和路径兼容。
+进程重启后 sandbox 重连仅依赖 `captureState.metadata.workspaceId` 从 Turso 重载 roots。
 
-选型确认前，不实现两套并存的降级路径。
+### 鉴权与 binding
 
-### 鉴权
+- 本地回环访问使用 Eve 的 `localDev()` + 工作区 capability 请求头
+  `x-nianagent-workspace-capability`。
+- Turso 库：`nianagent/.workflow-data/nianagent.db`（Next 唯一 writer；Agent 只读）。
+- 默认脚本显式绑定 **127.0.0.1**（`eve --host 127.0.0.1`、`next -H 127.0.0.1`）。
+- 如果未来允许局域网访问，必须增加独立鉴权，不能只依赖 `localDev()`。
 
-- 本地回环访问使用 Eve 的 `localDev()`。
-- 本地请求不依赖 Supabase，不进行每请求 Supabase 用户校验。
-- 默认只监听或只信任回环地址。
-- 如果未来允许局域网或其他设备访问，必须增加独立的本地鉴权机制，不能继续只依赖
-  `localDev()`。
+### Workflow 调试
+
+- 页面：`/workflow-debug`（完整 Runs / Hooks / 工作流图 / run detail / trace / stream / 控制，zh-CN）。
+- Next 代理：`/api/workflow-debug/<agent>/rpc|stream/*` → `127.0.0.1:4274|4275`。
+- Agent bridge 仅通过 **当前已安装 Eve** 的 vendored runtime `getWorld()` 取同一 World。
+- **禁止** `createWorld` / `createLocalWorld` / `getWorldFromEnv` / 第二 `@workflow/core` world。
+- **禁止** 把 Eve 精确版本写死为 pin；升级 Eve 后须做能力/路径预检与同 World 重验（见下）。
+
+### Eve 升级与同 World 重验
+
+1. 保持 manifest 中 `eve` 的 **semver 范围**（如 `^0.24.4`），不要精确 pin。
+2. 升级后启动 Agent，确认 bridge 预检通过：可解析 eve 安装、runtime 可导入、`getWorld` 可用且 World 已就绪。
+3. 若 Eve 迁移了 vendored 路径，先更新 `workflow-debug-world.ts` 解析逻辑再预检。
+4. 对真实 run 做只读 `fetchRun` + 至少一次受控写（如 cancel/health），确认状态落在该 Agent 的 `.eve/.workflow-data`。
+5. 预检失败时 fail-closed，**绝不**降级创建 World。
 
 ## 与其他 Eve 应用的关系
 
@@ -114,11 +129,16 @@ pnpm start
 ```
 
 `pnpm build` 会先构建两个 Eve Agent，再构建 Next.js。`pnpm start` 会同时启动 Next.js
-和两个 Eve 服务（分别监听 `4274`、`4275`）。不要单独执行 `next start`，否则只有页面服务，
-发送消息时代理目标不会监听。
+和两个 Eve 服务（均绑定 `127.0.0.1`，端口 `4274` / `4275` / Next 默认端口）。不要单独执行
+`next start`，否则只有页面服务，发送消息时代理目标不会监听。
 
-根目录 `.env` 是模型 Provider 的唯一配置来源；`pnpm start` 会将其传给两个 Eve 进程。不要在
-各 Agent 目录复制 `.env`，以免 Provider 地址和密钥出现不一致。
+根目录 `.env` 是 Provider 与 `NIANAGENT_WORKFLOW_DEBUG_SECRET` 等配置的唯一来源；
+`pnpm start` 会将其传给两个 Eve 进程。参见 `.env.example`。不要在各 Agent 目录复制 `.env`。
+
+**运行前提：**
+
+- 本机安装 **PowerShell 7**（`pwsh` 在 PATH 中）；缺失时 powershell 工具会给出可行动错误，不会回退。
+- Windows 上需有 Turso native binding `@tursodatabase/database-win32-x64-msvc@0.4.4`（已作 optionalDependency）。
 
 修改 Eve Agent 代码前，先阅读当前安装版本的 `node_modules/eve/docs/README.md`，再阅读
 与本次修改相关的专题文档。
