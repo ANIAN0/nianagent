@@ -128,12 +128,14 @@ pnpm build
 pnpm start
 ```
 
-`pnpm build` 会先构建两个 Eve Agent，再构建 Next.js。`pnpm start` 会同时启动 Next.js
-和两个 Eve 服务（均绑定 `127.0.0.1`，端口 `4274` / `4275` / Next 默认端口）。不要单独执行
-`next start`，否则只有页面服务，发送消息时代理目标不会监听。
+`pnpm build` 会先构建两个 Eve Agent，再构建 Next.js。`pnpm start` 由 `withEve` 在
+Next.js 进程内启动并代理两个 Eve production sidecar（均绑定 `127.0.0.1`，端口 `4274` /
+`4275`；页面使用 Next 默认端口）。不要另行执行 `eve start`，否则会与 `withEve` 为同一
+Agent 启动的 sidecar 争用端口。
 
 根目录 `.env` 是 Provider 与 `NIANAGENT_WORKFLOW_DEBUG_SECRET` 等配置的唯一来源；
-`pnpm start` 会将其传给两个 Eve 进程。参见 `.env.example`。不要在各 Agent 目录复制 `.env`。
+`pnpm start` 的 Next.js 进程及其启动的 Eve sidecar 共用该环境。参见 `.env.example`。不要在
+各 Agent 目录复制 `.env`。
 
 **运行前提：**
 
