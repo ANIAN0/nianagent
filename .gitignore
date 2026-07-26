@@ -1,49 +1,41 @@
-# 依赖
-**/node_modules/
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-# Eve 运行时与构建产物
-**/.eve/
-**/.workflow-data/
-**/.nitro/
-**/.output/
-/dist/
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
 
-# Next.js 构建产物
+# testing
+/coverage
+
+# next.js
 /.next/
 /out/
 
-# 测试与验收产物
-/coverage/
-workplace/**/.venv/
-workplace/**/.pytest_cache/
-workplace/**/__pycache__/
-workplace/**/.coverage
-workplace/**/htmlcov/
-workplace/**/artifacts/
+# production
+/build
 
-# 本地环境变量；示例文件允许提交
-.env*
-!.env.example
+# misc
+.DS_Store
+*.pem
 
-# 调试日志
-*.log
+# debug
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-pnpm-debug.log*
+.pnpm-debug.log*
 
-# 平台与本机工具状态
-/.vercel/
-.DS_Store
-Thumbs.db
-*.pem
+# env files (can opt-in for committing if needed)
+.env*
 
-# TypeScript 生成文件
+# vercel
+.vercel
+
+# typescript
 *.tsbuildinfo
 next-env.d.ts
-
-# 本地临时探测/草稿脚本（禁止入库）
-.tmp*
-**/.tmp*
-*.dig
-undefined.dig
