@@ -27,3 +27,6 @@ dist-ssr
 /.agents/
 /AGENTS.md
 /.dev/
+
+# Packaged Node backend
+/src-tauri/runtime/

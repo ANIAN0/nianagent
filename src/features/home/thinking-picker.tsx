@@ -1,32 +1,31 @@
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import { navigatePicker, PickerOption } from "./picker-option"
 export const thinkingOptions = ["低", "中等", "高", "极高"] as const
 export type ThinkingPickerProps = {
   value: string
+  options?: readonly string[]
   onChange: (value: string) => void
 }
-export function ThinkingPicker({ value, onChange }: ThinkingPickerProps) {
+export function ThinkingPicker({
+  value,
+  onChange,
+  options = thinkingOptions,
+}: ThinkingPickerProps) {
   return (
-    <RadioGroup
+    <div
+      role="menu"
       aria-label="思考强度"
-      value={value}
-      onValueChange={onChange}
-      className="gap-0"
+      onKeyDown={navigatePicker}
+      className="flex min-w-0 flex-col"
     >
-      {thinkingOptions.map((option) => (
-        <label
+      {options.map((option) => (
+        <PickerOption
           key={option}
-          className="flex h-[38px] cursor-pointer items-center gap-3 rounded-lg px-3 text-sm hover:bg-accent has-[:focus-visible]:bg-accent"
+          selected={option === value}
+          onSelect={() => onChange(option)}
         >
-          <span className="flex-1">{option}</span>
-          <RadioGroupItem
-            variant="check"
-            value={option}
-            onClick={() => {
-              if (option === value) onChange(option)
-            }}
-          />
-        </label>
+          {option}
+        </PickerOption>
       ))}
-    </RadioGroup>
+    </div>
   )
 }

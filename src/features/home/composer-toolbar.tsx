@@ -7,7 +7,15 @@ import { SendControl } from "./send-control"
 import type { HomeData, HomeDraft, Material } from "./home-types"
 
 export type ComposerToolbarProps = {
-  data: Pick<HomeData, "materials" | "models" | "modelLabels" | "tools">
+  data: Pick<
+    HomeData,
+    | "materials"
+    | "models"
+    | "modelLabels"
+    | "modelThinking"
+    | "modelCatalog"
+    | "tools"
+  >
   anchorRef?: RefObject<HTMLDivElement | null>
   workspacePath?: string
   draft: HomeDraft
@@ -42,6 +50,8 @@ export function ComposerToolbar({
       <ModelPicker
         models={data.models}
         labels={data.modelLabels}
+        thinkingByModel={data.modelThinking}
+        catalog={data.modelCatalog}
         value={draft.model}
         thinking={draft.thinking}
         onChange={(model) => onChange({ model })}

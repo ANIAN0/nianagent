@@ -5,13 +5,19 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "node scripts/generate-model-contract.mjs --check && tsc -b && vite build",
     "lint": "eslint .",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "backend:package": "node scripts/package-backend.mjs",
+    "test:backend": "node --test backend/tests/*.test.mjs",
+    "desktop:build": "pnpm tauri build --config src-tauri/tauri.production.conf.json",
+    "contract:generate": "node scripts/generate-model-contract.mjs",
+    "contract:check": "node scripts/generate-model-contract.mjs --check"
   },
   "dependencies": {
+    "@earendil-works/pi-coding-agent": "1.0.0",
     "@shadcn/react": "^0.3.1",
     "@tailwindcss/vite": "^4",
     "@tauri-apps/api": "^2.12.0",

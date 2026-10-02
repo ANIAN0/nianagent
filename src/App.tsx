@@ -1,4 +1,17 @@
-import { useState } from "react"
+import { thinkingLabels } from "@/features/home/model-thinking"
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
+import { createModelService } from "@/features/models/model-service"
+import type { ModelConnection } from "@/features/models/model-types"
+import {
+  connectionIssue,
+  modelSelectionId,
+} from "@/features/models/model-types"
+import type { LeaveGuard } from "@/features/models/connection-editor"
+const ModelSettingsPage = lazy(() =>
+  import("@/features/models/model-settings-page").then((module) => ({
+    default: module.ModelSettingsPage,
+  }))
+)
 import { homeData } from "@/features/home/mock-data"
 import { AppShell } from "@/features/home/app-shell"
 import { HomeComposer } from "@/features/home/home-composer"
@@ -15,6 +28,70 @@ import {
 } from "@/features/conversation/conversation-status"
 export default function App() {
   const { sessions, dispatch } = useConversations()
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [modelService] = useState(() => createModelService())
+  const [connections, setConnections] = useState<ModelConnection[]>([])
+  const [modelLabels, setModelLabels] = useState<Record<string, string>>({})
+  const [modelLoading, setModelLoading] = useState(true)
+  const [modelRefresh, setModelRefresh] = useState(0)
+  const [modelLoadError, setModelLoadError] = useState("")
+  useEffect(() => {
+    const controller = new AbortController()
+    modelService
+      .list(controller.signal)
+      .then((items) => {
+        if (controller.signal.aborted) return
+        if (
+          items.some((connection) =>
+            connection.models.some(
+              (model) => !Array.isArray(model.supportedThinkingLevels)
+            )
+          )
+        ) {
+          throw new Error("模型后端未返回思考等级，请重启模型后端后重新读取。")
+        }
+        setModelLoading(false)
+        setConnections(items)
+        setModelLabels(
+          Object.fromEntries(
+            items.flatMap((connection) =>
+              connection.models.map((model) => [
+                modelSelectionId(connection, model),
+                `${model.name} · ${connection.name}`,
+              ])
+            )
+          )
+        )
+        setModelLoadError("")
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) setModelLoading(false)
+        if (!controller.signal.aborted)
+          setModelLoadError(
+            error instanceof Error ? error.message : "模型配置读取失败。"
+          )
+      })
+    return () => controller.abort()
+  }, [modelService, modelRefresh])
+
+  useEffect(() => {
+    const refresh = () => setModelRefresh((value) => value + 1)
+    window.addEventListener("focus", refresh)
+    return () => window.removeEventListener("focus", refresh)
+  }, [])
+
+  const settingsGuard = useRef<LeaveGuard | null>(null)
+  const registerSettingsLeave = useCallback((guard: LeaveGuard | null) => {
+    settingsGuard.current = guard
+  }, [])
+  function leaveSettings(action: () => void) {
+    const leave = () => {
+      setSettingsOpen(false)
+      action()
+    }
+    if (settingsOpen && settingsGuard.current) settingsGuard.current(leave)
+    else leave()
+  }
   const [selected, setSelected] = useState<string>()
   const [readVersions, setReadVersions] = useState<Record<string, string>>({})
   function selectConversation(id?: string) {
@@ -40,6 +117,44 @@ export default function App() {
   const data = {
     ...homeData,
     workspaces,
+    models: connections
+      .filter((connection) => !connectionIssue(connection))
+      .flatMap((connection) =>
+        connection.models.map((model) => modelSelectionId(connection, model))
+      ),
+    modelLabels,
+    modelCatalog: {
+      items: connections.flatMap((connection) =>
+        connection.models.map((model) => ({
+          value: modelSelectionId(connection, model),
+          name: model.name,
+          connection: connection.name,
+          modelId: model.id,
+        }))
+      ),
+      status: modelLoading
+        ? ("loading" as const)
+        : modelLoadError
+          ? ("error" as const)
+          : ("ready" as const),
+      error: modelLoadError,
+      onRetry: () => {
+        setModelLoading(true)
+        setModelLoadError("")
+        setModelRefresh((value) => value + 1)
+      },
+      onOpenSettings: () => setSettingsOpen(true),
+    },
+    modelThinking: Object.fromEntries(
+      connections.flatMap((connection) =>
+        connection.models.map((model) => [
+          modelSelectionId(connection, model),
+          (model.supportedThinkingLevels ?? []).map(
+            (level) => thinkingLabels[level]
+          ),
+        ])
+      )
+    ),
     conversations: sessions.map((s) => ({
       id: s.id,
       title: s.title,
@@ -59,12 +174,53 @@ export default function App() {
     <AppShell
       data={data}
       activeConversationId={selected}
-      onSelectConversation={(item) => selectConversation(item.id)}
+      onSettings={() => setSettingsOpen(true)}
+      onSelectConversation={(item) =>
+        leaveSettings(() => selectConversation(item.id))
+      }
       onNew={(workspaceId) => {
-        selectConversation(undefined)
-        setHomeDraft((v) => ({ key: v.key + 1, workspaceId }))
+        leaveSettings(() => {
+          selectConversation(undefined)
+          setHomeDraft((v) => ({ key: v.key + 1, workspaceId }))
+        })
       }}
     >
+      {modelLoadError && (
+        <p role="alert" className="px-4 py-2 text-sm text-destructive">
+          模型配置读取失败：{modelLoadError}
+        </p>
+      )}
+      {settingsOpen && (
+        <Suspense
+          fallback={
+            <div role="status" className="p-8">
+              正在打开设置…
+            </div>
+          }
+        >
+          <ModelSettingsPage
+            service={modelService}
+            onReturn={() => setSettingsOpen(false)}
+            onConnectionsChange={(items) => {
+              setModelLoadError("")
+              setConnections(items)
+              setModelLabels((previous) => ({
+                ...previous,
+                ...Object.fromEntries(
+                  items.flatMap((connection) =>
+                    connection.models.map((model) => [
+                      modelSelectionId(connection, model),
+                      `${model.name} · ${connection.name}`,
+                    ])
+                  )
+                ),
+              }))
+            }}
+            registerLeave={registerSettingsLeave}
+          />
+        </Suspense>
+      )}
+      <div className={settingsOpen ? "hidden" : "flex min-h-0 flex-1 flex-col"}>
         {current ? (
           <ConversationPage
             viewKey={current.id}
@@ -212,6 +368,7 @@ export default function App() {
             />
           </div>
         )}
+      </div>
     </AppShell>
   )
 }

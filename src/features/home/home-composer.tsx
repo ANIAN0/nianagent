@@ -1,3 +1,4 @@
+import { effectiveThinking } from "./model-thinking"
 import "./home.css"
 import { useRef, useState } from "react"
 import { InputGroup } from "@/components/ui/input-group"
@@ -6,13 +7,18 @@ import { WorkspacePicker } from "./workspace-picker"
 import { PromptInput } from "./prompt-input"
 import { ComposerToolbar } from "./composer-toolbar"
 import { SelectedMaterials } from "./selected-materials"
-import { thinkingOptions } from "./thinking-picker"
 import type { HomeData, HomeDraft, SubmitWork, Workspace } from "./home-types"
 
 export type HomeComposerProps = {
   data: Pick<
     HomeData,
-    "workspaces" | "models" | "modelLabels" | "materials" | "tools"
+    | "workspaces"
+    | "models"
+    | "modelLabels"
+    | "modelThinking"
+    | "modelCatalog"
+    | "materials"
+    | "tools"
   >
   initialDraft?: Partial<HomeDraft>
   onSubmit: SubmitWork
@@ -27,7 +33,7 @@ export function HomeComposer({
   const { models, materials, tools } = data
   const [workspaces, setWorkspaces] = useState(data.workspaces)
   const anchorRef = useRef<HTMLDivElement>(null)
-  const [draft, setDraft] = useState<HomeDraft>(() => ({
+  const [rawDraft, setDraft] = useState<HomeDraft>(() => ({
     workspaceId:
       workspaces.find((item) => item.id === initialDraft.workspaceId)?.id ??
       workspaces[0]?.id ??
@@ -36,15 +42,20 @@ export function HomeComposer({
     model: models.includes(initialDraft.model ?? "")
       ? initialDraft.model!
       : (models[0] ?? ""),
-    thinking:
-      thinkingOptions.find((value) => value === initialDraft.thinking) ??
-      "中等",
+    thinking: initialDraft.thinking ?? "中等",
     materials: initialDraft.materials ?? [],
     session: initialDraft.session ?? {
       toolIds: tools.map((tool) => tool.id),
       instructionScope: "all",
     },
   }))
+  const draft = {
+    ...rawDraft,
+    thinking: effectiveThinking(
+      rawDraft.thinking,
+      data.modelThinking?.[rawDraft.model]
+    ),
+  }
   const [result, setResult] = useState("")
   const canSubmit =
     !!draft.text.trim() &&
@@ -115,6 +126,8 @@ export function HomeComposer({
                   models,
                   tools,
                   modelLabels: data.modelLabels,
+                  modelThinking: data.modelThinking,
+                  modelCatalog: data.modelCatalog,
                 }}
                 workspacePath={
                   workspaces.find((item) => item.id === draft.workspaceId)?.path

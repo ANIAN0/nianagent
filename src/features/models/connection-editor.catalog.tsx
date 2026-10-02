@@ -1,0 +1,75 @@
+import { ConnectionEditorExample } from "../../../ui-catalog/fixtures/model-settings"
+import type { CatalogEntry } from "../../../ui-catalog/catalog"
+import "./model-settings.css"
+export default {
+  id: "connection-editor",
+  name: "连接编辑",
+  layer: "复合组件",
+  group: "模型设置",
+  source: "src/features/models/connection-editor.tsx",
+  description: "服务配置、测试发现、模型草稿与固定保存底栏。",
+  boundary: "通过参数与事件传递数据；服务由宿主注入，展示与正式数据隔离。",
+  inputs: ["initial: 连接基线", "connections: 名称判重", "service: 模拟服务"],
+  events: ["onSaved", "onAccountSaved", "onClose", "registerLeave"],
+  composition: [
+    "ConnectionFields",
+    "ModelDirectory",
+    "DiscoveredModels",
+    "ModelEditor",
+    "SubscriptionAuthorization",
+    "SettingsConfirmDialog",
+  ],
+  consumers: ["ModelSettingsPage"],
+  viewport: { width: 1000, height: 720 },
+  states: [
+    {
+      id: "saved",
+      name: "已保存连接",
+      condition: "已保存连接",
+      expected: "密钥不回显；测试不保存；模型增改进入草稿",
+      render: () => <ConnectionEditorExample />,
+    },
+    {
+      id: "new",
+      name: "新建连接",
+      condition: "新建连接",
+      expected: "空值校验，允许保存没有模型的连接",
+      render: () => <ConnectionEditorExample kind="new" />,
+    },
+    {
+      id: "environment",
+      name: "环境变量不可用",
+      condition: "环境变量不可用",
+      expected: "可改用DEMO_API_KEY后测试，不读真实环境",
+      render: () => <ConnectionEditorExample kind="environment" />,
+    },
+    {
+      id: "subscription",
+      name: "登录已失效",
+      condition: "登录已失效",
+      expected: "授权确认、范围、取消与登录结果生效",
+      render: () => <ConnectionEditorExample kind="subscription" />,
+    },
+    {
+      id: "save-error",
+      name: "保存失败",
+      condition: "保存失败",
+      expected: "输入保留，可再次保存",
+      render: () => <ConnectionEditorExample failure="save" />,
+    },
+    {
+      id: "test-error",
+      name: "测试失败",
+      condition: "测试失败",
+      expected: "错误可见，不清除已保存模型，可重试",
+      render: () => <ConnectionEditorExample failure="discover" />,
+    },
+    {
+      id: "check-error",
+      name: "模型检查失败",
+      condition: "模型检查失败",
+      expected: "在模型行保留失败信息与模型",
+      render: () => <ConnectionEditorExample failure="check" />,
+    },
+  ],
+} satisfies CatalogEntry

@@ -1,5 +1,6 @@
+import { effectiveThinking } from "@/features/home/model-thinking"
 import "./composer.css"
-import { useLayoutEffect, useRef, type ReactNode } from "react"
+import { useLayoutEffect, useMemo, useRef, type ReactNode } from "react"
 import { Field, FieldGroup } from "@/components/ui/field"
 import {
   InputGroup,
@@ -15,7 +16,15 @@ import { ConversationSendControl } from "./conversation-send-control"
 import { ContextUsage, type ContextUsageProps } from "./context-usage"
 
 export type ConversationComposerProps = {
-  data: Pick<HomeData, "models" | "modelLabels" | "materials" | "tools">
+  data: Pick<
+    HomeData,
+    | "models"
+    | "modelLabels"
+    | "modelThinking"
+    | "modelCatalog"
+    | "materials"
+    | "tools"
+  >
   draft: HomeDraft
   workspacePath: string
   running?: boolean
@@ -29,7 +38,7 @@ export type ConversationComposerProps = {
 }
 export function ConversationComposer({
   data,
-  draft,
+  draft: rawDraft,
   workspacePath,
   running = false,
   stopping = false,
@@ -40,6 +49,16 @@ export function ConversationComposer({
   onSubmit,
   onStop,
 }: ConversationComposerProps) {
+  const draft = useMemo(
+    () => ({
+      ...rawDraft,
+      thinking: effectiveThinking(
+        rawDraft.thinking,
+        data.modelThinking?.[rawDraft.model]
+      ),
+    }),
+    [rawDraft, data.modelThinking]
+  )
   const anchorRef = useRef<HTMLDivElement>(null)
   const latest = useRef(draft)
   useLayoutEffect(() => {
@@ -139,13 +158,15 @@ export function ConversationComposer({
                 <ModelPicker
                   models={data.models}
                   labels={data.modelLabels}
+                  thinkingByModel={data.modelThinking}
+                  catalog={data.modelCatalog}
                   value={draft.model}
                   thinking={draft.thinking}
                   onChange={(model) => change({ model })}
                   onThinkingChange={(thinking) => change({ thinking })}
                 />
                 <SessionConfig
-                  tools={data.tools}
+                                      tools={data.tools}
                   value={draft.session}
                   workspacePath={workspacePath}
                   onChange={(session) => change({ session })}

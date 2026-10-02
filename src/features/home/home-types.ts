@@ -1,3 +1,4 @@
+import type { ModelPickerCatalog } from "./model-picker"
 export type Workspace = { id: string; name: string; path: string }
 export type ConversationStatus =
   "idle" | "running" | "stopping" | "waiting" | "completed" | "failed"
@@ -33,6 +34,8 @@ export type HomeData = {
   conversations: Conversation[]
   models: string[]
   modelLabels?: Record<string, string>
+  modelThinking?: Record<string, string[]>
+  modelCatalog?: ModelPickerCatalog
   materials: Material[]
   tools: HomeTool[]
 }

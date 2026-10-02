@@ -17,11 +17,12 @@ export default {
   layer: "复合组件",
   group: "工作输入",
   source: "src/features/home/thinking-picker.tsx",
-  description: "提供四种固定思考强度，以尾部Check表示选中。",
+  description:
+    "按调用方提供的模型能力显示思考强度，以尾部Check表示选中；未传能力的演示保留默认选项。",
   boundary: "仅控制提交参数；不执行推理。",
-  inputs: ["value: 思考强度。"],
-  events: ["onChange(value)。"],
-  composition: ["RadioGroup"],
+  inputs: ["value: 思考强度；options: 当前模型支持的中文等级。"],
+  events: ["onChange(value)，方向键只移动焦点，Enter/空格确认。"],
+  composition: ["PickerOption"],
   consumers: ["ModelPicker"],
   viewport: { width: 480, height: 360 },
   states: [

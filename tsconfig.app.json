@@ -26,5 +26,5 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src", "ui-catalog"]
+  "include": ["src", "ui-catalog", "api-catalog"]
 }

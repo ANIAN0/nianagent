@@ -1,0 +1,10 @@
+{
+  "build": {
+    "beforeBuildCommand": "pnpm build && pnpm backend:package"
+  },
+  "bundle": {
+    "resources": {
+      "runtime/": "runtime/"
+    }
+  }
+}
