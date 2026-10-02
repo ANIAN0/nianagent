@@ -74,6 +74,8 @@
   --accent: #e9eef7;
   --accent-foreground: #2a3343;
   --destructive: oklch(0.577 0.245 27.325);
+  --status-success: #22c55e;
+  --status-warning: #f59e0b;
   --border: #e3e8f0;
   --input: #e3e8f0;
   --ring: #4176e6;
@@ -134,6 +136,59 @@
   html {
     @apply font-sans;
   }
+}
+.moon-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.conversation-status-mark {
+  display: inline-flex;
+  width: 10px;
+  height: 10px;
+  color: var(--primary);
+}
+.conversation-status-mark > svg {
+  width: 10px;
+  height: 10px;
+}
+.conversation-status-mark[data-status="completed"] {
+  color: var(--status-success);
+}
+.conversation-status-mark[data-status="waiting"] {
+  color: var(--status-warning);
+}
+.conversation-status-mark[data-status="failed"] {
+  color: var(--destructive);
+}
+.conversation-status-mark:is(
+    [data-status="completed"],
+    [data-status="waiting"],
+    [data-status="failed"]
+  )
+  > svg {
+  fill: currentColor;
+  stroke-width: 0;
+  padding: 2px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+.moon-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.moon-scrollbar::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--muted-foreground) 30%, transparent);
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background-clip: padding-box;
+}
+.moon-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: var(--muted-foreground);
+}
+.moon-scrollbar::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
 }
 @media (prefers-reduced-motion: reduce) {
   *,

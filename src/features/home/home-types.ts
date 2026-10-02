@@ -1,10 +1,13 @@
 export type Workspace = { id: string; name: string; path: string }
+export type ConversationStatus =
+  "idle" | "running" | "stopping" | "waiting" | "completed" | "failed"
 export type Conversation = {
   id: string
   workspaceId: string
   title: string
   updatedLabel?: string
   message?: string
+  status?: ConversationStatus
 }
 export type Material = {
   id: string
@@ -29,6 +32,7 @@ export type HomeData = {
   workspaces: Workspace[]
   conversations: Conversation[]
   models: string[]
+  modelLabels?: Record<string, string>
   materials: Material[]
   tools: HomeTool[]
 }
@@ -36,6 +40,7 @@ export type HomeDraft = {
   workspaceId: string
   text: string
   model: string
+  modelLabel?: string
   thinking: string
   materials: Material[]
   session: SessionOptions

@@ -7,6 +7,7 @@ export type ConversationGroupProps = {
   workspace: Workspace
   conversations: Conversation[]
   expanded: boolean
+  activeConversationId?: string
   onNew?: (workspaceId: string) => void
   onToggle: () => void
   onSelect: (conversation: Conversation) => void
@@ -18,6 +19,7 @@ export function ConversationGroup({
   onToggle,
   onNew,
   onSelect,
+  activeConversationId,
 }: ConversationGroupProps) {
   return (
     <section className="mb-2">
@@ -60,7 +62,11 @@ export function ConversationGroup({
         <ul className="mt-1 flex flex-col">
           {conversations.map((item) => (
             <li key={item.id}>
-              <ConversationItem conversation={item} onSelect={onSelect} />
+              <ConversationItem
+                conversation={item}
+                active={item.id === activeConversationId}
+                onSelect={onSelect}
+              />
             </li>
           ))}
         </ul>

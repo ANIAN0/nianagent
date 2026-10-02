@@ -7,17 +7,22 @@ import { PromptInput } from "./prompt-input"
 import { ComposerToolbar } from "./composer-toolbar"
 import { SelectedMaterials } from "./selected-materials"
 import { thinkingOptions } from "./thinking-picker"
-import type { HomeData, HomeDraft, SubmitWork } from "./home-types"
+import type { HomeData, HomeDraft, SubmitWork, Workspace } from "./home-types"
 
 export type HomeComposerProps = {
-  data: Pick<HomeData, "workspaces" | "models" | "materials" | "tools">
+  data: Pick<
+    HomeData,
+    "workspaces" | "models" | "modelLabels" | "materials" | "tools"
+  >
   initialDraft?: Partial<HomeDraft>
   onSubmit: SubmitWork
+  onWorkspaceAdd?: (workspace: Workspace) => void
 }
 export function HomeComposer({
   data,
   initialDraft = {},
   onSubmit,
+  onWorkspaceAdd,
 }: HomeComposerProps) {
   const { models, materials, tools } = data
   const [workspaces, setWorkspaces] = useState(data.workspaces)
@@ -51,7 +56,14 @@ export function HomeComposer({
   }
   function submit() {
     if (!canSubmit) return
-    setResult(onSubmit({ ...draft, text: draft.text.trim() }))
+    setResult(
+      onSubmit({
+        ...draft,
+        text: draft.text.trim(),
+        modelLabel:
+          data.modelLabels?.[draft.model] ?? draft.modelLabel ?? draft.model,
+      })
+    )
   }
   return (
     <section className="home-launch" aria-label="新建工作">
@@ -60,13 +72,14 @@ export function HomeComposer({
       </h1>
       <WorkspacePicker
         workspaces={workspaces}
-        onAdd={(item) =>
+        onAdd={(item) => {
+          onWorkspaceAdd?.(item)
           setWorkspaces((current) =>
             current.some((entry) => entry.id === item.id)
               ? current
               : [...current, item]
           )
-        }
+        }}
         value={draft.workspaceId}
         onChange={(workspaceId) => change({ workspaceId })}
       />
@@ -97,7 +110,12 @@ export function HomeComposer({
               />
               <ComposerToolbar
                 anchorRef={anchorRef}
-                data={{ materials, models, tools }}
+                data={{
+                  materials,
+                  models,
+                  tools,
+                  modelLabels: data.modelLabels,
+                }}
                 workspacePath={
                   workspaces.find((item) => item.id === draft.workspaceId)?.path
                 }

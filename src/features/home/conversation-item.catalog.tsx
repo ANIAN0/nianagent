@@ -1,6 +1,34 @@
 import { useState } from "react"
 import { ConversationItem } from "./conversation-item"
 import type { CatalogEntry } from "../../../ui-catalog/catalog"
+import { conversationStatusLabels } from "./conversation-status-mark"
+import type { ConversationStatus } from "./home-types"
+function StatusExamples() {
+  const [read, setRead] = useState<string[]>([])
+  return (
+    <div className="p-3">
+      {(Object.keys(conversationStatusLabels) as ConversationStatus[]).map(
+        (status) => (
+          <ConversationItem
+            key={status}
+            conversation={{
+              id: status,
+              workspaceId: "demo",
+              title: conversationStatusLabels[status],
+              updatedLabel: "刚刚",
+              status:
+                read.includes(status) &&
+                (status === "completed" || status === "failed")
+                  ? "idle"
+                  : status,
+            }}
+            onSelect={() => setRead((previous) => [...previous, status])}
+          />
+        )
+      )}
+    </div>
+  )
+}
 function Example({ title }: { title: string }) {
   const [selected, setSelected] = useState("")
   return (
@@ -39,10 +67,18 @@ export default {
   ],
   inputs: ["conversation: Conversation"],
   events: ["onSelect(conversation)"],
-  composition: ["Button"],
+  composition: ["Button、ConversationStatusMark"],
   consumers: ["ConversationGroup"],
   viewport: { width: 300, height: 220 },
   states: [
+    {
+      id: "statuses",
+      name: "会话状态与未读",
+      condition: "运行、停止中、待回答及未读结果。",
+      expected:
+        "状态位不挤动标题；打开完成或失败结果后清除未读点，待回答仍保留。",
+      render: () => <StatusExamples />,
+    },
     {
       id: "default",
       name: "普通标题",

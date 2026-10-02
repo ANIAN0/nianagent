@@ -11,6 +11,7 @@ import { ThinkingPicker } from "./thinking-picker"
 
 export type ModelPickerProps = {
   models: string[]
+  labels?: Record<string, string>
   value: string
   thinking: string
   onChange: (value: string) => void
@@ -18,6 +19,7 @@ export type ModelPickerProps = {
 }
 export function ModelPicker({
   models,
+  labels,
   value,
   thinking,
   onChange,
@@ -33,6 +35,8 @@ export function ModelPicker({
       (next === "root" ? rootButton : backButton).current?.focus()
     )
   }
+  const displayName = labels?.[value] ?? value
+  const unavailable = !!value && !models.includes(value)
   return (
     <Popover
       open={open}
@@ -44,14 +48,17 @@ export function ModelPicker({
       <PopoverTrigger asChild>
         <Button
           type="button"
-          disabled={!models.length}
+          disabled={!models.length && !value}
           variant="ghost"
           size="sm"
           className="max-w-[min(220px,45cqw)] min-w-0 gap-1 rounded-full font-normal"
-          aria-label={`选择模型，当前为 ${value || "无可用模型"} · ${thinking}`}
-          title={`${value} · ${thinking}`}
+          aria-label={`选择模型，当前为 ${displayName || "无可用模型"} · ${thinking}`}
+          title={`${displayName} · ${thinking}`}
         >
-          <span className="truncate">{value || "无可用模型"}</span>
+          <span className="truncate">
+            {displayName || "无可用模型"}
+            {unavailable ? " · 不可用" : ""}
+          </span>
           <span className="shrink-0 text-muted-foreground">{thinking}</span>
           <ChevronDown className="size-3" />
         </Button>
@@ -68,6 +75,16 @@ export function ModelPicker({
           }
         }}
       >
+        {unavailable && (
+          <p role="status" className="px-3 py-2 text-xs text-destructive">
+            此模型已移除或连接凭据不可用，请选择其他模型或前往设置修复连接。
+          </p>
+        )}
+        {!models.length && (
+          <p className="px-3 py-2 text-xs text-muted-foreground">
+            没有可用模型，请在设置中添加连接。
+          </p>
+        )}
         {pane === "root" ? (
           <div className="flex flex-col">
             <Button
@@ -79,7 +96,7 @@ export function ModelPicker({
             >
               <span>模型</span>
               <span className="ml-auto min-w-0 truncate text-xs text-muted-foreground">
-                {value}
+                {displayName}
               </span>
               <ChevronRight className="size-3.5" />
             </Button>
@@ -123,8 +140,11 @@ export function ModelPicker({
                     key={model}
                     className="flex h-[38px] cursor-pointer items-center gap-3 rounded-lg px-3 text-sm hover:bg-accent has-[:focus-visible]:bg-accent"
                   >
-                    <span className="min-w-0 flex-1 truncate" title={model}>
-                      {model}
+                    <span
+                      className="min-w-0 flex-1 truncate"
+                      title={labels?.[model] ?? model}
+                    >
+                      {labels?.[model] ?? model}
                     </span>
                     <RadioGroupItem
                       variant="check"

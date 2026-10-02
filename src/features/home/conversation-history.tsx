@@ -9,12 +9,14 @@ import { ConversationGroup } from "./conversation-group"
 import type { HomeData, Conversation } from "./home-types"
 export type ConversationHistoryProps = {
   data: Pick<HomeData, "conversations" | "workspaces">
+  activeConversationId?: string
   onNew?: (workspaceId: string) => void
   onSelect: (conversation: Conversation) => void
 }
 export function ConversationHistory({
   data,
   onSelect,
+  activeConversationId,
   onNew,
 }: ConversationHistoryProps) {
   const [collapsed, setCollapsed] = useState<string[]>([])
@@ -32,6 +34,7 @@ export function ConversationHistory({
           <ConversationGroup
             key={workspace.id}
             workspace={workspace}
+            activeConversationId={activeConversationId}
             onNew={onNew}
             conversations={items}
             expanded={!collapsed.includes(workspace.id)}

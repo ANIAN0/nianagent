@@ -36,6 +36,24 @@ export default {
   viewport: { width: 480, height: 360 },
   states: [
     {
+      id: "unavailable",
+      name: "原选择失效",
+      condition: "连接被删除或失效",
+      expected: "保留原选择，显示不可用原因，不自动切换",
+      render: () => (
+        <div className="p-6">
+          <ModelPicker
+            models={["other/model"]}
+            labels={{ "other/model": "同名模型 · 另一连接" }}
+            value="已删除连接的模型"
+            thinking="中等"
+            onChange={() => {}}
+            onThinkingChange={() => {}}
+          />
+        </div>
+      ),
+    },
+    {
       id: "available",
       name: "可选模型",
       condition: "两个模拟模型。",

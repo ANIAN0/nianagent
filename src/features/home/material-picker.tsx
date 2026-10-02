@@ -1,4 +1,12 @@
-import { useEffect, useId, useRef, useState, type RefObject } from "react"
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type RefObject,
+} from "react"
+import { createPortal } from "react-dom"
 import {
   AtSign,
   ArrowLeft,
@@ -51,6 +59,31 @@ export function MaterialPicker({
   const id = useId()
   const panel = useRef<HTMLDivElement>(null)
   const [availableHeight, setAvailableHeight] = useState(320)
+  const [position, setPosition] = useState({ left: 0, width: 0, bottom: 0 })
+  useLayoutEffect(() => {
+    if (!open) return
+    const anchor = anchorRef?.current ?? trigger.current
+    if (!anchor) return
+    function updatePosition() {
+      const rect = anchor!.getBoundingClientRect()
+      setPosition({
+        left: rect.left,
+        width: rect.width,
+        bottom: window.innerHeight - rect.top + 4,
+      })
+      setAvailableHeight(Math.max(84, rect.top - 16))
+    }
+    updatePosition()
+    const observer = new ResizeObserver(updatePosition)
+    observer.observe(anchor)
+    window.addEventListener("resize", updatePosition)
+    window.addEventListener("scroll", updatePosition, true)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener("resize", updatePosition)
+      window.removeEventListener("scroll", updatePosition, true)
+    }
+  }, [open, anchorRef])
   function toggle() {
     setAvailableHeight(
       Math.max(
@@ -254,104 +287,107 @@ export function MaterialPicker({
       >
         <Plus className="size-4" />
       </InputGroupButton>
-      {open && (
-        <div
-          ref={panel}
-          className="absolute inset-x-0 bottom-[calc(100%+4px)] z-50 overflow-hidden rounded-2xl bg-popover p-1 text-sm text-popover-foreground shadow-md ring-1 ring-foreground/10"
-          onClick={(event) => event.stopPropagation()}
-          onKeyDown={(event) => handleKey(event.nativeEvent)}
-        >
-          {pane === "resources" && (
-            <div className="flex items-center gap-1 border-b p-1.5">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                aria-label="返回输入候选"
-                onClick={() => {
-                  setPane("candidates")
-                  setQuery("")
-                  setActive(0)
-                }}
-              >
-                <ArrowLeft className="size-4" />
-              </Button>
-              <InputGroup className="h-9 border-0 shadow-none">
-                <InputGroupAddon>
-                  <Search className="size-4" />
-                </InputGroupAddon>
-                <InputGroupInput
-                  autoFocus
-                  role="combobox"
-                  aria-expanded
-                  aria-controls={id}
-                  aria-activedescendant={
-                    rows[active] ? `${id}-${active}` : undefined
-                  }
-                  aria-label="搜索资源"
-                  placeholder="搜索文件、Skills 或插件资源"
-                  value={query}
-                  onChange={(event) => {
-                    setQuery(event.target.value)
-                    setActive(0)
-                  }}
-                />
-              </InputGroup>
-            </div>
-          )}
+      {open &&
+        createPortal(
           <div
-            ref={list}
-            id={id}
-            role="listbox"
-            aria-label="输入候选"
-            className="overflow-y-auto"
-            style={{
-              maxHeight: Math.min(
-                320,
-                availableHeight - 8 - (pane === "resources" ? 54 : 0)
-              ),
-            }}
+            ref={panel}
+            style={position}
+            className="fixed z-50 overflow-hidden rounded-2xl bg-popover p-1 text-sm text-popover-foreground shadow-md ring-1 ring-foreground/10"
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => handleKey(event.nativeEvent)}
           >
-            {rows.map((item, index) => (
-              <div key={item.id}>
-                {(index === 0 || rows[index - 1]?.group !== item.group) && (
-                  <div className="px-3 pt-2 pb-1 text-xs text-muted-foreground">
-                    {item.group}
-                  </div>
-                )}
+            {pane === "resources" && (
+              <div className="flex items-center gap-1 border-b p-1.5">
                 <Button
                   type="button"
-                  id={`${id}-${index}`}
-                  data-candidate-index={index}
-                  role="option"
-                  aria-selected={active === index}
-                  disabled={item.disabled}
-                  tabIndex={-1}
                   variant="ghost"
-                  className={`h-10 w-full justify-start gap-2 rounded-lg px-3 font-normal ${active === index ? "bg-accent/60" : ""}`}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onMouseMove={() => {
-                    if (!item.disabled) setActive(index)
+                  size="icon-sm"
+                  aria-label="返回输入候选"
+                  onClick={() => {
+                    setPane("candidates")
+                    setQuery("")
+                    setActive(0)
                   }}
-                  onClick={() => activate(item)}
                 >
-                  <item.icon className="size-4" />
-                  <span className="shrink-0">{item.name}</span>
-                  <span className="ml-auto min-w-0 truncate text-xs text-muted-foreground">
-                    {item.disabled ? "已添加" : item.description}
-                  </span>
-                  {item.disabled && <Check className="size-3.5" />}
+                  <ArrowLeft className="size-4" />
                 </Button>
+                <InputGroup className="h-9 border-0 shadow-none">
+                  <InputGroupAddon>
+                    <Search className="size-4" />
+                  </InputGroupAddon>
+                  <InputGroupInput
+                    autoFocus
+                    role="combobox"
+                    aria-expanded
+                    aria-controls={id}
+                    aria-activedescendant={
+                      rows[active] ? `${id}-${active}` : undefined
+                    }
+                    aria-label="搜索资源"
+                    placeholder="搜索文件、Skills 或插件资源"
+                    value={query}
+                    onChange={(event) => {
+                      setQuery(event.target.value)
+                      setActive(0)
+                    }}
+                  />
+                </InputGroup>
               </div>
-            ))}
-            {!rows.length && (
-              <p className="px-3 py-8 text-center text-xs text-muted-foreground">
-                没有匹配的资源
-              </p>
             )}
-          </div>
-        </div>
-      )}
+            <div
+              ref={list}
+              id={id}
+              role="listbox"
+              aria-label="输入候选"
+              className="moon-scrollbar overflow-y-auto"
+              style={{
+                maxHeight: Math.min(
+                  320,
+                  availableHeight - 8 - (pane === "resources" ? 54 : 0)
+                ),
+              }}
+            >
+              {rows.map((item, index) => (
+                <div key={item.id}>
+                  {(index === 0 || rows[index - 1]?.group !== item.group) && (
+                    <div className="px-3 pt-2 pb-1 text-xs text-muted-foreground">
+                      {item.group}
+                    </div>
+                  )}
+                  <Button
+                    type="button"
+                    id={`${id}-${index}`}
+                    data-candidate-index={index}
+                    role="option"
+                    aria-selected={active === index}
+                    disabled={item.disabled}
+                    tabIndex={-1}
+                    variant="ghost"
+                    className={`h-10 w-full justify-start gap-2 rounded-lg px-3 font-normal ${active === index ? "bg-accent/60" : ""}`}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onMouseMove={() => {
+                      if (!item.disabled) setActive(index)
+                    }}
+                    onClick={() => activate(item)}
+                  >
+                    <item.icon className="size-4" />
+                    <span className="shrink-0">{item.name}</span>
+                    <span className="ml-auto min-w-0 truncate text-xs text-muted-foreground">
+                      {item.disabled ? "已添加" : item.description}
+                    </span>
+                    {item.disabled && <Check className="size-3.5" />}
+                  </Button>
+                </div>
+              ))}
+              {!rows.length && (
+                <p className="px-3 py-8 text-center text-xs text-muted-foreground">
+                  没有匹配的资源
+                </p>
+              )}
+            </div>
+          </div>,
+          document.body
+        )}
     </>
   )
 }

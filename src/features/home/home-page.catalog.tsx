@@ -17,10 +17,8 @@ export default {
   events: [
     "新建会话重建草稿；桌面侧栏折叠为 56px 图标列，宽度可在 240–360px 调整，Ctrl+B 折叠、Ctrl+K 搜索；窄屏打开导航弹窗，Escape 关闭。",
   ],
-  composition: [
-    "HomeSidebar、HomeComposer、ConversationSearch、Dialog、Button",
-  ],
-  consumers: ["App"],
+  composition: ["AppShell、HomeComposer"],
+  consumers: ["首页独立展示"],
   viewport: { width: 1280, height: 800 },
   states: [
     {
