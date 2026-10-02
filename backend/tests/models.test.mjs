@@ -6,7 +6,7 @@ import { join } from "node:path"
 import { createServer } from "node:http"
 import { ModelService } from "../models.mjs"
 import { ModelStore, memoryCredentials } from "../store.mjs"
-import { createBridge } from "../bridge.mjs"
+import { createBridge } from "./stdio-client.mjs"
 const signal = () => new AbortController().signal
 const model = {
   id: "moon-test",

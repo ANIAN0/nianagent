@@ -1,104 +1,59 @@
-import { spawn } from "node:child_process"
-import { createInterface } from "node:readline"
-import { randomUUID } from "node:crypto"
-import { fileURLToPath } from "node:url"
+import { readFile } from "node:fs/promises"
+import { join } from "node:path"
+import { homedir } from "node:os"
+import { runtimeVersion } from "./runtime.mjs"
 
-export function createBridge(options = {}) {
-  let child
-  const pending = new Map()
-  function start() {
-    if (child) return child
-    const processChild = spawn(
-      process.execPath,
-      [fileURLToPath(new URL("./rpc.mjs", import.meta.url))],
-      {
-        stdio: ["pipe", "pipe", "pipe"],
-        windowsHide: true,
-        env: { ...process.env, ...options.env },
-      }
-    )
-    child = processChild
-    const reader = createInterface({ input: processChild.stdout })
-    reader.on("line", (line) => {
-      try {
-        const result = JSON.parse(line)
-        const callback = pending.get(result.id)
-        if (callback) {
-          pending.delete(result.id)
-          callback(result)
-        }
-      } catch {
-        /* Ignore non-protocol output. */
-      }
-    })
-    let diagnostic = ""
-    processChild.stderr.on("data", (chunk) => {
-      const text = String(chunk)
-      if (/ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND/.test(text))
-        diagnostic = "模型后端依赖文件缺失，请重新安装项目依赖。"
-      else if (/SyntaxError|ERR_UNSUPPORTED/.test(text))
-        diagnostic = "模型后端无法加载，请检查运行时版本与程序文件。"
-    })
-    let handled = false
-    const failed = (error) => {
-      if (handled || child !== processChild) return
-      handled = true
-      child = undefined
-      for (const callback of pending.values())
-        callback({
-          error:
-            error?.code === "ENOENT"
-              ? "无法找到 Node.js 运行时，请检查安装路径。"
-              : diagnostic || "模型后端进程意外退出，请检查程序安装后重试。",
-        })
-      pending.clear()
-      reader.close()
-    }
-    processChild.stdin.on("error", failed)
-    processChild.on("error", failed)
-    processChild.on("close", failed)
-    return processChild
-  }
-  return {
-    call(operation, input, signal) {
-      return new Promise((resolve, reject) => {
-        if (signal?.aborted)
-          return reject(new DOMException("已取消", "AbortError"))
-        const current = start()
-        const id = randomUUID()
-        const abort = () => {
-          pending.delete(id)
-          current.stdin.write(
-            JSON.stringify({ id, operation: "$cancel" }) + "\n"
-          )
-          cleanup()
-          reject(new DOMException("已取消", "AbortError"))
-        }
-        const timer = setTimeout(abort, 60000)
-        const cleanup = () => {
-          clearTimeout(timer)
-          signal?.removeEventListener("abort", abort)
-        }
-        pending.set(id, (value) => {
-          cleanup()
-          if (value.error) reject(new Error(value.error))
-          else resolve(value.result)
-        })
-        signal?.addEventListener("abort", abort, { once: true })
-        current.stdin.write(JSON.stringify({ id, operation, input }) + "\n")
-      })
-    },
-    close() {
-      child?.stdin.end()
-      child?.kill()
-      child = undefined
-    },
-  }
-}
 export function modelBackendPlugin() {
   function configure(server) {
-    const bridge = createBridge()
-    server.httpServer?.once("close", () => bridge.close())
+    const file =
+      process.env.MOON_RUNTIME_FILE ||
+      join(
+        process.env.LOCALAPPDATA || join(homedir(), ".local", "share"),
+        "Moon",
+        "models",
+        "runtime.json"
+      )
+    const bridge = {
+      async call(operation, input, signal) {
+        let runtime
+        try {
+          runtime = JSON.parse(await readFile(file, "utf8"))
+        } catch {
+          throw new Error("请先启动 Moon 桌面应用，浏览器将共用它的模型服务。")
+        }
+        if (runtime.version !== (await runtimeVersion()))
+          throw new Error("模型服务代码已更新，请重启 Moon 后重新读取。")
+        if (
+          !Number.isInteger(runtime.port) ||
+          runtime.port < 1 ||
+          runtime.port > 65535 ||
+          typeof runtime.token !== "string"
+        )
+          throw new Error("模型服务连接信息无效，请重启 Moon。")
+        let response
+        try {
+          response = await fetch(
+            `http://127.0.0.1:${runtime.port}/api/models/${encodeURIComponent(operation)}`,
+            {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+                "x-moon-token": runtime.token,
+              },
+              body: JSON.stringify(input),
+              signal,
+            }
+          )
+        } catch (error) {
+          if (signal?.aborted) throw error
+          throw new Error("无法连接 Moon 模型服务，请启动或重启桌面应用。")
+        }
+        const payload = await response.json()
+        if (!response.ok || payload.error)
+          throw new Error(payload.error || "模型服务请求失败。")
+        return payload.result
+      },
+    }
     server.middlewares.use("/api/models/", async (req, res, next) => {
       if (req.method !== "POST") {
         res.statusCode = 405

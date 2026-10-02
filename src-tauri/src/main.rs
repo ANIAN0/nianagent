@@ -1,6 +1,10 @@
-// Prevents additional console window on Windows in release, DO NOT REMOVE!!
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+// A desktop launch must not create a console in either development or release.
+#![cfg_attr(windows, windows_subsystem = "windows")]
 
-fn main() {
-    app_lib::run();
+fn main() -> std::process::ExitCode {
+    if let Err(error) = app_lib::run() {
+        app_lib::report_host_error(&error);
+        return std::process::ExitCode::FAILURE;
+    }
+    std::process::ExitCode::SUCCESS
 }

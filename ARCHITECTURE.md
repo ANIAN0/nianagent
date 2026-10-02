@@ -22,9 +22,9 @@ API/环境变量/无凭据切换清除原 stored key；环境变量仅在后端�
 
 ## 运行和传输
 
-Node.js >=22.19 是桌面及开发环境的运行前提。`backend/rpc.mjs` 运行在独立 Node 子进程，只使用 stdin/stdout JSON 行协议；SDK 不进入 WebView bundle。`src-tauri/src/models.rs` 管理进程、请求分派、超时、取消和退出清理，通过三个 Tauri 命令提供模型 RPC、取消和授权链接打开。
+Node.js >=22.19 是桌面及开发环境的运行前提。`backend/rpc.mjs` 运行在独立 Node 子进程，同时接收原生 stdin/stdout JSON 行请求及浏览器代理的鉴权回环 HTTP 请求；SDK 不进入 WebView bundle。`src-tauri/src/models.rs` 管理进程、请求分派、超时、取消和退出清理，通过三个 Tauri 命令提供模型 RPC、取消和授权链接打开。
 
-浏览器开发/生产预览通过 Vite `modelBackendPlugin` 同源 POST 转发到同一个 Node RPC；校验 Origin 和 Content-Type，不单独暴露后端端口。浏览器不具备 Tauri 能力时仍可完整使用模型配置。单纯托管 dist 不含此本地后端。
+浏览器开发/生产预览通过 Vite `modelBackendPlugin` 同源 POST 转发到同一个 Node RPC；校验 Origin 和 Content-Type，通过实例文件连接Tauri子进程的回环HTTP端口，不创建第二个后端。浏览器不具备 Tauri 能力时仍可完整使用模型配置。单纯托管 dist 不含此本地后端。
 
 `pnpm backend:package` 使用 pnpm deploy 生成独立的 `src-tauri/runtime/`（正式构建产物，包含生产依赖），Tauri 将其作为资源打包。当前依赖系统 Node，没有打包 Node 可执行文件；安装目标需要安装满足版本要求的 Node。
 
@@ -48,3 +48,15 @@ RPC 初始化失败不会终止进程或永久缓存错误；同一批请求共�
 DirectoryProtocol 是独立的目录协议枚举；ModelApi 仍允许 Pi 提供者使用其调用协议。模型列表由后端 Pi getSupportedThinkingLevels 计算只读 supportedThinkingLevels，前端仅做中文映射。首页与对话共用有效选择计算；不支持的旧思考等级在展示和提交时归一，无思考模型不显示强度入口。
 
 编辑、删除模型及目录补全会使旧检查结果失效。发现与检查提供取消请求，保留草稿；写入期间禁止离开并提示原因。删除确认提供取消请求，随后重新读取目录；传输取消不承诺撤回已经提交的数据，状态读取失败必须提示重新读取。
+
+## 统一模型服务宿主
+
+Tauri启动时创建一个RPC子进程，并等待运行就绪握手。该进程拥有唯一ModelService，stdin RPC与回环HTTP共同调用同一dispatch；业务、取消及错误过滤不重复。`backend/runtime.mjs`管理随机端口、令牌、实例ID、源码版本和数据目录运行锁。Vite只读取runtime.json并转发，不能启动服务；无宿主、旧版本和断连均明确报错。HTTP仅绑定127.0.0.1，要求令牌并拒绝带Origin的直接请求；Vite验证同源请求。
+
+stdin关闭会中止请求、关闭HTTP并删除本实例运行文件和锁；Rust退出先关闭stdin等待清理，超时再终止。源码版本检查要求后端更新后重启。目录锁与实例信息仅为运行数据，不改变连接文件。开发态可用MOON_DATA_DIR隔离桌面测试；浏览器代理通过MOON_RUNTIME_FILE指向该实例，生产桌面仍使用系统目录。
+
+
+
+## 桌面窗口生命周期
+
+`window_lifecycle.rs` 管理任务栏窗口、托盘及关闭隐藏。官方 single-instance 插件在 setup 创建后端前执行，重复启动恢复已有宿主。关闭只隐藏 WebView，不改变草稿或服务状态；主动退出经 RunEvent 调用 ModelBackend.shutdown，停止标志阻止请求重建子进程，随后关闭 stdin 等待清理，超时终止子进程。Windows GUI 子系统覆盖 debug/release；setup 内部捕获启动错误、释放服务，再通过原生错误框报告。

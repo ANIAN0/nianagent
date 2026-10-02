@@ -1,6 +1,7 @@
 import { createInterface } from "node:readline"
 import { join } from "node:path"
 import { homedir } from "node:os"
+import { startRuntime, runtimeVersion } from "./runtime.mjs"
 import { ModelService } from "./models.mjs"
 
 const directory =
@@ -22,6 +23,29 @@ function ensureInitialized() {
   })
   return initialized
 }
+const version = await runtimeVersion()
+const inFlight = new Set()
+let closing = false
+async function execute(operation, input, signal) {
+  if (operation === "$runtime") return runtime?.info ?? { version }
+  if ((await runtimeVersion()) !== version)
+    throw new Error("模型服务代码已更新，请重启 Moon 后重新读取。")
+  await ensureInitialized()
+  return service.dispatch(operation, input, signal)
+}
+async function dispatch(operation, input, signal) {
+  if (closing) throw new Error("Moon 正在退出。")
+  const operationPromise = execute(operation, input, signal)
+  inFlight.add(operationPromise)
+  try {
+    return await operationPromise
+  } finally {
+    inFlight.delete(operationPromise)
+  }
+}
+const runtime = process.env.MOON_RUNTIME_FILE
+  ? await startRuntime(process.env.MOON_RUNTIME_FILE, dispatch, publicError)
+  : undefined
 const input = createInterface({ input: process.stdin, crlfDelay: Infinity })
 function send(value) {
   process.stdout.write(JSON.stringify(value) + "\n")
@@ -41,14 +65,7 @@ input.on("line", (line) => {
   if (typeof request.id !== "string" || pending.has(request.id)) return
   const controller = new AbortController()
   pending.set(request.id, controller)
-  ensureInitialized()
-    .then(() => {
-      return service.dispatch(
-        request.operation,
-        request.input,
-        controller.signal
-      )
-    })
+  dispatch(request.operation, request.input, controller.signal)
     .then((result) => send({ id: request.id, result }))
     .catch((error) =>
       send({
@@ -67,8 +84,12 @@ function publicError(error) {
     ? error.message
     : "模型服务操作失败，请检查配置和服务状态。"
 }
-input.on("close", () => {
+input.on("close", async () => {
+  closing = true
   for (const controller of pending.values()) controller.abort()
   service.close()
+  await runtime?.close()
+  // Let cancelled writes reach their finally blocks before terminating Node.
+  await Promise.allSettled([...inFlight])
   process.exit(0)
 })

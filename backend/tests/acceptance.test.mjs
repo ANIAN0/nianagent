@@ -3,7 +3,7 @@ import assert from "node:assert/strict"
 import { mkdtemp, writeFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { createBridge } from "../bridge.mjs"
+import { createBridge } from "./stdio-client.mjs"
 
 test("acceptance: retry list recovers after damaged configuration is repaired", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "moon-acceptance-recovery-"))

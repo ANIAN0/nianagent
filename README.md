@@ -40,7 +40,7 @@ pnpm add --save-exact --ignore-scripts --registry=https://registry.npmjs.org @ea
 
 该版本要求 Node.js >=22.19.0。版本与依赖树由 `package.json` 和 `pnpm-lock.yaml` 固定，后续正常执行 `pnpm install` 即可恢复。[官方安装说明](https://pi.dev/docs/latest/quickstart)支持忽略依赖生命周期脚本。本次命令临时指定官方 npm registry，不修改全局镜像配置。
 
-SDK 在 `backend/` 的 Node 子进程中运行，通过 JSON 行 RPC 与桌面/开发服务通信。Windows/macOS/Linux 桌面运行均需在 PATH 中提供 Node.js >=22.19。当前未把 Node 可执行文件打包进安装程序。模块边界见 [ARCHITECTURE.md](ARCHITECTURE.md)。
+SDK 在 `backend/` 的 Node 子进程中运行，由 Tauri 唯一启动，通过 JSON 行 RPC 与桌面通信，同时提供带令牌的回环 HTTP 供开发浏览器代理连接；两者使用同一个 ModelService 实例。Windows/macOS/Linux 桌面运行均需在 PATH 中提供 Node.js >=22.19。当前未把 Node 可执行文件打包进安装程序。模块边界见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
 ## 环境与安装
 
@@ -71,7 +71,7 @@ pnpm tauri dev
 
 此命令自动启动 Vite，再编译 Rust 并打开标题为 `moon` 的窗口，无需另开终端运行 `pnpm dev`。窗口显示“开始一项工作”和输入卡即为预期首页。首次原生编译可能较慢。
 
-桌面开发固定使用 `http://localhost:5173`，Vite 绑定 `127.0.0.1:5173` 并启用严格端口检查。端口被占用时启动会失败，应先退出占用该端口的开发实例。退出本次开发使用终端的 `Ctrl+C`。
+桌面开发固定使用 `http://localhost:5173`，Vite 绑定 `127.0.0.1:5173` 并启用严格端口检查。端口被占用时启动会失败，应先退出占用该端口的开发实例。关闭窗口会隐藏到托盘；退出应用使用托盘“退出 Moon”。结束整次开发（包括 Vite）使用原开发终端的 `Ctrl+C`。
 
 ### 仅调试前端
 
@@ -83,7 +83,7 @@ pnpm dev --host 127.0.0.1 --port 5173 --strictPort
 
 ### 接口目录
 
-同一个 `pnpm dev` 服务提供 [接口目录](http://127.0.0.1:5173/api-catalog/)。目录从正式 RPC 契约读取操作、参数、影响和例子，可执行真实调用；模型检查可能产生费用，保存、删除和授权会改变本地配置。原生窗口内打开该路径时使用同一套 Tauri 命令，浏览器开发与预览使用同源 Node 适配器。
+同一个 `pnpm dev` 服务提供 [接口目录](http://127.0.0.1:5173/api-catalog/)。目录从正式 RPC 契约读取操作、参数、影响和例子，可执行真实调用；模型检查可能产生费用，保存、删除和授权会改变本地配置。原生窗口内使用 Tauri 命令，浏览器通过 Vite 同源代理连接已运行的 Moon 模型服务；Vite 不再创建后端。浏览器真实模型功能要求桌面应用运行，组件库模拟展示不依赖后端。
 
 `pnpm test:backend` 运行正式回归测试，临时目录与本地协议服务在结束后清理。`pnpm backend:package` 用 pnpm deploy 生成独立后端生产依赖目录；`pnpm desktop:build` 发布构建会自动执行，使用生产配置携带后端资源。`src-tauri/runtime/` 为忽略的构建产物，不手工编辑。
 
@@ -162,7 +162,7 @@ cargo check --manifest-path src-tauri/Cargo.toml --locked
 ├── backend/                    # Pi 模型配置、CredentialStore、授权任务和 Node RPC
 ├── api-catalog/                # 同一服务下的真实接口目录与调用面板
 ├── src-tauri/                  # Tauri 原生端及打包配置
-│   ├── src/                   # main.rs 调用 lib.rs；lib.rs 装配 Tauri 和开发日志
+│   ├── src/                   # main.rs 调用 lib.rs；window_lifecycle.rs 管理托盘和窗口
 │   ├── capabilities/          # 窗口可用的原生权限，目前只有 core:default
 │   ├── icons/                 # Tauri CLI 生成的桌面平台图标
 │   ├── Cargo.toml             # Rust 依赖、crate 信息和最低 Rust 版本
@@ -200,3 +200,7 @@ cargo check --manifest-path src-tauri/Cargo.toml --locked
 - 许可证：同目录 `LICENSE.txt`（SIL Open Font License 1.1）。更新时同时核对来源、字重轴、许可证与校验值。
 
 模型接口字段修改后执行 `pnpm contract:generate` 同步前端类型；`pnpm contract:check` 检查契约漂移（构建前也会检查）。接口字段、约束与取消规则可在 `/api-catalog/` 查看。
+
+### 统一运行实例
+
+桌面是模型服务的唯一宿主。主窗口显示和最小化时出现在任务栏；关闭按钮隐藏到系统托盘，左击托盘图标或菜单“打开 Moon”恢复同一窗口，菜单“退出 Moon”才停止桌面和后端。重复启动恢复已有实例，不启动第二个后端。Windows 开发版和发布版均不创建额外控制台；在终端主动运行开发命令时，原终端仍属于开发工具。先运行 `pnpm tauri dev`，浏览器访问同一个5173服务即可复用；单独运行 `pnpm dev` 只提供前端与代理，无桌面宿主时显示“请先启动 Moon”。服务在数据目录发布 `runtime.json`（仅本机，含临时令牌），退出清理；目录运行锁拒绝第二个模型服务。修改backend源码后必须重启Moon，接口会检测版本不一致并明确提示。窗口重新聚焦会重新读取连接，保留输入草稿。
