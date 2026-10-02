@@ -6,7 +6,8 @@ type ResolvedTheme = "dark" | "light"
 type ThemeProviderProps = {
   children: React.ReactNode
   defaultTheme?: Theme
-  storageKey?: string
+  /** null keeps the provider's state in memory, without cross-window storage. */
+  storageKey?: string | null
   disableTransitionOnChange?: boolean
 }
 
@@ -84,7 +85,8 @@ export function ThemeProvider({
   ...props
 }: ThemeProviderProps) {
   const [theme, setThemeState] = React.useState<Theme>(() => {
-    const storedTheme = localStorage.getItem(storageKey)
+    const storedTheme =
+      storageKey === null ? null : localStorage.getItem(storageKey)
     if (isTheme(storedTheme)) {
       return storedTheme
     }
@@ -94,7 +96,7 @@ export function ThemeProvider({
 
   const setTheme = React.useCallback(
     (nextTheme: Theme) => {
-      localStorage.setItem(storageKey, nextTheme)
+      if (storageKey !== null) localStorage.setItem(storageKey, nextTheme)
       setThemeState(nextTheme)
     },
     [storageKey]
@@ -166,7 +168,7 @@ export function ThemeProvider({
                 ? "light"
                 : "dark"
 
-        localStorage.setItem(storageKey, nextTheme)
+        if (storageKey !== null) localStorage.setItem(storageKey, nextTheme)
         return nextTheme
       })
     }
@@ -179,6 +181,7 @@ export function ThemeProvider({
   }, [storageKey])
 
   React.useEffect(() => {
+    if (storageKey === null) return
     const handleStorageChange = (event: StorageEvent) => {
       if (event.storageArea !== localStorage) {
         return

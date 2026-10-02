@@ -6,6 +6,15 @@ import { defineConfig } from "vite"
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  build: {
+    rolldownOptions: {
+      input: {
+        app: resolve(import.meta.dirname, "index.html"),
+        catalog: resolve(import.meta.dirname, "ui-catalog/index.html"),
+        preview: resolve(import.meta.dirname, "ui-catalog/preview.html"),
+      },
+    },
+  },
   server: {
     watch: {
       // Rust build outputs can be locked while Cargo is compiling on Windows.

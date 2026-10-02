@@ -1,0 +1,13 @@
+.home-launch {
+  width: min(calc(100% - 64px), 880px);
+  margin: auto;
+  padding-bottom: 32px;
+}
+
+@media (max-width: 767px) {
+  .home-launch { width: calc(100% - 32px); padding-bottom: 24px; }
+}
+
+@media (max-height: 600px) {
+  .home-launch { margin-block: 0; padding-block: 72px 40px; }
+}

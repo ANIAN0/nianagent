@@ -1,189 +1,126 @@
-import { useState } from "react"
-import {
-  ChevronDown,
-  Clock3,
-  Folder,
-  PanelLeftClose,
-  Plus,
-  Puzzle,
-  Search,
-  Settings2,
-  UserRound,
-} from "lucide-react"
+import { PanelLeft, Search, FolderOpen } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-} from "@/components/ui/input-group"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { useTheme } from "@/components/theme-provider"
-import { conversations, workspaces } from "./mock-data"
+import { cn } from "@/lib/utils"
+import { PrimaryNavigation } from "./primary-navigation"
+import { ConversationHistory } from "./conversation-history"
+import { UserMenu } from "./user-menu"
+import type { HomeData } from "./home-types"
 
-type Props = {
+export type HomeSidebarProps = {
+  data: Pick<HomeData, "conversations" | "workspaces">
+  collapsed?: boolean
   onClose: () => void
-  onNew: () => void
+  onNew: (workspaceId?: string) => void
+  onSearch: () => void
   onNotice: (message: string) => void
 }
-export function HomeSidebar({ onClose, onNew, onNotice }: Props) {
-  const [query, setQuery] = useState("")
-  const [collapsed, setCollapsed] = useState<string[]>([])
-  const { setTheme } = useTheme()
-  const matches = conversations.filter((item) =>
-    item.title.toLowerCase().includes(query.trim().toLowerCase())
-  )
+export function HomeSidebar({
+  data,
+  collapsed = false,
+  onClose,
+  onNew,
+  onSearch,
+  onNotice,
+}: HomeSidebarProps) {
   return (
-    <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
-      <div className="flex h-16 items-center justify-between px-4">
-        <div className="flex items-center gap-2.5">
-          <img src="/moon.png" alt="" className="size-7 rounded-lg" />
-          <span className="text-lg font-semibold tracking-tight">Moon</span>
-        </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="收起侧栏"
-          onClick={onClose}
-        >
-          <PanelLeftClose />
-        </Button>
-      </div>
-      <nav aria-label="主导航" className="flex flex-col gap-1 px-3">
-        <Button variant="secondary" className="justify-start" onClick={onNew}>
-          <Plus data-icon="inline-start" />
-          新建会话
-        </Button>
-        <Button
-          variant="ghost"
-          className="justify-start"
-          onClick={() => onNotice("插件页面尚未实现，本次仅展示首页。")}
-        >
-          <Puzzle data-icon="inline-start" />
-          插件
-        </Button>
-        <Button
-          variant="ghost"
-          className="justify-start"
-          onClick={() => onNotice("定时任务页面尚未实现，本次仅展示首页。")}
-        >
-          <Clock3 data-icon="inline-start" />
-          定时任务
-        </Button>
-      </nav>
-      <div className="px-3 pt-6 pb-4">
-        <InputGroup className="bg-background/60">
-          <InputGroupInput
-            aria-label="搜索会话"
-            placeholder="搜索会话"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-          <InputGroupAddon>
-            <Search />
-          </InputGroupAddon>
-        </InputGroup>
-      </div>
-      <nav
-        aria-label="历史会话"
-        className="min-h-0 flex-1 overflow-y-auto px-3"
-      >
-        <p className="mb-3 px-2 text-xs text-muted-foreground">最近会话</p>
-        {workspaces.map((workspace) => {
-          const items = matches.filter(
-            (item) => item.workspaceId === workspace.id
-          )
-          if (!items.length) return null
-          const expanded = !!query.trim() || !collapsed.includes(workspace.id)
-          return (
-            <section key={workspace.id} className="mb-5">
-              <Button
-                variant="ghost"
-                className="w-full justify-start text-muted-foreground"
-                aria-expanded={expanded}
-                onClick={() =>
-                  setCollapsed((current) =>
-                    current.includes(workspace.id)
-                      ? current.filter((id) => id !== workspace.id)
-                      : [...current, workspace.id]
-                  )
-                }
-              >
-                <Folder data-icon="inline-start" />
-                <span className="flex-1 text-left">{workspace.name}</span>
-                <ChevronDown className={expanded ? "" : "-rotate-90"} />
-              </Button>
-              {expanded && (
-                <ul className="mt-1 flex flex-col gap-1">
-                  {items.map((item) => (
-                    <li key={item.id}>
-                      <Button
-                        variant="ghost"
-                        className="h-auto w-full justify-start py-2 pl-8 font-normal"
-                        title={item.title}
-                        onClick={() =>
-                          onNotice(
-                            `“${item.title}”是模拟历史记录，对话页面尚未实现。`
-                          )
-                        }
-                      >
-                        <span className="truncate">{item.title}</span>
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          )
-        })}
-        {!matches.length && (
-          <p className="px-2 py-6 text-sm text-muted-foreground">
-            没有找到匹配的会话
-          </p>
+    <div
+      className={cn(
+        "flex h-full flex-col bg-sidebar text-sidebar-foreground",
+        collapsed ? "px-2.5 pt-[18px] pb-1.5" : "px-3 py-1.5"
+      )}
+    >
+      <div
+        className={cn(
+          "mb-2 flex shrink-0 items-center justify-between",
+          collapsed ? "h-9" : "h-[60px]"
         )}
-      </nav>
-      <div className="border-t p-3">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="h-12 w-full justify-start">
-              <UserRound data-icon="inline-start" />
-              <span className="flex-1 text-left">本地用户</span>
-              <Settings2 />
+      >
+        {collapsed ? (
+          <Button
+            variant="ghost"
+            size="icon-lg"
+            className="group rounded-xl"
+            aria-label="展开侧栏"
+            title="展开侧栏 (Ctrl+B)"
+            onClick={onClose}
+          >
+            <PanelLeft className="size-[18px]" />
+          </Button>
+        ) : (
+          <>
+            <div className="flex items-center gap-2 px-2">
+              <span className="text-lg font-semibold">moon</span>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="rounded-full"
+              aria-label="收起侧栏"
+              title="收起侧栏 (Ctrl+B)"
+              onClick={onClose}
+            >
+              <PanelLeft className="size-4" />
             </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-56">
-            <DropdownMenuLabel>本地工作空间</DropdownMenuLabel>
-            <DropdownMenuGroup>
-              <DropdownMenuItem
-                onSelect={() => onNotice("设置页面尚未实现；可在此切换外观。")}
-              >
-                设置
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              {(
-                [
-                  ["light", "浅色外观"],
-                  ["dark", "深色外观"],
-                  ["system", "跟随系统"],
-                ] as const
-              ).map(([value, label]) => (
-                <DropdownMenuItem key={value} onSelect={() => setTheme(value)}>
-                  {label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
+          </>
+        )}
       </div>
+      <PrimaryNavigation
+        collapsed={collapsed}
+        onNew={() => onNew()}
+        onPlugins={() => onNotice("插件页面尚未实现，本次仅展示首页。")}
+        onScheduled={() => onNotice("定时任务页面尚未实现，本次仅展示首页。")}
+      />
+      {collapsed ? (
+        <div className="mt-3 flex flex-col gap-1">
+          <Button
+            variant="ghost"
+            size="icon-lg"
+            className="rounded-xl"
+            aria-label="展开工作区"
+            title="工作区"
+            onClick={onClose}
+          >
+            <FolderOpen />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-lg"
+            className="rounded-xl"
+            aria-label="搜索会话"
+            title="搜索会话 (Ctrl+K)"
+            onClick={onSearch}
+          >
+            <Search className={collapsed ? "size-[18px]" : "size-3.5"} />
+          </Button>
+        </div>
+      ) : (
+        <>
+          <div className="mt-3 flex h-8 shrink-0 items-center justify-between px-2">
+            <h2 className="text-xs text-muted-foreground">工作区</h2>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="搜索会话"
+              title="搜索会话 (Ctrl+K)"
+              onClick={onSearch}
+            >
+              <Search className={collapsed ? "size-[18px]" : "size-3.5"} />
+            </Button>
+          </div>
+          <ConversationHistory
+            data={data}
+            onNew={onNew}
+            onSelect={(item) =>
+              onNotice(`“${item.title}”是模拟历史记录，对话页面尚未实现。`)
+            }
+          />
+          <div className="mt-2 shrink-0 border-t pt-2">
+            <UserMenu
+              onSettings={() => onNotice("设置页面尚未实现；可在此切换外观。")}
+            />
+          </div>
+        </>
+      )}
     </div>
   )
 }

@@ -1,0 +1,293 @@
+---
+version: alpha
+name: Moon
+description: Moon 界面的色彩、文字、图标、布局与交互状态规范。
+colors:
+  background: "#f8f9fb"
+  foreground: "#17202f"
+  popover: "#ffffff"
+  popover-foreground: "#17202f"
+  primary: "#4176e6"
+  primary-strong: "#3568d4"
+  primary-foreground: "#ffffff"
+  secondary: "#e9edf4"
+  secondary-foreground: "#2a3343"
+  muted: "#e9edf4"
+  muted-foreground: "#5b6574"
+  accent: "#e9eef7"
+  accent-foreground: "#2a3343"
+  destructive: "oklch(0.577 0.245 27.325)"
+  sidebar: "#f9fafb"
+  sidebar-foreground: "#17202f"
+typography:
+  headline:
+    fontFamily: "'Source Han Sans SC', sans-serif"
+    fontSize: 26px
+    fontWeight: 500
+    lineHeight: 32px
+  title-lg:
+    fontFamily: "'Source Han Sans SC', sans-serif"
+    fontSize: 24px
+    fontWeight: 600
+    lineHeight: 1.4
+  title-md:
+    fontFamily: "'Source Han Sans SC', sans-serif"
+    fontSize: 16px
+    fontWeight: 600
+    lineHeight: 24px
+  body:
+    fontFamily: "'Source Han Sans SC', sans-serif"
+    fontSize: 14px
+    fontWeight: 400
+    lineHeight: 21px
+  caption:
+    fontFamily: "'Source Han Sans SC', sans-serif"
+    fontSize: 12px
+    fontWeight: 400
+    lineHeight: 1.7
+rounded:
+  sm: 4px
+  md: 6px
+  lg: 8px
+  xl: 12px
+  composer: 16px
+  dialog: 24px
+  full: 9999px
+spacing:
+  unit: 4px
+  xs: 4px
+  sm: 8px
+  md: 16px
+  lg: 24px
+  xl: 32px
+  control-height: 32px
+components:
+  surface:
+    backgroundColor: '{colors.background}'
+    textColor: '{colors.foreground}'
+    typography: '{typography.body}'
+  sidebar:
+    backgroundColor: '{colors.sidebar}'
+    textColor: '{colors.sidebar-foreground}'
+  description:
+    textColor: '{colors.muted-foreground}'
+    typography: '{typography.caption}'
+  button-primary:
+    backgroundColor: '{colors.primary-strong}'
+    textColor: '{colors.primary-foreground}'
+    rounded: '{rounded.lg}'
+    height: 32px
+  button-primary-hover:
+    backgroundColor: 'color-mix(in oklab, #3568d4 90%, transparent)'
+  button-outline:
+    backgroundColor: '{colors.background}'
+    textColor: '{colors.foreground}'
+    rounded: '{rounded.lg}'
+    height: 32px
+  button-ghost-hover:
+    backgroundColor: '{colors.muted}'
+    textColor: '{colors.foreground}'
+  button-destructive:
+    textColor: '{colors.destructive}'
+  input-field:
+    textColor: '{colors.foreground}'
+    rounded: '{rounded.lg}'
+    height: 32px
+  menu-item-focus:
+    backgroundColor: '{colors.accent}'
+    textColor: '{colors.accent-foreground}'
+    rounded: '{rounded.md}'
+  selected-item:
+    backgroundColor: '{colors.secondary}'
+    textColor: '{colors.secondary-foreground}'
+  popover:
+    backgroundColor: '{colors.popover}'
+    textColor: '{colors.popover-foreground}'
+    rounded: '{rounded.lg}'
+  dialog:
+    backgroundColor: '{colors.popover}'
+    textColor: '{colors.popover-foreground}'
+    rounded: '{rounded.xl}'
+    padding: 16px
+  composer:
+    backgroundColor: '{colors.popover}'
+    rounded: '{rounded.composer}'
+  material-chip:
+    backgroundColor: '{colors.secondary}'
+    textColor: '{colors.secondary-foreground}'
+    rounded: '{rounded.full}'
+---
+
+## Overview
+
+本规范定义 Moon 页面与组件共用的视觉语言。上方 token 记录浅色主题默认值；深色主题的替换值和配置入口见 Customization。字体、图标、状态表达和尺寸规则在两种主题中保持一致。
+
+- **可辨认的状态。** 悬停、选中、展开、焦点和禁用分别表达；展开目录不等于选中目录，焦点不等于当前项目。
+- **清楚的阅读层级。** 正文、操作标签与辅助说明使用固定文字角色；标题靠字号和字重区分，状态不只靠颜色表达。
+- **可复用的尺寸。** 同类控件采用相同高度、圆角与图标尺寸；组件组合通过间距建立归属，不逐个页面另造控件样式。
+
+## Colors
+
+主题强调色为 **action-blue `#4176e6`**，沿用原型的主动作、勾选、标签指示线与焦点色；深色对应 `#6c9aef`。空白工作台使用冷灰 `#f8f9fb`，输入卡和浮层使用白色，侧栏使用原型 DSH 导航底色 `#f9fafb`。色彩分为内容、表面、操作与状态四类。`primary` 是操作强调色，`secondary` 是低强调选择面，二者不承担成功或错误语义。
+
+| 角色 | Token | 使用规则 |
+|---|---|---|
+| 内容底面 | background / foreground | 页面画布底色及正文；输入卡另用 card / card-foreground |
+| 导航底面 | sidebar / sidebar-foreground | 导航区域；不因展开分组而整组着色 |
+| 浮层 | popover / popover-foreground | 菜单、选择列表和对话框；浮层独立于下层内容 |
+| 辅助内容 | muted / muted-foreground | 弱化表面和补充说明；关键操作名称仍需可读 |
+| 主操作 | primary / primary-foreground | 同一操作组内的主要动作，前景和背景成对使用 |
+| 选中 | secondary / secondary-foreground | 已选项目；同时提供选中语义或标记 |
+| 悬停与键盘定位 | accent / accent-foreground | 菜单项焦点；不代替持久选中标记 |
+| 边界 | border / input | 容器分隔与输入控件边界，默认 1px |
+| 焦点 | ring | 键盘焦点轮廓，沿用控件的 3px、50% 透明度外环 |
+| 错误或危险 | destructive | 同时配合文字、图标或无效状态，不能仅改文字颜色 |
+
+边框与焦点值在 Customization 表中按 CSS token 记录；YAML 组件字段没有 borderColor，因此不把边框伪装成背景属性。
+
+`primary-strong` 采用原型的深一级蓝色 `#3568d4`，用于带文字的实心按钮；这是为修正原型 `#4176e6` 配白色小字仅 4.23:1 的对比度。发送箭头、焦点、勾选仍沿用 `primary`，不改变主题色。
+
+引用语义变量，不在页面中写白色、黑色或主题灰值。hover 使用对应变体的混色规则，disabled 使用控件自身的透明度，不另建一套灰色色板。
+
+## Typography
+
+**字体统一使用本地思源黑体（Source Han Sans SC）**，包括中文、拉丁字母、数字、控件、文档及代码展示。字体文件为 Adobe 发布的 2.005 可变 WOFF2；使用 250–900 字重轴，界面主要使用 400、500 和 600。正常显示不依赖用户系统安装字体，也不向字体 CDN 发请求。
+
+| 角色 | 字号 / 字重 / 行高 | 使用范围 |
+|---|---|---|
+| headline | 26px / 500 / 32px | 页面主标题 |
+| title-lg | 24px / 600 / 1.4 | 文档或大区块标题 |
+| title-md | 16px / 600 / 24px | 区块标题；侧栏品牌使用 18px / 600 / 24px |
+| body | 14px / 400 / 21px | 正文、选择项和常规说明 |
+| caption | 12px / 400 / 1.7 | 补充说明、来源、预期行为 |
+
+操作标签可用 500 字重；相邻同级标签保持一致。小尺寸基础控件保留其尺寸变体：`sm` Button 的 12.8px、`xs` 的 12px；目录和会话行使用 13px。文档参数、路径和源码可在 11–13px 范围内降低密度，但不换另一套字体。
+
+长标题单行截断时保留完整名称的可访问入口；说明与路径允许换行；源码长行在代码区滚动。不要通过逐项缩小字号解决内容过长。
+
+字体定义位于 `src/index.css` 的 `@font-face`，`--font-sans`、`--font-heading` 和 `--font-mono` 共用该字体。资源和许可证位于 `public/fonts/source-han-sans/`；三个 HTML 入口预加载同一文件。
+
+## Layout
+
+间距以 4px 为基础，组内使用 4–8px，内容块使用 16px，章节使用 24–32px。按钮、选择器和单行输入的常规高度统一为 32px；紧凑变体为 24px 或 28px。既有基础控件的图标与边框补偿间距保留在控件内部，不扩散为页面间距规则。
+
+容器边缘、文本起点和同行操作共用对齐线。标签靠近其控制对象，反馈靠近触发区域。可滚动区域只承担自己的内容，不用多层固定高度制造空白。
+
+首页继承原型工作台的具体尺寸：
+
+| 区域 | 尺寸与行为 |
+|---|---|
+| 桌面侧栏 | 默认 280px，允许 240–360px 调整；收起后保留 56px 图标列 |
+| 品牌 / 主导航 | 品牌区 60px；新建会话 38px；导航行 36px；工作区标题 32px |
+| 工作输入区 | `min(calc(100% - 64px), 880px)`，垂直居中，底部留 32px；标题下 12px |
+| 目录入口 | 卡片外左对齐，高 28px；与输入卡间隔 12px |
+| 输入卡 | 16px 圆角，文本至少 52px，正文 15px/24px；工具栏为材料 / 模型与思考 / 配置 / 发送 |
+| 模型面板 | 240px 宽；根项 40px，选项 38px；两级面板，选择立即关闭；尾部 Check 表达选中，不使用圆形单选外观 |
+| 会话配置 | 600px × 500px，上限 `100dvh - 32px`；24px 圆角和内容轴；底栏 16px × 24px，按钮宽 72px |
+| 指令选择 | 连续三行，最小 56px；组圆角 14px，行间细分隔 |
+| 窄屏 | 小于 768px 使用导航抽屉，输入区左右各 16px；工具栏小于 384px 时配置保留图标与可访问名称；长模型名截断 |
+| 短屏 | 高度不大于 600px，输入区顶留 72px，纵向滚动保留全部操作 |
+
+页面不新增顶栏、副标题或常驻演示说明；模拟反馈只在触发对应操作后显示。文档多栏在窄屏切换面板，不缩放整张页面。
+
+## Elevation & Depth
+
+层级优先用表面颜色与 1px 边界表达。输入组合使用 `shadow-sm`：`0 1px 3px 0 rgb(0 0 0 / 10%), 0 1px 2px -1px rgb(0 0 0 / 10%)`。菜单和选择列表使用 `shadow-md`：`0 4px 6px -1px rgb(0 0 0 / 10%), 0 2px 4px -2px rgb(0 0 0 / 10%)`。
+
+对话框使用 `popover` 表面、`foreground/10` 的 1px 外环和 `black/30` 遮罩。浮层定位、层级和焦点管理由基础组件负责，页面不另设随意的遮罩或 z-index。
+
+普通状态过渡沿用 150ms；菜单、选择列表和对话框进入/离开使用 100ms。减少动态效果开启时将动画和过渡降至 0.01ms，并取消平滑滚动。动效不作为状态的唯一提示。
+
+## Shapes
+
+基础圆角 `--radius` 为 8px；尺寸 token 明确定义为 4 / 6 / 8 / 12 / 16 / 24 / 32px，对应 sm / md / lg / xl / 2xl / 3xl / 4xl：
+
+- 常规控件使用 8px；导航行与模型面板使用 12px。
+- 菜单项和紧凑控件使用 6px；小尺寸变体按自身定义处理。
+- 通用对话框使用 12px；首页会话配置使用 24px，输入组合使用 16px。
+- `full` 用于圆形图标动作和材料 Badge，不给普通矩形控件统一加胶囊外观。
+
+## Components
+
+以下约定描述组件外观与状态。参数、事件和实际状态入口由[组件库](http://127.0.0.1:5173/ui-catalog/)维护。
+
+| 组件 | 默认外观 | 状态规则 |
+|---|---|---|
+| Button default | primary-strong 填充、成对前景、32px 高、8px 圆角 | hover 使用 primary-strong/90；普通按钮按下位移 1px；disabled 透明度 50%，不可触发 |
+| Button send | primary 填充、圆形图标动作 | 仅用于图标，使用可访问名称；悬停 primary-strong，禁用透明度 50% |
+| Button outline | 内容底面、border 边界、正文色 | hover 或展开使用 muted；深色边界和表面按基础变体处理 |
+| Button ghost | 透明表面 | hover 或展开使用 muted；目录分组用 section 变体，只在 hover 强调 |
+| 输入框 | input 边界、32px 高、8px 圆角 | focus 使用 ring 边界和外环；无效状态有 destructive 边界及可读说明 |
+| Select | 与输入框共享尺寸和边界 | 选中项使用 Check；工具栏 ghost 变体隐藏常态边界；禁用不展开 |
+| 输入组合 | card 底面、16px 圆角、轻阴影 | 文本、材料和工具栏共享容器；发送可用性由输入状态决定 |
+| 菜单 | popover 表面、8px 圆角、浮层阴影 | 项目焦点使用 accent；持久选择使用 Check 或单选语义 |
+| Dialog | popover 表面、12px 圆角、16px 内边距；会话配置按上表覆盖 | 提供标题、关闭动作和焦点回归；Escape 行为由基础组件处理 |
+| 模型与思考 | 同一胶囊入口，模型名 + 思考强度 | 根菜单选择分类，返回或 Esc 退一级；选择值立即回写并关闭 |
+| 会话配置 | 工具和项目指令两个页签 | 暂存候选值；取消丢弃，应用后回写；未更改时应用禁用 |
+| 工具列表 | 搜索、来源组、勾选与详情 | 全选/全不选作用于来源全组；过滤时显示作用范围提示，过滤不清除选择；详情在行下方全宽展开 |
+| Badge | 紧凑分类标签、20px 高、12px 字号 | 材料有类型图标、名称和独立移除动作；不只用颜色区分类型 |
+| 分组与导航 | 文字、图标和统一起点 | ChevronRight/ChevronDown 表达展开；当前项目另有选中语义，展开不等于选中 |
+
+## Do's and Don'ts
+
+- 使用同一套语义 token，前景与背景成对引用；不按页面另造相同语义的色值。
+- 保留 hover、focus、selected、expanded、disabled 各自的语义，不混用一种背景代替所有状态。
+- 图标有文字时作为辅助；只有图标的按钮必须有可访问名称。
+- 所有文字使用本地思源黑体；不要在局部引入其他字体或仅依赖系统已安装字体。
+- 不用 Emoji、字符箭头、图标字体或手绘路径替代 Lucide 图标。
+- 修改共享样式时同步检查正式页面与组件展示；不能把尚未认可的页面排布写成全局设计规则。
+
+## Customization
+
+主题入口为 `src/index.css` 的 `:root` 与 `.dark`。Tailwind 的 `@theme inline` 将这些 CSS 变量映射到 `bg-*`、`text-*`、`border-*` 等语义工具类；`ThemeProvider` 负责浅色、深色与跟随系统。深色替换如下，文字级差、尺寸和图标规则不变；`color-scheme` 同步为 light / dark，使原生滚动条与主题一致：
+
+| Token | 浅色 | 深色 |
+|---|---|---|
+| background | `#f8f9fb` | `#12151d` |
+| foreground | `#17202f` | `#edf0f5` |
+| card | `#ffffff` | `#1a1e28` |
+| card-foreground | `#17202f` | `#edf0f5` |
+| popover | `#ffffff` | `#1a1e28` |
+| popover-foreground | `#17202f` | `#edf0f5` |
+| primary | `#4176e6` | `#6c9aef` |
+| primary-strong | `#3568d4` | `#6c9aef` |
+| primary-foreground | `#ffffff` | `#0b1220` |
+| secondary | `#e9edf4` | `#232935` |
+| secondary-foreground | `#2a3343` | `#edf0f5` |
+| muted | `#e9edf4` | `#232935` |
+| muted-foreground | `#5b6574` | `#9aa4b3` |
+| accent | `#e9eef7` | `#232935` |
+| accent-foreground | `#2a3343` | `#edf0f5` |
+| destructive | `oklch(0.577 0.245 27.325)` | `oklch(0.704 0.191 22.216)` |
+| border | `#e3e8f0` | `rgb(255 255 255 / 9%)` |
+| input | `#e3e8f0` | `rgb(255 255 255 / 15%)` |
+| ring | `#4176e6` | `#6c9aef` |
+| sidebar | `#f9fafb` | `#171b26` |
+| sidebar-foreground | `#17202f` | `#edf0f5` |
+| sidebar-primary | `#4176e6` | `#6c9aef` |
+| sidebar-primary-foreground | `#ffffff` | `#0b1220` |
+| sidebar-accent | `#e6eefc` | `#232c3d` |
+| sidebar-accent-foreground | `#2c56b8` | `#a8c3f7` |
+| sidebar-border | `#e3e8f0` | `rgb(255 255 255 / 9%)` |
+| sidebar-ring | `#4176e6` | `#6c9aef` |
+
+调整全局外观时先修改主题变量，再同步本文件中的值。组件专属规则在基础组件的变体中调整，避免页面重复覆盖。展示 iframe 使用相同样式入口和独立主题状态，不改变正式页面的主题偏好。
+
+## Icons
+
+唯一图标库为 [Lucide](https://github.com/lucide-icons/lucide)，React 页面从 `lucide-react` 按名称导入。使用官方 24 × 24 viewBox、2 单位线宽、圆头与圆角连接，默认无填充，颜色继承当前文字色。
+
+常规操作图标 16px；紧凑按钮与树导航 12–14px；侧栏搜索为 14px，导航为 16px，收起后的图标列为 18px；侧栏品牌仅显示小写 moon，不配图标；侧栏开关使用无箭头的 PanelLeft。同一操作上下文采用同一尺寸，不单独调整图形路径或线宽。图标与标签间距 4–8px。折叠箭头可旋转表达状态；装饰图标设 `aria-hidden`，操作名称写在按钮或链接上。
+
+首页、组件库和基础组件都使用这一来源。网页图标 `public/moon.svg` 由已安装 Lucide 的 Moon 导出，桌面图标由 Tauri CLI 从同一 SVG 生成；授权文本随 `public/lucide-LICENSE.txt` 保留。
+
+结构参考：[Ant Design design.md](https://ant.design/design.md)。
+
+
+### 首页展开界面的具体规则
+
+- 搜索会话：宽度640px、圆角16px，最大高度680px；标题18px，说明13px，输入40px；结果计数11px，名称14px、路径12px、时间11px。结果无前置消息图标，右侧 ChevronRight；查询匹配用 primary 的20%透明度背景。输入保留焦点，方向键定位、Enter选择，每次打开清空查询。
+- 账户菜单：224px宽、12px圆角；设置行含 Settings，主题含 Sun / Moon / Monitor，选中使用尾部 Check。移除无操作的账户区说明。
+- 目录菜单：220px宽、24px圆角、40px行；名称单行、路径放在title，底部“添加工作区…”；目录浏览弹窗680×500px、24px圆角，路径编辑与底部确认独立于滚动区域。
+- 材料候选：锚定整个输入卡，向上间隔4px、同宽、16px圆角，列表最大320px并受可用高度限制；分组标题12px，候选40px，左图标16px、名称14px、右描述12px。引用资源进入搜索子面板，保持同一锚点；模板只填入草稿，文件仅保存前端元数据。
+- 会话配置：标题区顶部18px，标签36px且下划线贴底；有未应用修改的标签显示5px主色圆点。工具行内距8px、复选框16px、名称13px/20px、说明12px/18px；详情在行下方，用左边界与来源/工具名元数据建立层次。配置取消不回写，应用才更新草稿。
