@@ -291,7 +291,7 @@ components:
 
 常规操作图标 16px；紧凑按钮与树导航 12–14px；侧栏搜索为 14px，导航为 16px，收起后的图标列为 18px；侧栏品牌仅显示小写 moon，不配图标；侧栏开关使用无箭头的 PanelLeft。同一操作上下文采用同一尺寸，不单独调整图形路径或线宽。图标与标签间距 4–8px。折叠箭头可旋转表达状态；装饰图标设 `aria-hidden`，操作名称写在按钮或链接上。
 
-首页、组件库和基础组件都使用这一来源。网页图标 `public/moon.svg` 由已安装 Lucide 的 Moon 导出，桌面图标由 Tauri CLI 从同一 SVG 生成；授权文本随 `public/lucide-LICENSE.txt` 保留。
+首页、组件库和基础组件的操作图标都使用这一来源。应用品牌独立设计：`public/moon.svg` 为蓝色圆角方形上的白色实心月牙，蓝色使用 primary `#4176e6`。1024px 画布四周48px透明留白，底板928px、圆角240px；月牙右上开口，不加文字、星点或细描边，保证16px识别。浅深主题共用同一品牌资产，侧栏仍只显示 moon 文字。网页与桌面共用此SVG，桌面PNG/ICO/ICNS由Tauri官方CLI生成；品牌不使用Lucide字形。
 
 结构参考：[Ant Design design.md](https://ant.design/design.md)。
 

@@ -186,7 +186,7 @@ cargo check --manifest-path src-tauri/Cargo.toml --locked
 
 从现有调用关系看，React 负责页面，Rust 负责桌面运行入口，两者通过 Tauri 的开发地址和构建产物配置连接。修改页面从 `src/App.tsx` 开始；基础控件位于 `src/components/ui/`，通用组合组件位于 `src/components/`。原生能力在 `src-tauri/src/` 实现，所需权限在 `capabilities/` 配置。首页代码位于 `src/features/home/`：app-shell 负责共享布局，home-sidebar 负责导航，home-composer 负责输入与提交，mock-data 集中维护演示数据。会话状态集中在 `use-conversations.ts`，模拟历史和回复位于 `mock-conversations.ts`；展示组件通过参数接收消息和草稿，不访问后端。消息滚动使用官方 MessageScroller，Markdown 使用 react-markdown 与 remark-gfm，不启用原始 HTML。
 
-`public/moon.svg` 从 `lucide-react` 的 Moon 导出，`src-tauri/icons/` 保存平台输出，便于用 `pnpm tauri icon public/moon.svg` 重新生成。图标许可见 `public/lucide-LICENSE.txt`。该命令也会生成移动端图标，当前仅保留桌面所需资源。
+`public/moon.svg` 是 Moon 原创品牌源图：主题蓝底板和白色实心月牙。`src-tauri/icons/` 保存通过官方 `pnpm tauri icon public/moon.svg` 生成的桌面资源；网页、标题栏、任务栏与托盘共用这一标识。应用内操作图标继续使用 Lucide。当前仅保留桌面所需输出。
 
 本地 `.agents/`、`AGENTS.md` 和 `.dev/` 不提交；本轮跟踪保存在 `.dev/backend-implement/task.md` 与 `.dev/needskill/task.md`。`.git/` 是版本元数据。`node_modules/` 是安装依赖，`dist/`、`src-tauri/target/`、`src-tauri/gen/schemas/` 是构建产物或生成缓存，不作为源码维护。
 
