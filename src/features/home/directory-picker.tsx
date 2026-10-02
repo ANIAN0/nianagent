@@ -17,12 +17,14 @@ import {
 } from "@/components/ui/dialog"
 import type { Workspace } from "./home-types"
 export type DirectoryPickerProps = {
+  allowCreate?: boolean
   open: boolean
   onOpenChange: (open: boolean) => void
   directories: Workspace[]
   onSelect: (directory: Workspace) => void
 }
 export function DirectoryPicker({
+  allowCreate = true,
   open,
   onOpenChange,
   directories,
@@ -60,7 +62,9 @@ export function DirectoryPicker({
       >
         <DialogTitle className="px-6 pt-5 text-base">选择工作目录</DialogTitle>
         <DialogDescription className="sr-only">
-          浏览示例目录；添加的工作区和文件夹只保存在当前页面，不读写磁盘。
+          {allowCreate
+            ? "浏览示例目录；添加的文件夹不读写磁盘。"
+            : "选择已添加的工作区，或编辑路径输入本机已有目录。"}
         </DialogDescription>
         <div className="flex min-h-12 items-center gap-2 border-b px-6 py-2">
           {editing ? (
@@ -124,7 +128,7 @@ export function DirectoryPicker({
           )}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-          {creating && (
+          {allowCreate && creating && (
             <form
               className="mb-2 flex gap-2 px-2"
               onSubmit={(event) => {
@@ -184,23 +188,27 @@ export function DirectoryPicker({
           ))}
           {!items.length && !creating && (
             <p className="py-12 text-center text-xs text-muted-foreground">
-              此示例目录下没有子文件夹
+              {allowCreate
+                ? "此示例目录下没有子文件夹"
+                : "可点击右上方编辑路径，输入本机已有目录。"}
             </p>
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2 border-t px-6 py-4">
-          <Button
-            variant="outline"
-            size="sm"
-            className="rounded-full"
-            onClick={() => {
-              setCreating(true)
-              setName("")
-            }}
-          >
-            <Plus className="size-3.5" />
-            新建文件夹
-          </Button>
+          {allowCreate && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-full"
+              onClick={() => {
+                setCreating(true)
+                setName("")
+              }}
+            >
+              <Plus className="size-3.5" />
+              新建文件夹
+            </Button>
+          )}
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
             <Checkbox
               checked={hidden}

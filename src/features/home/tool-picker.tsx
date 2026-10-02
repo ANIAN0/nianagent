@@ -27,7 +27,15 @@ export function ToolPicker({ tools, value, onChange }: ToolPickerProps) {
   function changeMany(ids: string[], checked: boolean) {
     onChange(
       checked
-        ? [...new Set([...value, ...ids])]
+        ? [
+            ...new Set([
+              ...value,
+              ...ids.filter(
+                (id) =>
+                  tools.find((tool) => tool.id === id)?.available !== false
+              ),
+            ]),
+          ]
         : value.filter((id) => !ids.includes(id))
     )
   }
@@ -74,6 +82,7 @@ export function ToolPicker({ tools, value, onChange }: ToolPickerProps) {
         )}
         {groups.map((group) => {
           const all = tools.filter((tool) => tool.group === group)
+          const available = all.filter((tool) => tool.available !== false)
           const selected = all.filter((tool) => value.includes(tool.id)).length
           return (
             <section
@@ -90,7 +99,9 @@ export function ToolPicker({ tools, value, onChange }: ToolPickerProps) {
                     type="button"
                     size="xs"
                     variant="ghost"
-                    disabled={selected === all.length}
+                    disabled={available.every((tool) =>
+                      value.includes(tool.id)
+                    )}
                     aria-label={`${group}全选`}
                     onClick={() =>
                       changeMany(
@@ -127,6 +138,9 @@ export function ToolPicker({ tools, value, onChange }: ToolPickerProps) {
                         <Checkbox
                           className="mt-1"
                           checked={value.includes(tool.id)}
+                          disabled={
+                            tool.available === false && !value.includes(tool.id)
+                          }
                           onCheckedChange={(checked) =>
                             changeMany([tool.id], checked === true)
                           }
@@ -138,6 +152,11 @@ export function ToolPicker({ tools, value, onChange }: ToolPickerProps) {
                           <span className="line-clamp-2 text-xs leading-[18px] text-muted-foreground">
                             {tool.description}
                           </span>
+                          {tool.available === false && (
+                            <span className="text-xs leading-[18px] text-destructive">
+                              {tool.unavailableReason || "当前环境不可用"}
+                            </span>
+                          )}
                         </span>
                       </label>
                       <Button

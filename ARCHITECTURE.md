@@ -30,7 +30,7 @@ Node.js >=22.19 是桌面及开发环境的运行前提。`backend/rpc.mjs` 运�
 
 ## 前端与其余功能
 
-`src/features/models/model-service.ts` 是正式适配器。组件库继续显式注入 mock service；真实模型页不使用示例密钥、固定账号或内置假连接。已保存可用模型进入首页和对话选择器，删除模型后保留旧选择但禁止发送，不自动替换。模型配置已接入后端，消息生成、会话历史与工具执行仍是原有前端模拟，本次没有接入真实 agent 会话。
+`src/features/models/model-service.ts` 是正式适配器。组件库继续显式注入 mock service；真实模型页不使用示例密钥、固定账号或内置假连接。已保存可用模型进入首页和对话选择器，删除模型后保留旧选择但禁止发送，不自动替换。模型配置已接入后端，消息生成、会话历史与工具执行仍是原有前端模拟，会话配置已绑定真实 Pi AgentSession；真实消息生成与工具执行尚未接入。
 
 
 ## 模型接口契约与目录匹配
@@ -55,6 +55,20 @@ Tauri启动时创建一个RPC子进程，并等待运行就绪握手。该进程
 
 stdin关闭会中止请求、关闭HTTP并删除本实例运行文件和锁；Rust退出先关闭stdin等待清理，超时再终止。源码版本检查要求后端更新后重启。目录锁与实例信息仅为运行数据，不改变连接文件。开发态可用MOON_DATA_DIR隔离桌面测试；浏览器代理通过MOON_RUNTIME_FILE指向该实例，生产桌面仍使用系统目录。
 
+
+## 会话配置模块
+
+`backend/sessions.mjs` 由现有 ModelService 持有并复用唯一 Tauri Node 宿主，通过同一契约派发 sessionCatalog、sessionRead、sessionApply，不新建服务或进程。`SessionService` 只依赖模型模块公开的 runtime() 创建无网络 ModelRuntime；可在尚无模型和密钥时配置工具与指令，不发起推理。实际聊天以后必须另行绑定用户选择的模型、思考等级与调用边界，不把无模型配置会话当成可直接生成的会话。
+
+Pi 拥有工具注册、活动工具集与系统提示构造。目录来自 getAllTools；选择经过业务校验后调用 setActiveToolsByName，再读取 getActiveToolNames 确认。只接入 Pi 内置工具，关闭扩展、Skill、主题与提示模板自动加载，内存 SettingsManager 不读取用户 Pi settings 或安装资源包。工具注册不等于执行环境可用：Bash/PowerShell 使用 Pi 公开解析器，grep/find 检查 Pi 缓存二进制与 PATH；缺依赖标记不可用且拒绝选中，不触发 SDK 自动下载。默认活动集过滤不可用项，读取已保存配置保留 toolIds/revision，未知或依赖失效项通过 unavailableToolIds 明确返回，真实 Pi 活动集只启用可用项；用户可取消失效项后应用恢复。保存用户选择仍严格拒绝不可用项，不静默更换。具体文件权限只在未来实际执行时判断。未知工具和重复项拒绝保存，不依赖 SDK 的静默忽略。
+
+指令使用 Pi loadProjectContextFiles 的文件优先级、全局以及从根到工作目录的发现规则。个人指令目录是模型数据目录下 agent（如 `%LOCALAPPDATA%/Moon/models/agent`），与 CLI ~/.pi 分离。all 保留全部，directory 排除个人指令，none 不注入项目指令而保留 Pi 系统提示。显式清空 loader 的 systemPromptOverride/appendSystemPromptOverride，避免 .pi/SYSTEM.md 等隐式覆盖逃逸指令范围与快照。每次应用读取实际指令并保存正文快照；普通读取恢复该快照，不因磁盘文件改变悄悄改变已生效配置。再次应用才更新文件内容。空 cwd 的目录查询显式返回宿主 process.cwd() 解析后的真实路径，仅供初始目录选择，不把虚构路径映射为真实路径；保存始终要求绝对存在目录，已保存会话不可换目录。
+
+数据保存在模型数据目录下 `session-config/sessions.json`，独立于模型凭据。revision 防止并发覆盖；跨进程锁内校验版本、创建候选 Pi 会话、原子提交工具和指令。Pi SessionManager 与 SettingsManager 均使用内存模式，避免 SDK 在事务外写盘。rename 为提交边界，提交前取消销毁候选并保留旧值；提交后取消不回滚，调用方重新读取确认。保存失败保留原会话。恢复构建并保留真实 Pi 配置会话，通过版本比较防止异步恢复覆盖新提交，再返回实际工具集，不扩展到消息历史持久化。正在执行的会话不允许更改配置；当前尚无真实生成入口。
+
+`/api-catalog/` 按契约的模块字段分组展示模型配置和会话配置，统一类型生成及真实传输。会话配置内容与工作目录可能含本地项目数据，沿用本机宿主鉴权，不向外部发送。
+
+当前 Pi 对象是配置专用会话，尚无消息历史；应用时构建候选后替换不会丢失正式聊天内容。后续真实聊天接入必须在同一个业务会话上更新工具/资源并维护历史，不能继续用本次配置专用重建方式替换包含消息的会话。
 
 
 ## 桌面窗口生命周期

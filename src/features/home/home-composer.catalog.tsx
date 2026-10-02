@@ -13,7 +13,7 @@ export default {
   inputs: [
     "data: workspaces/models/materials/tools 可选资源。",
     "initialDraft?: Partial<HomeDraft>，初始需求、材料、模型和工具配置。",
-    "onSubmit: SubmitWork，同步提交并返回反馈文字。",
+    "onSubmit: SubmitWork，支持异步提交与AbortSignal，保存配置成功后进入会话，失败保留草稿。",
   ],
   events: [
     "提交仅在非空需求、有效目录及模型时触发；Enter 发送、Shift+Enter 换行，输入法组合阶段不提交。",

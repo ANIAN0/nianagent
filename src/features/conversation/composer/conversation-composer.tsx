@@ -16,6 +16,7 @@ import { ConversationSendControl } from "./conversation-send-control"
 import { ContextUsage, type ContextUsageProps } from "./context-usage"
 
 export type ConversationComposerProps = {
+  sessionId?: string
   data: Pick<
     HomeData,
     | "models"
@@ -37,6 +38,7 @@ export type ConversationComposerProps = {
   onStop: () => void
 }
 export function ConversationComposer({
+  sessionId,
   data,
   draft: rawDraft,
   workspacePath,
@@ -166,7 +168,9 @@ export function ConversationComposer({
                   onThinkingChange={(thinking) => change({ thinking })}
                 />
                 <SessionConfig
-                                      tools={data.tools}
+                  key={`${sessionId}:${workspacePath}`}
+                  sessionId={sessionId}
+                  tools={data.tools}
                   value={draft.session}
                   workspacePath={workspacePath}
                   onChange={(session) => change({ session })}

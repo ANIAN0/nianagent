@@ -3,6 +3,7 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent"
 import { ModelStore, memoryCredentials } from "./store.mjs"
 import { AuthorizationJobs } from "./oauth.mjs"
 import { dispatchOperation, assertSchema, schemas } from "./contract.mjs"
+import { SessionService } from "./sessions.mjs"
 import { matchModel } from "./model-metadata.mjs"
 
 const apis = ["openai-responses", "openai-completions", "anthropic-messages"]
@@ -144,6 +145,7 @@ export class ModelService {
   constructor(directory) {
     this.store = new ModelStore(directory)
     this.jobs = new AuthorizationJobs(this)
+    this.sessions = new SessionService(directory, this)
   }
   async initialize() {
     await this.store.initialize()
@@ -524,6 +526,7 @@ export class ModelService {
 
   close() {
     this.jobs.close()
+    this.sessions.close()
   }
 }
 function pickModel(model) {

@@ -23,6 +23,56 @@ export const object = (
 export const ref = (name) => ({ $ref: name })
 const levels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
 export const schemas = {
+  InstructionScope: enumeration(
+    ["all", "directory", "none"],
+    "项目指令加载范围，不影响应用系统指令。",
+  ),
+  SessionTool: object({
+    id: string("Pi 注册工具名"),
+    name: string("工具名称"),
+    description: string("Pi 工具描述"),
+    group: string("工具来源"),
+    detail: string("工具完整说明"),
+    available: boolean("注册且本机依赖已找到；具体文件权限在执行时判断"),
+    unavailableReason: string("依赖缺失原因；可用时为空"),
+  }),
+  SessionInstruction: object({
+    path: string("实际指令文件绝对路径"),
+    source: enumeration(
+      ["global", "directory"],
+      "Moon 个人指令或工作目录链指令",
+    ),
+    content: string("本次实际加载的指令内容"),
+  }),
+  SessionConfiguration: object({
+    sessionId: string("会话稳定标识"),
+    cwd: string("会话工作目录"),
+    revision: integer("配置乐观并发版本"),
+    toolIds: array(string("已选择工具名"), "保存的工具选择"),
+    effectiveToolIds: array(
+      string("Pi 活动工具名"),
+      "从真实 Pi 会话读回的生效集合",
+    ),
+    unavailableToolIds: array(
+      string("失效工具名"),
+      "只读；保存但未知或本机依赖失效的工具，可取消后重新应用",
+    ),
+    instructionScope: ref("InstructionScope"),
+    instructions: array(ref("SessionInstruction"), "已提交的有效指令快照"),
+  }),
+  SessionCatalog: object({
+    cwd: string("解析后的真实工作目录"),
+    tools: array(ref("SessionTool"), "本宿主实际注册的 Pi 内置工具"),
+    instructions: array(
+      ref("SessionInstruction"),
+      "当前目录发现的所有指令；应用按范围选择",
+    ),
+    defaults: object({
+      toolIds: array(string("Pi 默认活动工具名"), "默认活动集"),
+      instructionScope: ref("InstructionScope"),
+    }),
+  }),
+
   DirectoryProtocol: enumeration(
     ["openai-completions", "anthropic-messages"],
     "模型目录协议；Responses 仅用于模型调用，不提供目录接口。",

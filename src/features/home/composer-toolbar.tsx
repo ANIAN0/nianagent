@@ -7,6 +7,7 @@ import { SendControl } from "./send-control"
 import type { HomeData, HomeDraft, Material } from "./home-types"
 
 export type ComposerToolbarProps = {
+  sessionId?: string
   data: Pick<
     HomeData,
     | "materials"
@@ -24,6 +25,7 @@ export type ComposerToolbarProps = {
   onAddMaterial: (material: Material) => void
 }
 export function ComposerToolbar({
+  sessionId,
   data,
   anchorRef,
   workspacePath = "",
@@ -58,6 +60,8 @@ export function ComposerToolbar({
         onThinkingChange={(thinking) => onChange({ thinking })}
       />
       <SessionConfig
+        key={`${sessionId}:${workspacePath}`}
+        sessionId={sessionId}
         tools={data.tools}
         value={draft.session}
         workspacePath={workspacePath}

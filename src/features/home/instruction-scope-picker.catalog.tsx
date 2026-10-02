@@ -12,6 +12,18 @@ function Example({ long = false }: { long?: boolean }) {
             ? "H:/workspace/projects/a-very-long-workspace-name/documentation/frontend/components"
             : "H:/workspace/moon"
         }
+        instructions={[
+          {
+            path: "H:/workspace/moon/AGENTS.md",
+            source: "directory",
+            content: "# 开发约定\n\n沿用已确认设计，完成后统一验证。",
+          },
+          {
+            path: "C:/Users/example/.moon/AGENTS.md",
+            source: "global",
+            content: "使用中文沟通。",
+          },
+        ]}
         value={value}
         onChange={setValue}
       />
@@ -28,10 +40,10 @@ export default {
   group: "会话配置",
   source: "src/features/home/instruction-scope-picker.tsx",
   description: "工作目录信息与连续三行加载范围单选。",
-  boundary: "路径和值受控；选择只生成模拟参数，不读取文件。",
-  inputs: ["workspacePath、value: all/directory/none。"],
+  boundary: "路径和值受控；展示服务返回的路径与只读正文；选择仅生成候选范围。",
+  inputs: ["workspacePath、value: all/directory/none、instructions来源记录。"],
   events: ["onChange(scope)。"],
-  composition: ["RadioGroup"],
+  composition: ["RadioGroup", "Collapsible"],
   consumers: ["SessionConfig"],
   viewport: { width: 560, height: 400 },
   states: [

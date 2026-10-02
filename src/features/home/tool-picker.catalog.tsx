@@ -7,7 +7,22 @@ function Example({ empty = false }: { empty?: boolean }) {
   return (
     <div className="flex h-dvh flex-col gap-3 p-6">
       <ToolPicker
-        tools={empty ? [] : homeData.tools}
+        tools={
+          empty
+            ? []
+            : [
+                ...homeData.tools,
+                {
+                  id: "missing-shell",
+                  name: "Bash",
+                  description: "运行本地命令",
+                  group: "Pi 内置工具",
+                  detail: "需安装Bash。",
+                  available: false,
+                  unavailableReason: "未找到 Bash 可执行文件",
+                },
+              ]
+        }
         value={value}
         onChange={setValue}
       />

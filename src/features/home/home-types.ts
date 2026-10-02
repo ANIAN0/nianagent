@@ -17,6 +17,8 @@ export type Material = {
   description?: string
 }
 export type HomeTool = {
+  available?: boolean
+  unavailableReason?: string
   id: string
   name: string
   description: string
@@ -40,6 +42,7 @@ export type HomeData = {
   tools: HomeTool[]
 }
 export type HomeDraft = {
+  sessionId?: string
   workspaceId: string
   text: string
   model: string
@@ -48,4 +51,7 @@ export type HomeDraft = {
   materials: Material[]
   session: SessionOptions
 }
-export type SubmitWork = (draft: HomeDraft) => string
+export type SubmitWork = (
+  draft: HomeDraft,
+  signal?: AbortSignal
+) => string | Promise<string>

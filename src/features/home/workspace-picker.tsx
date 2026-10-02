@@ -12,12 +12,14 @@ import {
 import { DirectoryPicker } from "./directory-picker"
 import type { Workspace } from "./home-types"
 export type WorkspacePickerProps = {
+  allowCreate?: boolean
   workspaces: Workspace[]
   value: string
   onChange: (id: string) => void
   onAdd?: (workspace: Workspace) => void
 }
 export function WorkspacePicker({
+  allowCreate = true,
   workspaces,
   value,
   onChange,
@@ -81,6 +83,7 @@ export function WorkspacePicker({
         </DropdownMenuContent>
       </DropdownMenu>
       <DirectoryPicker
+        allowCreate={allowCreate}
         open={adding}
         onOpenChange={setAdding}
         directories={options}

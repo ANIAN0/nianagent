@@ -24,7 +24,9 @@ export default {
   source: "src/features/home/workspace-picker.tsx",
   description: "紧凑目录菜单，单行名称与尾部勾选，底部添加工作区。",
   boundary: "受控选择；不读写文件系统。",
-  inputs: ["workspaces: Workspace[]；value: 工作目录 id。"],
+  inputs: [
+    "workspaces: Workspace[]；value: 工作目录 id；allowCreate=false 禁用目录弹窗的模拟新建。",
+  ],
   events: ["onChange(id)：更新草稿；onAdd(workspace)：向父级登记新目录。"],
   composition: ["Button", "DropdownMenu", "DirectoryPicker"],
   consumers: ["HomeComposer"],

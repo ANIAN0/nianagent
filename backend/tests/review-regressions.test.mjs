@@ -5,7 +5,9 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import lockfile from "proper-lockfile"
 import { ModelService } from "../models.mjs"
-import { createBridge } from "../bridge.mjs"
+import { SessionService } from "../sessions.mjs"
+import { AuthorizationJobs } from "../oauth.mjs"
+import { createBridge } from "./stdio-client.mjs"
 import { matchModel } from "../model-metadata.mjs"
 import { operations, validateRequest, dispatchOperation } from "../contract.mjs"
 
@@ -103,11 +105,17 @@ test("metadata matching preserves transport, service ID, supported mappings and 
 test("every operation example is validated, dispatch registered and malformed nested fields rejected", async () => {
   for (const [name, definition] of Object.entries(operations)) {
     validateRequest(name, definition.example)
-    const owner = definition.method.startsWith("jobs.")
-      ? ModelService.prototype
-      : null
-    if (!owner)
-      assert.equal(typeof ModelService.prototype[definition.method], "function")
+    const parts = definition.method.split(".")
+    const method = parts.pop()
+    const owner =
+      parts.length === 0
+        ? ModelService.prototype
+        : {
+            jobs: AuthorizationJobs.prototype,
+            sessions: SessionService.prototype,
+          }[parts.join(".")]
+    assert.ok(owner, `Unknown operation owner: ${definition.method}`)
+    assert.equal(typeof owner[method], "function", definition.method)
   }
   assert.throws(
     () =>

@@ -124,7 +124,16 @@ function Catalog() {
         JSON.parse(input),
         controller.signal
       )
-      if (!controller.signal.aborted) setResult(JSON.stringify(value, null, 2))
+      if (!controller.signal.aborted)
+        setResult(
+          JSON.stringify(
+            operation === "revealKey"
+              ? { apiKey: "[敏感值已返回，目录不展示原文]" }
+              : value,
+            null,
+            2
+          )
+        )
     } catch (error) {
       if (!controller.signal.aborted)
         setResult(error instanceof Error ? error.message : "请求失败")
@@ -143,35 +152,42 @@ function Catalog() {
           aria-label="接口模块"
           className="flex w-64 flex-col gap-1 border-r p-4"
         >
-          <h2 className="mb-3 font-medium">模型配置</h2>
+          <h2 className="mb-3 font-medium">功能接口</h2>
           <Input
             aria-label="搜索接口"
             placeholder="搜索接口"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
-          {Object.entries(operations)
-            .filter(([key, value]) =>
-              `${key} ${value.title}`
-                .toLowerCase()
-                .includes(query.toLowerCase())
-            )
-            .map(([key, value]) => (
-              <Button
-                key={key}
-                variant={key === operation ? "secondary" : "ghost"}
-                className="justify-start"
-                onClick={() => select(key as ModelOperation)}
-              >
-                {value.title}
-              </Button>
-            ))}
+          {["模型配置", "会话配置"].map((module) => (
+            <section key={module} className="mt-3 grid gap-1">
+              <h3 className="px-2 text-xs text-muted-foreground">{module}</h3>
+              {Object.entries(operations)
+                .filter(
+                  ([key, value]) =>
+                    (value.module ?? "模型配置") === module &&
+                    `${key} ${value.title}`
+                      .toLowerCase()
+                      .includes(query.toLowerCase())
+                )
+                .map(([key, value]) => (
+                  <Button
+                    key={key}
+                    variant={key === operation ? "secondary" : "ghost"}
+                    className="justify-start"
+                    onClick={() => select(key as ModelOperation)}
+                  >
+                    {value.title}
+                  </Button>
+                ))}
+            </section>
+          ))}
         </nav>
         <main className="flex min-w-0 flex-1 flex-col gap-5 p-6">
           <h2 className="text-xl font-medium">{definition.title}</h2>
           <p className="text-sm text-muted-foreground">
             已实现 ·{" "}
-            {isTauri() ? "Tauri → Node stdio" : "同源开发服务 → Node stdio"} ·{" "}
+            {isTauri() ? "Tauri → Node stdio" : "Vite 代理 → Moon 共享服务"} ·{" "}
             {operation}
           </p>
           <p>行为：{definition.effect}</p>

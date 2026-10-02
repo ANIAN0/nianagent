@@ -2,6 +2,91 @@ import { schemas, object, ref, assertSchema } from "./schema.mjs"
 export { schemas, assertSchema } from "./schema.mjs"
 // Authority for RPC names, required input fields, documentation and dispatch.
 export const operations = {
+  sessionCatalog: {
+    module: "会话配置",
+    method: "sessions.catalog",
+    args: ["cwd", "$signal"],
+    request: object({ cwd: { type: "string", maxLength: 4096 } }),
+    response: ref("SessionCatalog"),
+    title: "会话工具与指令目录",
+    input: ["cwd"],
+    result: "SessionCatalog",
+    condition:
+      "空 cwd 使用服务当前目录；显式路径必须为存在的绝对目录；只读，可取消；使用 Pi 发现规则，只注册内置工具，不执行工具、插件或模型调用。",
+    errors: "目录无效、指令文件读取失败、Pi 初始化失败。",
+    effect: "读取工具和指令，不保存会话配置。",
+    example: { cwd: "H:/workspace/moon" },
+  },
+  sessionRead: {
+    module: "会话配置",
+    method: "sessions.read",
+    args: ["sessionId", "$signal"],
+    request: object({
+      sessionId: {
+        type: "string",
+        minLength: 1,
+        maxLength: 128,
+        pattern: "^[a-zA-Z0-9_-]+$",
+      },
+    }),
+    response: { anyOf: [ref("SessionConfiguration"), { type: "null" }] },
+    title: "读取会话生效配置",
+    input: ["sessionId"],
+    result: "SessionConfiguration | null",
+    condition:
+      "无记录返回 null；恢复真实 Pi 会话和指令快照。保留保存的toolIds/revision；未知或依赖失效项列入unavailableToolIds，effectiveToolIds仅为实际可用活动集，允许用户取消失效项后重新应用。",
+    errors:
+      "配置文件损坏、工作目录失效；工具失效作为可编辑结果返回，不阻断读取。",
+    effect: "恢复内存会话，不发起推理、不写配置。",
+    example: { sessionId: "sample-session" },
+  },
+  sessionApply: {
+    module: "会话配置",
+    method: "sessions.apply",
+    args: [
+      "sessionId",
+      "cwd",
+      "toolIds",
+      "instructionScope",
+      "revision",
+      "$signal",
+    ],
+    request: object(
+      {
+        sessionId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 128,
+          pattern: "^[a-zA-Z0-9_-]+$",
+        },
+        cwd: { type: "string", minLength: 1, maxLength: 4096 },
+        toolIds: {
+          type: "array",
+          items: { type: "string", minLength: 1 },
+          maxItems: 32,
+        },
+        instructionScope: ref("InstructionScope"),
+        revision: { type: "integer", minimum: 1 },
+      },
+      ["sessionId", "cwd", "toolIds", "instructionScope"],
+    ),
+    response: ref("SessionConfiguration"),
+    title: "应用会话配置",
+    input: ["sessionId", "cwd", "toolIds", "instructionScope"],
+    result: "SessionConfiguration",
+    condition:
+      "新建省略 revision；更新必须带当前 revision，cwd 不可变。锁内复查版本，未知/重复工具拒绝。构建真实 Pi 会话成功才提交；rename 前取消无写入，提交后取消不回滚，可读取确认。正在运行的会话拒绝更改。",
+    errors: "版本冲突、目录无效、工具不可用、指令读取失败、会话忙、存储失败。",
+    effect:
+      "原子保存工具选择和实际指令快照，并替换生效 Pi 会话。只配置不调用模型。",
+    example: {
+      sessionId: "sample-session",
+      cwd: "H:/workspace/moon",
+      toolIds: ["read"],
+      instructionScope: "directory",
+    },
+  },
+
   list: {
     method: "list",
     args: [],

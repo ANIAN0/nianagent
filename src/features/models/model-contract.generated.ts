@@ -1,4 +1,62 @@
 // Generated from backend/schema.mjs and backend/contract.mjs. Do not edit.
+export type InstructionScope = "all" | "directory" | "none"
+export type SessionTool = {
+  /** Pi 注册工具名 */
+  id: string
+  /** 工具名称 */
+  name: string
+  /** Pi 工具描述 */
+  description: string
+  /** 工具来源 */
+  group: string
+  /** 工具完整说明 */
+  detail: string
+  /** 注册且本机依赖已找到；具体文件权限在执行时判断 */
+  available: boolean
+  /** 依赖缺失原因；可用时为空 */
+  unavailableReason: string
+}
+export type SessionInstruction = {
+  /** 实际指令文件绝对路径 */
+  path: string
+  /** Moon 个人指令或工作目录链指令 */
+  source: "global" | "directory"
+  /** 本次实际加载的指令内容 */
+  content: string
+}
+export type SessionConfiguration = {
+  /** 会话稳定标识 */
+  sessionId: string
+  /** 会话工作目录 */
+  cwd: string
+  /** 配置乐观并发版本 */
+  revision: number
+  /** 保存的工具选择 */
+  toolIds: string[]
+  /** 从真实 Pi 会话读回的生效集合 */
+  effectiveToolIds: string[]
+  /** 只读；保存但未知或本机依赖失效的工具，可取消后重新应用 */
+  unavailableToolIds: string[]
+  /**  */
+  instructionScope: InstructionScope
+  /** 已提交的有效指令快照 */
+  instructions: SessionInstruction[]
+}
+export type SessionCatalog = {
+  /** 解析后的真实工作目录 */
+  cwd: string
+  /** 本宿主实际注册的 Pi 内置工具 */
+  tools: SessionTool[]
+  /** 当前目录发现的所有指令；应用按范围选择 */
+  instructions: SessionInstruction[]
+  /**  */
+  defaults: {
+    /** 默认活动集 */
+    toolIds: string[]
+    /**  */
+    instructionScope: InstructionScope
+  }
+}
 export type DirectoryProtocol = "openai-completions" | "anthropic-messages"
 export type ModelApi = string
 export type ThinkingLevelMap = {
@@ -148,6 +206,26 @@ export type AuthState = {
   prompt?: AuthPrompt
 }
 export type RpcRequests = {
+  sessionCatalog: {
+    /**  */
+    cwd: string
+  }
+  sessionRead: {
+    /**  */
+    sessionId: string
+  }
+  sessionApply: {
+    /**  */
+    sessionId: string
+    /**  */
+    cwd: string
+    /**  */
+    toolIds: string[]
+    /**  */
+    instructionScope: InstructionScope
+    /**  */
+    revision?: number
+  }
   list: Record<string, never>
   revealKey: {
     /**  */
@@ -202,6 +280,9 @@ export type RpcRequests = {
   }
 }
 export type RpcResults = {
+  sessionCatalog: SessionCatalog
+  sessionRead: SessionConfiguration | null
+  sessionApply: SessionConfiguration
   list: ModelConnection[]
   revealKey: {
     /**  */

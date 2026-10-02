@@ -3,13 +3,20 @@ import { Button } from "@/components/ui/button"
 import { DirectoryPicker } from "./directory-picker"
 import { homeData } from "../../../ui-catalog/fixtures/home"
 import type { CatalogEntry } from "../../../ui-catalog/catalog"
-function Example({ empty = false }: { empty?: boolean }) {
+function Example({
+  empty = false,
+  allowCreate = true,
+}: {
+  empty?: boolean
+  allowCreate?: boolean
+}) {
   const [open, setOpen] = useState(false)
   const [path, setPath] = useState("")
   return (
     <div className="p-6">
       <Button onClick={() => setOpen(true)}>选择工作目录</Button>
       <DirectoryPicker
+        allowCreate={allowCreate}
         open={open}
         onOpenChange={setOpen}
         directories={empty ? [] : homeData.workspaces}
@@ -26,13 +33,23 @@ export default {
   group: "工作输入",
   source: "src/features/home/directory-picker.tsx",
   description: "浏览目录、编辑路径、创建内存文件夹并确认工作目录。",
-  boundary: "仅前端示例目录；不读取或修改磁盘。",
-  inputs: ["directories、open。"],
+  boundary:
+    "只负责已有工作区选择和路径输入，不读写磁盘；真实模式由后端校验目录，禁用内存文件夹创建。",
+  inputs: [
+    "directories、open；allowCreate=false 用于真实工作区，不显示模拟创建。",
+  ],
   events: ["onSelect(workspace)、onOpenChange。"],
   composition: ["Dialog", "Input", "Checkbox", "Button"],
   consumers: ["WorkspacePicker"],
   viewport: { width: 760, height: 600 },
   states: [
+    {
+      id: "existing",
+      name: "已有本地目录",
+      condition: "真实服务只接受已存在目录。",
+      expected: "可输入绝对路径，不显示模拟新建文件夹。",
+      render: () => <Example empty allowCreate={false} />,
+    },
     {
       id: "browse",
       name: "浏览与添加",
