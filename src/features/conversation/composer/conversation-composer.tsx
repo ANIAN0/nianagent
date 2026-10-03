@@ -88,6 +88,7 @@ export function ConversationComposer({
     cwd: workspacePath,
     anchorRef,
     materials: draft.materials,
+    disabled: stopping || blocked || (running && !allowQueue),
     update: (apply) => {
       const next = {
         ...latest.current,
@@ -187,6 +188,7 @@ export function ConversationComposer({
                   anchorRef={anchorRef}
                   materials={data.materials}
                   selected={draft.materials}
+                  allowCompact
                   onInsert={(text) =>
                     change({
                       text: draft.text ? `${draft.text}\n${text}` : text,

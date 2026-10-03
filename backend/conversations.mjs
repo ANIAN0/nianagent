@@ -276,6 +276,8 @@ export class ConversationService {
     if (existing) {
       if (existing.historyError) {
         existing.manager = await this.fileManager(record)
+        try { await this.queue.reconcile(existing) }
+        catch { existing.queueError = "历史已核对，但队列状态保存失败；请检查磁盘与权限后重试。" }
         existing.historyError = undefined
       }
       if (selected && !existing.session)

@@ -155,6 +155,14 @@ function fromPi(name, config) {
   )
   return configuration
 }
+// SDK close detaches its resource before awaiting physical cleanup. Concurrent
+// callers must await the same owned close rather than a later early return.
+function ownClose(resource) {
+  const close = resource.close.bind(resource)
+  let closing
+  resource.close = () => (closing ??= Promise.resolve().then(close))
+  return resource
+}
 export function createMcpTransport(
   entry,
   cwd,
@@ -187,6 +195,7 @@ export function createMcpTransport(
       ),
       stderr: "pipe",
     })
+  ownClose(transport)
   const requests = new Map()
   let lastStatus
   const publish = (status) => {
@@ -443,11 +452,14 @@ export class McpService {
     } catch {
       throw new Error("测试工作目录不存在或不可访问。")
     }
-    const client = new McpClient({
-      name: "moon-validation",
-      version: "1.0.0",
-      requestTimeoutMs: configuration.timeout * 1000,
-    })
+    signal?.throwIfAborted()
+    const client = ownClose(
+      new McpClient({
+        name: "moon-validation",
+        version: "1.0.0",
+        requestTimeoutMs: configuration.timeout * 1000,
+      })
+    )
     this.clients.add(client)
     const abort = () => {
       void client.close()

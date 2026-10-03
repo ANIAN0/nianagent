@@ -45,6 +45,7 @@ function Example({ empty = false }: { empty?: boolean }) {
               anchorRef={anchorRef}
               materials={empty ? [] : homeData.materials}
               selected={selected}
+              allowCompact
               onAdd={(item) =>
                 setSelected((items) =>
                   items.some((entry) => entry.id === item.id)
@@ -80,7 +81,7 @@ export default {
   boundary:
     "草稿由父级保存；正式入口经原生多选与材料服务准备，@检索真实工作区，/选择Pi发现的Skill。目录注入独立服务替身，操作不访问用户数据或模型。",
   inputs: [
-    "materials、selected；anchorRef: 输入卡锚点；onInsert 存在时展示模板与命令。",
+    "materials、selected；anchorRef: 输入卡锚点；onInsert展示模板；allowCompact显式授权会话压缩命令，首页不提供。",
   ],
   events: ["onAdd(material)、onInsert(text)。"],
   composition: ["InputGroup", "Button", "MaterialCandidateList"],

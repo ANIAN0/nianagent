@@ -14,7 +14,7 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { MaterialService } from "../materials.mjs"
 const image = Buffer.from(
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aotkAAAAASUVORK5CYII=",
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgaPj/HwAEggJ/59habAAAAABJRU5ErkJggg==",
   "base64"
 )
 async function fixture() {
@@ -45,6 +45,7 @@ test("prepared images remain fixed after source edits, restart and workspace rem
     const source = join(f.cwd, "示例 图.png")
     await writeFile(source, image)
     const [material] = await f.service.prepare("session", f.cwd, [source])
+    assert.equal(material.status, "ready", material.error)
     assert.equal(material.type, "image")
     await writeFile(source, "changed")
     const prompt = await f.service.resolveForPrompt({

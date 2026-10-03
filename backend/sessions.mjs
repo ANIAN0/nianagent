@@ -375,7 +375,6 @@ export class SessionService {
       void closing.finally(() => this.closing.delete(closing))
     }
     try {
-      if (options.extensionFactories?.length) await session.bindExtensions({})
       this.ensureOpen()
       signal?.throwIfAborted()
       if (mcpEnabled) mcp?.runtime.set(owner, instructionState.mcpStatuses)
@@ -463,13 +462,21 @@ export class SessionService {
     signal?.throwIfAborted()
     // Discovery does not start a model/session or executable extensions. Merge
     // resources already registered on a live session (e.g. package Skills).
-    const live = this.active.get(sessionId)?.session?.resourceLoader?.getSkills()
+    const live = this.active
+      .get(sessionId)
+      ?.session?.resourceLoader?.getSkills()
     const loader = new DefaultResourceLoader({
-      cwd, agentDir: this.agentDir,
+      cwd,
+      agentDir: this.agentDir,
       settingsManager: SettingsManager.inMemory({ cacheWarming: "off" }),
-      noExtensions: true, noSkills: false, noPromptTemplates: true,
-      noThemes: true, noContextFiles: true,
-      additionalSkillPaths: (live?.skills ?? []).filter((skill) => skill.sourceInfo?.origin === "package").map((skill) => skill.filePath),
+      noExtensions: true,
+      noSkills: false,
+      noPromptTemplates: true,
+      noThemes: true,
+      noContextFiles: true,
+      additionalSkillPaths: (live?.skills ?? [])
+        .filter((skill) => skill.sourceInfo?.origin === "package")
+        .map((skill) => skill.filePath),
     })
     await loader.reload()
     signal?.throwIfAborted()
@@ -486,6 +493,26 @@ export class SessionService {
           ? configured.has(name)
           : registered.has(name)) && !this.availability(name)
     )
+    if (session.isIdle) {
+      const active = session.getActiveToolNames()
+      const next = [
+        ...available.filter((name) => !name.startsWith("mcp__")),
+        // Preserve Pi's current direct/promoted MCP loadout. Reading a snapshot
+        // must not promote every deferred or codemode tool into active tools.
+        ...active.filter(
+          (name) => name.startsWith("mcp__") && available.includes(name)
+        ),
+        ...(resource?.mcpEnabled &&
+        available.some((name) => name.startsWith("mcp__"))
+          ? ["codemode", "tool_search"].filter((name) => registered.has(name))
+          : []),
+      ]
+      if (
+        active.length !== next.length ||
+        active.some((name) => !next.includes(name))
+      )
+        session.setActiveToolsByName(next)
+    }
     return {
       ...record,
       effectiveToolIds: session.getActiveToolNames(),

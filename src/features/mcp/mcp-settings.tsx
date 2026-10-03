@@ -23,8 +23,13 @@ export function McpSettings({
 }: McpSettingsProps) {
   const [fallback] = useState(createMcpService)
   const service = supplied || fallback
-  const [servers, setServers] = useState<McpServer[]>([])
+  const [listing, setListing] = useState<{
+    service?: McpService
+    servers: McpServer[]
+  }>({ servers: [] })
+  const servers = listing.service === service ? listing.servers : []
   const [loading, setLoading] = useState(true)
+  const [loadedService, setLoadedService] = useState<McpService>()
   const [error, setError] = useState("")
   const [query, setQuery] = useState("")
   const [editor, setEditor] = useState<{ initial?: McpServer }>()
@@ -48,29 +53,35 @@ export function McpSettings({
     registerLeave?.(leave)
     return () => registerLeave?.(null)
   }, [registerLeave, leave])
-  const refresh = useCallback(() => {
+  const load = useCallback(() => {
     listRequest.current?.abort()
     const controller = new AbortController()
     listRequest.current = controller
-    setLoading(true)
-    setError("")
     void service
       .list(controller.signal)
       .then((items) => {
         if (!controller.signal.aborted) {
-          setServers(items)
+          setListing({ service, servers: items })
+          setError("")
+          setLoadedService(service)
           setLoading(false)
         }
       })
       .catch((reason) => {
         if (!controller.signal.aborted) {
           setError(reason instanceof Error ? reason.message : String(reason))
+          setLoadedService(service)
           setLoading(false)
         }
       })
     return () => controller.abort()
   }, [service])
-  useEffect(refresh, [refresh])
+  const refresh = useCallback(() => {
+    setLoading(true)
+    setError("")
+    return load()
+  }, [load])
+  useEffect(load, [load])
   useEffect(
     () => () => {
       request.current?.abort()
@@ -117,9 +128,9 @@ export function McpSettings({
         />
       ) : (
         <McpServerList
-          servers={servers}
-          loading={loading}
-          error={error}
+          servers={loadedService === service ? servers : []}
+          loading={loading || loadedService !== service}
+          error={loadedService === service ? error : ""}
           busy={busy}
           query={query}
           onQuery={setQuery}

@@ -35,6 +35,7 @@ function MaterialPreviewContent({
   onClose,
 }: MaterialPreviewProps) {
   const service = useContext(MaterialServiceContext)
+  const [returnFocus] = useState(() => document.activeElement instanceof HTMLElement ? document.activeElement : null)
   const [result, setResult] = useState<{
     key: string
     data?: Preview
@@ -75,7 +76,15 @@ function MaterialPreviewContent({
         if (!open) onClose()
       }}
     >
-      <DialogContent className="flex max-h-[85dvh] max-w-[min(760px,calc(100vw-32px))] flex-col">
+      <DialogContent
+        className="flex max-h-[85dvh] max-w-[min(760px,calc(100vw-32px))] flex-col"
+        onCloseAutoFocus={(event) => {
+          if (returnFocus?.isConnected) {
+            event.preventDefault()
+            returnFocus.focus()
+          }
+        }}
+      >
         <DialogHeader>
           <DialogTitle>{material?.name ?? "材料预览"}</DialogTitle>
           <DialogDescription className="break-all">

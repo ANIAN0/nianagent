@@ -11,6 +11,7 @@ import {
 import type { ConversationSnapshot } from "@/features/models/model-contract.generated"
 import { createConversationService } from "./conversation-service"
 import { RpcRequestRejected } from "@/features/models/model-service"
+import { materialReference } from "@/features/materials/material-service"
 import { draftSignature, restoreConversationDrafts, saveConversationDraft, saveConversationRequest, type PendingSubmission } from "./conversation-draft-store"
 
 function failureMessage(error: unknown) {
@@ -183,7 +184,7 @@ export function useLiveConversation(selectedId: string | undefined) {
         sessionId: id,
         workspaceId: draft.workspaceId,
         text: draft.text.trim(),
-        materials: draft.materials,
+        materials: draft.materials.map(materialReference),
         ...resolveConversationModel(connections, draft),
       }
       const submission = submissionFor(id, { kind: "send", input, signature: JSON.stringify(["send", draftSignature(draft), input.connectionId, input.modelId, input.thinking]), draft })

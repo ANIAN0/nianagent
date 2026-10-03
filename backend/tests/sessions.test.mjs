@@ -273,6 +273,18 @@ test("missing dependency returns recoverable saved selection instead of a read f
   assert.deepEqual(loaded.toolIds, ["read"])
   assert.deepEqual(loaded.unavailableToolIds, ["read"])
   assert.deepEqual(loaded.effectiveToolIds, [])
+  assert.deepEqual(
+    service.sessions.active.get("session-a").session.getActiveToolNames(),
+    []
+  )
+  service.sessions.availability = availability
+  const restored = await service.dispatch("sessionRead", {
+    sessionId: "session-a",
+  })
+  assert.deepEqual(restored.toolIds, ["read"])
+  assert.deepEqual(restored.unavailableToolIds, [])
+  assert.deepEqual(restored.effectiveToolIds, ["read"])
+  assert.equal(restored.revision, loaded.revision)
   const saved = await apply({ revision: loaded.revision, toolIds: [] })
   assert.equal(saved.revision, 2)
 })

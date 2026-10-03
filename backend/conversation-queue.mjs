@@ -96,7 +96,9 @@ export class ConversationQueue {
       // Pi can persist a dispatched user entry while this file write awaits IO.
       // Rolling that receipt back would resurrect an already delivered message.
       const delivered = new Set(state.queue.items.filter((item) => item.status === "delivered").map((item) => item.id))
+      const failedRevision = state.queue.revision
       state.queue = before
+      state.queue.revision = Math.max(before.revision + 1, failedRevision)
       for (const item of before.items) if (delivered.has(item.id)) item.status = "delivered"
       for (const [id, value] of state.queuePrepared) {
         value.item = before.items.find((item) => item.id === id)
@@ -117,7 +119,7 @@ export class ConversationQueue {
     const existing = state.queue.items.find((item) => item.clientRequestId === input.clientRequestId)
     if (existing) { check(existing.fingerprint === signature, "提交标识已用于不同的队列内容。"); return }
     check(state.queue.items.filter(active).length < 100, "此会话已有100条待处理消息，请先处理队列。")
-    await this.conversations.models.materials.resolveForPrompt({ sessionId: state.record.id, cwd: state.record.cwd, materials: input.materials || [], model: state.session.model, signal })
+    await this.conversations.models.materials.resolveForPrompt({ sessionId: state.record.id, cwd: state.record.cwd, materials: input.materials || [], text: input.text, model: state.session.model, signal })
     await this.commit(state, (queue) => queue.items.push({ id: randomUUID(), clientRequestId: input.clientRequestId, fingerprint: signature, text: input.text, materials: input.materials || [], status: "pending", delivery: "followUp", error: "", createdAt: new Date().toISOString() }), signal)
   }
   enqueueReceipt(state, input) {
@@ -165,8 +167,8 @@ export class ConversationQueue {
     const prepared = []
     for (const item of items) {
       try {
-        const materials = await this.conversations.models.materials.resolveForPrompt({ sessionId: state.record.id, cwd: state.record.cwd, materials: item.materials, model: state.session.model, signal })
-        prepared.push({ item, materials, text: materials.textPrefix + (item.text || "请处理所附材料。") })
+        const materials = await this.conversations.models.materials.resolveForPrompt({ sessionId: state.record.id, cwd: state.record.cwd, materials: item.materials, text: item.text, model: state.session.model, signal })
+        prepared.push({ item, materials, text: materials.textPrefix + ((materials.text ?? item.text) || "请处理所附材料。") })
       } catch (error) {
         await this.commit(state, (queue) => { queue.paused = true; item.status = "failed"; item.error = error instanceof Error && /[\u4e00-\u9fff]/u.test(error.message) ? error.message : "材料校验失败，请重新检查。" })
         return []

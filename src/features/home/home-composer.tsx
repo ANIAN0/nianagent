@@ -116,18 +116,19 @@ export function HomeComposer({
     [sessionService, workspacePath]
   )
   const [result, setResult] = useState("")
+  const [submitting, setSubmitting] = useState(false)
   const materialController = useComposerMaterials({
     sessionId,
     cwd: workspacePath,
     anchorRef,
     materials: draft.materials,
+    disabled: submitting,
     update: (apply) =>
       setDraft((current) => ({
         ...current,
         materials: apply(current.materials),
       })),
   })
-  const [submitting, setSubmitting] = useState(false)
   const submitRequest = useRef<AbortController | null>(null)
   const configRequest = useRef<AbortController | null>(null)
   const [readySession, setReadySession] = useState("")
@@ -164,6 +165,7 @@ export function HomeComposer({
   }, [sessionService, sessionId, workspacePath])
   const canSubmit =
     !submitting &&
+    !materialController.choosing &&
     (!sessionService || readySession === sessionId) &&
     (!!draft.text.trim() || draft.materials.length > 0) &&
     materialController.ready &&

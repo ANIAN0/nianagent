@@ -12,16 +12,23 @@ export function useComposerMaterials({
   anchorRef,
   materials,
   update,
+  disabled = false,
 }: {
   sessionId?: string
   cwd: string
   anchorRef: RefObject<HTMLDivElement | null>
   materials: Material[]
   update: Update
+  disabled?: boolean
 }) {
   const service = useContext(MaterialServiceContext)
-  const latest = useRef({ materials, update, scope: `${sessionId}:${cwd}` })
-  latest.current = { materials, update, scope: `${sessionId}:${cwd}` }
+  const latest = useRef({
+    materials,
+    update,
+    disabled,
+    scope: `${sessionId}:${cwd}`,
+  })
+  latest.current = { materials, update, disabled, scope: `${sessionId}:${cwd}` }
   const [action, setAction] = useState({
     scope: `${sessionId}:${cwd}`,
     choosing: false,
@@ -35,13 +42,16 @@ export function useComposerMaterials({
   const verified = useRef(new Set<string>())
   const preparing = useRef(new Set<string>())
   useEffect(() => {
+    const pendingRequests = requests.current
+    const pendingMaterials = preparing.current
+    const verifiedMaterials = verified.current
     alive.current = true
     return () => {
       alive.current = false
-      for (const request of requests.current) request.abort()
-      requests.current.clear()
-      preparing.current.clear()
-      verified.current.clear()
+      for (const request of pendingRequests) request.abort()
+      pendingRequests.clear()
+      pendingMaterials.clear()
+      verifiedMaterials.clear()
     }
   }, [scope])
   const referenceSignature = materials
@@ -102,7 +112,12 @@ export function useComposerMaterials({
     action: (signal: AbortSignal) => Promise<T>,
     accept: (result: T) => void
   ) {
-    if (!alive.current || latest.current.scope !== scope) return
+    if (
+      !alive.current ||
+      latest.current.disabled ||
+      latest.current.scope !== scope
+    )
+      return
     const owner = scope
     const controller = new AbortController()
     requests.current.add(controller)
@@ -121,6 +136,7 @@ export function useComposerMaterials({
   async function choose() {
     if (
       !service ||
+      latest.current.disabled ||
       choosing ||
       !alive.current ||
       latest.current.scope !== scope
@@ -144,7 +160,12 @@ export function useComposerMaterials({
     }
   }
   async function prepare(source: Material) {
-    if (!alive.current || latest.current.scope !== scope) return
+    if (
+      !alive.current ||
+      latest.current.disabled ||
+      latest.current.scope !== scope
+    )
+      return
     if (!service || !source.source) {
       append([source])
       return
@@ -190,7 +211,12 @@ export function useComposerMaterials({
     }
   }
   async function upload(file: File) {
-    if (!alive.current || latest.current.scope !== scope) return
+    if (
+      !alive.current ||
+      latest.current.disabled ||
+      latest.current.scope !== scope
+    )
+      return
     const placeholder: Material = {
       id: `preparing:${crypto.randomUUID()}`,
       name: file.name || "粘贴图片.png",
@@ -252,6 +278,7 @@ export function useComposerMaterials({
     const anchor = anchorRef.current
     if (!anchor || !service || !cwd) return
     const paste = (event: ClipboardEvent) => {
+      if (latest.current.disabled) return
       const images = Array.from(event.clipboardData?.items ?? [])
         .filter((item) => item.type.startsWith("image/"))
         .map((item) => item.getAsFile())
@@ -264,6 +291,7 @@ export function useComposerMaterials({
     const drop = (event: DragEvent) => {
       if (!event.dataTransfer?.files.length) return
       event.preventDefault()
+      if (latest.current.disabled) return
       if (!isTauri())
         for (const file of Array.from(event.dataTransfer.files))
           void upload(file)
@@ -280,7 +308,7 @@ export function useComposerMaterials({
       void import("@tauri-apps/api/webviewWindow")
         .then(({ getCurrentWebviewWindow }) =>
           getCurrentWebviewWindow().onDragDropEvent((event) => {
-            if (event.payload.type !== "drop") return
+            if (event.payload.type !== "drop" || latest.current.disabled) return
             const rect = anchor.getBoundingClientRect()
             const scale = window.devicePixelRatio || 1
             const { x, y } = event.payload.position

@@ -121,6 +121,15 @@ test("real session uses hidden exact exposure and catalog/configuration creates 
       .find((tool) => tool.name === "mcp__files__never_selected").exposure,
     "hidden"
   )
+  const availability = service.sessions.availability.bind(service.sessions)
+  service.sessions.availability = (name) =>
+    name === "read" ? "fixture dependency unavailable" : availability(name)
+  const snapshot = service.sessions.snapshot({ toolIds }, session)
+  assert.deepEqual(snapshot.unavailableToolIds, ["read"])
+  assert.deepEqual(snapshot.effectiveToolIds, ["codemode", "tool_search"])
+  assert.ok(session.getCallableToolNames().includes("mcp__files__read_text"))
+  assert.ok(!session.getActiveToolNames().includes("mcp__files__read_text"))
+  assert.ok(!session.getCallableToolNames().includes("mcp__files__never_selected"))
 })
 test("nested MCP successful results follow Pi occurrence identity even when provider IDs are reused", () => {
   const records = mcpResultsIndex([

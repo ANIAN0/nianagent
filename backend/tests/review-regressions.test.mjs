@@ -10,6 +10,8 @@ import { join } from "node:path"
 import lockfile from "proper-lockfile"
 import { ModelService } from "../models.mjs"
 import { SessionService } from "../sessions.mjs"
+import { MaterialService } from "../materials.mjs"
+import { McpService } from "../mcp.mjs"
 import { AuthorizationJobs } from "../oauth.mjs"
 import { createBridge } from "./stdio-client.mjs"
 import { matchModel } from "../model-metadata.mjs"
@@ -117,6 +119,8 @@ test("every operation example is validated, dispatch registered and malformed ne
         : {
             jobs: AuthorizationJobs.prototype,
             sessions: SessionService.prototype,
+            materials: MaterialService.prototype,
+            mcp: McpService.prototype,
             workspaces: WorkspaceService.prototype,
             conversationCatalog: ConversationCatalogService.prototype,
             conversations: ConversationService.prototype,

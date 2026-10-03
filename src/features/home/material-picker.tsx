@@ -37,6 +37,7 @@ export type MaterialPickerProps = {
   onAdd: (material: Material) => void
   anchorRef?: RefObject<HTMLDivElement | null>
   onInsert?: (text: string) => void
+  allowCompact?: boolean
   onChooseAttachments?: () => Promise<void>
   choosing?: boolean
   sessionId?: string
@@ -50,6 +51,7 @@ export function MaterialPicker({
   onAdd,
   anchorRef,
   onInsert,
+  allowCompact = false,
   onChooseAttachments,
   choosing = false,
   sessionId,
@@ -276,7 +278,7 @@ export function MaterialPicker({
             : []),
         ]
   const rows = candidates.filter((item) =>
-    `${item.name} ${item.description}`
+    (item.id !== "compact" || allowCompact) && `${item.name} ${item.description}`
       .toLowerCase()
       .includes(query.toLowerCase())
   )
@@ -298,6 +300,7 @@ export function MaterialPicker({
   }
   function handleKey(event: KeyboardEvent) {
     if (event.isComposing) return
+    if (event.shiftKey && (event.key === "Enter" || event.key === "Tab")) return
     if (
       event.target instanceof Element &&
       event.target.closest("button") &&

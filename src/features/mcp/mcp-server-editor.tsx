@@ -53,11 +53,11 @@ export function McpServerEditor({
   const [value, setValue] = useState<McpConfiguration>(() =>
     structuredClone(initial?.configuration || blankMcpConfiguration())
   )
-  const original = useRef(
+  const [original] = useState(() =>
     JSON.stringify(initial?.configuration || blankMcpConfiguration())
   )
   const [result, setResult] = useState<TestResult | undefined>(initial?.test)
-  const [tested, setTested] = useState(initial?.test ? original.current : "")
+  const [tested, setTested] = useState(initial?.test ? original : "")
   const [busy, setBusy] = useState<"save" | "test">()
   const [error, setError] = useState("")
   const [confirm, setConfirm] = useState<SettingsConfirmation>()
@@ -67,7 +67,7 @@ export function McpServerEditor({
     Number.isSafeInteger(value.timeout) &&
     value.timeout >= 1 &&
     value.timeout <= 120
-  const dirty = JSON.stringify(value) !== original.current
+  const dirty = JSON.stringify(value) !== original
   const leave = useCallback<LeaveGuard>(
     (action) => {
       if (busy) {
