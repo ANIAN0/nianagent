@@ -3,6 +3,11 @@ import { join } from "node:path"
 import { homedir } from "node:os"
 import { startRuntime, runtimeVersion } from "./runtime.mjs"
 import { ModelService } from "./models.mjs"
+import {
+  connectDirectoryHost,
+  acceptDirectoryReply,
+  closeDirectoryHost,
+} from "./native-directory.mjs"
 
 const directory =
   process.env.MOON_DATA_DIR ||
@@ -50,6 +55,7 @@ const input = createInterface({ input: process.stdin, crlfDelay: Infinity })
 function send(value) {
   process.stdout.write(JSON.stringify(value) + "\n")
 }
+connectDirectoryHost(send)
 input.on("line", (line) => {
   if (line.length > 1024 * 1024) return
   let request
@@ -58,6 +64,7 @@ input.on("line", (line) => {
   } catch {
     return
   }
+  if (acceptDirectoryReply(request)) return
   if (request.operation === "$cancel") {
     pending.get(request.id)?.abort()
     return
@@ -86,8 +93,9 @@ function publicError(error) {
 }
 input.on("close", async () => {
   closing = true
+  closeDirectoryHost()
   for (const controller of pending.values()) controller.abort()
-  service.close()
+  await service.close()
   await runtime?.close()
   // Let cancelled writes reach their finally blocks before terminating Node.
   await Promise.allSettled([...inFlight])

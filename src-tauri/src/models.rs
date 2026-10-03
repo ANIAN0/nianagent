@@ -1,9 +1,10 @@
+use crate::native_directory::{self, SharedInput, write_message};
 use serde_json::{Value, json};
 use std::{
     collections::HashMap,
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader},
     path::PathBuf,
-    process::{Child, ChildStdin, Command, Stdio},
+    process::{Child, Command, Stdio},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -16,12 +17,14 @@ type Reply = Result<Value, String>;
 type Pending = Arc<Mutex<HashMap<String, mpsc::Sender<Reply>>>>;
 struct Bridge {
     child: Child,
-    input: Option<ChildStdin>,
+    input: SharedInput,
     pending: Pending,
 }
 impl Drop for Bridge {
     fn drop(&mut self) {
-        self.input.take();
+        if let Ok(mut input) = self.input.lock() {
+            input.take();
+        }
         for _ in 0..40 {
             if self.child.try_wait().ok().flatten().is_some() {
                 return;
@@ -33,6 +36,8 @@ impl Drop for Bridge {
     }
 }
 pub struct ModelBackend {
+    app: Option<tauri::AppHandle>,
+    directory_picker_busy: Arc<AtomicBool>,
     stopping: AtomicBool,
     bridge: Mutex<Option<Bridge>>,
     script: PathBuf,
@@ -53,6 +58,8 @@ impl ModelBackend {
             app.path().local_data_dir()?.join("Moon/models")
         };
         let backend = Self {
+            app: Some(app.handle().clone()),
+            directory_picker_busy: Arc::new(AtomicBool::new(false)),
             stopping: AtomicBool::new(false),
             bridge: Mutex::new(None),
             script,
@@ -114,7 +121,9 @@ impl ModelBackend {
                 std::io::ErrorKind::PermissionDenied => "没有权限启动 Node.js 模型服务。",
                 _ => "无法创建模型服务进程，请检查程序安装。",
             })?;
-            let input = child.stdin.take().ok_or("模型输入通道不可用。")?;
+            let input: SharedInput = Arc::new(Mutex::new(Some(
+                child.stdin.take().ok_or("模型输入通道不可用。")?,
+            )));
             let output = child.stdout.take().ok_or("模型输出通道不可用。")?;
             let stderr = child.stderr.take().ok_or("模型诊断通道不可用。")?;
             // Only retain known classifications; stderr can contain credentials or URLs.
@@ -133,9 +142,21 @@ impl ModelBackend {
             });
             let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
             let readers = pending.clone();
+            let host_input = input.clone();
+            let host_app = self.app.clone();
+            let picker_busy = self.directory_picker_busy.clone();
             std::thread::spawn(move || {
                 for line in BufReader::new(output).lines().map_while(Result::ok) {
                     if let Ok(value) = serde_json::from_str::<Value>(&line) {
+                        if value["operation"] == "$hostRequest" {
+                            native_directory::handle_request(
+                                host_app.as_ref(),
+                                &host_input,
+                                &picker_busy,
+                                &value,
+                            );
+                            continue;
+                        }
                         if let Some(id) = value["id"].as_str() {
                             if let Ok(mut map) = readers.lock() {
                                 if let Some(sender) = map.remove(id) {
@@ -159,7 +180,7 @@ impl ModelBackend {
             });
             *bridge = Some(Bridge {
                 child,
-                input: Some(input),
+                input,
                 pending,
             });
         }
@@ -171,12 +192,7 @@ impl ModelBackend {
         }
         pending.insert(request_id.to_owned(), sender);
         let message = json!({"id":request_id,"operation":operation,"input":input});
-        if writeln!(
-            bridge.input.as_mut().ok_or("模型输入通道已关闭。")?,
-            "{message}"
-        )
-        .is_err()
-        {
+        if write_message(&bridge.input, &message).is_err() {
             pending.remove(request_id);
             return Err("模型请求发送失败。".into());
         }
@@ -190,9 +206,7 @@ impl ModelBackend {
                         let _ = sender.send(Err("请求已取消。".into()));
                     }
                 }
-                if let Some(input) = bridge.input.as_mut() {
-                    let _ = writeln!(input, "{}", json!({"id":id,"operation":"$cancel"}));
-                }
+                let _ = write_message(&bridge.input, &json!({"id":id,"operation":"$cancel"}));
             }
         }
     }
@@ -207,9 +221,14 @@ pub async fn model_request(
     if request_id.len() > 100 || operation.len() > 100 || input.to_string().len() > 1024 * 1024 {
         return Err("请求参数过大。".into());
     }
+    let timeout = if operation == "workspaceChoose" {
+        610
+    } else {
+        60
+    };
     let receiver = backend.send(&request_id, &operation, input)?;
     let result = tauri::async_runtime::spawn_blocking(move || {
-        receiver.recv_timeout(Duration::from_secs(60))
+        receiver.recv_timeout(Duration::from_secs(timeout))
     })
     .await
     .map_err(|_| "请求任务失败。")?;
@@ -262,6 +281,8 @@ mod tests {
     #[test]
     fn shutdown_is_terminal_and_idempotent() {
         let backend = ModelBackend {
+            app: None,
+            directory_picker_busy: Arc::new(AtomicBool::new(false)),
             stopping: AtomicBool::new(false),
             bridge: Mutex::new(None),
             script: PathBuf::from("must-not-be-started.mjs"),
@@ -277,12 +298,55 @@ mod tests {
     }
 
     #[test]
+    fn native_bridge_workspaces_persist_and_reject_missing_directory_host() {
+        let directory = std::env::temp_dir().join(format!(
+            "moon-native-workspaces-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let workspace = directory.join("project");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let backend = ModelBackend {
+            app: None,
+            directory_picker_busy: Arc::new(AtomicBool::new(false)),
+            stopping: AtomicBool::new(false),
+            bridge: Mutex::new(None),
+            script: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../backend/rpc.mjs"),
+            directory: directory.join("data"),
+        };
+        let call = |id: &str, operation: &str, input: Value| {
+            backend
+                .send(id, operation, input)
+                .unwrap()
+                .recv_timeout(Duration::from_secs(60))
+                .unwrap()
+        };
+        let saved = call("add", "workspaceAdd", json!({"path":workspace})).unwrap();
+        let duplicate = call("duplicate", "workspaceAdd", json!({"path":workspace})).unwrap();
+        assert_eq!(saved["id"], duplicate["id"]);
+        let list = call("list", "workspaceList", json!({})).unwrap();
+        assert_eq!(list["selectedId"], saved["id"]);
+        let file = directory.join("data/workspaces.json");
+        let before = std::fs::read_to_string(&file).unwrap();
+        let error = call("choose", "workspaceChoose", json!({})).unwrap_err();
+        assert!(error.contains("桌面宿主"), "{error}");
+        assert_eq!(std::fs::read_to_string(file).unwrap(), before);
+        drop(backend);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn native_bridge_reports_corrupt_configuration() {
         let directory =
             std::env::temp_dir().join(format!("moon-corrupt-native-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
         std::fs::write(directory.join("models.json"), "{broken").unwrap();
         let backend = ModelBackend {
+            app: None,
+            directory_picker_busy: Arc::new(AtomicBool::new(false)),
             stopping: AtomicBool::new(false),
             bridge: Mutex::new(None),
             script: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../backend/rpc.mjs"),
@@ -314,6 +378,8 @@ mod tests {
                 .as_nanos()
         ));
         let backend = ModelBackend {
+            app: None,
+            directory_picker_busy: Arc::new(AtomicBool::new(false)),
             stopping: AtomicBool::new(false),
             bridge: Mutex::new(None),
             script: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../backend/rpc.mjs"),

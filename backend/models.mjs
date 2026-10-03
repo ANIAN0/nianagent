@@ -1,3 +1,4 @@
+import { WorkspaceService } from "./workspaces.mjs"
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai"
 import { ModelRuntime } from "@earendil-works/pi-coding-agent"
 import { ModelStore, memoryCredentials } from "./store.mjs"
@@ -146,6 +147,7 @@ export class ModelService {
     this.store = new ModelStore(directory)
     this.jobs = new AuthorizationJobs(this)
     this.sessions = new SessionService(directory, this)
+    this.workspaces = new WorkspaceService(directory)
   }
   async initialize() {
     await this.store.initialize()
@@ -526,6 +528,7 @@ export class ModelService {
 
   close() {
     this.jobs.close()
+    this.workspaces.close()
     this.sessions.close()
   }
 }

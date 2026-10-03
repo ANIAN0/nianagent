@@ -1,4 +1,22 @@
 // Generated from backend/schema.mjs and backend/contract.mjs. Do not edit.
+export type WorkspaceRecord = {
+  /** 工作区稳定标识 */
+  id: string
+  /** 真实目录名称 */
+  name: string
+  /** realpath 解析的绝对目录路径 */
+  path: string
+  /** 本次读取时目录是否仍可访问 */
+  available: boolean
+  /** 目录失效说明；可用时为空 */
+  unavailableReason: string
+}
+export type WorkspaceList = {
+  /** 已登记工作区，包括失效目录 */
+  items: WorkspaceRecord[]
+  /** 上次选中的工作区，失效时仍保留标识 */
+  selectedId: string | null
+}
 export type InstructionScope = "all" | "directory" | "none"
 export type SessionTool = {
   /** Pi 注册工具名 */
@@ -206,6 +224,20 @@ export type AuthState = {
   prompt?: AuthPrompt
 }
 export type RpcRequests = {
+  workspaceList: Record<string, never>
+  workspaceAdd: {
+    /** 用户明确选择的存在目录 */
+    path: string
+  }
+  workspaceSelect: {
+    /** 工作区稳定标识 */
+    id: string
+  }
+  workspaceGet: {
+    /** 工作区稳定标识 */
+    id: string
+  }
+  workspaceChoose: Record<string, never>
   sessionCatalog: {
     /**  */
     cwd: string
@@ -280,6 +312,11 @@ export type RpcRequests = {
   }
 }
 export type RpcResults = {
+  workspaceList: WorkspaceList
+  workspaceAdd: WorkspaceRecord
+  workspaceSelect: WorkspaceRecord
+  workspaceGet: WorkspaceRecord | null
+  workspaceChoose: WorkspaceRecord | null
   sessionCatalog: SessionCatalog
   sessionRead: SessionConfiguration | null
   sessionApply: SessionConfiguration

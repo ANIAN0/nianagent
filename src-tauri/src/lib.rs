@@ -1,4 +1,5 @@
 mod models;
+mod native_directory;
 mod window_lifecycle;
 use tauri::{Manager, RunEvent};
 pub use window_lifecycle::report_host_error;
@@ -14,6 +15,7 @@ pub fn run() -> Result<(), String> {
         }
     }));
     let app = builder
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             models::model_request,
             models::cancel_model_request,

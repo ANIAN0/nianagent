@@ -1,5 +1,11 @@
 import type { ModelPickerCatalog } from "./model-picker"
-export type Workspace = { id: string; name: string; path: string }
+export type Workspace = {
+  id: string
+  name: string
+  path: string
+  available?: boolean
+  unavailableReason?: string
+}
 export type ConversationStatus =
   "idle" | "running" | "stopping" | "waiting" | "completed" | "failed"
 export type Conversation = {

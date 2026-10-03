@@ -1,7 +1,94 @@
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { homedir } from "node:os"
+import { request as httpRequest } from "node:http"
 import { runtimeVersion } from "./runtime.mjs"
+
+// Match the native command deadline. The directory host owns its shorter
+// 600s user-selection wait; this margin lets its specific error reach the UI.
+export const bridgeWaitMs = (operation) =>
+  operation === "workspaceChoose" ? 610_000 : 60_000
+
+function requestRuntime(runtime, operation, input, signal) {
+  signal?.throwIfAborted()
+  return new Promise((resolve, reject) => {
+    let response
+    let request
+    try {
+      request = httpRequest(
+        {
+          hostname: "127.0.0.1",
+          port: runtime.port,
+          agent: false,
+          path: `/api/models/${encodeURIComponent(operation)}`,
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-moon-token": runtime.token,
+          },
+          signal,
+        },
+        (incoming) => {
+          response = incoming
+          let body = ""
+          incoming.setEncoding("utf8")
+          incoming.on("data", (chunk) => {
+            body += chunk
+          })
+          incoming.once("error", fail)
+          incoming.once("end", () => {
+            cleanup()
+            let payload
+            try {
+              payload = JSON.parse(body)
+              if (
+                !payload ||
+                typeof payload !== "object" ||
+                Array.isArray(payload)
+              )
+                throw new Error("Invalid response envelope")
+            } catch {
+              reject(new Error("模型服务返回了无效响应，请重启 Moon 后重试。"))
+              return
+            }
+            if (
+              incoming.statusCode < 200 ||
+              incoming.statusCode >= 300 ||
+              payload.error
+            )
+              reject(new Error(payload.error || "模型服务请求失败。"))
+            else resolve(payload.result)
+          })
+        }
+      )
+    } catch {
+      reject(new Error("模型服务连接信息无效，请重启 Moon。"))
+      return
+    }
+    const timer = setTimeout(() => {
+      const error = new Error(
+        operation === "workspaceChoose"
+          ? "目录选择等待已超时，请关闭目录窗口后重试。"
+          : "模型服务响应超时，请重试当前操作。"
+      )
+      error.code = "MOON_RESPONSE_TIMEOUT"
+      request.destroy(error)
+      response?.destroy(error)
+    }, bridgeWaitMs(operation))
+    timer.unref()
+    function cleanup() {
+      clearTimeout(timer)
+    }
+    function fail(error) {
+      cleanup()
+      if (signal?.aborted || error.code === "MOON_RESPONSE_TIMEOUT")
+        reject(error)
+      else reject(new Error("无法连接 Moon 模型服务，请启动或重启桌面应用。"))
+    }
+    request.once("error", fail)
+    request.end(JSON.stringify(input))
+  })
+}
 
 export function modelBackendPlugin() {
   function configure(server) {
@@ -30,28 +117,10 @@ export function modelBackendPlugin() {
           typeof runtime.token !== "string"
         )
           throw new Error("模型服务连接信息无效，请重启 Moon。")
-        let response
-        try {
-          response = await fetch(
-            `http://127.0.0.1:${runtime.port}/api/models/${encodeURIComponent(operation)}`,
-            {
-              method: "POST",
-              headers: {
-                "content-type": "application/json",
-                "x-moon-token": runtime.token,
-              },
-              body: JSON.stringify(input),
-              signal,
-            }
-          )
-        } catch (error) {
-          if (signal?.aborted) throw error
-          throw new Error("无法连接 Moon 模型服务，请启动或重启桌面应用。")
-        }
-        const payload = await response.json()
-        if (!response.ok || payload.error)
-          throw new Error(payload.error || "模型服务请求失败。")
-        return payload.result
+        // Built-in fetch has an implicit 300s Undici response-header deadline,
+        // shorter than the user's native directory selection. Use node:http
+        // with one explicit cancellable total deadline for both transports.
+        return requestRuntime(runtime, operation, input, signal)
       },
     }
     server.middlewares.use("/api/models/", async (req, res, next) => {

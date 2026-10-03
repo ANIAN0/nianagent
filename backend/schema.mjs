@@ -1,3 +1,4 @@
+import { workspaceSchemas } from "./workspace-contract.mjs"
 // JSON Schema subset used by runtime validation, generated TypeScript and docs.
 const string = (description, extra = {}) => ({
   type: "string",
@@ -23,6 +24,7 @@ export const object = (
 export const ref = (name) => ({ $ref: name })
 const levels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
 export const schemas = {
+  ...workspaceSchemas,
   InstructionScope: enumeration(
     ["all", "directory", "none"],
     "项目指令加载范围，不影响应用系统指令。",

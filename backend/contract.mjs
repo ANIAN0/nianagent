@@ -1,7 +1,9 @@
+import { workspaceOperations } from "./workspace-contract.mjs"
 import { schemas, object, ref, assertSchema } from "./schema.mjs"
 export { schemas, assertSchema } from "./schema.mjs"
 // Authority for RPC names, required input fields, documentation and dispatch.
 export const operations = {
+  ...workspaceOperations,
   sessionCatalog: {
     module: "会话配置",
     method: "sessions.catalog",

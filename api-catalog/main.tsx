@@ -159,7 +159,11 @@ function Catalog() {
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
-          {["模型配置", "会话配置"].map((module) => (
+          {Array.from(
+            new Set(
+              Object.values(operations).map((item) => item.module ?? "模型配置")
+            )
+          ).map((module) => (
             <section key={module} className="mt-3 grid gap-1">
               <h3 className="px-2 text-xs text-muted-foreground">{module}</h3>
               {Object.entries(operations)
@@ -197,6 +201,12 @@ function Catalog() {
           </p>
           <p>调用条件与取消：{definition.condition}</p>
           <p>错误与恢复：{definition.errors}</p>
+          {definition.response.$ref &&
+            schemas[definition.response.$ref]?.description && (
+              <p className="rounded-lg border bg-muted/40 p-3 text-sm leading-relaxed">
+                {schemas[definition.response.$ref].description}
+              </p>
+            )}
           <p className="text-sm text-muted-foreground">
             失败通过 error
             字符串返回，不返回凭据或原始提供者响应。加载页面不发起调用。
