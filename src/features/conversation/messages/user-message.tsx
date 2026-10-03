@@ -11,9 +11,11 @@ import "./messages.css"
 export function UserMessage({
   message,
   onOpenAttachment,
+  workspacePath,
 }: {
   message: ConversationMessage
   onOpenAttachment?: (attachment: MessageAttachment) => void
+  workspacePath?: string
 }) {
   return (
     <Message align="end" aria-label="用户消息" className="conversation-message">
@@ -21,6 +23,7 @@ export function UserMessage({
         <MessageAttachments
           attachments={message.attachments ?? []}
           onOpenAttachment={onOpenAttachment}
+          cwd={workspacePath}
         />
         {message.text && (
           <Bubble

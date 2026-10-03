@@ -8,7 +8,7 @@ import { readJsonBody } from "./http-body.mjs"
 // Match the native command deadline. The directory host owns its shorter
 // 600s user-selection wait; this margin lets its specific error reach the UI.
 export const bridgeWaitMs = (operation) =>
-  operation === "workspaceChoose" ? 610_000 : 60_000
+  ["workspaceChoose", "materialChoose"].includes(operation) ? 610_000 : 60_000
 
 function requestRuntime(runtime, operation, input, signal) {
   signal?.throwIfAborted()
@@ -152,9 +152,10 @@ export function modelBackendPlugin() {
         if (!res.writableEnded) controller.abort()
       })
       try {
-        const input = await readJsonBody(req)
+        const operation = req.url.split("?")[0].replace(/^\//, "")
+        const input = await readJsonBody(req, operation === "materialUpload" ? 16 * 1024 * 1024 : 1024 * 1024)
         const result = await bridge.call(
-          req.url.split("?")[0].replace(/^\//, ""),
+          operation,
           input,
           controller.signal
         )

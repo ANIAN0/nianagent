@@ -161,7 +161,7 @@ impl ModelBackend {
                             if let Ok(mut map) = readers.lock() {
                                 if let Some(sender) = map.remove(id) {
                                     let result = if let Some(error) = value["error"].as_str() {
-                                        Err(error.to_owned())
+                                        Err(format!("MOON_RPC_REJECTED:{error}"))
                                     } else {
                                         Ok(value["result"].clone())
                                     };
@@ -218,10 +218,11 @@ pub async fn model_request(
     operation: String,
     input: Value,
 ) -> Reply {
-    if request_id.len() > 100 || operation.len() > 100 || input.to_string().len() > 1024 * 1024 {
+    let maximum = if operation == "materialUpload" { 16 * 1024 * 1024 } else { 1024 * 1024 };
+    if request_id.len() > 100 || operation.len() > 100 || input.to_string().len() > maximum {
         return Err("请求参数过大。".into());
     }
-    let timeout = if operation == "workspaceChoose" {
+    let timeout = if operation == "workspaceChoose" || operation == "materialChoose" {
         610
     } else {
         60

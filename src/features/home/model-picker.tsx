@@ -18,6 +18,7 @@ export type ModelPickerCatalog = {
   onOpenSettings: () => void
 }
 export type ModelPickerProps = {
+  disabled?: boolean
   models: string[]
   labels?: Record<string, string>
   catalog?: ModelPickerCatalog
@@ -28,6 +29,7 @@ export type ModelPickerProps = {
   onThinkingChange: (value: string) => void
 }
 export function ModelPicker({
+  disabled = false,
   models,
   labels,
   catalog,
@@ -118,6 +120,7 @@ export function ModelPicker({
       <PopoverTrigger asChild>
         <Button
           ref={trigger}
+          disabled={disabled}
           type="button"
           variant="ghost"
           size="sm"

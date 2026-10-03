@@ -26,6 +26,8 @@ import {
 import { useLiveConversation } from "@/features/conversation/use-live-conversation"
 import { LiveConversationView } from "@/features/conversation/live-conversation-view"
 import type { ConversationReadingPosition } from "@/features/conversation/conversation-list"
+import { clearHomeDraft, persistentHomeDraftStore } from "@/features/conversation/conversation-draft-store"
+import { createMaterialService, MaterialServiceContext } from "@/features/materials/material-service"
 
 const ModelSettingsPage = lazy(() =>
   import("@/features/models/model-settings-page").then((module) => ({
@@ -45,6 +47,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [selected, setSelected] = useState<string | undefined>(restoreSelection)
   const [sessionService] = useState(createSessionService)
+  const [materialService] = useState(createMaterialService)
   const [homeDraft, setHomeDraft] = useState<{
     key: number
     workspaceId?: string
@@ -116,7 +119,7 @@ export default function App() {
     conversations: catalog.conversations.map(toHomeConversation),
     ...models.data,
     materials: [],
-    materialsEnabled: false,
+    materialsEnabled: true,
     tools: [],
   }
   const selectedConnection = models.connections.find(
@@ -159,6 +162,7 @@ export default function App() {
       throw new Error(accepted.error || "消息未能开始，请检查模型配置后重试。")
     signal?.throwIfAborted()
     consumeHomeSession(workspace.path)
+    try { clearHomeDraft(draft.workspaceId) } catch { /* Confirmed session history remains authoritative. */ }
     selectConversation(id)
     void catalog.refresh(true)
     return ""
@@ -173,6 +177,7 @@ export default function App() {
   return (
     <NavigationBoundaryContext.Provider value={navigation}>
       <SessionServiceContext.Provider value={sessionService}>
+      <MaterialServiceContext.Provider value={materialService}>
         <AppShell
           data={data}
           activeConversationId={selected}
@@ -237,6 +242,13 @@ export default function App() {
                   action(chat.retry(selected, currentDraft, models.connections))
                 }
                 onReload={chat.reload}
+                onQueueEdit={(itemId, text) => chat.queueEdit(selected, itemId, text)}
+                onQueueRemove={(itemId) => action(chat.queueRemove(selected, itemId))}
+                onQueueDeliver={(itemId) => action(chat.queueDeliver(selected, itemId))}
+                onQueueMode={(mode) => chat.queueMode(selected, mode)}
+                onSaveDraft={() => chat.saveDraft(selected)}
+                unconfirmed={chat.unconfirmed[selected]}
+                onReconcile={() => action(chat.reconcile(selected))}
               />
             ) : workspaces.loading ? (
               <div
@@ -267,6 +279,7 @@ export default function App() {
                   </Alert>
                 )}
                 <HomeComposer
+                  draftStore={persistentHomeDraftStore}
                   key={homeDraft.key}
                   data={data}
                   initialDraft={
@@ -287,6 +300,7 @@ export default function App() {
             )}
           </div>
         </AppShell>
+      </MaterialServiceContext.Provider>
       </SessionServiceContext.Provider>
     </NavigationBoundaryContext.Provider>
   )

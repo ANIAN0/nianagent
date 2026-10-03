@@ -232,10 +232,11 @@ export class SessionService {
       agentDir: this.agentDir,
       settingsManager,
       noExtensions: true,
-      noSkills: true,
+      noSkills: false,
       noPromptTemplates: true,
       noThemes: true,
       noContextFiles: true,
+      extensionFactories: options.extensionFactories || [],
       systemPrompt: "",
       systemPromptOverride: () => undefined,
       appendSystemPrompt: [this.runtimePrompt(cwd)],
@@ -259,6 +260,7 @@ export class SessionService {
       ...(options.thinking ? { thinkingLevel: options.thinking } : {}),
     })
     try {
+      if (options.extensionFactories?.length) await session.bindExtensions({})
       this.ensureOpen()
       signal?.throwIfAborted()
       if (toolIds) {
@@ -321,6 +323,26 @@ export class SessionService {
     } finally {
       session.dispose()
     }
+  }
+  async skillResources(cwd, sessionId, signal) {
+    cwd = await this.cwd(cwd)
+    signal?.throwIfAborted()
+    // Discovery does not start a model/session or executable extensions. Merge
+    // resources already registered on a live session (e.g. package Skills).
+    const loader = new DefaultResourceLoader({
+      cwd, agentDir: this.agentDir,
+      settingsManager: SettingsManager.inMemory({ cacheWarming: "off" }),
+      noExtensions: true, noSkills: false, noPromptTemplates: true,
+      noThemes: true, noContextFiles: true,
+    })
+    await loader.reload()
+    signal?.throwIfAborted()
+    const found = loader.getSkills()
+    const live = this.active.get(sessionId)?.session?.resourceLoader?.getSkills()
+    const skills = [...found.skills]
+    for (const skill of live?.skills ?? [])
+      if (!skills.some((item) => item.filePath === skill.filePath)) skills.push(skill)
+    return { skills, diagnostics: [...found.diagnostics, ...(live?.diagnostics ?? [])] }
   }
   snapshot(record, session) {
     const registered = new Set(session.getAllTools().map((tool) => tool.name))

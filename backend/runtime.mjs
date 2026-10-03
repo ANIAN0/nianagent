@@ -69,8 +69,8 @@ export async function startRuntime(file, dispatch, publicError) {
       if (!res.writableEnded) controller.abort()
     })
     try {
-      const input = await readJsonBody(req)
       const operation = req.url.slice("/api/models/".length).split("?")[0]
+      const input = await readJsonBody(req, operation === "materialUpload" ? 16 * 1024 * 1024 : 1024 * 1024)
       const result = await dispatch(
         operation,
         input,

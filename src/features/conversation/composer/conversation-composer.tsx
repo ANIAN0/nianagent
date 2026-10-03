@@ -14,6 +14,9 @@ import { SelectedMaterials } from "@/features/home/selected-materials"
 import type { HomeData, HomeDraft } from "@/features/home/home-types"
 import { ConversationSendControl } from "./conversation-send-control"
 import { ContextUsage, type ContextUsageProps } from "./context-usage"
+import { QueueDeliveryControl } from "./queue-delivery-control"
+import { useComposerMaterials } from "@/features/materials/use-composer-materials"
+import { materialsReady } from "@/features/materials/material-service"
 
 export type ConversationComposerProps = {
   allowQueue?: boolean
@@ -23,6 +26,7 @@ export type ConversationComposerProps = {
     | "models"
     | "modelLabels"
     | "modelThinking"
+    | "modelInputs"
     | "modelCatalog"
     | "materials"
     | "materialsEnabled"
@@ -35,6 +39,8 @@ export type ConversationComposerProps = {
   blocked?: boolean
   dock?: ReactNode
   context?: ContextUsageProps
+  deliveryMode?: "single" | "all"
+  onDeliveryModeChange?: (mode: "single" | "all") => void | Promise<unknown>
   onChange: (draft: HomeDraft) => void
   onSubmit: (draft: HomeDraft) => void
   onStop: () => void
@@ -50,6 +56,8 @@ export function ConversationComposer({
   blocked = false,
   dock,
   context,
+  deliveryMode = "single",
+  onDeliveryModeChange,
   onChange,
   onSubmit,
   onStop,
@@ -70,13 +78,23 @@ export function ConversationComposer({
     latest.current = draft
   }, [draft])
   function change(patch: Partial<HomeDraft>) {
-    const next = { ...draft, ...patch }
+    const next = { ...latest.current, ...patch }
     latest.current = next
     onChange(next)
   }
   const hasDraft = !!draft.text.trim() || draft.materials.length > 0
+  const materialController = useComposerMaterials({
+    sessionId, cwd: workspacePath, anchorRef, materials: draft.materials,
+    update: (apply) => {
+      const next = { ...latest.current, materials: apply(latest.current.materials) }
+      latest.current = next
+      onChange(next)
+    },
+  })
   const valid =
     hasDraft &&
+    materialsReady(draft.materials) &&
+    !draft.materials.some((item) => item.type === "image" && data.modelInputs && !data.modelInputs[draft.model]?.includes("image")) &&
     data.models.includes(draft.model) &&
     !stopping &&
     !blocked &&
@@ -129,7 +147,8 @@ export function ConversationComposer({
                 }}
               />
               <SelectedMaterials
-                materials={draft.materials}
+                materials={draft.materials.map((item) => item.type === "image" && data.modelInputs && !data.modelInputs[draft.model]?.includes("image") ? { ...item, status: "failed", error: "当前模型不支持图片，请更换模型或移除。" } : item)}
+                cwd={workspacePath}
                 onRemove={(id) =>
                   change({
                     materials: draft.materials.filter((item) => item.id !== id),
@@ -151,23 +170,17 @@ export function ConversationComposer({
                     })
                   }
                   onAdd={(item) => {
-                    // A multi-file selection emits synchronously; accumulate within that event.
-                    const current = latest.current
-                    if (
-                      !current.materials.some(
-                        (selected) => selected.id === item.id
-                      )
-                    ) {
-                      latest.current = {
-                        ...draft,
-                        materials: [...current.materials, item],
-                      }
-                      onChange(latest.current)
-                    }
+                    void materialController.prepare(item)
                   }}
+                  sessionId={sessionId}
+                  workspacePath={workspacePath}
+                  onTextChange={(text) => change({ text })}
+                  onChooseAttachments={materialController.service ? materialController.choose : undefined}
+                  choosing={materialController.choosing}
                 />
                 <div className="flex-1" />
                 <ModelPicker
+                  disabled={running || stopping || blocked}
                   models={data.models}
                   labels={data.modelLabels}
                   thinkingByModel={data.modelThinking}
@@ -191,7 +204,7 @@ export function ConversationComposer({
                   running={running}
                   stopping={stopping}
                   hasDraft={hasDraft}
-                  disabled={blocked || !data.models.includes(draft.model)}
+                  disabled={blocked || !data.models.includes(draft.model) || !valid && hasDraft}
                   onStop={onStop}
                 />
               </InputGroupAddon>
@@ -199,8 +212,10 @@ export function ConversationComposer({
           </Field>
         </FieldGroup>
       </form>
+      {materialController.error && <p role="alert" className="mt-2 text-xs text-destructive">{materialController.error}</p>}
       {context && (
         <div className="conversation-context-slot">
+          {onDeliveryModeChange && <QueueDeliveryControl mode={deliveryMode} disabled={blocked || stopping} onChange={onDeliveryModeChange} />}
           <ContextUsage {...context} />
         </div>
       )}

@@ -43,10 +43,10 @@ export default {
   source: "src/features/home/selected-materials.tsx",
   description: "展示附件和 Skill 标签并发出移除事件。",
   boundary:
-    "材料由父级持有；嵌入InputGroup，空集合不占空间。正式基础对话尚未接入材料，本目录只演示组件本身，不读取或上传文件。",
+    "材料由草稿持有；嵌入InputGroup，空集合不占空间。正式页面通过材料服务准备和预览，目录没有生产连接。",
   inputs: ["materials: Material[]。"],
   events: ["onRemove(id)：父级移除该材料。"],
-  composition: ["InputGroupAddon", "MaterialChip"],
+  composition: ["InputGroupAddon", "MaterialChip", "MaterialPreviewDialog"],
   consumers: ["HomeComposer", "ConversationComposer"],
   viewport: { width: 480, height: 360 },
   states: [

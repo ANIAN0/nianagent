@@ -38,10 +38,12 @@ export default {
   ],
   inputs: ["material: Material"],
   events: ["onRemove(id)"],
-  composition: ["Badge", "Button"],
+  composition: ["Attachment、AttachmentMedia、AttachmentContent、AttachmentTrigger", "Button"],
   consumers: ["SelectedMaterials"],
   viewport: { width: 340, height: 160 },
   states: [
+    { id: "preparing", name: "材料准备中", condition: "读取图片或来源", expected: "逐项显示准备中并仍可移除", render: () => <Example material={{ id: "preparing", name: "设计稿.png", kind: "附件", type: "image", status: "preparing", source: "H:/工作区/moon/设计稿.png" }} /> },
+    { id: "failed", name: "来源失效", condition: "恢复失败", expected: "保留名称及具体原因，移除不删除源文件", render: () => <Example material={{ id: "failed", name: "验收说明.md", kind: "附件", type: "file", status: "failed", source: "H:/工作区/moon/验收说明.md", error: "引用来源已不存在，请重新选择或移除。" }} /> },
     {
       id: "file",
       name: "附件",

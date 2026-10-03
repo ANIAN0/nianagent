@@ -82,6 +82,12 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.conversation-queue-text > small {
+  display: block;
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
 .conversation-queue-icon {
   width: 16px;
   height: 16px;

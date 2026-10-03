@@ -1,10 +1,14 @@
 import { workspaceOperations } from "./workspace-contract.mjs"
 import { conversationOperations as catalogOperations } from "./conversation-catalog-contract.mjs"
 import { conversationOperations } from "./conversation-contract.mjs"
+import { materialOperations } from "./material-contract.mjs"
+import { queueOperations } from "./queue-contract.mjs"
 import { schemas, object, ref, assertSchema } from "./schema.mjs"
 export { schemas, assertSchema } from "./schema.mjs"
 // Authority for RPC names, required input fields, documentation and dispatch.
 export const operations = {
+  ...queueOperations,
+  ...materialOperations,
   ...workspaceOperations,
   ...catalogOperations,
   ...conversationOperations,

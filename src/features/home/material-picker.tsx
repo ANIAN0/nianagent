@@ -10,7 +10,6 @@ import { createPortal } from "react-dom"
 import {
   AtSign,
   ArrowLeft,
-  Check,
   FileText,
   Paperclip,
   Plus,
@@ -26,6 +25,8 @@ import {
   InputGroupAddon,
 } from "@/components/ui/input-group"
 import type { Material } from "./home-types"
+import { MaterialCandidateList, type MaterialCandidate as Candidate } from "@/features/materials/material-candidate-list"
+import { useResourceCatalog } from "@/features/materials/use-resource-catalog"
 export type MaterialPickerProps = {
   disabled?: boolean
   materials: Material[]
@@ -33,15 +34,11 @@ export type MaterialPickerProps = {
   onAdd: (material: Material) => void
   anchorRef?: RefObject<HTMLDivElement | null>
   onInsert?: (text: string) => void
-}
-type Candidate = {
-  id: string
-  group: string
-  name: string
-  description: string
-  icon: typeof Plus
-  disabled?: boolean
-  text?: string
+  onChooseAttachments?: () => Promise<void>
+  choosing?: boolean
+  sessionId?: string
+  workspacePath?: string
+  onTextChange?: (text: string) => void
 }
 export function MaterialPicker({
   disabled = false,
@@ -50,10 +47,17 @@ export function MaterialPicker({
   onAdd,
   anchorRef,
   onInsert,
+  onChooseAttachments,
+  choosing = false,
+  sessionId,
+  workspacePath,
+  onTextChange,
 }: MaterialPickerProps) {
   const [open, setOpen] = useState(false)
   const [pane, setPane] = useState<"candidates" | "resources">("candidates")
   const [query, setQuery] = useState("")
+  const [inputMode, setInputMode] = useState<"button" | "file" | "skill">("button")
+  const queryRange = useRef({ start: 0, end: 0 })
   const [active, setActive] = useState(0)
   const trigger = useRef<HTMLButtonElement>(null)
   const fileInput = useRef<HTMLInputElement>(null)
@@ -62,6 +66,22 @@ export function MaterialPicker({
   const panel = useRef<HTMLDivElement>(null)
   const [availableHeight, setAvailableHeight] = useState(320)
   const [position, setPosition] = useState({ left: 0, width: 0, bottom: 0 })
+  const resources = useResourceCatalog({ sessionId, cwd: workspacePath, query, enabled: open && (pane === "resources" || inputMode !== "button"), fallback: materials })
+  const available = pane === "resources" ? resources.files : materials
+  useEffect(() => {
+    const textarea = anchorRef?.current?.querySelector("textarea")
+    if (!textarea || !onTextChange || disabled) return
+    function inspect() {
+      const before = textarea!.value.slice(0, textarea!.selectionStart)
+      const file = before.match(/(?:^|\s)@([^\s@]*)$/u)
+      if (file) {
+        queryRange.current = { start: before.length - file[1]!.length - 1, end: before.length }
+        setInputMode("file"); setPane("resources"); setQuery(file[1]!); setActive(0); setOpen(true)
+      } else if (inputMode !== "button") setOpen(false)
+    }
+    textarea.addEventListener("input", inspect)
+    return () => textarea.removeEventListener("input", inspect)
+  }, [anchorRef, onTextChange, disabled, inputMode])
   useLayoutEffect(() => {
     if (!open) return
     const anchor = anchorRef?.current ?? trigger.current
@@ -96,35 +116,48 @@ export function MaterialPicker({
     )
     setOpen(!open)
     setPane("candidates")
+    setInputMode("button")
     setQuery("")
     setActive(0)
     anchorRef?.current?.querySelector("textarea")?.focus()
   }
   function add(item: Material) {
     onAdd(item)
+    if (inputMode !== "button" && onTextChange) {
+      const textarea = anchorRef?.current?.querySelector("textarea")
+      if (textarea) {
+        const { start, end } = queryRange.current
+        const replacement = inputMode === "skill" ? `/skill:${item.name} ` : ""
+        onTextChange(textarea.value.slice(0, start) + replacement + textarea.value.slice(end))
+        requestAnimationFrame(() => textarea.setSelectionRange(start + replacement.length, start + replacement.length))
+      }
+    }
     setOpen(false)
     anchorRef?.current?.querySelector("textarea")?.focus()
   }
   function insert(text: string) {
-    onInsert?.(text)
+    if (inputMode === "skill" && onTextChange) {
+      const textarea = anchorRef?.current?.querySelector("textarea")
+      onTextChange(text + (textarea?.value.slice(queryRange.current.end) ?? ""))
+    } else onInsert?.(text)
     setOpen(false)
     anchorRef?.current?.querySelector("textarea")?.focus()
   }
-  const materialRows: Candidate[] = materials
+  const materialRows: Candidate[] = available
     .filter((item) => pane === "resources" || item.kind === "Skill")
     .map((item) => ({
       id: item.id,
       group: item.kind === "Skill" ? "Skills" : "文件",
       name: item.name,
       description:
-        item.description ??
+        item.error || [item.description, item.source].filter(Boolean).join(" · ") ||
         (item.kind === "Skill" ? "项目中的工作说明" : item.name),
       icon: item.kind === "Skill" ? Sparkles : FileText,
-      disabled: selected.some((value) => value.id === item.id),
+      disabled: item.status === "failed" || selected.some((value) => value.id === item.id || value.source && value.source === item.source && value.type === item.type),
     }))
   const candidates: Candidate[] =
     pane === "resources"
-      ? materialRows
+      ? [...materialRows, ...(inputMode === "skill" && onInsert ? [{ id: "compact", group: "内置命令", name: "压缩当前上下文 · compact", description: "填写 /compact 后打开压缩表单", icon: Terminal, text: "/compact " }] : [])]
       : [
           {
             id: "attachment",
@@ -137,7 +170,7 @@ export function MaterialPicker({
             id: "resources",
             group: "添加",
             name: "引用资源",
-            description: "文件 / Skills / 插件资源",
+            description: "工作区文件 / Skills",
             icon: AtSign,
           },
           ...materialRows,
@@ -176,14 +209,17 @@ export function MaterialPicker({
       .includes(query.toLowerCase())
   )
   function activate(item: Candidate) {
-    if (item.id === "attachment") fileInput.current?.click()
+    if (item.id === "attachment") {
+      if (onChooseAttachments) { setOpen(false); void onChooseAttachments() }
+      else fileInput.current?.click()
+    }
     else if (item.id === "resources") {
       setPane("resources")
       setActive(0)
       setQuery("")
     } else if (item.text) insert(item.text)
     else {
-      const material = materials.find((entry) => entry.id === item.id)
+      const material = available.find((entry) => entry.id === item.id)
       if (material) add(material)
     }
   }
@@ -206,13 +242,17 @@ export function MaterialPicker({
         ?.querySelector(`[data-candidate-index="${next}"]`)
         ?.scrollIntoView({ block: "nearest" })
     } else if (
-      event.key === "Enter" &&
+      (event.key === "Enter" || event.key === "Tab") &&
       rows[active] &&
       !rows[active].disabled
     ) {
       event.preventDefault()
       event.stopPropagation()
       activate(rows[active])
+    } else if (event.key === "Enter") {
+      // A loading/empty candidate menu must not let the same key submit a task.
+      event.preventDefault()
+      event.stopPropagation()
     }
   }
   useEffect(() => {
@@ -243,7 +283,7 @@ export function MaterialPicker({
     }
   }, [open, anchorRef])
   useEffect(() => {
-    if (!open || pane !== "candidates") return
+    if (!open || (pane !== "candidates" && inputMode === "button")) return
     const textarea = anchorRef?.current?.querySelector("textarea")
     if (!textarea) return
     textarea.setAttribute("aria-controls", id)
@@ -283,13 +323,13 @@ export function MaterialPicker({
         size="icon-xs"
         className="size-7 rounded-full bg-background"
         aria-label="添加附件或 Skill"
-        disabled={disabled}
-        title={disabled ? "附件与 Skill 尚未接入" : "添加附件或 Skill"}
+      disabled={disabled || choosing}
+        title={choosing ? "正在选择附件…" : "添加附件或 Skill"}
         aria-expanded={open}
         aria-controls={open ? id : undefined}
         onClick={toggle}
       >
-        <Plus className="size-4" />
+        <Plus className="size-3.5" />
       </InputGroupButton>
       {open &&
         createPortal(
@@ -300,7 +340,7 @@ export function MaterialPicker({
             onClick={(event) => event.stopPropagation()}
             onKeyDown={(event) => handleKey(event.nativeEvent)}
           >
-            {pane === "resources" && (
+            {pane === "resources" && inputMode === "button" && (
               <div className="flex items-center gap-1 border-b p-1.5">
                 <Button
                   type="button"
@@ -328,7 +368,7 @@ export function MaterialPicker({
                       rows[active] ? `${id}-${active}` : undefined
                     }
                     aria-label="搜索资源"
-                    placeholder="搜索文件、Skills 或插件资源"
+                    placeholder="搜索工作区文件或 Skills"
                     value={query}
                     onChange={(event) => {
                       setQuery(event.target.value)
@@ -338,57 +378,7 @@ export function MaterialPicker({
                 </InputGroup>
               </div>
             )}
-            <div
-              ref={list}
-              id={id}
-              role="listbox"
-              aria-label="输入候选"
-              className="moon-scrollbar overflow-y-auto"
-              style={{
-                maxHeight: Math.min(
-                  320,
-                  availableHeight - 8 - (pane === "resources" ? 54 : 0)
-                ),
-              }}
-            >
-              {rows.map((item, index) => (
-                <div key={item.id}>
-                  {(index === 0 || rows[index - 1]?.group !== item.group) && (
-                    <div className="px-3 pt-2 pb-1 text-xs text-muted-foreground">
-                      {item.group}
-                    </div>
-                  )}
-                  <Button
-                    type="button"
-                    id={`${id}-${index}`}
-                    data-candidate-index={index}
-                    role="option"
-                    aria-selected={active === index}
-                    disabled={item.disabled}
-                    tabIndex={-1}
-                    variant="ghost"
-                    className={`h-10 w-full justify-start gap-2 rounded-lg px-3 font-normal ${active === index ? "bg-accent/60" : ""}`}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onMouseMove={() => {
-                      if (!item.disabled) setActive(index)
-                    }}
-                    onClick={() => activate(item)}
-                  >
-                    <item.icon className="size-4" />
-                    <span className="shrink-0">{item.name}</span>
-                    <span className="ml-auto min-w-0 truncate text-xs text-muted-foreground">
-                      {item.disabled ? "已添加" : item.description}
-                    </span>
-                    {item.disabled && <Check className="size-3.5" />}
-                  </Button>
-                </div>
-              ))}
-              {!rows.length && (
-                <p className="px-3 py-8 text-center text-xs text-muted-foreground">
-                  没有匹配的资源
-                </p>
-              )}
-            </div>
+            <MaterialCandidateList id={id} rows={rows} active={active} listRef={list} maxHeight={Math.max(64, Math.min(320, availableHeight - 8 - (pane === "resources" && inputMode === "button" ? 54 : 0)))} loading={pane === "resources" && resources.loading} error={pane === "resources" ? resources.error : undefined} diagnostics={pane === "resources" ? resources.diagnostics : []} onRetry={resources.retry} onActive={setActive} onSelect={activate} />
           </div>,
           document.body
         )}

@@ -4,7 +4,6 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
-  ClipboardList,
   ListOrdered,
   Pencil,
   Send,
@@ -14,24 +13,17 @@ import {
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Field, FieldGroup } from "@/components/ui/field"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { Badge } from "@/components/ui/badge"
 import type { HomeDraft } from "@/features/home/home-types"
+import { QueueDeliveryControl } from "./queue-delivery-control"
 
 export type QueueDockProps = {
-  items: { id: string; draft: HomeDraft }[]
+  items: { id: string; draft: HomeDraft; status?: "pending" | "dispatching" | "failed"; error?: string; delivery?: "followUp" | "steer" }[]
   running: boolean
   busy?: boolean
   deliveryMode?: "single" | "all"
-  onDeliveryModeChange?: (mode: "single" | "all") => void
-  onEdit: (id: string, text: string) => void
+  onDeliveryModeChange?: (mode: "single" | "all") => void | Promise<unknown>
+  onEdit: (id: string, text: string) => void | Promise<unknown>
   onRemove: (id: string) => void
   onSendNow: (id: string) => void
 }
@@ -49,17 +41,21 @@ export function QueueDock({
   const [editing, setEditing] = useState<{ id: string; text: string } | null>(
     null
   )
-  const [modeChanged, setModeChanged] = useState(false)
+  const [editError, setEditError] = useState("")
+  const [saving, setSaving] = useState(false)
   const id = useId()
   if (!items.length) return null
   const activeEditing =
     editing && items.some((item) => item.id === editing.id) ? editing : null
   const expanded = !collapsed || !!activeEditing
-  function save() {
-    if (activeEditing && activeEditing.text.trim() && !busy) {
-      onEdit(activeEditing.id, activeEditing.text.trim())
-      setEditing(null)
-    }
+  async function save() {
+    if (!activeEditing || busy || saving) return
+    const item = items.find((value) => value.id === activeEditing.id)
+    if (!activeEditing.text.trim() && !item?.draft.materials.length) return
+    setSaving(true); setEditError("")
+    try { await onEdit(activeEditing.id, activeEditing.text.trim()); setEditing(null) }
+    catch (error) { setEditError(error instanceof Error ? error.message : "消息未保存，请重试。") }
+    finally { setSaving(false) }
   }
   return (
     <section className="conversation-queue" aria-label="排队消息">
@@ -68,33 +64,7 @@ export function QueueDock({
           <span>
             {running ? "当前工作结束后继续" : "已暂停，发送后继续处理"}
           </span>
-          {modeChanged && <span role="status">下次交付生效</span>}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button type="button" variant="ghost" size="xs" disabled={busy}>
-                <ClipboardList data-icon="inline-start" />
-                {deliveryMode === "single" ? "逐条交付" : "全部交付"}
-                <ChevronDown data-icon="inline-end" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuLabel>交付模式（排队消息）</DropdownMenuLabel>
-              <DropdownMenuRadioGroup
-                value={deliveryMode}
-                onValueChange={(value) => {
-                  onDeliveryModeChange(value as "single" | "all")
-                  setModeChanged(true)
-                }}
-              >
-                <DropdownMenuRadioItem value="single">
-                  逐条交付
-                </DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="all">
-                  全部交付
-                </DropdownMenuRadioItem>
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <QueueDeliveryControl mode={deliveryMode} disabled={busy} onChange={onDeliveryModeChange} />
         </div>
       )}
       {items.length > 1 && (
@@ -130,7 +100,7 @@ export function QueueDock({
                     autoFocus
                     aria-label="编辑排队消息"
                     value={editing.text}
-                    disabled={busy}
+                    disabled={busy || saving}
                     onChange={(event) =>
                       setEditing({ id: item.id, text: event.target.value })
                     }
@@ -161,13 +131,14 @@ export function QueueDock({
                     </Button>
                     <Button
                       size="sm"
-                      disabled={busy || !editing.text.trim()}
+                    disabled={busy || saving || (!editing.text.trim() && !item.draft.materials.length)}
                       onClick={save}
                     >
                       <Check data-icon="inline-start" />
-                      保存
+                      {saving ? "保存中" : "保存"}
                     </Button>
                   </div>
+                  {editError && <p role="alert" className="text-destructive">{editError}</p>}
                 </Field>
               </FieldGroup>
             ) : (
@@ -180,6 +151,8 @@ export function QueueDock({
                 )}
                 <div className="conversation-queue-text">
                   <span>{item.draft.text || "附件消息"}</span>
+                  {(item.status === "dispatching" || item.delivery === "steer") && <small role="status">{item.status === "dispatching" ? "正在交付" : "等待补充边界"}</small>}
+                  {item.error && <small role="alert" className="text-destructive">{item.error}</small>}
                   {item.draft.materials.length > 0 && (
                     <div className="flex flex-wrap gap-1">
                       {item.draft.materials.map((material) => (
@@ -196,7 +169,7 @@ export function QueueDock({
                     size="icon-sm"
                     aria-label="编辑排队消息"
                     title="编辑"
-                    disabled={busy}
+                    disabled={busy || item.status === "dispatching"}
                     onClick={() =>
                       setEditing({ id: item.id, text: item.draft.text })
                     }
@@ -212,7 +185,7 @@ export function QueueDock({
                         ? "立即发送，补充当前工作"
                         : "发送此消息，继续处理"
                     }
-                    disabled={busy}
+                    disabled={busy || item.status === "dispatching"}
                     onClick={() => onSendNow(item.id)}
                   >
                     <Send />
@@ -222,7 +195,7 @@ export function QueueDock({
                     size="icon-sm"
                     aria-label="删除排队消息"
                     title="删除"
-                    disabled={busy}
+                    disabled={busy || item.status === "dispatching"}
                     onClick={() => onRemove(item.id)}
                   >
                     <Trash2 />

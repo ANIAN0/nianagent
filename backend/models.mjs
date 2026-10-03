@@ -8,6 +8,7 @@ import { ModelStore, memoryCredentials } from "./store.mjs"
 import { AuthorizationJobs } from "./oauth.mjs"
 import { dispatchOperation, assertSchema, schemas } from "./contract.mjs"
 import { SessionService } from "./sessions.mjs"
+import { MaterialService } from "./materials.mjs"
 import { matchModel } from "./model-metadata.mjs"
 
 const apis = ["openai-responses", "openai-completions", "anthropic-messages"]
@@ -150,6 +151,7 @@ export class ModelService {
     this.store = new ModelStore(directory)
     this.jobs = new AuthorizationJobs(this)
     this.sessions = new SessionService(directory, this)
+    this.materials = new MaterialService(directory, this.sessions)
     this.workspaces = new WorkspaceService(directory)
     this.conversationStore = new ConversationStore(directory)
     this.conversationCatalog = new ConversationCatalogService(

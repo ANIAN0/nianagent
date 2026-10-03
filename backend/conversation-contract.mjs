@@ -76,6 +76,13 @@ export const conversationSchemas = {
         enum: ["sending", "streaming", "settled", "interrupted", "failed"],
       }),
       thinking: obj({ text: str("Pi 实际返回的思考内容") }),
+      materials: arr(ref("MaterialReference")),
+      attachments: arr(obj({
+        id: str("准备材料标识"), name: str("原始材料名称"),
+        kind: str("展示类型", { enum: ["file", "image"] }),
+        source: str("原始来源路径或固定图片说明"),
+        materialType: str("材料真实类别", { enum: ["file", "image", "skill"] }),
+      })),
       tools: arr(ref("ConversationChatTool")),
       blocks: arr({
         anyOf: [
@@ -129,6 +136,8 @@ export const conversationSchemas = {
         thinking,
         error: str("错误说明，成功为空"),
         messages: arr(ref("ConversationChatMessage")),
+        queue: ref("ConversationQueue"),
+        queueError: str("待处理消息保存或恢复错误；不会自动重发"),
         runtime: ref("ConversationRuntime"),
         notice: obj({
           kind: str("非阻断执行提醒", { enum: ["compaction-failed"] }),
@@ -215,6 +224,7 @@ export const conversationOperations = {
       "connectionId",
       "modelId",
       "thinking",
+      "materials",
       "$signal",
     ],
     title: "发送真实多轮消息",
@@ -231,11 +241,12 @@ export const conversationOperations = {
       sessionId: id,
       workspaceId: id,
       clientRequestId: id,
-      text: str("本轮用户文本", { minLength: 1, maxLength: 100000 }),
+      text: str("本轮用户文本；有就绪材料时可以为空", { maxLength: 100000 }),
+      materials: arr(ref("MaterialReference")),
       ...selection,
-    }),
+    }, ["sessionId", "workspaceId", "clientRequestId", "text", "connectionId", "modelId", "thinking"]),
     condition:
-      "需保存工作区、会话配置与可用模型；同一会话串行。clientRequestId 对相同内容幂等，改变内容须新标识。提交前取消不开始生成；接受后需 Stop 明确停止，不因断开轮询取消。",
+      "需保存工作区、会话配置与可用模型；空闲时启动，运行中原子保存至本会话待处理队列，不并行推理。clientRequestId 对相同内容幂等；队列acceptedRequestIds表示已保存待处理输入，与Pi历史inputAccepted区分。控制操作或停止中拒绝提交；提交前取消不保存，接受后需Stop明确停止，不因断开轮询取消。",
     effect:
       "Pi 官方 JSONL 保存消息，后台发起真实推理与已启用工具，可能产生费用并修改所选目录；快速返回后轮询 Read。",
     example: {

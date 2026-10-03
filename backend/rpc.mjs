@@ -75,7 +75,7 @@ function send(value) {
 }
 connectDirectoryHost(send)
 input.on("line", (line) => {
-  if (line.length > 1024 * 1024) return
+  if (line.length > 16 * 1024 * 1024) return
   let request
   try {
     request = JSON.parse(line)
@@ -83,6 +83,10 @@ input.on("line", (line) => {
     return
   }
   if (acceptDirectoryReply(request)) return
+  if (request.operation !== "materialUpload" && line.length > 1024 * 1024) {
+    send({ id: request.id, error: "请求参数过大。" })
+    return
+  }
   if (request.operation === "$cancel") {
     pending.get(request.id)?.abort()
     return

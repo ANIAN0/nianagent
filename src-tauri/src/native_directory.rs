@@ -35,7 +35,8 @@ pub fn handle_request(
             &json!({"id":id,"operation":"$hostReply","error":message}),
         );
     };
-    if value["capability"] != "pickDirectory" {
+    let files = value["capability"] == "pickFiles";
+    if !files && value["capability"] != "pickDirectory" {
         reply_error("未知宿主能力。");
         return;
     }
@@ -50,9 +51,26 @@ pub fn handle_request(
     let id = id.to_owned();
     let input = input.clone();
     let busy = busy.clone();
-    let mut dialog = app.dialog().file().set_title("添加工作区");
+    let mut dialog = app.dialog().file().set_title(if files { "添加附件" } else { "添加工作区" });
     if let Some(window) = app.get_webview_window("main") {
         dialog = dialog.set_parent(&window);
+    }
+    if files {
+        dialog.pick_files(move |result| {
+            let value = match result {
+                None => json!({"id":id,"operation":"$hostReply","result":null}),
+                Some(paths) => {
+                    let paths: Result<Vec<String>, _> = paths.into_iter().map(|path| path.into_path().map(|path| path.to_string_lossy().into_owned())).collect();
+                    match paths {
+                        Ok(paths) => json!({"id":id,"operation":"$hostReply","result":paths}),
+                        Err(_) => json!({"id":id,"operation":"$hostReply","error":"文件路径无法读取。"}),
+                    }
+                }
+            };
+            busy.store(false, Ordering::SeqCst);
+            let _ = write_message(&input, &value);
+        });
+        return;
     }
     dialog.pick_folder(move |result| {
         let value = match result {

@@ -17,12 +17,13 @@ export function acceptDirectoryReply(message) {
           "已有目录选择窗口，请先完成或取消。",
           "系统目录选择器需要桌面宿主。",
           "目录路径无法读取。",
+          "文件路径无法读取。",
         ].includes(message.error)
           ? message.error
           : "无法打开系统目录选择器，请重新打开 Moon 后重试。"
       )
     )
-  else if (message.result === null || typeof message.result === "string")
+  else if (message.result === null || typeof message.result === "string" || (Array.isArray(message.result) && message.result.every((path) => typeof path === "string")))
     pending.finish(null, message.result)
   else pending.finish(new Error("系统目录选择器返回了无效路径。"))
   return true
@@ -31,7 +32,7 @@ export function closeDirectoryHost() {
   pending?.finish(new Error("Moon 正在退出。"))
   hostSend = undefined
 }
-export function pickNativeDirectory(signal) {
+function pickNative(capability, signal) {
   signal?.throwIfAborted()
   if (!hostSend)
     throw new Error("系统目录选择器需要 Moon 桌面宿主，请先启动 Moon。")
@@ -55,9 +56,11 @@ export function pickNativeDirectory(signal) {
     signal?.addEventListener("abort", abort, { once: true })
     if (signal?.aborted) return abort()
     try {
-      hostSend({ id, operation: "$hostRequest", capability: "pickDirectory" })
+      hostSend({ id, operation: "$hostRequest", capability })
     } catch {
       finish(new Error("系统目录选择通道不可用，请重新打开 Moon。"))
     }
   })
 }
+export const pickNativeDirectory = (signal) => pickNative("pickDirectory", signal)
+export const pickNativeFiles = (signal) => pickNative("pickFiles", signal)

@@ -9,7 +9,7 @@ export default {
   source: "src/features/home/home-composer.tsx",
   description: "选择工作上下文、编辑需求和材料，通过提交回调获得结果反馈。",
   boundary:
-    "负责首页输入与本地草稿；正式App提供真实工作区选择及提交行为，SessionServiceContext提供配置读取与保存，组件本身不调用模型。此目录使用隔离数据与模拟提交，材料能力仅供展示。初始草稿仅在挂载时读取，重建实例可重置。",
+    "负责首页输入；正式App拥有持久草稿和提交，SessionServiceContext提供配置，MaterialServiceContext准备实际材料。目录使用隔离数据与替身，不调用模型或用户文件。",
   inputs: [
     "data: workspaces/models/materials/tools 可选资源。",
     "initialDraft?: Partial<HomeDraft>，初始需求、材料、模型和工具配置。",
@@ -17,7 +17,7 @@ export default {
     "onDraftChange保存当前窗口草稿；onChooseWorkspace/onWorkspaceSelect由正式App接入系统目录选择和工作区服务。",
   ],
   events: [
-    "提交仅在非空需求、有效目录及模型时触发；Enter 发送、Shift+Enter 换行，输入法组合阶段不提交。",
+    "提交需有效文字或就绪材料、有效目录和兼容模型；Enter发送、Shift+Enter换行，候选选择和输入法选字不提交。",
     "材料添加去重，可逐项移除；选项变化清除上次反馈。",
   ],
   composition: [

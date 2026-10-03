@@ -7,6 +7,10 @@ import type { ConversationReadingPosition } from "./conversation-list"
 import { ConversationComposer } from "./composer/conversation-composer"
 import { ConversationMessageView } from "./messages/conversation-message-view"
 import { ExecutionFeedback } from "./execution-feedback"
+import { QueueDock } from "./composer/queue-dock"
+import { useState } from "react"
+import type { Material } from "@/features/home/home-types"
+import { MaterialPreviewDialog } from "@/features/materials/material-preview"
 
 export type LiveConversationViewProps = {
   id: string
@@ -23,6 +27,13 @@ export type LiveConversationViewProps = {
   onStop: () => void
   onContinue: () => void
   onReload: () => void
+  onQueueEdit?: (itemId: string, text: string) => Promise<unknown>
+  onQueueRemove?: (itemId: string) => void
+  onQueueDeliver?: (itemId: string) => void
+  onQueueMode?: (mode: "single" | "all") => Promise<unknown>
+  onSaveDraft?: () => void
+  unconfirmed?: boolean
+  onReconcile?: () => void
 }
 export function LiveConversationView({
   id,
@@ -39,7 +50,15 @@ export function LiveConversationView({
   onStop,
   onContinue,
   onReload,
+  onQueueEdit,
+  onQueueRemove,
+  onQueueDeliver,
+  onQueueMode,
+  onSaveDraft,
+  unconfirmed,
+  onReconcile,
 }: LiveConversationViewProps) {
+  const [activeMaterial, setActiveMaterial] = useState<Material | null>(null)
   const running = snapshot?.phase === "running"
   const stopping = snapshot?.phase === "stopping"
   const canContinue =
@@ -49,11 +68,12 @@ export function LiveConversationView({
   const needsResend =
     snapshot?.inputAccepted === false &&
     (snapshot.phase === "failed" || snapshot.phase === "interrupted")
-  const feedback = error || snapshot?.error
+  const feedback = error || snapshot?.error || snapshot?.queueError
   const stoppedFeedback = !error && snapshot?.phase === "interrupted"
   const runtime = running ? snapshot?.runtime : undefined
   let turn = 0
   return (
+    <>
     <ConversationPage
       viewKey={id}
       title={snapshot?.title ?? title}
@@ -84,7 +104,7 @@ export function LiveConversationView({
       items={(snapshot?.messages ?? []).map((message, index) => ({
         id: message.id,
         revision: JSON.stringify(message),
-        content: <ConversationMessageView message={message} />,
+        content: <ConversationMessageView message={message} workspacePath={snapshot?.cwd ?? workspacePath} onOpenAttachment={(attachment) => setActiveMaterial({ id: attachment.id, name: attachment.name, kind: attachment.materialType === "skill" ? "Skill" : "附件", type: attachment.materialType ?? attachment.kind, status: "ready", source: attachment.source })} />,
         ...(message.role === "user"
           ? {
               turn: ++turn,
@@ -103,7 +123,9 @@ export function LiveConversationView({
           running={running}
           stopping={stopping}
           blocked={pending}
-          allowQueue={false}
+          allowQueue
+          deliveryMode={snapshot?.queue?.mode}
+          onDeliveryModeChange={onQueueMode}
           onChange={onChange}
           onSubmit={onSend}
           onStop={onStop}
@@ -112,12 +134,23 @@ export function LiveConversationView({
             snapshot?.contextState ?? { status: "unavailable" }
           }
           dock={
-            runtime ||
+            <>
+            {!!snapshot?.queue?.items.length && onQueueEdit && onQueueRemove && onQueueDeliver && <QueueDock
+              items={snapshot.queue.items.map((item) => ({ ...item, draft: { ...draft, text: item.text, materials: item.materials } }))}
+              running={running}
+              busy={pending || stopping}
+              deliveryMode={snapshot.queue.mode}
+              onDeliveryModeChange={onQueueMode}
+              onEdit={onQueueEdit}
+              onRemove={onQueueRemove}
+              onSendNow={onQueueDeliver}
+            />}
+            {runtime ||
             stopping ||
             snapshot?.notice ||
             feedback ||
             needsResend ||
-            canContinue ? (
+            canContinue || unconfirmed ? (
               <div className="flex flex-col gap-2 pb-3">
                 {(runtime || stopping || snapshot?.notice) && (
                   <ExecutionFeedback
@@ -149,7 +182,7 @@ export function LiveConversationView({
                     </AlertDescription>
                   </Alert>
                 )}
-                {(canContinue || error) && (
+                {(canContinue || error || unconfirmed) && (
                   <div className="flex items-center gap-2">
                     {canContinue && (
                       <Button
@@ -172,13 +205,18 @@ export function LiveConversationView({
                         重新读取
                       </Button>
                     )}
+                    {error?.includes("草稿未保存") && onSaveDraft && <Button type="button" size="sm" variant="outline" onClick={onSaveDraft}>重试保存草稿</Button>}
+                    {unconfirmed && onReconcile && <Button type="button" size="sm" variant="outline" disabled={pending} onClick={onReconcile}>核对发送</Button>}
                   </div>
                 )}
               </div>
-            ) : undefined
+            ) : undefined}
+            </>
           }
         />
       }
     />
+    <MaterialPreviewDialog key={id} history material={activeMaterial} cwd={snapshot?.cwd ?? workspacePath ?? ""} onClose={() => setActiveMaterial(null)} />
+    </>
   )
 }

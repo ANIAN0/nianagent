@@ -1,4 +1,86 @@
 // Generated from backend/schema.mjs and backend/contract.mjs. Do not edit.
+export type ConversationQueueItem = {
+  /** 稳定会话、消息或提交标识 */
+  id: string
+  /** 稳定会话、消息或提交标识 */
+  clientRequestId: string
+  /** 本次原始文字 */
+  text: string
+  /**  */
+  materials: MaterialReference[]
+  /** 未进入历史的交付状态 */
+  status: "pending" | "dispatching" | "failed"
+  /** 下一处交付边界 */
+  delivery: "followUp" | "steer"
+  /** 失败原因，保留原项 */
+  error: string
+  /** 提交时间 */
+  createdAt: string
+}
+export type ConversationQueue = {
+  /** 队列乐观并发版本 */
+  revision: number
+  /** 会话级交付数量；下次边界生效 */
+  mode: "single" | "all"
+  /** 停止、终止失败、重启或材料失效后暂停 */
+  paused: boolean
+  /**  */
+  items: ConversationQueueItem[]
+  /** 已持久接受的提交回执，用于原请求核对，已交付/已删除仍保留 */
+  acceptedRequestIds: string[]
+}
+export type MaterialReference = {
+  /** 服务准备后返回的稳定材料标识 */
+  id: string
+  /** 材料原始名称 */
+  name: string
+  /** 材料类别 */
+  kind: "附件" | "Skill"
+  /** 实际交付方式 */
+  type: "file" | "image" | "skill"
+  /** 准备状态；非 ready 不可交付 */
+  status: "preparing" | "ready" | "failed"
+  /** 实际绝对路径或图片来源说明 */
+  source: string
+  /** 用途或来源摘要 */
+  description?: string
+  /** 图片实际 MIME 类型 */
+  mimeType?: string
+  /** 准备的图片字节数 */
+  bytes?: number
+  /** 材料失败的具体安全原因 */
+  error?: string
+  /** 固定图片缩略图；仅界面本地使用，不是请求必需字段 */
+  thumbnail?: string
+}
+export type MaterialCatalog = {
+  /** 当前会话真实工作目录 */
+  cwd: string
+  /**  */
+  files: MaterialReference[]
+  /**  */
+  skills: MaterialReference[]
+  /**  */
+  diagnostics: string[]
+}
+export type MaterialPreview = {
+  /** 材料标识 */
+  id: string
+  /** 材料名称 */
+  name: string
+  /** 当前文件、本次 Skill 内容或待发送/发送时的固定图片 */
+  label: string
+  /** 实际来源 */
+  source: string
+  /** 文本预览；不执行 HTML 或脚本 */
+  content: string
+  /** 图片 MIME */
+  mimeType: string
+  /** 保存图片的 base64 内容 */
+  data: string
+  /** 文本只读取前128KiB，明确非全文 */
+  truncated: boolean
+}
 export type WorkspaceRecord = {
   /** 工作区稳定标识 */
   id: string
@@ -108,6 +190,21 @@ export type ConversationChatMessage = {
     text: string
   }
   /**  */
+  materials?: MaterialReference[]
+  /**  */
+  attachments?: {
+    /** 准备材料标识 */
+    id: string
+    /** 原始材料名称 */
+    name: string
+    /** 展示类型 */
+    kind: "file" | "image"
+    /** 原始来源路径或固定图片说明 */
+    source: string
+    /** 材料真实类别 */
+    materialType: "file" | "image" | "skill"
+  }[]
+  /**  */
   tools?: ConversationChatTool[]
   /**  */
   blocks?: (
@@ -163,6 +260,10 @@ export type ConversationSnapshot = {
   error: string
   /**  */
   messages: ConversationChatMessage[]
+  /**  */
+  queue?: ConversationQueue
+  /** 待处理消息保存或恢复错误；不会自动重发 */
+  queueError?: string
   /**  */
   runtime?: ConversationRuntime
   /**  */
@@ -410,6 +511,88 @@ export type AuthState = {
   prompt?: AuthPrompt
 }
 export type RpcRequests = {
+  conversationQueueEdit: {
+    /** 稳定会话、消息或提交标识 */
+    sessionId: string
+    /** 稳定会话、消息或提交标识 */
+    itemId: string
+    /** 修改后的原始文字，材料保留 */
+    text: string
+    /**  */
+    revision: number
+  }
+  conversationQueueRemove: {
+    /** 稳定会话、消息或提交标识 */
+    sessionId: string
+    /** 稳定会话、消息或提交标识 */
+    itemId: string
+    /**  */
+    revision: number
+  }
+  conversationQueueMode: {
+    /** 稳定会话、消息或提交标识 */
+    sessionId: string
+    /** 交付模式 */
+    mode: "single" | "all"
+    /**  */
+    revision: number
+  }
+  conversationQueueDeliver: {
+    /** 稳定会话、消息或提交标识 */
+    sessionId: string
+    /** 稳定会话、消息或提交标识 */
+    itemId: string
+    /**  */
+    revision: number
+  }
+  materialChoose: {
+    /** 会话稳定标识 */
+    sessionId: string
+    /** 当前会话真实工作目录 */
+    cwd: string
+  }
+  materialPrepare: {
+    /** 会话稳定标识 */
+    sessionId: string
+    /** 当前会话真实工作目录 */
+    cwd: string
+    /**  */
+    paths: string[]
+  }
+  materialUpload: {
+    /** 会话稳定标识 */
+    sessionId: string
+    /** 当前会话真实工作目录 */
+    cwd: string
+    /** 粘贴或拖入的图片名 */
+    name: string
+    /** image/png、jpeg、webp、gif */
+    mimeType: string
+    /** 图片base64；解码后最多8MiB */
+    data: string
+  }
+  materialCatalog: {
+    /** 会话稳定标识 */
+    sessionId: string
+    /** 当前会话真实工作目录 */
+    cwd: string
+    /** 文件相对路径或Skill名称搜索 */
+    query: string
+  }
+  materialPreview: {
+    /** 当前会话真实工作目录 */
+    cwd: string
+    /** 准备完成的材料ID */
+    id: string
+  }
+  materialRestore: {
+    /** 会话稳定标识 */
+    sessionId: string
+    /** 当前会话真实工作目录 */
+    cwd: string
+    /**  */
+    materials: MaterialReference[]
+  }
   workspaceList: Record<string, never>
   workspaceAdd: {
     /** 用户明确选择的存在目录 */
@@ -445,8 +628,10 @@ export type RpcRequests = {
     workspaceId: string
     /** 稳定的业务会话/请求标识 */
     clientRequestId: string
-    /** 本轮用户文本 */
+    /** 本轮用户文本；有就绪材料时可以为空 */
     text: string
+    /**  */
+    materials?: MaterialReference[]
     /** 连接目录中的精确 ID */
     connectionId: string
     /** 模型的精确 ID，允许斜杠 */
@@ -552,6 +737,16 @@ export type RpcRequests = {
   }
 }
 export type RpcResults = {
+  conversationQueueEdit: ConversationSnapshot
+  conversationQueueRemove: ConversationSnapshot
+  conversationQueueMode: ConversationSnapshot
+  conversationQueueDeliver: ConversationSnapshot
+  materialChoose: MaterialReference[]
+  materialPrepare: MaterialReference[]
+  materialUpload: MaterialReference
+  materialCatalog: MaterialCatalog
+  materialPreview: MaterialPreview
+  materialRestore: MaterialReference[]
   workspaceList: WorkspaceList
   workspaceAdd: WorkspaceRecord
   workspaceSelect: WorkspaceRecord

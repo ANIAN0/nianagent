@@ -1318,3 +1318,71 @@ test("a partial history write is preserved and cannot be hidden by a later appen
   await assert.rejects(f.send("after-partial", "不应丢失的草稿"), /损坏/)
   assert.deepEqual(await readFile(record.sessionFile), broken)
 })
+
+test("durable queue edits/removes pending inputs and all mode delivers distinct Pi user entries", async (t) => {
+  let release
+  const gate = new Promise((resolve) => { release = resolve })
+  const f = await fixture(t, async (_request, response, number) => {
+    response.write(chunk({ role: "assistant", content: "正在处理" }))
+    if (number === 1) await gate
+    response.end(chunk({}, "stop") + "data: [DONE]\n\n")
+  })
+  t.after(() => release())
+  await f.send("queue-source", "第一项工作")
+  await f.send("queue-first", "需要修订的要求")
+  await f.send("queue-removed", "不应交付的要求")
+  let snapshot = await f.send("queue-third", "第三项工作")
+  assert.equal(snapshot.queue.items.length, 3)
+  const revision = snapshot.queue.revision
+  snapshot = await f.service.dispatch("conversationQueueEdit", { sessionId: snapshot.id, itemId: snapshot.queue.items[0].id, text: "已经修订的要求", revision })
+  await assert.rejects(f.service.dispatch("conversationQueueRemove", { sessionId: snapshot.id, itemId: snapshot.queue.items[1].id, revision }), /队列已变化/)
+  snapshot = await f.service.dispatch("conversationQueueRemove", { sessionId: snapshot.id, itemId: snapshot.queue.items[1].id, revision: snapshot.queue.revision })
+  snapshot = await f.service.dispatch("conversationQueueMode", { sessionId: snapshot.id, mode: "all", revision: snapshot.queue.revision })
+  const duplicate = await f.send("queue-first", "需要修订的要求")
+  assert.equal(duplicate.queue.items.length, 2)
+  release()
+  const completed = await f.settled()
+  assert.equal(completed.phase, "completed")
+  assert.equal(completed.queue.items.length, 0)
+  assert.deepEqual(completed.messages.filter((item) => item.role === "user").map((item) => item.text), ["第一项工作", "已经修订的要求", "第三项工作"])
+  const users = f.requests.at(-1).messages.filter((item) => item.role === "user")
+  assert.deepEqual(users.slice(-2).map((item) => item.content), ["已经修订的要求", "第三项工作"])
+  assert.equal(f.requests.length, 2)
+})
+
+test("stopped queue survives restart without automatic sending and resumes only explicitly", async (t) => {
+  let release
+  const gate = new Promise((resolve) => { release = resolve })
+  const f = await fixture(t, async (_request, response, number) => {
+    response.write(chunk({ role: "assistant", content: "正在处理" }))
+    if (number === 1) await gate
+    response.end(chunk({}, "stop") + "data: [DONE]\n\n")
+  })
+  t.after(() => release())
+  const running = await f.send("stop-source", "需要停止的工作")
+  await f.send("kept-input", "保留到我确认后再发送")
+  await f.service.dispatch("conversationStop", { sessionId: running.id, runId: running.runId })
+  const stopped = await f.settled()
+  assert.equal(stopped.queue.paused, true)
+  assert.equal(stopped.queue.items.length, 1)
+  await f.chats.close()
+  release()
+  const restoredService = new ModelService(f.directory)
+  await restoredService.initialize()
+  const restored = new ConversationService(f.directory, restoredService, restoredService.sessions, f.store, f.workspaces)
+  restoredService.conversations = restored
+  t.after(async () => { await restored.close(); await restoredService.close() })
+  let snapshot = await restoredService.dispatch("conversationRead", { sessionId: running.id })
+  await delay(80)
+  assert.equal(f.requests.length, 1)
+  assert.equal(snapshot.queue.paused, true)
+  await restoredService.dispatch("conversationQueueDeliver", { sessionId: running.id, itemId: snapshot.queue.items[0].id, revision: snapshot.queue.revision })
+  for (let i = 0; i < 200; i++) {
+    snapshot = await restoredService.dispatch("conversationRead", { sessionId: running.id })
+    if (snapshot.phase === "completed" && !snapshot.queue.items.length) break
+    await delay(25)
+  }
+  assert.equal(snapshot.phase, "completed")
+  assert.equal(snapshot.queue.items.length, 0)
+  assert.equal(snapshot.messages.filter((item) => item.role === "user" && item.text === "保留到我确认后再发送").length, 1)
+})

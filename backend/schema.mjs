@@ -1,6 +1,8 @@
 import { workspaceSchemas } from "./workspace-contract.mjs"
 import { conversationSchemas as catalogSchemas } from "./conversation-catalog-contract.mjs"
 import { conversationSchemas } from "./conversation-contract.mjs"
+import { materialSchemas } from "./material-contract.mjs"
+import { queueSchemas } from "./queue-contract.mjs"
 // JSON Schema subset used by runtime validation, generated TypeScript and docs.
 const string = (description, extra = {}) => ({
   type: "string",
@@ -26,6 +28,8 @@ export const object = (
 export const ref = (name) => ({ $ref: name })
 const levels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
 export const schemas = {
+  ...queueSchemas,
+  ...materialSchemas,
   ...workspaceSchemas,
   ...catalogSchemas,
   ...conversationSchemas,

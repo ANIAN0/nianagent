@@ -7,6 +7,8 @@ export type MessageAttachment = {
   url?: string
   content?: string
   bytes?: number
+  source?: string
+  materialType?: "file" | "image" | "skill"
 }
 export type ConversationToolCall = {
   id: string

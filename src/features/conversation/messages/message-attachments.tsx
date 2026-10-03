@@ -17,13 +17,16 @@ import {
 } from "@/components/ui/dialog"
 import type { MessageAttachment } from "../conversation-types"
 import "./messages.css"
+import { useMaterialThumbnail } from "@/features/materials/use-material-thumbnail"
 
 export function MessageAttachments({
   attachments,
   onOpenAttachment,
+  cwd = "",
 }: {
   attachments: MessageAttachment[]
   onOpenAttachment?: (attachment: MessageAttachment) => void
+  cwd?: string
 }) {
   const trigger = useRef<HTMLButtonElement | null>(null)
   const [active, setActive] = useState<MessageAttachment | null>(null)
@@ -43,7 +46,7 @@ export function MessageAttachments({
           >
             <AttachmentMedia
               variant={
-                attachment.kind === "image" && attachment.url ? "image" : "icon"
+                attachment.kind === "image" && (attachment.url || cwd) ? "image" : "icon"
               }
             >
               {attachment.kind === "image" && attachment.url ? (
@@ -53,7 +56,7 @@ export function MessageAttachments({
                   name={attachment.name}
                 />
               ) : attachment.kind === "image" ? (
-                <Image />
+                <PreparedImageThumbnail id={attachment.id} cwd={cwd} name={attachment.name} />
               ) : (
                 <FileText />
               )}
@@ -61,9 +64,10 @@ export function MessageAttachments({
             <AttachmentContent>
               <AttachmentTitle>{attachment.name}</AttachmentTitle>
               <AttachmentDescription>
-                {attachment.name.includes(".")
+                {attachment.materialType === "skill" ? "Skill 指令" : attachment.name.includes(".")
                   ? attachment.name.split(".").at(-1)?.toUpperCase().slice(0, 8)
                   : "文件"}
+                {attachment.source && ` · ${attachment.source}`}
                 {attachment.bytes !== undefined &&
                   ` · ${attachment.bytes < 1024 ? `${attachment.bytes} B` : `${(attachment.bytes / 1024).toFixed(1)} KB`}`}
               </AttachmentDescription>
@@ -72,8 +76,8 @@ export function MessageAttachments({
               aria-label={`预览 ${attachment.name}`}
               onClick={(event) => {
                 trigger.current = event.currentTarget
-                setActive(attachment)
-                onOpenAttachment?.(attachment)
+                if (onOpenAttachment) onOpenAttachment(attachment)
+                else setActive(attachment)
               }}
             />
           </Attachment>
@@ -113,6 +117,11 @@ export function MessageAttachments({
       </Dialog>
     </>
   )
+}
+
+function PreparedImageThumbnail({ id, cwd, name }: { id: string; cwd: string; name: string }) {
+  const { target, thumbnail } = useMaterialThumbnail(id, cwd, !!cwd)
+  return <div ref={target} className="flex size-full items-center justify-center">{thumbnail ? <img src={thumbnail} alt={name} className="size-full object-cover" /> : <Image />}</div>
 }
 
 function AttachmentImage({ url, name }: { url: string; name: string }) {

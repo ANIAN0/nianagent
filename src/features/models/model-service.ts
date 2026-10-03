@@ -5,6 +5,8 @@ import type {
 } from "./model-contract.generated"
 import { invoke, isTauri } from "@tauri-apps/api/core"
 import type { ModelService } from "./model-types"
+/** A backend rejection is definitive; a lost transport response is not. */
+export class RpcRequestRejected extends Error {}
 export async function modelCall<K extends ModelOperation>(
   operation: K,
   input: RpcRequests[K],
@@ -27,6 +29,8 @@ export async function modelCall<K extends ModelOperation>(
       return result
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
+      if (message.startsWith("MOON_RPC_REJECTED:"))
+        throw new RpcRequestRejected(message.slice("MOON_RPC_REJECTED:".length))
       if (message.includes("Command model_request not found")) {
         throw new Error(
           "当前桌面程序版本过旧，缺少模型配置接口。请重新编译并重启 Moon；刷新页面或重新读取不能解决。",
@@ -45,8 +49,8 @@ export async function modelCall<K extends ModelOperation>(
     signal,
   })
   const payload = await response.json()
-  if (!response.ok || payload.error)
-    throw new Error(payload.error || "模型后端不可用。")
+  if (typeof payload.error === "string") throw new RpcRequestRejected(payload.error)
+  if (!response.ok) throw new Error("模型后端不可用，未能确认请求结果。")
   return payload.result as RpcResults[K]
 }
 export function createModelService(): ModelService {

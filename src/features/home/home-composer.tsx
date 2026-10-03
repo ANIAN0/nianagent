@@ -12,14 +12,20 @@ import { PromptInput } from "./prompt-input"
 import { ComposerToolbar } from "./composer-toolbar"
 import { SelectedMaterials } from "./selected-materials"
 import type { HomeData, HomeDraft, SubmitWork, Workspace } from "./home-types"
+import type { HomeDraftStore } from "@/features/conversation/conversation-draft-store"
+import { Button } from "@/components/ui/button"
+import { useComposerMaterials } from "@/features/materials/use-composer-materials"
+import { materialsReady } from "@/features/materials/material-service"
 
 export type HomeComposerProps = {
+  draftStore?: HomeDraftStore
   data: Pick<
     HomeData,
     | "workspaces"
     | "models"
     | "modelLabels"
     | "modelThinking"
+    | "modelInputs"
     | "modelCatalog"
     | "materials"
     | "materialsEnabled"
@@ -36,6 +42,7 @@ export type HomeComposerProps = {
   onWorkspaceRetry?: () => void
 }
 export function HomeComposer({
+  draftStore,
   data,
   initialDraft = {},
   onSubmit,
@@ -72,10 +79,15 @@ export function HomeComposer({
       toolIds: tools.map((tool) => tool.id),
       instructionScope: "all",
     },
+    ...draftStore?.read(initialDraft.workspaceId ?? workspaces[0]?.id ?? ""),
+    ...initialDraft,
   }))
+  const [saveError, setSaveError] = useState("")
   useEffect(() => {
     onDraftChange?.(rawDraft)
-  }, [rawDraft, onDraftChange])
+    try { draftStore?.write(rawDraft); setSaveError("") }
+    catch { setSaveError("草稿未保存，请释放本地存储空间后重试。") }
+  }, [rawDraft, onDraftChange, draftStore])
   const draft = {
     ...rawDraft,
     workspaceId:
@@ -99,6 +111,10 @@ export function HomeComposer({
     [sessionService, workspacePath]
   )
   const [result, setResult] = useState("")
+  const materialController = useComposerMaterials({
+    sessionId, cwd: workspacePath, anchorRef, materials: draft.materials,
+    update: (apply) => setDraft((current) => ({ ...current, materials: apply(current.materials) })),
+  })
   const [submitting, setSubmitting] = useState(false)
   const submitRequest = useRef<AbortController | null>(null)
   const configRequest = useRef<AbortController | null>(null)
@@ -137,7 +153,9 @@ export function HomeComposer({
   const canSubmit =
     !submitting &&
     (!sessionService || readySession === sessionId) &&
-    !!draft.text.trim() &&
+    (!!draft.text.trim() || draft.materials.length > 0) &&
+    materialsReady(draft.materials) &&
+    !draft.materials.some((item) => item.type === "image" && data.modelInputs && !data.modelInputs[draft.model]?.includes("image")) &&
     !!workspacePath &&
     workspaces.some(
       (item) => item.id === draft.workspaceId && item.available !== false
@@ -152,7 +170,9 @@ export function HomeComposer({
       configRequest.current?.abort()
       submitRequest.current?.abort()
     }
-    setDraft((current) => ({ ...current, ...patch }))
+    setDraft((current) => patch.workspaceId !== undefined && patch.workspaceId !== current.workspaceId
+      ? { ...current, text: "", materials: [], ...draftStore?.read(patch.workspaceId), ...patch }
+      : { ...current, ...patch })
     setResult("")
     if (patch.session) {
       configRequest.current?.abort()
@@ -216,6 +236,7 @@ export function HomeComposer({
           if (!signal?.aborted) change({ workspaceId })
         }}
       />
+      {saveError && <p role="alert" className="text-destructive">{saveError}<Button type="button" variant="link" size="sm" onClick={() => { try { draftStore?.write(rawDraft); setSaveError("") } catch { /* Keep the visible failure. */ } }}>重试保存</Button></p>}
       <form
         onSubmit={(event) => {
           event.preventDefault()
@@ -235,7 +256,8 @@ export function HomeComposer({
                   onSubmit={submit}
                 />
                 <SelectedMaterials
-                  materials={draft.materials}
+                  materials={draft.materials.map((item) => item.type === "image" && data.modelInputs && !data.modelInputs[draft.model]?.includes("image") ? { ...item, status: "failed", error: "当前模型不支持图片，请更换模型或移除。" } : item)}
+                  cwd={workspacePath}
                   onRemove={(id) =>
                     change({
                       materials: draft.materials.filter(
@@ -264,24 +286,18 @@ export function HomeComposer({
                   canSubmit={canSubmit}
                   onChange={change}
                   onAddMaterial={(item) => {
-                    setDraft((current) =>
-                      current.materials.some(
-                        (selected) => selected.id === item.id
-                      )
-                        ? current
-                        : {
-                            ...current,
-                            materials: [...current.materials, item],
-                          }
-                    )
+                    void materialController.prepare(item)
                     setResult("")
                   }}
+                  onChooseAttachments={materialController.service ? materialController.choose : undefined}
+                  choosingMaterials={materialController.choosing}
                 />
               </InputGroup>
             </Field>
           </FieldGroup>
         </fieldset>
       </form>
+      {materialController.error && <p role="alert" className="mt-2 text-xs text-destructive">{materialController.error}</p>}
       {submitting && (
         <p role="status" className="mt-3 text-xs text-muted-foreground">
           正在开始会话…

@@ -65,12 +65,13 @@ export function useModelCatalog(onOpenSettings: () => void) {
   )
   const data: Pick<
     HomeData,
-    "models" | "modelLabels" | "modelThinking" | "modelCatalog"
+    "models" | "modelLabels" | "modelThinking" | "modelCatalog" | "modelInputs"
   > = {
     models: usable.flatMap((connection) =>
       connection.models.map((model) => modelSelectionId(connection, model))
     ),
     modelLabels: labels,
+    modelInputs: Object.fromEntries(connections.flatMap((connection) => connection.models.map((model) => [modelSelectionId(connection, model), model.input]))),
     modelThinking: Object.fromEntries(
       connections.flatMap((connection) =>
         connection.models.map((model) => [

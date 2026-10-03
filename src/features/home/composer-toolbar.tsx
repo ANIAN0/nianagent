@@ -24,6 +24,8 @@ export type ComposerToolbarProps = {
   canSubmit: boolean
   onChange: (patch: Partial<HomeDraft>) => void
   onAddMaterial: (material: Material) => void
+  onChooseAttachments?: () => Promise<void>
+  choosingMaterials?: boolean
 }
 export function ComposerToolbar({
   sessionId,
@@ -34,6 +36,8 @@ export function ComposerToolbar({
   canSubmit,
   onChange,
   onAddMaterial,
+  onChooseAttachments,
+  choosingMaterials,
 }: ComposerToolbarProps) {
   return (
     <InputGroupAddon
@@ -49,6 +53,11 @@ export function ComposerToolbar({
         materials={data.materials}
         selected={draft.materials}
         onAdd={onAddMaterial}
+        sessionId={sessionId}
+        workspacePath={workspacePath}
+        onTextChange={(text) => onChange({ text })}
+        onChooseAttachments={onChooseAttachments}
+        choosing={choosingMaterials}
       />
       <div className="flex-1" />
       <ModelPicker

@@ -25,6 +25,13 @@ export type Material = {
   name: string
   kind: "附件" | "Skill"
   description?: string
+  type?: "file" | "image" | "skill"
+  status?: "preparing" | "ready" | "failed"
+  source?: string
+  mimeType?: string
+  bytes?: number
+  error?: string
+  thumbnail?: string
 }
 export type HomeTool = {
   available?: boolean
@@ -48,6 +55,7 @@ export type HomeData = {
   models: string[]
   modelLabels?: Record<string, string>
   modelThinking?: Record<string, string[]>
+  modelInputs?: Record<string, ("text" | "image")[]>
   modelCatalog?: ModelPickerCatalog
   materials: Material[]
   tools: HomeTool[]

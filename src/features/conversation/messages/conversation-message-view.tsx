@@ -9,13 +9,15 @@ export function ConversationMessageView({
   message,
   onRetry,
   onOpenAttachment,
+  workspacePath,
 }: {
   message: ConversationMessage
   onRetry?: () => void
   onOpenAttachment?: (attachment: MessageAttachment) => void
+  workspacePath?: string
 }) {
   return message.role === "user" ? (
-    <UserMessage message={message} onOpenAttachment={onOpenAttachment} />
+    <UserMessage message={message} onOpenAttachment={onOpenAttachment} workspacePath={workspacePath} />
   ) : (
     <AssistantMessage
       message={message}
