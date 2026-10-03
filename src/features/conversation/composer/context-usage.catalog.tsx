@@ -30,7 +30,7 @@ export default {
   description:
     "输入卡下方的上下文入口，说明记录来源、估算含义、时间及历史恢复状态。",
   boundary:
-    "数值由正式快照提供；没有数据不冒充0。分项和累计仅在传入真实记录时显示；正式入口不提供尚未接入的手动压缩动作。",
+    "数值由正式快照提供；没有数据不冒充0。分项和累计仅在传入真实记录时显示；onCompact打开同一正式操作面板，不直接调用模型。",
   inputs: [
     "usedTokens/contextWindow、source/estimated/observedAt/restored",
     "status/reason、defaultOpen",

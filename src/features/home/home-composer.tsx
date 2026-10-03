@@ -19,6 +19,8 @@ import { materialsReady } from "@/features/materials/material-service"
 
 export type HomeComposerProps = {
   draftStore?: HomeDraftStore
+  unconfirmedSessionIds?: string[]
+  onCheckSubmission?: (sessionId: string) => Promise<void>
   data: Pick<
     HomeData,
     | "workspaces"
@@ -43,6 +45,8 @@ export type HomeComposerProps = {
 }
 export function HomeComposer({
   draftStore,
+  unconfirmedSessionIds = [],
+  onCheckSubmission,
   data,
   initialDraft = {},
   onSubmit,
@@ -204,6 +208,13 @@ export function HomeComposer({
       if (submitRequest.current === controller) setSubmitting(false)
     }
   }
+  async function checkSubmission() {
+    if (!onCheckSubmission || submitting) return
+    setSubmitting(true)
+    try { await onCheckSubmission(sessionId); setResult("") }
+    catch (error) { setResult(error instanceof Error ? error.message : String(error)) }
+    finally { setSubmitting(false) }
+  }
 
   return (
     <section className="home-launch" aria-label="新建工作">
@@ -236,6 +247,7 @@ export function HomeComposer({
           if (!signal?.aborted) change({ workspaceId })
         }}
       />
+      {unconfirmedSessionIds.includes(sessionId) && <div role="status" className="mb-3 flex flex-wrap items-center gap-2 text-sm text-muted-foreground"><span>上一条发送结果待核对，当前草稿保留。</span><Button type="button" size="sm" variant="outline" disabled={submitting} onClick={checkSubmission}>核对发送</Button></div>}
       {saveError && <p role="alert" className="text-destructive">{saveError}<Button type="button" variant="link" size="sm" onClick={() => { try { draftStore?.write(rawDraft); setSaveError("") } catch { /* Keep the visible failure. */ } }}>重试保存</Button></p>}
       <form
         onSubmit={(event) => {

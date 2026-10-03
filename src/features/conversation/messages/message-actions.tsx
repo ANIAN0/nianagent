@@ -11,6 +11,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { CopyButton } from "./copy-button"
+import { ForkAction } from "../controls/fork-action"
 import "./messages.css"
 
 export function MessageActions({
@@ -20,6 +21,9 @@ export function MessageActions({
   align = "start",
   running = false,
   onRetry,
+  onFork,
+  forkDisabledReason,
+  forkPending,
 }: {
   text: string
   time?: string | number
@@ -27,6 +31,9 @@ export function MessageActions({
   align?: "start" | "end"
   running?: boolean
   onRetry?: () => void
+  onFork?: () => void
+  forkDisabledReason?: string
+  forkPending?: boolean
 }) {
   const date = time === undefined ? undefined : new Date(time)
   const clock =
@@ -108,6 +115,15 @@ export function MessageActions({
         </Tooltip>
       )}
       {align === "start" && clock}
+      {onFork && (
+        <ForkAction
+          pending={forkPending}
+          disabledReason={
+            running ? "回复正在输出，请等待完成。" : forkDisabledReason
+          }
+          onFork={onFork}
+        />
+      )}
     </div>
   )
 }

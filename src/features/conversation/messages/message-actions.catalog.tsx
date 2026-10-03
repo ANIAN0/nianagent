@@ -21,12 +21,19 @@ export default {
   layer: "复合组件",
   group: "对话消息",
   source: "src/features/conversation/messages/message-actions.tsx",
-  description: "28px图标操作、复制反馈、消息信息和可选重新生成。",
+  description: "28px图标操作、复制反馈、消息信息、可选重新生成与独立会话分支。",
   boundary:
     "仅有模型记录时显示消息信息；重试只发出事件，运行及消息替换由会话状态负责。",
-  inputs: ["text", "time", "model", "align", "running"],
-  events: ["onRetry()"],
-  composition: ["CopyButton", "Button", "Tooltip", "Popover"],
+  inputs: [
+    "text",
+    "time",
+    "model",
+    "align",
+    "running",
+    "forkPending/forkDisabledReason",
+  ],
+  events: ["onRetry()", "onFork()"],
+  composition: ["CopyButton", "Button", "Tooltip", "Popover", "ForkAction"],
   consumers: ["UserMessage", "AssistantMessage"],
   viewport: { width: 650, height: 340 },
   states: [

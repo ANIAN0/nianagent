@@ -128,6 +128,15 @@ export type ConversationSummary = {
   lastError: string
   /** 当前或最后一次运行标识；尚未运行时为空 */
   runId: string
+  /**  */
+  lineage?: {
+    /** 稳定会话标识 */
+    sourceSessionId: string
+    /** 来源会话标题 */
+    sourceTitle: string
+    /** 来源Pi已完成回复标识 */
+    sourceEntryId: string
+  }
 }
 export type ConversationFilter = {
   /** 可选工作区标识 */
@@ -174,6 +183,12 @@ export type ConversationRuntime = {
 export type ConversationChatMessage = {
   /** 由 Pi 消息时间和顺序生成的稳定展示标识 */
   id: string
+  /** Pi已保存消息的权威条目标识；运行中的临时消息没有该字段 */
+  entryId?: string
+  /** 在当前Pi分支中的位置 */
+  historyIndex?: number
+  /** Pi已保存且完成的Agent回复边界，不含待执行工具调用；来源会话还需通过控制门禁 */
+  forkable?: boolean
   /** 消息角色 */
   role: "user" | "assistant"
   /** 消息文本 */
@@ -265,6 +280,19 @@ export type ConversationSnapshot = {
   /** 待处理消息保存或恢复错误；不会自动重发 */
   queueError?: string
   /**  */
+  control?: ConversationControl
+  /**  */
+  compactions?: ConversationCompaction[]
+  /**  */
+  lineage?: {
+    /** 稳定的业务会话/请求标识 */
+    sourceSessionId: string
+    /** 来源会话标题 */
+    sourceTitle: string
+    /** Pi来源回复标识 */
+    sourceEntryId: string
+  }
+  /**  */
   runtime?: ConversationRuntime
   /**  */
   notice?: {
@@ -303,6 +331,59 @@ export type ConversationSnapshot = {
     /** 未知用量的安全说明 */
     reason: string
   }
+}
+export type ConversationControlOperation = {
+  /** 稳定操作或会话标识 */
+  id: string
+  /** 操作类型 */
+  kind: "compact" | "fork"
+  /** 稳定操作或会话标识 */
+  sessionId: string
+  /** 实际操作结果；unknown必须查询原标识 */
+  status:
+    "running" | "cancelling" | "completed" | "cancelled" | "failed" | "unknown"
+  /** 接受时间 */
+  createdAt: string
+  /** 更新时点 */
+  updatedAt: string
+  /** 安全错误原因 */
+  error: string
+  /** 压缩时希望保留的重点 */
+  focus?: string
+  /** Pi权威历史边界 */
+  anchorId?: string
+  /** 实际保存的Pi压缩条目标识 */
+  compactionEntryId?: string
+  /** 稳定操作或会话标识 */
+  targetSessionId?: string
+}
+export type ConversationControl = {
+  /**  */
+  busy: boolean
+  /** 不能开始压缩的具体原因；可用时为空 */
+  compactDisabledReason: string
+  /** 不能创建会话分支的具体原因；可用时为空 */
+  forkDisabledReason: string
+  /**  */
+  operation?: ConversationControlOperation
+}
+export type ConversationCompaction = {
+  /** Pi压缩entryId */
+  id: string
+  /** Pi实际保存时间 */
+  time: string
+  /** 真实只读摘要 */
+  summary: string
+  /** 保留历史起点的Pi entryId */
+  firstKeptEntryId: string
+  /** Pi保存的压缩前估算用量 */
+  tokensBefore: number
+  /** 压缩来源 */
+  source: "manual" | "automatic"
+  /** 当前Pi分支中的排列位置 */
+  historyIndex: number
+  /** 保留起点在当前分支的位置；-1表示原记录不存在 */
+  firstKeptHistoryIndex: number
 }
 export type InstructionScope = "all" | "directory" | "none"
 export type SessionTool = {
@@ -663,6 +744,34 @@ export type RpcRequests = {
     /** Pi 原生思考等级；不支持思考的模型只能使用 off */
     thinking: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
   }
+  conversationFork: {
+    /** 稳定操作或会话标识 */
+    sessionId: string
+    /** 稳定操作或会话标识 */
+    operationId: string
+    /** 精确Pi assistant entryId */
+    entryId: string
+  }
+  conversationCompact: {
+    /** 稳定操作或会话标识 */
+    sessionId: string
+    /** 稳定操作或会话标识 */
+    operationId: string
+    /** 可空保留重点 */
+    focus: string
+  }
+  conversationControlRead: {
+    /** 稳定操作或会话标识 */
+    sessionId: string
+    /** 稳定操作或会话标识 */
+    operationId: string
+  }
+  conversationCompactCancel: {
+    /** 稳定操作或会话标识 */
+    sessionId: string
+    /** 稳定操作或会话标识 */
+    operationId: string
+  }
   sessionCatalog: {
     /**  */
     cwd: string
@@ -759,6 +868,10 @@ export type RpcResults = {
   conversationRead: ConversationSnapshot
   conversationStop: ConversationSnapshot
   conversationRetry: ConversationSnapshot
+  conversationFork: ConversationControlOperation
+  conversationCompact: ConversationControlOperation
+  conversationControlRead: ConversationControlOperation | null
+  conversationCompactCancel: ConversationControlOperation
   sessionCatalog: SessionCatalog
   sessionRead: SessionConfiguration | null
   sessionApply: SessionConfiguration

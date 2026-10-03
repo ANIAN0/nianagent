@@ -198,19 +198,27 @@ export class SessionService {
     ]
     if (process.platform === "win32") {
       try {
-        lines.push(`Bash executable resolved by Pi: ${JSON.stringify(getShellConfig().shell)}.`)
+        lines.push(
+          `Bash executable resolved by Pi: ${JSON.stringify(getShellConfig().shell)}.`
+        )
       } catch {
-        lines.push("Pi has no available Bash executable in this host environment.")
+        lines.push(
+          "Pi has no available Bash executable in this host environment."
+        )
       }
       try {
-        lines.push(`PowerShell executable resolved by Pi: ${JSON.stringify(getPowerShellConfig().shell)}.`)
+        lines.push(
+          `PowerShell executable resolved by Pi: ${JSON.stringify(getPowerShellConfig().shell)}.`
+        )
       } catch {
-        lines.push("Pi has no available PowerShell executable in this host environment.")
+        lines.push(
+          "Pi has no available PowerShell executable in this host environment."
+        )
       }
       lines.push(
         "Windows Bash may use Git Bash/MSYS/Cygwin path mappings. Paths printed by pwd, including /tmp and /c, are shell paths, not native Windows absolute paths; never pass them unchanged to file tools.",
-        "If a native absolute path is required and cygpath is available in that shell, obtain it with cygpath -w \"$PWD\" (or convert the specific quoted shell path). Otherwise use the native working directory above and relative file paths. Never guess drive letters or shell mount mappings.",
-        "Quote paths containing spaces or non-ASCII characters in shell commands. PowerShell uses native Windows paths.",
+        'If a native absolute path is required and cygpath is available in that shell, obtain it with cygpath -w "$PWD" (or convert the specific quoted shell path). Otherwise use the native working directory above and relative file paths. Never guess drive letters or shell mount mappings.',
+        "Quote paths containing spaces or non-ASCII characters in shell commands. PowerShell uses native Windows paths."
       )
     }
     return lines.join("\n")
@@ -413,6 +421,40 @@ export class SessionService {
         signal
       )
     )
+  }
+  // Fork owns a new identity but inherits the exact saved instruction snapshot;
+  // re-discovering files here would silently change the confirmed configuration.
+  async copyConfiguration(sessionId, source) {
+    return this.exclusive(sessionId, async () => {
+      this.identity(sessionId)
+      assertSchema(schemas.SessionConfiguration, source, "来源配置")
+      await mkdir(this.directory, { recursive: true, mode: 0o700 })
+      const unlock = await lockfile.lock(this.directory, {
+        realpath: false,
+        retries: { retries: 30, minTimeout: 30, maxTimeout: 300 },
+      })
+      const temporary = join(this.directory, `.sessions-${randomUUID()}.tmp`)
+      try {
+        const data = await this.document()
+        if (Object.hasOwn(data.sessions, sessionId))
+          return data.sessions[sessionId]
+        const record = { ...structuredClone(source), sessionId, revision: 1 }
+        assertSchema(schemas.SessionConfiguration, record)
+        data.sessions[sessionId] = record
+        await writeFile(temporary, JSON.stringify(data, null, 2), {
+          flag: "wx",
+          mode: 0o600,
+        })
+        await rename(temporary, this.file)
+        return record
+      } finally {
+        try {
+          await rm(temporary, { force: true })
+        } finally {
+          await unlock()
+        }
+      }
+    })
   }
   async applyExclusive(
     sessionId,

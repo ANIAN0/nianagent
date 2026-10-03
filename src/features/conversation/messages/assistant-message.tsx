@@ -16,10 +16,16 @@ export function AssistantMessage({
   message,
   onRetry,
   onOpenAttachment,
+  onFork,
+  forkDisabledReason,
+  forkPending,
 }: {
   message: ConversationMessage
   onRetry?: () => void
   onOpenAttachment?: (attachment: MessageAttachment) => void
+  onFork?: () => void
+  forkDisabledReason?: string
+  forkPending?: boolean
 }) {
   const running = message.status === "streaming"
   const copyText = message.blocks?.length
@@ -105,6 +111,9 @@ export function AssistantMessage({
             model={message.model}
             running={running}
             onRetry={onRetry}
+            onFork={onFork}
+            forkDisabledReason={forkDisabledReason}
+            forkPending={forkPending}
           />
         )}
       </MessageContent>

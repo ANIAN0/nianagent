@@ -33,15 +33,31 @@ const properties = {
   lastMessage: text("最近消息摘要，最多 2000 字符", { maxLength: 2000 }),
   lastError: text("最后一次运行错误；正常时为空"),
   runId: text("当前或最后一次运行标识；尚未运行时为空"),
+  lineage: object({
+    sourceSessionId: id,
+    sourceTitle: text("来源会话标题"),
+    sourceEntryId: text("来源Pi已完成回复标识"),
+  }),
 }
-export const conversationRecordSchema = object({
-  ...properties,
-  sessionFile: text("仅后端使用的 Pi JSONL 文件绝对路径；首次落盘前为空"),
-  lastRequestId: text("内部：最后接受的客户端请求标识"),
-  lastRequestFingerprint: text("内部：最后请求的 SHA-256，用于发送去重"),
-})
+export const conversationRecordSchema = object(
+  {
+    ...properties,
+    sessionFile: text("仅后端使用的 Pi JSONL 文件绝对路径；首次落盘前为空"),
+    lastRequestId: text("内部：最后接受的客户端请求标识"),
+    lastRequestFingerprint: text("内部：最后请求的 SHA-256，用于发送去重"),
+  },
+  [
+    ...Object.keys(properties).filter((key) => key !== "lineage"),
+    "sessionFile",
+    "lastRequestId",
+    "lastRequestFingerprint",
+  ]
+)
 export const conversationSchemas = {
-  ConversationSummary: object(properties),
+  ConversationSummary: object(
+    properties,
+    Object.keys(properties).filter((key) => key !== "lineage")
+  ),
   ConversationFilter: object(
     {
       workspaceId: text("可选工作区标识", { minLength: 1, maxLength: 128 }),

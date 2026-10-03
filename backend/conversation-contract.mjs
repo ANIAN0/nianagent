@@ -68,6 +68,17 @@ export const conversationSchemas = {
   ConversationChatMessage: obj(
     {
       id: str("由 Pi 消息时间和顺序生成的稳定展示标识"),
+      entryId: str("Pi已保存消息的权威条目标识；运行中的临时消息没有该字段"),
+      historyIndex: {
+        type: "integer",
+        minimum: 0,
+        description: "在当前Pi分支中的位置",
+      },
+      forkable: {
+        type: "boolean",
+        description:
+          "Pi已保存且完成的Agent回复边界，不含待执行工具调用；来源会话还需通过控制门禁",
+      },
       role: str("消息角色", { enum: ["user", "assistant"] }),
       text: str("消息文本"),
       time: str("ISO 时间"),
@@ -138,6 +149,13 @@ export const conversationSchemas = {
         messages: arr(ref("ConversationChatMessage")),
         queue: ref("ConversationQueue"),
         queueError: str("待处理消息保存或恢复错误；不会自动重发"),
+        control: ref("ConversationControl"),
+        compactions: arr(ref("ConversationCompaction")),
+        lineage: obj({
+          sourceSessionId: id,
+          sourceTitle: str("来源会话标题"),
+          sourceEntryId: str("Pi来源回复标识"),
+        }),
         runtime: ref("ConversationRuntime"),
         notice: obj({
           kind: str("非阻断执行提醒", { enum: ["compaction-failed"] }),

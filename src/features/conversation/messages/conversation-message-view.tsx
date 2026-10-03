@@ -10,11 +10,17 @@ export function ConversationMessageView({
   onRetry,
   onOpenAttachment,
   workspacePath,
+  onFork,
+  forkDisabledReason,
+  forkPending,
 }: {
   message: ConversationMessage
   onRetry?: () => void
   onOpenAttachment?: (attachment: MessageAttachment) => void
   workspacePath?: string
+  onFork?: () => void
+  forkDisabledReason?: string
+  forkPending?: boolean
 }) {
   return message.role === "user" ? (
     <UserMessage message={message} onOpenAttachment={onOpenAttachment} workspacePath={workspacePath} />
@@ -23,6 +29,9 @@ export function ConversationMessageView({
       message={message}
       onRetry={onRetry}
       onOpenAttachment={onOpenAttachment}
+      onFork={onFork}
+      forkDisabledReason={forkDisabledReason}
+      forkPending={forkPending}
     />
   )
 }

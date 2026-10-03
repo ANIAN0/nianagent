@@ -176,6 +176,7 @@ export class ConversationStore {
       sessionFile = "",
       modelId = "",
       thinking = "off",
+      lineage,
     },
     signal
   ) {
@@ -208,6 +209,7 @@ export class ConversationStore {
         runId: "",
         lastRequestId: "",
         lastRequestFingerprint: "",
+        ...(lineage ? { lineage } : {}),
       }
       this.validate(record)
       data.conversations.push(record)

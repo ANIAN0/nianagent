@@ -1,5 +1,15 @@
 # Moon 当前架构
 
+## 会话控制
+
+`backend/conversation-controls.mjs` 拥有手动压缩操作的接受、取消与结果对账。操作回执原子保存到应用数据目录的 `conversations/controls/<sessionId>.json`，只保存操作身份与结果；摘要、保留起点和完整历史仍由Pi JSONL唯一持有。控制与发送、继续、配置应用共用SessionService会话门禁，压缩开始前原子保留busy，防止Pi `compact()` 首先abort正在执行的任务。
+
+`conversation-control-contract.mjs` 是输入、结果与调用说明的权威来源，汇入现有schema与接口目录。正式页面用 `useConversationControls` 以会话及操作标识恢复结果，切换或关闭面板不取消后台控制；网络未知时查询原操作，不重复发起。`CompactDialog` 和 `CompactionRecord` 的状态由服务提供，组件库复用正式组件但不调用模型。
+
+会话派生在独立打开的Pi SessionManager上调用官方 `createBranchedSession`，复制根到选定assistant entry的稳定前缀；不调用会替换源runtime的操作。源JSONL、active leaf和订阅保持不变。新会话复制已保存项目指令与工具选择快照，首次创建独立agent/订阅；重启可按需恢复。来源关系保存于Pi custom entry和会话摘要，草稿、待发送队列及控制请求归属Moon会话身份，不从历史复制。
+
+派生先持久化operation ID和新Moon会话ID，再生成Pi文件、保存路径回执、提交配置和索引。结果未知只查询原operation；恢复按持久lineage身份补齐索引，不依据标题猜测，不重新生成Pi路径。`session.copyConfiguration`在配置锁下复制明确快照，不重新发现磁盘指令，也不覆盖已经存在的新会话配置。
+
 ## 模型配置模块
 
 `backend/models.mjs` 是模型配置的业务入口，负责连接/模型校验、目录发现、Pi 调用检查、配置可用性和稳定身份。自定义连接使用 `moon-<connectionId>` 注册 Pi provider；订阅连接选择 Pi 的真实 provider，每个 provider 仅允许一个订阅连接。连接名和模型显示名都不是身份。

@@ -26,7 +26,7 @@ import {
 import { useLiveConversation } from "@/features/conversation/use-live-conversation"
 import { LiveConversationView } from "@/features/conversation/live-conversation-view"
 import type { ConversationReadingPosition } from "@/features/conversation/conversation-list"
-import { clearHomeDraft, persistentHomeDraftStore } from "@/features/conversation/conversation-draft-store"
+import { clearHomeDraft, draftSignature, restoreHomeDraft, persistentHomeDraftStore } from "@/features/conversation/conversation-draft-store"
 import { createMaterialService, MaterialServiceContext } from "@/features/materials/material-service"
 
 const ModelSettingsPage = lazy(() =>
@@ -174,6 +174,17 @@ export default function App() {
         /* Per-session hook retains the error next to its composer. */
       })
   }
+  async function checkHomeSubmission(id: string) {
+    const submitted = chat.submissionDraft(id)
+    const accepted = await chat.reconcile(id)
+    if (!accepted.inputAccepted) throw new Error(accepted.error || "消息尚未接受，原草稿保留。")
+    if (submitted && draftSignature({ ...submitted, ...restoreHomeDraft(submitted.workspaceId) }) === draftSignature(submitted)) {
+      try { clearHomeDraft(submitted.workspaceId) } catch { /* History receipt remains authoritative. */ }
+    }
+    consumeHomeSession(accepted.cwd)
+    selectConversation(id)
+    void catalog.refresh(true)
+  }
   return (
     <NavigationBoundaryContext.Provider value={navigation}>
       <SessionServiceContext.Provider value={sessionService}>
@@ -224,6 +235,7 @@ export default function App() {
           >
             {selected ? (
               <LiveConversationView
+                key={selected}
                 id={selected}
                 title={metadata?.title ?? "正在读取会话"}
                 workspacePath={metadata?.cwd}
@@ -249,6 +261,10 @@ export default function App() {
                 onSaveDraft={() => chat.saveDraft(selected)}
                 unconfirmed={chat.unconfirmed[selected]}
                 onReconcile={() => action(chat.reconcile(selected))}
+                onOpenConversation={(id) => {
+                  leaveSettings(() => selectConversation(id))
+                  void catalog.refresh(true)
+                }}
               />
             ) : workspaces.loading ? (
               <div
@@ -280,6 +296,8 @@ export default function App() {
                 )}
                 <HomeComposer
                   draftStore={persistentHomeDraftStore}
+                  unconfirmedSessionIds={Object.keys(chat.unconfirmed)}
+                  onCheckSubmission={checkHomeSubmission}
                   key={homeDraft.key}
                   data={data}
                   initialDraft={

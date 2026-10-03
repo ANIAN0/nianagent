@@ -1,6 +1,7 @@
 import { WorkspaceService } from "../workspaces.mjs"
 import { ConversationCatalogService } from "../conversation-catalog.mjs"
 import { ConversationService } from "../conversations.mjs"
+import { ConversationControls } from "../conversation-controls.mjs"
 import test from "node:test"
 import assert from "node:assert/strict"
 import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises"
@@ -119,6 +120,7 @@ test("every operation example is validated, dispatch registered and malformed ne
             workspaces: WorkspaceService.prototype,
             conversationCatalog: ConversationCatalogService.prototype,
             conversations: ConversationService.prototype,
+            "conversations.controls": ConversationControls.prototype,
           }[parts.join(".")]
     assert.ok(owner, `Unknown operation owner: ${definition.method}`)
     assert.equal(typeof owner[method], "function", definition.method)

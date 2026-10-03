@@ -3,6 +3,7 @@ import { conversationSchemas as catalogSchemas } from "./conversation-catalog-co
 import { conversationSchemas } from "./conversation-contract.mjs"
 import { materialSchemas } from "./material-contract.mjs"
 import { queueSchemas } from "./queue-contract.mjs"
+import { controlSchemas } from "./conversation-control-contract.mjs"
 // JSON Schema subset used by runtime validation, generated TypeScript and docs.
 const string = (description, extra = {}) => ({
   type: "string",
@@ -33,6 +34,7 @@ export const schemas = {
   ...workspaceSchemas,
   ...catalogSchemas,
   ...conversationSchemas,
+  ...controlSchemas,
   InstructionScope: enumeration(
     ["all", "directory", "none"],
     "项目指令加载范围，不影响应用系统指令。"

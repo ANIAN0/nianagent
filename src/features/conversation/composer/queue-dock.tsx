@@ -13,13 +13,16 @@ import {
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Field, FieldGroup } from "@/components/ui/field"
-import { Badge } from "@/components/ui/badge"
-import type { HomeDraft } from "@/features/home/home-types"
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
+import type { HomeDraft, Material } from "@/features/home/home-types"
+import { MaterialPreviewDialog } from "@/features/materials/material-preview"
 import { QueueDeliveryControl } from "./queue-delivery-control"
 
 export type QueueDockProps = {
   items: { id: string; draft: HomeDraft; status?: "pending" | "dispatching" | "failed"; error?: string; delivery?: "followUp" | "steer" }[]
   running: boolean
+  paused?: boolean
+  cwd?: string
   busy?: boolean
   deliveryMode?: "single" | "all"
   onDeliveryModeChange?: (mode: "single" | "all") => void | Promise<unknown>
@@ -30,6 +33,8 @@ export type QueueDockProps = {
 export function QueueDock({
   items,
   running,
+  paused = false,
+  cwd = "",
   busy = false,
   deliveryMode = "single",
   onDeliveryModeChange,
@@ -43,6 +48,7 @@ export function QueueDock({
   )
   const [editError, setEditError] = useState("")
   const [saving, setSaving] = useState(false)
+  const [preview, setPreview] = useState<Material | null>(null)
   const id = useId()
   if (!items.length) return null
   const activeEditing =
@@ -62,7 +68,7 @@ export function QueueDock({
       {onDeliveryModeChange && (
         <div className="conversation-queue-mode">
           <span>
-            {running ? "当前工作结束后继续" : "已暂停，发送后继续处理"}
+            {paused || !running ? "已暂停，发送后继续处理" : "当前工作结束后继续"}
           </span>
           <QueueDeliveryControl mode={deliveryMode} disabled={busy} onChange={onDeliveryModeChange} />
         </div>
@@ -123,7 +129,7 @@ export function QueueDock({
                     <Button
                       variant="ghost"
                       size="sm"
-                      disabled={busy}
+                      disabled={busy || saving}
                       onClick={() => setEditing(null)}
                     >
                       <X data-icon="inline-start" />
@@ -150,15 +156,18 @@ export function QueueDock({
                   />
                 )}
                 <div className="conversation-queue-text">
-                  <span>{item.draft.text || "附件消息"}</span>
+                  <Popover>
+                    <PopoverTrigger asChild><Button variant="ghost" className="h-auto w-full min-w-0 justify-start p-0 text-left font-normal" aria-label="查看排队消息全文"><span className="truncate">{item.draft.text || "附件消息"}</span></Button></PopoverTrigger>
+                    <PopoverContent side="top" className="w-96 max-w-[calc(100vw-32px)]" aria-label="排队消息全文"><p className="moon-scrollbar max-h-52 overflow-auto whitespace-pre-wrap break-words text-sm leading-6">{item.draft.text || "此消息只有附件。"}</p></PopoverContent>
+                  </Popover>
                   {(item.status === "dispatching" || item.delivery === "steer") && <small role="status">{item.status === "dispatching" ? "正在交付" : "等待补充边界"}</small>}
                   {item.error && <small role="alert" className="text-destructive">{item.error}</small>}
                   {item.draft.materials.length > 0 && (
                     <div className="flex flex-wrap gap-1">
                       {item.draft.materials.map((material) => (
-                        <Badge variant="outline" key={material.id}>
+                        <Button type="button" variant="outline" size="sm" className="h-6 max-w-full text-xs" key={material.id} onClick={() => setPreview(material)}>
                           {material.name}
-                        </Badge>
+                        </Button>
                       ))}
                     </div>
                   )}
@@ -206,6 +215,7 @@ export function QueueDock({
           </li>
         ))}
       </ul>
+      <MaterialPreviewDialog material={preview} cwd={cwd} onClose={() => setPreview(null)} />
     </section>
   )
 }

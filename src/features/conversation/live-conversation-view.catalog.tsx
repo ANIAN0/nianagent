@@ -1,6 +1,7 @@
 import { useState } from "react"
 import type { CatalogEntry } from "../../../ui-catalog/catalog"
 import { homeData } from "../../../ui-catalog/fixtures/home"
+import { createCatalogConversationControls } from "../../../ui-catalog/fixtures/conversation-controls"
 import type { ConversationSnapshot } from "@/features/models/model-contract.generated"
 import type { HomeDraft } from "@/features/home/home-types"
 import { LiveConversationView } from "./live-conversation-view"
@@ -22,6 +23,7 @@ type Scenario =
   | "resend-after-history"
   | "not-accepted-interrupted"
 function Example({ scenario }: { scenario: Scenario }) {
+  const [controlService] = useState(createCatalogConversationControls)
   const [phase, setPhase] = useState(scenario)
   const [retryAt] = useState(() => new Date(Date.now() + 20000).toISOString())
   const active = [
@@ -187,6 +189,7 @@ function Example({ scenario }: { scenario: Scenario }) {
     <div className="flex h-dvh flex-col">
       <LiveConversationView
         id="catalog-session"
+        controlService={controlService}
         title="核对启动说明"
         workspacePath={snapshot.cwd}
         snapshot={
@@ -217,9 +220,11 @@ export default {
   source: "src/features/conversation/live-conversation-view.tsx",
   description: "正式对话页面，展示后端快照、Pi 工具结果和独立输入草稿。",
   boundary:
-    "展示组件不调用服务；App 与 useLiveConversation 管理读写和轮询。此处仅使用隔离演示数据，不发起模型调用。",
-  inputs: ["snapshot、error、pending、draft、data、positions"],
-  events: ["onSend、onStop、onContinue、onReload、onChange"],
+    "消息由App/useLiveConversation提供；控制操作通过显式ControlService依赖调用，组件库注入隔离服务，不发起模型或原生请求。",
+  inputs: ["snapshot、error、pending、draft、data、positions、controlService"],
+  events: [
+    "onSend、onStop、onContinue、onReload、onChange、onOpenConversation",
+  ],
   composition: [
     "ConversationPage",
     "ConversationMessageView",
@@ -227,6 +232,7 @@ export default {
     "Alert",
     "Button",
     "ExecutionFeedback",
+    "CompactDialog、ConversationCompactionRecord、ForkFeedback",
   ],
   consumers: ["App"],
   viewport: { width: 1120, height: 820 },
@@ -299,7 +305,8 @@ export default {
       id: "not-accepted",
       name: "消息未接受",
       condition: "首轮模型检查失败，inputAccepted=false且历史为空。",
-      expected: "输入保留原文本，提示解决具体错误后重新发送，不提供无效继续动作。",
+      expected:
+        "输入保留原文本，提示解决具体错误后重新发送，不提供无效继续动作。",
       render: () => <Example scenario="not-accepted" />,
     },
     {

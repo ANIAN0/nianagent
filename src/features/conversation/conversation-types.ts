@@ -22,6 +22,9 @@ export type ConversationToolCall = {
 }
 export type ConversationMessage = {
   id: string
+  entryId?: string
+  historyIndex?: number
+  forkable?: boolean
   role: "user" | "assistant"
   text: string
   time?: string

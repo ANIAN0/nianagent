@@ -8,6 +8,7 @@ import {
 } from "@earendil-works/pi-coding-agent"
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai"
 import { ConversationQueue } from "./conversation-queue.mjs"
+import { ConversationControls } from "./conversation-controls.mjs"
 
 const requireValue = (value, message) => {
   if (!value) throw new Error(message)
@@ -115,6 +116,7 @@ export class ConversationService {
     this.version = Date.now()
     this.closed = false
     this.queue = new ConversationQueue(directory, this)
+    this.controls = new ConversationControls(this, directory)
   }
   ensureOpen() {
     requireValue(!this.closed, "对话服务已关闭，请重新打开 Moon。")
@@ -152,6 +154,7 @@ export class ConversationService {
       "appendMessage",
       "appendCustomMessageEntry",
       "appendCustomEntry",
+      "appendCompaction",
     ]) {
       const append = manager[method].bind(manager)
       manager[method] = (...args) => {
@@ -276,6 +279,7 @@ export class ConversationService {
       }
       if (selected && !existing.session)
         await this.activate(existing, selected, signal)
+      await this.controls.load(existing)
       return existing
     }
     // Reading a transcript must not choose a fallback model, require a surviving
@@ -357,6 +361,7 @@ export class ConversationService {
         runId: record.runId,
       })
     if (selected) await this.activate(state, selected, signal)
+    await this.controls.load(state)
     this.active.set(record.id, state)
     return state
   }
@@ -610,6 +615,8 @@ export class ConversationService {
       )
     }
     if (event.type === "compaction_start") {
+      if (event.reason === "manual" && state.controlCancelRequested)
+        state.session?.abortCompaction()
       state.compactionActive = true
       state.compactionReason = event.reason
       stage("compacting", { reason: compactionReason(event.reason) })
@@ -764,6 +771,11 @@ export class ConversationService {
     let nextMaterials
     const history = this.toolHistory(branch)
     const cancellation = this.cancellations(state, branch, history)
+    const entriesByMessage = new Map()
+    branch.forEach((entry, historyIndex) => {
+      if (entry.type === "message")
+        entriesByMessage.set(entry.message, { entryId: entry.id, historyIndex })
+    })
     for (const entry of branch) {
       if (entry.type === "custom" && entry.customType === "moon-request") nextMaterials = undefined
       else if (entry.type === "custom" && entry.customType === "moon-materials") nextMaterials = entry.data
@@ -792,6 +804,7 @@ export class ConversationService {
       const live = message === state.pending
       const item = {
         id,
+        ...entriesByMessage.get(message),
         role: message.role,
         text: textOf(message.content),
         time: new Date(message.timestamp).toISOString(),
@@ -816,6 +829,10 @@ export class ConversationService {
       }
       if (message.role === "assistant") {
         item.model = message.model || state.record.modelId
+        item.forkable =
+          !live &&
+          ["stop", "length"].includes(message.stopReason) &&
+          !message.content.some((part) => part.type === "toolCall")
         const content = Array.isArray(message.content) ? message.content : []
         const thinkingText = content
           .filter((part) => part.type === "thinking")
@@ -904,6 +921,8 @@ export class ConversationService {
       messages: this.transcript(state),
       queue: this.queue.snapshot(state),
       ...(state.queueError ? { queueError: state.queueError } : {}),
+      ...this.controls.projection(state),
+      ...(record.lineage ? { lineage: record.lineage } : {}),
       ...(state.phase === "running" && state.runtime
         ? { runtime: state.runtime }
         : {}),
@@ -1352,6 +1371,7 @@ export class ConversationService {
     return this.closing
   }
   async closeActive() {
+    await this.controls.close()
     const states = [...this.active.values()]
     for (const state of states)
       if (state.entry.busy) {

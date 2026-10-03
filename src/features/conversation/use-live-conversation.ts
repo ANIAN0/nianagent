@@ -213,6 +213,7 @@ export function useLiveConversation(selectedId: string | undefined) {
     stop,
     retry,
     unconfirmed: Object.fromEntries([...requests.current.keys()].map((id) => [id, true])),
+    submissionDraft: (id: string) => requests.current.get(id)?.draft,
     reconcile: (id: string) => perform(id, async () => {
       // Reuse the original payload/ID. Checking a lost reply cannot submit the
       // newly edited draft or create a duplicate request.
