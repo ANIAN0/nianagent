@@ -1,38 +1,44 @@
-import { ChevronRight } from "lucide-react"
+import { ArrowUpRight } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
+import { CatalogSource } from "./catalog-source"
 import {
-  catalogUrl,
   consumersOf,
   dependenciesOf,
-  sourceOf,
   symbolOf,
-  type CatalogEntry,
+  type CatalogMetadata,
 } from "./catalog"
 
 export function CatalogDocs({
   entry,
   stateId,
   onNavigate,
+  hrefFor,
 }: {
-  entry: CatalogEntry
+  entry: CatalogMetadata
   stateId?: string
-  onNavigate: (entry: CatalogEntry, state?: string) => void
+  onNavigate: (entry: CatalogMetadata, state?: string) => void
+  hrefFor: (entry: CatalogMetadata, state?: string) => string
 }) {
   const state = entry.states.find((candidate) => candidate.id === stateId)
   return (
     <aside className="catalog-scroll catalog-docs" aria-label="组件文档">
-      <p className="catalog-eyebrow">组件契约</p>
-      <h2>{symbolOf(entry)}</h2>
+      <div className="catalog-docs-heading">
+        <p className="catalog-eyebrow">组件文档</p>
+        <Badge variant="outline">{entry.layer}</Badge>
+      </div>
+      <h2>{entry.name}</h2>
+      <code className="catalog-docs-symbol">{symbolOf(entry)}</code>
       <p>{entry.description}</p>
       <h3>使用边界</h3>
       <p>{entry.boundary}</p>
       {state && (
-        <section>
+        <section className="catalog-docs-state">
           <h3>当前状态 · {state.name}</h3>
           <p>条件：{state.condition}</p>
           <p>预期：{state.expected}</p>
         </section>
       )}
-      <h3>参数与事件</h3>
+      <h3>参数</h3>
       {entry.props ? (
         <div className="catalog-table-scroll">
           <table>
@@ -65,11 +71,16 @@ export function CatalogDocs({
           ))}
         </ul>
       )}
-      <ul>
-        {entry.events.map((event) => (
-          <li key={event}>{event}</li>
-        ))}
-      </ul>
+      {!!entry.events.length && (
+        <section>
+          <h3>事件与交互</h3>
+          <ul>
+            {entry.events.map((event) => (
+              <li key={event}>{event}</li>
+            ))}
+          </ul>
+        </section>
+      )}
       {(
         [
           ["直接组成", dependenciesOf(entry)],
@@ -82,7 +93,7 @@ export function CatalogDocs({
             {related.map((item) => (
               <a
                 key={item.id}
-                href={catalogUrl(item)}
+                href={hrefFor(item)}
                 onClick={(event) => {
                   if (
                     event.metaKey ||
@@ -95,8 +106,11 @@ export function CatalogDocs({
                   onNavigate(item)
                 }}
               >
-                {item.name}
-                <small>{symbolOf(item)}</small>
+                <span>
+                  {item.name}
+                  <small>{symbolOf(item)}</small>
+                </span>
+                <ArrowUpRight aria-hidden="true" size={14} />
               </a>
             ))}
           </div>
@@ -109,17 +123,7 @@ export function CatalogDocs({
           )}
         </section>
       ))}
-      <h3>源码</h3>
-      <code className="catalog-source-path">{entry.source}</code>
-      <details className="catalog-source">
-        <summary>
-          <ChevronRight aria-hidden="true" size={14} />
-          查看正式实现
-        </summary>
-        <pre>
-          <code>{sourceOf(entry)}</code>
-        </pre>
-      </details>
+      <CatalogSource key={entry.id} entry={entry} />
       <p className="catalog-footnote">
         组成关系从正式源码的直接导入生成。类型与完整 API 以源码为准。
       </p>

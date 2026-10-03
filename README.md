@@ -98,7 +98,7 @@ pnpm dev --host 127.0.0.1 --port 5173 --strictPort
 
 ### 接口目录
 
-同一个 `pnpm dev` 服务提供 [接口目录](http://127.0.0.1:5173/api-catalog/)。目录按模型、工作区、会话列表、会话配置和对话模块展示正式 RPC 契约、参数、影响及例子，并调用真实实现。模型检查和对话会发起实际推理；对话可以执行已启用工具，保存、删除和授权会改变本地数据。原生窗口使用 Tauri 命令，浏览器通过 Vite 同源代理连接已运行的 Moon 宿主；Vite 不创建后端。
+同一个 `pnpm dev` 服务提供 [接口目录](http://127.0.0.1:5173/api-catalog/)。目录按模型、工作区、会话列表、会话配置和对话模块展示正式 RPC 契约、字段约束、影响及例子。左侧搜索和定位，默认阅读当前接口文档；“打开调试面板”才加载参数编辑和响应查看，宽屏并列、窄屏纵向排列。窄屏通过导航按钮选择接口；模块标题打开对应架构章节。浏览文档或打开调试不会调用服务，执行按钮才发起真实调用。每个接口保留本页的参数草稿和结果；收起调试、切换或取消后，迟到响应不会覆盖新调用。JSON 与正式契约不符时禁用执行，Ctrl / ⌘ + Enter 可执行合法请求。目录外观仅保存在内存中。模型检查和对话会发起实际推理；对话可以执行已启用工具，保存、删除和授权会改变本地数据。原生窗口使用 Tauri 命令，浏览器通过 Vite 同源代理连接已运行的 Moon 宿主；Vite 不创建后端。
 
 `pnpm test:backend` 运行正式回归测试，临时目录与本地协议服务在结束后清理。`pnpm backend:package` 用 pnpm deploy 生成独立后端生产依赖目录；`pnpm desktop:build` 发布构建会自动执行，使用生产配置携带后端资源。`src-tauri/runtime/` 为忽略的构建产物，不手工编辑。
 
@@ -107,13 +107,13 @@ pnpm dev --host 127.0.0.1 --port 5173 --strictPort
 运行同一个 `pnpm dev` 后，打开 [组件库](http://127.0.0.1:5173/ui-catalog/)；无需启动第二个服务。若 Vite 自动更换端口，使用终端显示的端口。
 
 - 左侧按页面、复合组件和基础组件分组，可搜索中文名、源码组件名或状态。每个组件包含概览和独立状态画布。
-- 概览将职责、所有真实状态及预期行为放在一起，预览随中栏宽度和内容高度调整，每个示例可单独重置；画布用于完整尺寸交互。右侧提供参数、事件、正式源码，以及从真实导入关系生成的可跳转组成和使用方。
+- 概览列出职责、所有真实状态及预期行为，一次只运行展开的示例，预览随中栏宽度和内容高度调整；示例可重置，画布用于完整尺寸交互。右侧提供参数、事件、正式源码，以及从真实导入关系生成的可跳转组成和使用方。
 - 根目录 [DESIGN.md](DESIGN.md) 维护生效的设计 token、主题映射、组件边界和视觉依据；组件库顶栏也可下载。
 - 中间 iframe 直接渲染正式组件，可调整实际视口尺寸、切换主题、重置或独立打开。切换状态、主题或重置会重新创建预览；窄屏切换面板保留预览。
-- 可直接访问 [首页预览](http://127.0.0.1:5173/ui-catalog/preview.html?component=home-page&state=default)。选择状态后的组件库 URL 也可刷新或分享。
+- 可直接访问 [首页预览](http://127.0.0.1:5173/ui-catalog/preview.html?component=home-page&state=default)。选择状态后的组件库 URL 可刷新或分享，保存组件、状态、查看方式、主题与画布宽高。尺寸输入在 Enter 或失焦时应用，非法值提示范围并保留原视口；Escape 恢复当前尺寸。
 - 展示数据与提交替身位于 `ui-catalog/fixtures/`，预览主题仅存于内存，演示不会改变正式首页的数据或已保存的外观。
 
-新增展示时，在正式组件旁添加一份 `*.catalog.tsx`，填写状态和文档并直接导入正式组件；`ui-catalog/catalog.ts` 自动发现，无需手工登记目录。
+新增展示时，在正式组件旁添加一份 `*.catalog.tsx`，填写状态和文档并直接导入正式组件；Vite 的 `scripts/ui-catalog-plugin.ts` 从相邻定义静态提取文档与正式 JSX 导入关系，无需手工登记目录；元数据使用静态字面量或可解析的本地常量，交互代码放在 render。目录壳只读轻量索引，iframe 按需加载当前定义，源码展开才读取对应 raw 文件。目录控件及接口目录组件也在同一组件库中展示。
 
 首页组件按职责分层，功能组件及相邻展示定义都放在 `src/features/home/`：
 
@@ -130,9 +130,9 @@ pnpm build
 pnpm preview --host 127.0.0.1 --port 4173 --strictPort
 ```
 
-`pnpm build` 先检查契约生成结果及 TypeScript 项目，再生成 `dist/`。预览地址为 [http://127.0.0.1:4173](http://127.0.0.1:4173)，仅用于本地检查前端产物，不是生产服务；调用真实功能仍需已运行的 Moon 宿主。
+`pnpm build` 先检查契约生成结果及 TypeScript 项目，再由 `scripts/build-frontend.mjs` 使用 Vite 官方 API 分别构建主应用和开发目录，合并到 `dist/`。两图隔离可避免组件展示的动态入口把主应用共享代码拆成大量小文件；目录仍按需加载真实组件。构建自动生成分图及合并 manifest，支持 `pnpm build --manifest`。预览地址为 [http://127.0.0.1:4173](http://127.0.0.1:4173)，仅用于本地检查前端产物，不是生产服务；调用真实功能仍需已运行的 Moon 宿主。
 
-组件库及 iframe 预览随同一构建发布，分别访问 [组件库](http://127.0.0.1:4173/ui-catalog/) 和 [预览入口](http://127.0.0.1:4173/ui-catalog/preview.html)。它们共用现有 Vite 配置、类型检查和 `dist/` 输出目录。
+组件库、iframe 和接口目录随同一次 `pnpm build` 发布，分别访问 [组件库](http://127.0.0.1:4173/ui-catalog/)、[预览入口](http://127.0.0.1:4173/ui-catalog/preview.html) 和 [接口目录](http://127.0.0.1:4173/api-catalog/)。它们共用 Vite 配置工厂、类型检查和最终 `dist/`；主应用资源在 `assets/`，目录资源在 `assets/catalogs/`，公共字体只复制一次。第二图保留主应用产物，同路径异内容会中止构建；重复构建先清掉旧产物。开发仍使用一个 `pnpm dev` 服务。
 
 桌面发布构建：
 
@@ -147,6 +147,7 @@ Tauri 会先运行 `pnpm build`，再构建原生程序与平台安装包，默�
 ```powershell
 pnpm build
 pnpm lint
+node --test scripts/tests/*.test.mjs ui-catalog/tests/*.test.mjs
 cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 cargo check --manifest-path src-tauri/Cargo.toml --locked
 ```
@@ -178,8 +179,9 @@ cargo check --manifest-path src-tauri/Cargo.toml --locked
 │   └── lib/                   # 共享工具，目前通过 utils.ts 导出 cn
 ├── backend/                    # 模型/工作区/会话目录/Pi对话/配置、CredentialStore 与唯一 Node 宿主
 │   └── tests/                 # 正式后端回归与隔离协议测试
-├── scripts/                    # 契约类型生成与后端生产依赖打包
-├── api-catalog/                # 同一服务下的真实接口目录与调用面板
+├── scripts/                    # 契约生成、后端打包、Vite目录索引插件及目录架构回归
+├── api-catalog/                # 引导/页面、按需契约读取、请求生命周期与模块化UI
+│   └── components/             # 导航、契约、字段、请求、结果、架构与复制控件；含相邻展示
 ├── src-tauri/                  # Tauri 原生端及打包配置
 │   ├── src/                   # main.rs 调用 lib.rs；window_lifecycle.rs 管理托盘和窗口
 │   ├── capabilities/          # 窗口可用的原生权限，目前只有 core:default
@@ -188,7 +190,7 @@ cargo check --manifest-path src-tauri/Cargo.toml --locked
 │   ├── Cargo.lock             # Rust 依赖锁文件
 │   ├── build.rs               # 调用 Tauri 构建辅助逻辑
 │   └── tauri.conf.json        # 应用标识、窗口、开发地址和打包设置
-├── ui-catalog/                 # 同一服务下的组件库与 iframe 页面、自动发现和文档联动
+├── ui-catalog/                 # 引导/页面、URL控制、布局/导航/文档控件、懒加载与iframe
 │   └── fixtures/              # 独立的展示数据与服务替身
 ├── index.html                 # Vite HTML 入口、页面标题和网页图标
 ├── DESIGN.md                   # 生效设计 token、组件规则与源码映射

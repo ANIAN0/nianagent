@@ -1,21 +1,49 @@
 import { useEffect, useRef, useState } from "react"
-import { FileText, Diamond, ChevronRight } from "lucide-react"
-import { Input } from "@/components/ui/input"
-import { entries, catalogUrl, symbolOf, type CatalogEntry } from "./catalog"
+import {
+  FileText,
+  Diamond,
+  ChevronRight,
+  Search,
+  SearchX,
+  X,
+} from "lucide-react"
+import { Button } from "@/components/ui/button"
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from "@/components/ui/input-group"
+import { entries, symbolOf, type CatalogMetadata } from "./catalog"
 
 export function CatalogNavigation({
   component,
   stateId,
   view,
+  query,
+  onQueryChange,
   onNavigate,
+  hrefFor,
 }: {
   component: string
   stateId: string
   view: string
-  onNavigate: (entry: CatalogEntry, state?: string) => void
+  query: string
+  onQueryChange: (query: string) => void
+  onNavigate: (entry: CatalogMetadata, state?: string) => void
+  hrefFor: (entry: CatalogMetadata, state?: string) => string
 }) {
-  const [query, setQuery] = useState("")
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const [expanded, setExpanded] = useState<
+    Record<string, { open: boolean; selection: string }>
+  >({})
   const active = useRef<HTMLAnchorElement>(null)
   useEffect(() => {
     active.current?.scrollIntoView({ block: "nearest" })
@@ -23,9 +51,9 @@ export function CatalogNavigation({
   const matches = entries.filter((entry) =>
     `${entry.name} ${symbolOf(entry)} ${entry.group} ${entry.states.map((s) => s.name).join(" ")}`
       .toLowerCase()
-      .includes(query.toLowerCase())
+      .includes(query.trim().toLowerCase())
   )
-  function link(entry: CatalogEntry, name: string, state?: string) {
+  function link(entry: CatalogMetadata, name: string, state?: string) {
     const selected =
       component === entry.id &&
       (state ? view === "canvas" && stateId === state : view === "docs")
@@ -35,7 +63,7 @@ export function CatalogNavigation({
         ref={selected ? active : undefined}
         className="catalog-link"
         aria-current={selected ? "page" : undefined}
-        href={catalogUrl(entry, state)}
+        href={hrefFor(entry, state)}
         onClick={(event) => {
           if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
             return
@@ -43,20 +71,49 @@ export function CatalogNavigation({
           onNavigate(entry, state)
         }}
       >
-        {state ? <Diamond size={12} /> : <FileText size={13} />}
-        {name}
+        {state ? (
+          <Diamond aria-hidden="true" size={12} />
+        ) : (
+          <FileText aria-hidden="true" size={13} />
+        )}
+        <span>{name}</span>
       </a>
     )
   }
   return (
     <nav className="catalog-navigation" aria-label="组件树">
       <div className="catalog-search">
-        <Input
-          aria-label="搜索组件"
-          placeholder="搜索名称、组件或状态…"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-        />
+        <div className="catalog-search-heading">
+          <strong>组件</strong>
+          <span>{entries.length} 项</span>
+        </div>
+        <InputGroup>
+          <InputGroupAddon>
+            <Search aria-hidden="true" />
+          </InputGroupAddon>
+          <InputGroupInput
+            aria-label="搜索组件"
+            placeholder="名称、组件或状态"
+            value={query}
+            onChange={(event) => onQueryChange(event.target.value)}
+          />
+          {query && (
+            <InputGroupAddon align="inline-end">
+              <InputGroupButton
+                size="icon-xs"
+                aria-label="清除组件搜索"
+                onClick={() => onQueryChange("")}
+              >
+                <X />
+              </InputGroupButton>
+            </InputGroupAddon>
+          )}
+        </InputGroup>
+        {!!query.trim() && (
+          <p className="catalog-search-count" role="status">
+            找到 {matches.length} 个组件
+          </p>
+        )}
       </div>
       <div className="catalog-tree-scroll">
         {(["页面", "复合组件", "基础组件"] as const).map((layer) => {
@@ -64,7 +121,10 @@ export function CatalogNavigation({
           if (!items.length) return null
           return (
             <section key={layer}>
-              <h2 className="catalog-layer">{layer}</h2>
+              <h2 className="catalog-layer">
+                {layer}
+                <span>{items.length}</span>
+              </h2>
               {[...new Set(items.map((entry) => entry.group))].map((group) => (
                 <div key={group}>
                   <h3 className="catalog-group">{group}</h3>
@@ -74,22 +134,30 @@ export function CatalogNavigation({
                       <details
                         key={`${entry.id}-${component}-${!!query}`}
                         open={
-                          !!query ||
-                          component === entry.id ||
-                          expanded[entry.id]
+                          !!query.trim() ||
+                          (expanded[entry.id]?.selection === component
+                            ? expanded[entry.id]!.open
+                            : component === entry.id ||
+                              expanded[entry.id]?.open)
                         }
                         onToggle={(event) => {
                           const open = event.currentTarget.open
+                          if (query.trim()) return
                           setExpanded((old) =>
-                            old[entry.id] === open
+                            old[entry.id]?.open === open &&
+                            old[entry.id]?.selection === component
                               ? old
-                              : { ...old, [entry.id]: open }
+                              : {
+                                  ...old,
+                                  [entry.id]: { open, selection: component },
+                                }
                           )
                         }}
                       >
                         <summary title={symbolOf(entry)}>
                           <ChevronRight aria-hidden="true" size={14} />
-                          {entry.name}
+                          <span>{entry.name}</span>
+                          <small>{entry.states.length}</small>
                         </summary>
                         <div className="catalog-story-links">
                           {link(entry, "组件概览")}
@@ -104,7 +172,26 @@ export function CatalogNavigation({
             </section>
           )
         })}
-        {!matches.length && <p role="status">没有匹配的组件或状态</p>}
+        {!matches.length && (
+          <Empty role="status">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <SearchX />
+              </EmptyMedia>
+              <EmptyTitle>没有匹配的组件</EmptyTitle>
+              <EmptyDescription>换一个组件名称或状态关键词。</EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onQueryChange("")}
+              >
+                清除搜索
+              </Button>
+            </EmptyContent>
+          </Empty>
+        )}
       </div>
     </nav>
   )
