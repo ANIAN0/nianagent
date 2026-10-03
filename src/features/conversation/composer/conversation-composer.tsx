@@ -1,6 +1,12 @@
 import { effectiveThinking } from "@/features/home/model-thinking"
 import "./composer.css"
-import { useLayoutEffect, useMemo, useRef, type ReactNode } from "react"
+import {
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  type ReactNode,
+  type Ref,
+} from "react"
 import { Field, FieldGroup } from "@/components/ui/field"
 import {
   InputGroup,
@@ -19,6 +25,7 @@ import { useComposerMaterials } from "@/features/materials/use-composer-material
 import { materialsReady } from "@/features/materials/material-service"
 
 export type ConversationComposerProps = {
+  inputRef?: Ref<HTMLTextAreaElement>
   allowQueue?: boolean
   sessionId?: string
   data: Pick<
@@ -46,6 +53,7 @@ export type ConversationComposerProps = {
   onStop: () => void
 }
 export function ConversationComposer({
+  inputRef,
   allowQueue = true,
   sessionId,
   data,
@@ -83,12 +91,17 @@ export function ConversationComposer({
     onChange(next)
   }
   const hasDraft = !!draft.text.trim() || draft.materials.length > 0
+  const materialsDisabled =
+    data.materialsEnabled === false ||
+    stopping ||
+    blocked ||
+    (running && !allowQueue)
   const materialController = useComposerMaterials({
     sessionId,
     cwd: workspacePath,
     anchorRef,
     materials: draft.materials,
-    disabled: stopping || blocked || (running && !allowQueue),
+    disabled: materialsDisabled,
     update: (apply) => {
       const next = {
         ...latest.current,
@@ -135,6 +148,7 @@ export function ConversationComposer({
           <Field>
             <InputGroup ref={anchorRef} className="conversation-input-card">
               <InputGroupTextarea
+                ref={inputRef}
                 aria-label="对话消息"
                 placeholder={
                   running
@@ -184,7 +198,7 @@ export function ConversationComposer({
               >
                 <MaterialPicker
                   key={`${sessionId}:${workspacePath}`}
-                  disabled={data.materialsEnabled === false}
+                  disabled={materialsDisabled}
                   anchorRef={anchorRef}
                   materials={data.materials}
                   selected={draft.materials}
@@ -252,7 +266,13 @@ export function ConversationComposer({
       )}
       {context && (
         <div className="conversation-context-slot">
-          {onDeliveryModeChange && <QueueDeliveryControl mode={deliveryMode} disabled={blocked || stopping} onChange={onDeliveryModeChange} />}
+          {onDeliveryModeChange && (
+            <QueueDeliveryControl
+              mode={deliveryMode}
+              disabled={blocked || stopping}
+              onChange={onDeliveryModeChange}
+            />
+          )}
           <ContextUsage {...context} />
         </div>
       )}

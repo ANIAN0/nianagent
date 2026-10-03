@@ -41,6 +41,51 @@ async function fixture(t) {
   }
   return { root, cwd, directory, counter, mcp, configuration, cleanup }
 }
+async function processIds(counter) {
+  return (await readFile(counter, "utf8")).trim().split("\n").map(Number)
+}
+async function waitForTool(session, name = "mcp__files__read_text") {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    if (session.getCallableToolNames().includes(name)) return
+    await new Promise((resolve) => setTimeout(resolve, 30))
+  }
+  assert.fail(`MCP tool did not become callable: ${name}`)
+}
+async function liveFixture(t, delay = 0) {
+  const value = await fixture(t)
+  const configuration = {
+    ...value.configuration,
+    exposure: "direct",
+    args: [...value.configuration.args, String(delay)],
+  }
+  await value.mcp.test(configuration, value.cwd)
+  await value.mcp.save(configuration)
+  const service = new ModelService(value.directory)
+  await service.initialize()
+  value.cleanup.push(() => service.close())
+  const config = await service.sessions.apply(
+    "sample",
+    value.cwd,
+    ["read", "mcp__files__read_text"],
+    "none"
+  )
+  const session = await service.sessions.create(
+    value.cwd,
+    [],
+    config.toolIds,
+    undefined,
+    false,
+    { sessionManager: SessionManager.inMemory(value.cwd) }
+  )
+  service.sessions.active.get("sample").session.dispose()
+  service.sessions.active.set("sample", {
+    session,
+    revision: config.revision,
+    persistent: true,
+    busy: false,
+  })
+  return { ...value, configuration, service, session, config }
+}
 test("MCP CRUD is revisioned, Pi-compatible and does not connect while browsing", async (t) => {
   const { mcp, configuration, counter } = await fixture(t)
   const saved = await mcp.save(configuration)
@@ -129,7 +174,9 @@ test("real session uses hidden exact exposure and catalog/configuration creates 
   assert.deepEqual(snapshot.effectiveToolIds, ["codemode", "tool_search"])
   assert.ok(session.getCallableToolNames().includes("mcp__files__read_text"))
   assert.ok(!session.getActiveToolNames().includes("mcp__files__read_text"))
-  assert.ok(!session.getCallableToolNames().includes("mcp__files__never_selected"))
+  assert.ok(
+    !session.getCallableToolNames().includes("mcp__files__never_selected")
+  )
 })
 test("nested MCP successful results follow Pi occurrence identity even when provider IDs are reused", () => {
   const records = mcpResultsIndex([
@@ -284,4 +331,116 @@ test("cancelling a real stdio initialization waits for owned child cleanup", asy
   await rejected
   assert.throws(() => process.kill(pid, 0))
   assert.equal(mcp.clients.size, 0)
+})
+
+test("same live session reopens real stdio exactly once after configuration and global MCP changes", async (t) => {
+  const { service, session, config, cwd, counter, configuration } =
+    await liveFixture(t)
+  await waitForTool(session)
+  const first = (await processIds(counter)).at(-1)
+  const original = session
+  await service.sessions.apply(
+    "sample",
+    cwd,
+    ["mcp__files__read_text"],
+    "none",
+    config.revision
+  )
+  assert.equal(service.sessions.active.get("sample").session, original)
+  assert.throws(() => process.kill(first, 0))
+  await waitForTool(session)
+  let ids = await processIds(counter)
+  assert.equal(ids.length, 3, "validation plus exactly two runtime instances")
+  const second = ids.at(-1)
+  const call = () =>
+    session
+      .getToolDefinition("mcp__files__read_text")
+      .execute("reload-read", { path: "真实笔记.txt" })
+  assert.equal((await call()).content[0].text, "MCP_REAL_FILE_CONTENT")
+  assert.ok(
+    !session.getCallableToolNames().includes("mcp__files__never_selected")
+  )
+
+  const changed = { ...configuration, description: "更新后的真实本地文件" }
+  await service.mcp.test(changed, cwd)
+  const saved = await service.mcp.save(
+    changed,
+    (await service.mcp.list())[0].revision
+  )
+  const beforeGlobalReload = (await processIds(counter)).length
+  await service.sessions.exclusive("sample", () =>
+    service.sessions.refreshForRunExclusive("sample")
+  )
+  assert.throws(() => process.kill(second, 0))
+  await waitForTool(session)
+  ids = await processIds(counter)
+  assert.equal(ids.length, beforeGlobalReload + 1)
+  assert.equal((await call()).content[0].text, "MCP_REAL_FILE_CONTENT")
+  const third = ids.at(-1)
+  await service.mcp.save({ ...changed, enabled: false }, saved.revision)
+  await assert.rejects(
+    service.sessions.exclusive("sample", () =>
+      service.sessions.refreshForRunExclusive("sample")
+    ),
+    /停用、删除或失效/
+  )
+  assert.throws(() => process.kill(third, 0))
+  assert.ok(!session.getCallableToolNames().includes("mcp__files__read_text"))
+})
+
+test("removing selected MCP during real stdio initialization awaits the uninitialized owned process", async (t) => {
+  const { service, session, config, cwd, counter } = await liveFixture(t, 2000)
+  let ids
+  for (let attempt = 0; attempt < 100; attempt++) {
+    ids = await processIds(counter)
+    if (ids.length === 2) break
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+  assert.equal(ids.length, 2)
+  assert.ok(!session.getCallableToolNames().includes("mcp__files__read_text"))
+  const initializing = ids.at(-1)
+  await service.sessions.apply("sample", cwd, ["read"], "none", config.revision)
+  assert.throws(() => process.kill(initializing, 0))
+  assert.equal(service.sessions.resources.get(session).transports.size, 0)
+  assert.ok(!session.getCallableToolNames().includes("mcp__files__read_text"))
+  assert.equal((await processIds(counter)).length, 2)
+})
+
+test("official extension binding persists safe host diagnostics and restarts once on reload", async (t) => {
+  const { directory, cwd, cleanup } = await fixture(t)
+  const service = new ModelService(directory)
+  await service.initialize()
+  cleanup.push(() => service.close())
+  let starts = 0
+  const session = await service.sessions.create(
+    cwd,
+    [],
+    ["read"],
+    undefined,
+    false,
+    {
+      extensionFactories: [
+        (pi) => {
+          pi.on("session_start", () => {
+            starts++
+            throw new Error("Bearer should-never-appear-in-diagnostics")
+          })
+        },
+      ],
+    }
+  )
+  cleanup.push(() => session.dispose())
+  await session.reload()
+  assert.equal(starts, 2, "one startup and exactly one official reload event")
+  const diagnostics = session.sessionManager
+    .getBranch()
+    .filter(
+      (entry) =>
+        entry.type === "custom" && entry.customType === "moon-extension-error"
+    )
+  assert.equal(diagnostics.length, 2)
+  assert.equal(diagnostics[1].data.event, "session_start")
+  assert.ok(diagnostics[1].data.occurredAt)
+  assert.ok(!JSON.stringify(diagnostics).includes("should-never-appear"))
+  assert.ok(!JSON.stringify(diagnostics).includes("Bearer"))
 })

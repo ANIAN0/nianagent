@@ -1,8 +1,12 @@
 import type { ConversationControlOperation } from "@/features/models/model-contract.generated"
 import type { ConversationControlService } from "@/features/conversation/controls/conversation-control-service"
 /** An explicit service dependency for previews. Never connects to the host. */
-export function createCatalogConversationControls(): ConversationControlService {
-  const operations = new Map<string, ConversationControlOperation>()
+export function createCatalogConversationControls(
+  initial: ConversationControlOperation[] = []
+): ConversationControlService {
+  const operations = new Map(
+    initial.map((operation) => [operation.id, operation])
+  )
   function create(
     sessionId: string,
     id: string,
@@ -39,6 +43,7 @@ export function createCatalogConversationControls(): ConversationControlService 
       const result = {
         ...value,
         status: "cancelled" as const,
+        updatedAt: new Date().toISOString(),
         error: "压缩已取消，原上下文保留。",
       }
       operations.set(id, result)

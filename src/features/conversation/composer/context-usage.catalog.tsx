@@ -34,13 +34,29 @@ export default {
   inputs: [
     "usedTokens/contextWindow、source/estimated/observedAt/restored",
     "status/reason、defaultOpen",
-    "可选 breakdown/cumulative/updatedAt/onCompact/compactDisabledReason",
+    "可选 breakdown/cumulative/updatedAt/onCompact/compactActive/compactDisabledReason",
   ],
   events: ["点击入口或Esc展开/关闭；可选onCompact仅发送父级事件"],
   composition: ["Button、Popover、Badge、Separator、Lucide CircleGauge"],
   consumers: ["ConversationComposer"],
   viewport: { width: 600, height: 480 },
   states: [
+    {
+      id: "compact-active",
+      name: "查看已有压缩操作",
+      condition: "compactActive=true且后端禁止新开始",
+      expected: "显示可用的查看压缩状态，不使用新启动门禁禁用恢复入口。",
+      render: () => (
+        <Example
+          reading={{
+            ...reading,
+            compactActive: true,
+            compactDisabledReason: "正在处理会话操作，请等待结果。",
+            onCompact: () => {},
+          }}
+        />
+      ),
+    },
     {
       id: "ready",
       name: "Pi 估算详情",

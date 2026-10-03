@@ -9,7 +9,10 @@ import {
   useNavigationBoundaryState,
 } from "@/features/home/navigation-boundary"
 import type { HomeData, HomeDraft } from "@/features/home/home-types"
-import { thinkingLabels } from "@/features/home/model-thinking"
+import {
+  effectiveThinking,
+  thinkingLabels,
+} from "@/features/home/model-thinking"
 import { modelSelectionId } from "@/features/models/model-types"
 import { useModelCatalog } from "@/features/models/use-model-catalog"
 import type { LeaveGuard } from "@/features/models/connection-editor"
@@ -26,8 +29,16 @@ import {
 import { useLiveConversation } from "@/features/conversation/use-live-conversation"
 import { LiveConversationView } from "@/features/conversation/live-conversation-view"
 import type { ConversationReadingPosition } from "@/features/conversation/conversation-list"
-import { clearHomeDraft, draftSignature, restoreHomeDraft, persistentHomeDraftStore } from "@/features/conversation/conversation-draft-store"
-import { createMaterialService, MaterialServiceContext } from "@/features/materials/material-service"
+import {
+  clearHomeDraft,
+  draftSignature,
+  restoreHomeDraft,
+  persistentHomeDraftStore,
+} from "@/features/conversation/conversation-draft-store"
+import {
+  createMaterialService,
+  MaterialServiceContext,
+} from "@/features/materials/material-service"
 
 const ModelSettingsPage = lazy(() =>
   import("@/features/models/model-settings-page").then((module) => ({
@@ -140,6 +151,17 @@ export default function App() {
     materials: [],
     session: { toolIds: [], instructionScope: "all" },
   }
+  function matchesHomeSubmission(candidate: HomeDraft, submitted: HomeDraft) {
+    return (
+      draftSignature({
+        ...candidate,
+        thinking: effectiveThinking(
+          candidate.thinking,
+          data.modelThinking?.[candidate.model]
+        ),
+      }) === draftSignature(submitted)
+    )
+  }
   async function submitHome(draft: HomeDraft, signal?: AbortSignal) {
     const id = draft.sessionId ?? crypto.randomUUID()
     const workspace = workspaces.items.find(
@@ -162,8 +184,30 @@ export default function App() {
       throw new Error(accepted.error || "消息未能开始，请检查模型配置后重试。")
     signal?.throwIfAborted()
     consumeHomeSession(workspace.path)
-    if (draftSignature({ ...draft, ...restoreHomeDraft(draft.workspaceId) }) === draftSignature(draft)) {
-      try { clearHomeDraft(draft.workspaceId) } catch { /* Confirmed session history remains authoritative. */ }
+    setHomeDraft((previous) =>
+      previous.draft && matchesHomeSubmission(previous.draft, draft)
+        ? {
+            ...previous,
+            draft: {
+              ...previous.draft,
+              text: "",
+              materials: [],
+              sessionId: undefined,
+            },
+          }
+        : previous
+    )
+    if (
+      matchesHomeSubmission(
+        { ...draft, ...restoreHomeDraft(draft.workspaceId) },
+        draft
+      )
+    ) {
+      try {
+        clearHomeDraft(draft.workspaceId)
+      } catch {
+        /* Confirmed session history remains authoritative. */
+      }
     }
     selectConversation(id)
     void catalog.refresh(true)
@@ -179,148 +223,186 @@ export default function App() {
   async function checkHomeSubmission(id: string) {
     const submitted = chat.submissionDraft(id)
     const accepted = await chat.reconcile(id)
-    if (!accepted.inputAccepted) throw new Error(accepted.error || "消息尚未接受，原草稿保留。")
-    if (submitted && draftSignature({ ...submitted, ...restoreHomeDraft(submitted.workspaceId) }) === draftSignature(submitted)) {
-      try { clearHomeDraft(submitted.workspaceId) } catch { /* History receipt remains authoritative. */ }
+    if (!accepted.inputAccepted)
+      throw new Error(accepted.error || "消息尚未接受，原草稿保留。")
+    if (
+      submitted &&
+      matchesHomeSubmission(
+        {
+          ...submitted,
+          ...restoreHomeDraft(submitted.workspaceId),
+        },
+        submitted
+      )
+    ) {
+      try {
+        clearHomeDraft(submitted.workspaceId)
+      } catch {
+        /* History receipt remains authoritative. */
+      }
     }
     consumeHomeSession(accepted.cwd)
+    if (submitted)
+      setHomeDraft((previous) =>
+        previous.draft && matchesHomeSubmission(previous.draft, submitted)
+          ? {
+              ...previous,
+              draft: {
+                ...previous.draft,
+                text: "",
+                materials: [],
+                sessionId: undefined,
+              },
+            }
+          : previous
+      )
     selectConversation(id)
     void catalog.refresh(true)
   }
   return (
     <NavigationBoundaryContext.Provider value={navigation}>
       <SessionServiceContext.Provider value={sessionService}>
-      <MaterialServiceContext.Provider value={materialService}>
-        <AppShell
-          data={data}
-          activeConversationId={selected}
-          historyState={catalog.historyState}
-          historyError={catalog.historyError}
-          onHistoryRetry={() => void catalog.refresh()}
-          onSettings={() => navigation.run(() => setSettingsOpen(true))}
-          onSelectConversation={(item) =>
-            leaveSettings(() => selectConversation(item.id))
-          }
-          onNew={(workspaceId) =>
-            leaveSettings(() => {
-              selectConversation()
-              setHomeDraft((value) => ({ key: value.key + 1, workspaceId }))
-            })
-          }
-        >
-          {(models.error || notice) && (
-            <Alert
-              variant="destructive"
-              className="shrink-0 rounded-none border-x-0 border-t-0"
-            >
-              <AlertDescription>{notice || models.error}</AlertDescription>
-            </Alert>
-          )}
-          {settingsOpen && (
-            <Suspense
-              fallback={
-                <div role="status" className="p-8">
-                  正在打开设置…
-                </div>
+        <MaterialServiceContext.Provider value={materialService}>
+          <AppShell
+            data={data}
+            activeConversationId={selected}
+            historyState={catalog.historyState}
+            historyError={catalog.historyError}
+            onHistoryRetry={() => void catalog.refresh()}
+            onSettings={() => navigation.run(() => setSettingsOpen(true))}
+            onSelectConversation={(item) =>
+              leaveSettings(() => selectConversation(item.id))
+            }
+            onNew={(workspaceId) =>
+              leaveSettings(() => {
+                selectConversation()
+                setHomeDraft((value) => ({ key: value.key + 1, workspaceId }))
+              })
+            }
+          >
+            {(models.error || notice) && (
+              <Alert
+                variant="destructive"
+                className="shrink-0 rounded-none border-x-0 border-t-0"
+              >
+                <AlertDescription>{notice || models.error}</AlertDescription>
+              </Alert>
+            )}
+            {settingsOpen && (
+              <Suspense
+                fallback={
+                  <div role="status" className="p-8">
+                    正在打开设置…
+                  </div>
+                }
+              >
+                <ModelSettingsPage
+                  service={models.service}
+                  onReturn={() => navigation.run(() => setSettingsOpen(false))}
+                  onConnectionsChange={models.update}
+                  registerLeave={registerSettingsLeave}
+                />
+              </Suspense>
+            )}
+            <div
+              className={
+                settingsOpen ? "hidden" : "flex min-h-0 flex-1 flex-col"
               }
             >
-              <ModelSettingsPage
-                service={models.service}
-                onReturn={() => navigation.run(() => setSettingsOpen(false))}
-                onConnectionsChange={models.update}
-                registerLeave={registerSettingsLeave}
-              />
-            </Suspense>
-          )}
-          <div
-            className={settingsOpen ? "hidden" : "flex min-h-0 flex-1 flex-col"}
-          >
-            {selected ? (
-              <LiveConversationView
-                key={selected}
-                id={selected}
-                title={metadata?.title ?? "正在读取会话"}
-                workspacePath={metadata?.cwd}
-                snapshot={current}
-                error={chat.errors[selected]}
-                pending={chat.pending[selected]}
-                data={data}
-                draft={currentDraft}
-                positions={positions}
-                onChange={(draft) => chat.change(selected, draft)}
-                onSend={(draft) =>
-                  action(chat.send(selected, draft, models.connections))
-                }
-                onStop={() => action(chat.stop(selected))}
-                onContinue={() =>
-                  action(chat.retry(selected, currentDraft, models.connections))
-                }
-                onReload={chat.reload}
-                onQueueEdit={(itemId, text) => chat.queueEdit(selected, itemId, text)}
-                onQueueRemove={(itemId) => action(chat.queueRemove(selected, itemId))}
-                onQueueDeliver={(itemId) => action(chat.queueDeliver(selected, itemId))}
-                onQueueMode={(mode) => chat.queueMode(selected, mode)}
-                onSaveDraft={() => chat.saveDraft(selected)}
-                unconfirmed={chat.unconfirmed[selected]}
-                onReconcile={() => action(chat.reconcile(selected))}
-                onOpenConversation={(id) => {
-                  leaveSettings(() => selectConversation(id))
-                  void catalog.refresh(true)
-                }}
-              />
-            ) : workspaces.loading ? (
-              <div
-                role="status"
-                aria-label="正在读取工作区"
-                className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-8 pt-24"
-              >
-                <Skeleton className="mx-auto h-8 w-44" />
-                <Skeleton className="h-28 w-full rounded-2xl" />
-              </div>
-            ) : (
-              <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-                {workspaces.error && (
-                  <Alert
-                    variant="destructive"
-                    className="mx-auto mt-6 max-w-3xl"
-                  >
-                    <AlertDescription>
-                      {workspaces.error}
-                      <Button
-                        variant="link"
-                        size="sm"
-                        onClick={workspaces.refresh}
-                      >
-                        重新读取
-                      </Button>
-                    </AlertDescription>
-                  </Alert>
-                )}
-                <HomeComposer
-                  draftStore={persistentHomeDraftStore}
-                  unconfirmedSessionIds={Object.keys(chat.unconfirmed)}
-                  onCheckSubmission={checkHomeSubmission}
-                  key={homeDraft.key}
+              {selected ? (
+                <LiveConversationView
+                  key={selected}
+                  id={selected}
+                  title={metadata?.title ?? "正在读取会话"}
+                  workspacePath={metadata?.cwd}
+                  snapshot={current}
+                  error={chat.errors[selected]}
+                  pending={chat.pending[selected]}
                   data={data}
-                  initialDraft={
-                    homeDraft.draft ?? {
-                      workspaceId:
-                        homeDraft.workspaceId ?? workspaces.selectedId,
-                    }
+                  draft={currentDraft}
+                  positions={positions}
+                  onChange={(draft) => chat.change(selected, draft)}
+                  onSend={(draft) =>
+                    action(chat.send(selected, draft, models.connections))
                   }
-                  onDraftChange={saveHomeDraft}
-                  onSubmit={submitHome}
-                  onChooseWorkspace={workspaces.choose}
-                  onWorkspaceSelect={workspaces.select}
-                  workspaceLoading={workspaces.loading}
-                  workspaceError={workspaces.error}
-                  onWorkspaceRetry={workspaces.refresh}
+                  onStop={() => action(chat.stop(selected))}
+                  onContinue={() =>
+                    action(
+                      chat.retry(selected, currentDraft, models.connections)
+                    )
+                  }
+                  onReload={chat.reload}
+                  onQueueEdit={(itemId, text) =>
+                    chat.queueEdit(selected, itemId, text)
+                  }
+                  onQueueRemove={(itemId) =>
+                    action(chat.queueRemove(selected, itemId))
+                  }
+                  onQueueDeliver={(itemId) =>
+                    action(chat.queueDeliver(selected, itemId))
+                  }
+                  onQueueMode={(mode) => chat.queueMode(selected, mode)}
+                  onSaveDraft={() => chat.saveDraft(selected)}
+                  unconfirmed={chat.unconfirmed[selected]}
+                  onReconcile={() => action(chat.reconcile(selected))}
+                  onOpenConversation={(id) => {
+                    leaveSettings(() => selectConversation(id))
+                    void catalog.refresh(true)
+                  }}
                 />
-              </div>
-            )}
-          </div>
-        </AppShell>
-      </MaterialServiceContext.Provider>
+              ) : workspaces.loading ? (
+                <div
+                  role="status"
+                  aria-label="正在读取工作区"
+                  className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-8 pt-24"
+                >
+                  <Skeleton className="mx-auto h-8 w-44" />
+                  <Skeleton className="h-28 w-full rounded-2xl" />
+                </div>
+              ) : (
+                <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+                  {workspaces.error && (
+                    <Alert
+                      variant="destructive"
+                      className="mx-auto mt-6 max-w-3xl"
+                    >
+                      <AlertDescription>
+                        {workspaces.error}
+                        <Button
+                          variant="link"
+                          size="sm"
+                          onClick={workspaces.refresh}
+                        >
+                          重新读取
+                        </Button>
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                  <HomeComposer
+                    draftStore={persistentHomeDraftStore}
+                    unconfirmedSessionIds={Object.keys(chat.unconfirmed)}
+                    onCheckSubmission={checkHomeSubmission}
+                    key={homeDraft.key}
+                    data={data}
+                    initialDraft={
+                      homeDraft.draft ?? {
+                        workspaceId:
+                          homeDraft.workspaceId ?? workspaces.selectedId,
+                      }
+                    }
+                    onDraftChange={saveHomeDraft}
+                    onSubmit={submitHome}
+                    onChooseWorkspace={workspaces.choose}
+                    onWorkspaceSelect={workspaces.select}
+                    workspaceLoading={workspaces.loading}
+                    workspaceError={workspaces.error}
+                    onWorkspaceRetry={workspaces.refresh}
+                  />
+                </div>
+              )}
+            </div>
+          </AppShell>
+        </MaterialServiceContext.Provider>
       </SessionServiceContext.Provider>
     </NavigationBoundaryContext.Provider>
   )

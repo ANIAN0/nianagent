@@ -68,7 +68,7 @@ export const conversationSchemas = {
   ConversationChatMessage: obj(
     {
       id: str("由 Pi 消息时间和顺序生成的稳定展示标识"),
-      entryId: str("Pi已保存消息的权威条目标识；运行中的临时消息没有该字段"),
+      entryId: str("原Pi历史已保存的权威条目标识；运行中消息或v1只读恢复的临时迁移标识不返回"),
       historyIndex: {
         type: "integer",
         minimum: 0,
@@ -77,7 +77,7 @@ export const conversationSchemas = {
       forkable: {
         type: "boolean",
         description:
-          "Pi已保存且完成的Agent回复边界，不含待执行工具调用；来源会话还需通过控制门禁",
+          "Pi已保存且完成的Agent回复边界，不含待执行工具调用；旧格式只读历史迁移前为false，来源会话还需通过控制门禁",
       },
       role: str("消息角色", { enum: ["user", "assistant"] }),
       text: str("消息文本"),
@@ -147,6 +147,7 @@ export const conversationSchemas = {
         thinking,
         error: str("错误说明，成功为空"),
         messages: arr(ref("ConversationChatMessage")),
+        historyNotice: str("旧格式历史的非阻断说明；只读恢复不持久化迁移标识，显式发送交由Pi迁移后恢复派生能力"),
         queue: ref("ConversationQueue"),
         queueError: str("待处理消息保存或恢复错误；不会自动重发"),
         control: ref("ConversationControl"),
@@ -264,7 +265,7 @@ export const conversationOperations = {
       ...selection,
     }, ["sessionId", "workspaceId", "clientRequestId", "text", "connectionId", "modelId", "thinking"]),
     condition:
-      "需保存工作区、会话配置与可用模型；空闲时启动，运行中原子保存至本会话待处理队列，不并行推理。clientRequestId 对相同内容幂等；队列acceptedRequestIds表示已保存待处理输入，与Pi历史inputAccepted区分。控制操作或停止中拒绝提交；提交前取消不保存，接受后需Stop明确停止，不因断开轮询取消。",
+      "需保存工作区、会话配置与可用模型；空闲时启动，运行中原子保存至本会话待处理队列，不并行推理。clientRequestId 对相同内容幂等；队列acceptedRequestIds表示已保存待处理输入，与Pi历史inputAccepted区分。控制操作运行中、结果未确认或停止中拒绝新提交；已有请求仍按原标识幂等读取。提交前取消不保存，接受后需Stop明确停止，不因断开轮询取消。",
     effect:
       "Pi 官方 JSONL 保存消息，后台发起真实推理与已启用工具，可能产生费用并修改所选目录；快速返回后轮询 Read。",
     example: {
@@ -331,7 +332,7 @@ export const conversationOperations = {
     ],
     request: obj({ sessionId: id, clientRequestId: id, ...selection }),
     condition:
-      "仅失败或中断会话；本轮 inputAccepted 必须为 true 且需要已有用户历史，clientRequestId 幂等。预检未接受输入时须保留草稿重新发送，旧用户历史不能代替本轮接受边界。不重发原始用户请求。",
+      "仅失败或中断会话且没有运行中或结果未确认的控制操作；本轮 inputAccepted 必须为 true 且需要已有用户历史，clientRequestId 幂等。预检未接受输入时须保留草稿重新发送，旧用户历史不能代替本轮接受边界。不重发原始用户请求。",
     effect:
       "通过 Pi sendCustomMessage 添加可见的继续指令后发起下一轮，保留先前回复与工具结果。",
     example: {

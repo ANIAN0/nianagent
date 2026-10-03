@@ -260,6 +260,7 @@ export class SessionService {
       ),
       transports: new Set(),
       disposed: false,
+      generation: 0,
     }
     const owner = randomUUID()
     const gates = (pi) => {
@@ -297,46 +298,56 @@ export class SessionService {
           ? [
               createCodemodeExtension({ mode: "on" }),
               createToolSearchExtension(),
-              createMcpExtension({
-                loadConfig: () => instructionState.mcpSnapshot,
-                credentials: mcp?.credentials,
-                logPath: join(this.agentDir, "mcp.log"),
-                createTransport: (entry, sessionCwd, authProvider) => {
-                  check(
-                    !instructionState.disposed && !this.closed,
-                    "会话已关闭，不再启动 MCP 服务。"
-                  )
-                  instructionState.mcpStatuses.set(entry.name, {
-                    state: "connecting",
-                    error: "",
-                  })
-                  let transport
-                  try {
-                    transport = createMcpTransport(
-                      entry,
-                      sessionCwd,
-                      authProvider,
-                      (status) =>
-                        instructionState.mcpStatuses.set(entry.name, status)
+              (pi) => {
+                const generation = instructionState.generation
+                return createMcpExtension({
+                  loadConfig: () => instructionState.mcpSnapshot,
+                  credentials: mcp?.credentials,
+                  logPath: join(this.agentDir, "mcp.log"),
+                  createTransport: (entry, sessionCwd, authProvider) => {
+                    check(
+                      !instructionState.disposed &&
+                        !this.closed &&
+                        generation === instructionState.generation,
+                      "会话已关闭，不再启动 MCP 服务。"
                     )
-                  } catch (error) {
                     instructionState.mcpStatuses.set(entry.name, {
-                      state: "failed",
-                      error: safeMcpError(error, entry.config),
+                      state: "connecting",
+                      error: "",
                     })
-                    throw error
-                  }
-                  instructionState.transports.add(transport)
-                  transport.onClose(() =>
-                    instructionState.transports.delete(transport)
-                  )
-                  return transport
-                },
-                // SDK slash commands must not silently edit Moon's revisioned file.
-                updateConfig: () => {
-                  throw new Error("请在 Moon 的 MCP 服务设置中修改配置。")
-                },
-              }),
+                    let transport
+                    try {
+                      transport = createMcpTransport(
+                        entry,
+                        sessionCwd,
+                        authProvider,
+                        (status) => {
+                          if (
+                            generation === instructionState.generation &&
+                            !instructionState.disposed
+                          )
+                            instructionState.mcpStatuses.set(entry.name, status)
+                        }
+                      )
+                    } catch (error) {
+                      instructionState.mcpStatuses.set(entry.name, {
+                        state: "failed",
+                        error: safeMcpError(error, entry.config),
+                      })
+                      throw error
+                    }
+                    instructionState.transports.add(transport)
+                    transport.onClose(() =>
+                      instructionState.transports.delete(transport)
+                    )
+                    return transport
+                  },
+                  // SDK slash commands must not silently edit Moon's revisioned file.
+                  updateConfig: () => {
+                    throw new Error("请在 Moon 的 MCP 服务设置中修改配置。")
+                  },
+                })(pi)
+              },
             ]
           : []),
       ],
@@ -374,11 +385,60 @@ export class SessionService {
       this.closing.add(closing)
       void closing.finally(() => this.closing.delete(closing))
     }
+    const reload = session.reload.bind(session)
+    session.reload = async (options) => {
+      check(
+        !instructionState.disposed && !this.closed,
+        "会话已关闭，不能重载资源。"
+      )
+      // Pi only owns fully initialized clients. Moon also owns transports whose
+      // initialize/tools/list is still pending, and must close them before reload.
+      instructionState.generation++
+      await Promise.all(
+        [...instructionState.transports].map((transport) => transport.close())
+      )
+      check(
+        !instructionState.disposed && !this.closed,
+        "会话已关闭，不能重载资源。"
+      )
+      await reload(options)
+    }
     try {
       this.ensureOpen()
       signal?.throwIfAborted()
       if (mcpEnabled) mcp?.runtime.set(owner, instructionState.mcpStatuses)
-      await session.bindExtensions({})
+      await session.bindExtensions({
+        onError: (error) => {
+          // This is a real host binding: Pi reuses it after reload and therefore
+          // emits session_start itself exactly once. Retain a safe, inspectable
+          // diagnostic in the authoritative Pi history, never the raw SDK error.
+          const diagnostic = {
+            source: /^<inline:[A-Za-z0-9_-]+>$/.test(error.extensionPath)
+              ? error.extensionPath
+              : "Pi extension",
+            event: new Set([
+              "session_start",
+              "session_shutdown",
+              "tool_call",
+              "tool_result",
+              "turn_end",
+              "agent_before_settle",
+              "before_agent_start",
+              "resources_discover",
+              "prepare_loadout",
+            ]).has(error.event)
+              ? error.event
+              : "extension",
+            message: "会话扩展未完成操作，请核对会话配置和待处理消息状态。",
+            occurredAt: new Date().toISOString(),
+          }
+          instructionState.extensionError = diagnostic
+          session.sessionManager.appendCustomEntry(
+            "moon-extension-error",
+            diagnostic
+          )
+        },
+      })
       if (toolIds) {
         const available = new Set([
           ...session.getAllTools().map((tool) => tool.name),

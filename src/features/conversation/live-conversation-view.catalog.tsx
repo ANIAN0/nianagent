@@ -1,8 +1,12 @@
 import { useState } from "react"
+import { Button } from "@/components/ui/button"
 import type { CatalogEntry } from "../../../ui-catalog/catalog"
 import { homeData } from "../../../ui-catalog/fixtures/home"
 import { createCatalogConversationControls } from "../../../ui-catalog/fixtures/conversation-controls"
-import type { ConversationSnapshot } from "@/features/models/model-contract.generated"
+import type {
+  ConversationControlOperation,
+  ConversationSnapshot,
+} from "@/features/models/model-contract.generated"
 import type { HomeDraft } from "@/features/home/home-types"
 import { LiveConversationView } from "./live-conversation-view"
 
@@ -22,8 +26,55 @@ type Scenario =
   | "not-accepted"
   | "resend-after-history"
   | "not-accepted-interrupted"
+  | "compact-command-after-completed"
+  | "manual-compact-active"
+  | "manual-compact-unknown"
+  | "legacy-fork"
 function Example({ scenario }: { scenario: Scenario }) {
-  const [controlService] = useState(createCatalogConversationControls)
+  const id = `catalog-${scenario}`
+  const [initialControl] = useState<ConversationControlOperation | undefined>(
+    () => {
+      if (
+        !scenario.startsWith("manual-compact") &&
+        scenario !== "compact-command-after-completed"
+      )
+        return
+      return {
+        id: "previous-compact",
+        sessionId: id,
+        kind: "compact",
+        status:
+          scenario === "manual-compact-active"
+            ? "running"
+            : scenario === "manual-compact-unknown"
+              ? "unknown"
+              : "completed",
+        focus: "保留之前的工作目标",
+        createdAt: "2026-10-03T09:20:00Z",
+        updatedAt: "2026-10-03T09:20:04Z",
+        error: "",
+      }
+    }
+  )
+  const [control, setControl] = useState(initialControl)
+  const [controlService] = useState(() => {
+    const service = createCatalogConversationControls(
+      initialControl ? [initialControl] : []
+    )
+    const publish = async (result: Promise<ConversationControlOperation>) => {
+      const operation = await result
+      setControl(operation)
+      return operation
+    }
+    return {
+      ...service,
+      compact: (...args: Parameters<typeof service.compact>) =>
+        publish(service.compact(...args)),
+      cancel: (...args: Parameters<typeof service.cancel>) =>
+        publish(service.cancel(...args)),
+    }
+  })
+  const [version, setVersion] = useState(1)
   const [phase, setPhase] = useState(scenario)
   const [retryAt] = useState(() => new Date(Date.now() + 20000).toISOString())
   const active = [
@@ -41,12 +92,14 @@ function Example({ scenario }: { scenario: Scenario }) {
       scenario === "resend-after-history" ||
       scenario === "not-accepted-interrupted"
         ? "读取 README.md，确认桌面端和浏览器共用同一个后端。"
-        : "",
+        : scenario === "compact-command-after-completed"
+          ? "/compact 保留新的验收结论"
+          : "",
     materials: [],
     session: { toolIds: ["read"], instructionScope: "all" },
   })
   const snapshot: ConversationSnapshot = {
-    id: "catalog-session",
+    id,
     title: "核对启动说明",
     workspaceId: "moon",
     cwd: "H:/workspace/moon",
@@ -56,12 +109,44 @@ function Example({ scenario }: { scenario: Scenario }) {
       phase !== "not-accepted-interrupted",
     clientRequestId: "catalog-request",
     epoch: "catalog-host",
-    version: 1,
+    version,
     runId: "catalog-run",
     modelId: draft.model,
     connectionId: "catalog",
     providerModelId: draft.model,
     thinking: "medium",
+    ...(control
+      ? {
+          control: {
+            busy: ["running", "cancelling"].includes(control.status),
+            compactDisabledReason: [
+              "completed",
+              "cancelled",
+              "failed",
+            ].includes(control.status)
+              ? ""
+              : "正在处理会话操作，请等待结果。",
+            forkDisabledReason: ["completed", "cancelled", "failed"].includes(
+              control.status
+            )
+              ? ""
+              : "正在处理会话操作，请等待结果。",
+            operation: control,
+          },
+        }
+      : {}),
+    ...(scenario === "legacy-fork"
+      ? {
+          historyNotice:
+            "旧格式历史仍需迁移，暂不能创建分支；继续发送一次消息后由 Pi 自动迁移。",
+          control: {
+            busy: false,
+            compactDisabledReason: "",
+            forkDisabledReason:
+              "旧格式历史仍需迁移，暂不能创建分支；继续发送一次消息后由 Pi 自动迁移。",
+          },
+        }
+      : {}),
     phase: active
       ? "running"
       : phase === "not-accepted" || phase === "resend-after-history"
@@ -149,6 +234,9 @@ function Example({ scenario }: { scenario: Scenario }) {
             },
             {
               id: "assistant-1",
+              ...(scenario === "legacy-fork"
+                ? { entryId: "legacy-assistant", forkable: false }
+                : {}),
               role: "assistant",
               status: active
                 ? "streaming"
@@ -187,8 +275,16 @@ function Example({ scenario }: { scenario: Scenario }) {
   }
   return (
     <div className="flex h-dvh flex-col">
+      {scenario === "compact-command-after-completed" && (
+        <Button
+          variant="outline"
+          onClick={() => setVersion((value) => value + 1)}
+        >
+          更新会话快照
+        </Button>
+      )}
       <LiveConversationView
-        id="catalog-session"
+        id={id}
         controlService={controlService}
         title="核对启动说明"
         workspacePath={snapshot.cwd}
@@ -237,6 +333,36 @@ export default {
   consumers: ["App"],
   viewport: { width: 1120, height: 820 },
   states: [
+    {
+      id: "compact-command-after-completed",
+      name: "完成后准备新压缩命令",
+      condition: "A已完成，输入B命令但尚未开始，父级读取更新",
+      expected: "打开面板或更新快照不清B；只有B自己的完成回执才清原命令。",
+      render: () => <Example scenario="compact-command-after-completed" />,
+    },
+    {
+      id: "manual-compact-active",
+      name: "返回后查看压缩状态",
+      condition: "手动压缩进行中，面板已关闭",
+      expected:
+        "上下文详情显示可用的查看压缩状态，能返回同一操作并取消，不能再启动。",
+      render: () => <Example scenario="manual-compact-active" />,
+    },
+    {
+      id: "manual-compact-unknown",
+      name: "返回后核对未知结果",
+      condition: "手动压缩回执未知，面板已关闭",
+      expected: "仍可打开原操作，检查状态；新发送和重复压缩保持阻止。",
+      render: () => <Example scenario="manual-compact-unknown" />,
+    },
+    {
+      id: "legacy-fork",
+      name: "旧历史分支不可用",
+      condition: "v2历史标识稳定但Pi持久迁移尚未完成",
+      expected:
+        "页面提醒与禁用动作的Tooltip均说明迁移原因，不误称工具回复未完成。",
+      render: () => <Example scenario="legacy-fork" />,
+    },
     {
       id: "completed",
       name: "多轮输入",

@@ -142,6 +142,102 @@ async function fixture(
   }
 }
 
+test("unknown compact receipts block formal sends until authoritative reconciliation", async (t) => {
+  const f = await fixture(t)
+  await f.send("before-unknown-control", "建立真实 Pi 历史")
+  await f.settled()
+  const controls = f.chats.controls
+  const originalPersist = controls.persist.bind(controls)
+  let writes = 0
+  controls.persist = async (...args) => {
+    if (++writes > 1) throw new Error("receipt disk unavailable")
+    return originalPersist(...args)
+  }
+  await f.service.dispatch("conversationCompact", {
+    sessionId: "session-test",
+    operationId: "unknown-compact",
+    focus: "",
+  })
+  await Promise.allSettled([...controls.tasks.values()])
+  const unknown = await f.read()
+  assert.equal(unknown.control.operation.status, "unknown")
+  const record = await f.store.get("session-test")
+  const originalBytes = await readFile(record.sessionFile)
+  await assert.rejects(f.send("must-not-pollute", "不能污染未决压缩边界"), /上次操作/)
+  assert.deepEqual(await readFile(record.sessionFile), originalBytes)
+  assert.equal(f.requests.length, 1)
+  await assert.rejects(
+    f.service.dispatch("conversationControlRead", {
+      sessionId: "session-test",
+      operationId: "unknown-compact",
+    }),
+    /receipt disk unavailable/
+  )
+  assert.equal((await f.read()).control.operation.status, "unknown")
+  await assert.rejects(
+    f.send("still-must-not-pollute", "回执保存失败仍须阻止新运行"),
+    /上次操作/
+  )
+  assert.deepEqual(await readFile(record.sessionFile), originalBytes)
+  controls.persist = originalPersist
+  const reconciled = await f.service.dispatch("conversationControlRead", {
+    sessionId: "session-test",
+    operationId: "unknown-compact",
+  })
+  assert.equal(reconciled.status, "failed")
+  await f.send("after-reconcile", "边界已确认，继续")
+  assert.equal((await f.settled()).phase, "completed")
+  assert.equal(f.requests.length, 2)
+})
+test("manual compaction cancelled before Pi creates its controller is actually aborted", async (t) => {
+  const f = await fixture(t)
+  await f.send("before-early-cancel", "建立真实 Pi 历史")
+  await f.settled()
+  const state = f.chats.active.get("session-test")
+  const session = state.session
+  const originalAbort = session.abort.bind(session)
+  let releaseAbort
+  const blocked = new Promise((resolve) => {
+    releaseAbort = resolve
+  })
+  session.abort = async () => {
+    await blocked
+    return originalAbort()
+  }
+  const events = []
+  const unsubscribe = session.subscribe((event) => {
+    if (event.type === "compaction_end") events.push(event)
+  })
+  const record = await f.store.get("session-test")
+  const before = await readFile(record.sessionFile)
+  try {
+    await f.service.dispatch("conversationCompact", {
+      sessionId: "session-test",
+      operationId: "cancel-before-controller",
+      focus: "",
+    })
+    const cancelling = await f.service.dispatch("conversationCompactCancel", {
+      sessionId: "session-test",
+      operationId: "cancel-before-controller",
+    })
+    assert.equal(cancelling.status, "cancelling")
+    releaseAbort()
+    await Promise.allSettled([...f.chats.controls.tasks.values()])
+    assert.equal(events.length, 1)
+    assert.equal(events[0].aborted, true)
+    const cancelled = await f.service.dispatch("conversationControlRead", {
+      sessionId: "session-test",
+      operationId: "cancel-before-controller",
+    })
+    assert.equal(cancelled.status, "cancelled")
+    assert.equal(cancelled.compactionEntryId, undefined)
+    assert.deepEqual(await readFile(record.sessionFile), before)
+  } finally {
+    releaseAbort()
+    session.abort = originalAbort
+    unsubscribe()
+  }
+})
 test("real Pi text turns preserve context, deduplicate accepted sends and restore JSONL", async (t) => {
   const f = await fixture(t)
   const first = await f.send("request-1", "记住代号 BLUE-MOON")
@@ -814,9 +910,11 @@ test("failed generation remains visible and explicit continuation does not repea
       (entry) => entry.type === "message" && entry.message.role === "assistant"
     )
     .at(-1).message
-  assert.ok(agentError.errorMessage.includes("fixture rejected"))
+  // Pi 1 finalizes agent context from the persisted projection. Its public
+  // message event must carry the original diagnostic before recovery decides.
+  assert.ok(f.sdkErrors.some((error) => error.includes("fixture rejected")))
+  assert.ok(!agentError.errorMessage.includes("fixture rejected"))
   assert.ok(!savedError.errorMessage.includes("fixture rejected"))
-  assert.notEqual(savedError, agentError)
   assert.ok(!JSON.stringify(failed).includes("fixture rejected"))
   const metadata = await f.store.get("session-test")
   assert.ok(
@@ -1037,7 +1135,46 @@ test("legacy Pi history and missing final newline stay read-only until explicit 
       f.service.conversations = restored
       t.after(() => restored.close())
       const read = await restored.read("session-test")
-      assert.deepEqual(read.messages, completed.messages)
+      // A v1 file has no durable Pi IDs. The SDK creates random IDs while
+      // migrating in memory; they must never become public fork boundaries.
+      const legacyWithoutIds = version === undefined || version === 1
+      assert.deepEqual(
+        read.messages,
+        completed.messages.map(({ entryId, forkable, ...message }) => ({
+          ...message,
+          ...(!legacyWithoutIds ? { entryId } : {}),
+          ...(forkable !== undefined
+            ? { forkable: version === 3 ? forkable : false }
+            : {}),
+        }))
+      )
+      const anotherHost = new ConversationService(
+        f.directory,
+        f.service,
+        f.service.sessions,
+        f.store,
+        f.workspaces
+      )
+      t.after(() => anotherHost.close())
+      assert.deepEqual(
+        (await anotherHost.read("session-test")).messages,
+        read.messages,
+        "Independent read-only restores must expose the same message identity"
+      )
+      if (version !== 3) {
+        assert.match(read.historyNotice, /旧格式历史.*继续发送一次消息/)
+        assert.equal(read.control.forkDisabledReason, read.historyNotice)
+        const temporaryAnchor = restored.active.get("session-test").manager
+          .getBranch().find((entry) => entry.type === "message" && entry.message.role === "assistant").id
+        await assert.rejects(
+          f.service.dispatch("conversationFork", {
+            sessionId: "session-test",
+            operationId: "legacy-fork-rejected",
+            entryId: temporaryAnchor,
+          }),
+          /旧格式历史.*继续发送一次消息/
+        )
+      } else assert.equal(read.historyNotice, undefined)
       assert.equal(
         restored.active.get("session-test").manager.isPersisted(),
         false
@@ -1055,6 +1192,24 @@ test("legacy Pi history and missing final newline stay read-only until explicit 
         restored.active.get("session-test").manager.getSessionFile(),
         record.sessionFile
       )
+      const migrated = await f.read()
+      assert.equal(migrated.historyNotice, undefined)
+      assert.ok(migrated.messages.every((message) => message.entryId))
+      const selected = migrated.messages.find((message) => message.role === "assistant" && message.forkable)
+      assert.ok(selected)
+      const forked = await f.service.dispatch("conversationFork", {
+        sessionId: "session-test",
+        operationId: "legacy-fork-after-migration",
+        entryId: selected.entryId,
+      })
+      assert.equal(forked.status, "completed")
+      assert.equal(await readFile(record.sessionFile, "utf8"), after,
+        "Fork must preserve the migrated source file byte-for-byte")
+      const branch = await f.service.dispatch("conversationRead", {
+        sessionId: forked.targetSessionId,
+      })
+      assert.deepEqual(branch.messages, migrated.messages.slice(0,
+        migrated.messages.findIndex((message) => message.id === selected.id) + 1))
     })
 })
 
@@ -1321,7 +1476,9 @@ test("a partial history write is preserved and cannot be hidden by a later appen
 
 test("durable queue edits/removes pending inputs and all mode delivers distinct Pi user entries", async (t) => {
   let release
-  const gate = new Promise((resolve) => { release = resolve })
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
   const f = await fixture(t, async (_request, response, number) => {
     response.write(chunk({ role: "assistant", content: "正在处理" }))
     if (number === 1) await gate
@@ -1334,25 +1491,64 @@ test("durable queue edits/removes pending inputs and all mode delivers distinct 
   let snapshot = await f.send("queue-third", "第三项工作")
   assert.equal(snapshot.queue.items.length, 3)
   const revision = snapshot.queue.revision
-  snapshot = await f.service.dispatch("conversationQueueEdit", { sessionId: snapshot.id, itemId: snapshot.queue.items[0].id, text: "已经修订的要求", revision })
-  await assert.rejects(f.service.dispatch("conversationQueueRemove", { sessionId: snapshot.id, itemId: snapshot.queue.items[1].id, revision }), /队列已变化/)
-  snapshot = await f.service.dispatch("conversationQueueRemove", { sessionId: snapshot.id, itemId: snapshot.queue.items[1].id, revision: snapshot.queue.revision })
-  snapshot = await f.service.dispatch("conversationQueueMode", { sessionId: snapshot.id, mode: "all", revision: snapshot.queue.revision })
+  snapshot = await f.service.dispatch("conversationQueueEdit", {
+    sessionId: snapshot.id,
+    itemId: snapshot.queue.items[0].id,
+    text: "已经修订的要求",
+    revision,
+  })
+  await assert.rejects(
+    f.service.dispatch("conversationQueueRemove", {
+      sessionId: snapshot.id,
+      itemId: snapshot.queue.items[1].id,
+      revision,
+    }),
+    /队列已变化/
+  )
+  snapshot = await f.service.dispatch("conversationQueueRemove", {
+    sessionId: snapshot.id,
+    itemId: snapshot.queue.items[1].id,
+    revision: snapshot.queue.revision,
+  })
+  snapshot = await f.service.dispatch("conversationQueueMode", {
+    sessionId: snapshot.id,
+    mode: "all",
+    revision: snapshot.queue.revision,
+  })
   const duplicate = await f.send("queue-first", "需要修订的要求")
   assert.equal(duplicate.queue.items.length, 2)
   release()
   const completed = await f.settled()
   assert.equal(completed.phase, "completed")
   assert.equal(completed.queue.items.length, 0)
-  assert.deepEqual(completed.messages.filter((item) => item.role === "user").map((item) => item.text), ["第一项工作", "已经修订的要求", "第三项工作"])
-  const users = f.requests.at(-1).messages.filter((item) => item.role === "user")
-  assert.deepEqual(users.slice(-2).map((item) => item.content), ["已经修订的要求", "第三项工作"])
+  assert.deepEqual(
+    completed.messages
+      .filter((item) => item.role === "user")
+      .map((item) => item.text),
+    ["第一项工作", "已经修订的要求", "第三项工作"]
+  )
+  const users = f.requests
+    .at(-1)
+    .messages.filter((item) => item.role === "user")
+  assert.deepEqual(
+    users.slice(-2).map((item) =>
+      typeof item.content === "string"
+        ? item.content
+        : item.content
+            .filter((block) => block.type === "text")
+            .map((block) => block.text)
+            .join("")
+    ),
+    ["已经修订的要求", "第三项工作"]
+  )
   assert.equal(f.requests.length, 2)
 })
 
 test("stopped queue survives restart without automatic sending and resumes only explicitly", async (t) => {
   let release
-  const gate = new Promise((resolve) => { release = resolve })
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
   const f = await fixture(t, async (_request, response, number) => {
     response.write(chunk({ role: "assistant", content: "正在处理" }))
     if (number === 1) await gate
@@ -1361,7 +1557,10 @@ test("stopped queue survives restart without automatic sending and resumes only 
   t.after(() => release())
   const running = await f.send("stop-source", "需要停止的工作")
   await f.send("kept-input", "保留到我确认后再发送")
-  await f.service.dispatch("conversationStop", { sessionId: running.id, runId: running.runId })
+  await f.service.dispatch("conversationStop", {
+    sessionId: running.id,
+    runId: running.runId,
+  })
   const stopped = await f.settled()
   assert.equal(stopped.queue.paused, true)
   assert.equal(stopped.queue.items.length, 1)
@@ -1369,20 +1568,135 @@ test("stopped queue survives restart without automatic sending and resumes only 
   release()
   const restoredService = new ModelService(f.directory)
   await restoredService.initialize()
-  const restored = new ConversationService(f.directory, restoredService, restoredService.sessions, f.store, f.workspaces)
+  const restored = new ConversationService(
+    f.directory,
+    restoredService,
+    restoredService.sessions,
+    f.store,
+    f.workspaces
+  )
   restoredService.conversations = restored
-  t.after(async () => { await restored.close(); await restoredService.close() })
-  let snapshot = await restoredService.dispatch("conversationRead", { sessionId: running.id })
+  t.after(async () => {
+    await restored.close()
+    await restoredService.close()
+  })
+  let snapshot = await restoredService.dispatch("conversationRead", {
+    sessionId: running.id,
+  })
   await delay(80)
   assert.equal(f.requests.length, 1)
   assert.equal(snapshot.queue.paused, true)
-  await restoredService.dispatch("conversationQueueDeliver", { sessionId: running.id, itemId: snapshot.queue.items[0].id, revision: snapshot.queue.revision })
+  await restoredService.dispatch("conversationQueueDeliver", {
+    sessionId: running.id,
+    itemId: snapshot.queue.items[0].id,
+    revision: snapshot.queue.revision,
+  })
   for (let i = 0; i < 200; i++) {
-    snapshot = await restoredService.dispatch("conversationRead", { sessionId: running.id })
+    snapshot = await restoredService.dispatch("conversationRead", {
+      sessionId: running.id,
+    })
     if (snapshot.phase === "completed" && !snapshot.queue.items.length) break
     await delay(25)
   }
   assert.equal(snapshot.phase, "completed")
   assert.equal(snapshot.queue.items.length, 0)
-  assert.equal(snapshot.messages.filter((item) => item.role === "user" && item.text === "保留到我确认后再发送").length, 1)
+  assert.equal(
+    snapshot.messages.filter(
+      (item) => item.role === "user" && item.text === "保留到我确认后再发送"
+    ).length,
+    1
+  )
+})
+
+test("a queued Skill fixes its body and preserves original input identity through Pi expansion", async (t) => {
+  let release
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  const f = await fixture(t, async (_request, response, number) => {
+    response.write(chunk({ role: "assistant", content: "正在处理" }))
+    if (number === 1) await gate
+    response.end(chunk({}, "stop") + "data: [DONE]\n\n")
+  })
+  t.after(() => release())
+  const folder = join(f.cwd, ".pi", "skills", "queue-review")
+  await mkdir(folder, { recursive: true })
+  const skill = join(folder, "SKILL.md")
+  const header =
+    "---\nname: queue-review\ndescription: Queue delivery regression skill\n---\n"
+  await writeFile(skill, header + "FIXED_BODY_AT_ACCEPTANCE")
+  await f.send("skill-source", "第一项工作")
+  const queued = await f.send(
+    "skill-queued",
+    "/skill:queue-review 保留这句原文"
+  )
+  assert.equal(queued.queue.items[0].materials[0].type, "skill")
+  await writeFile(skill, header + "CHANGED_AFTER_ACCEPTANCE")
+  release()
+  const completed = await f.settled()
+  assert.equal(completed.queue.items.length, 0)
+  const user = completed.messages.find(
+    (item) => item.text === "/skill:queue-review 保留这句原文"
+  )
+  assert.ok(user)
+  assert.equal(user.attachments[0].materialType, "skill")
+  assert.ok(
+    JSON.stringify(f.requests.at(-1)).includes("FIXED_BODY_AT_ACCEPTANCE")
+  )
+  assert.ok(
+    !JSON.stringify(f.requests.at(-1)).includes("CHANGED_AFTER_ACCEPTANCE")
+  )
+  assert.equal(
+    (await f.send("skill-queued", "/skill:queue-review 保留这句原文")).queue
+      .items.length,
+    0
+  )
+})
+
+test("failed queued user persistence recovers in the same process without dispatching deadlock", async (t) => {
+  let release
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  const f = await fixture(t, async (_request, response, number) => {
+    response.write(chunk({ role: "assistant", content: "正在处理" }))
+    if (number === 1) await gate
+    response.end(chunk({}, "stop") + "data: [DONE]\n\n")
+  })
+  t.after(() => release())
+  await f.send("disk-source", "第一项工作")
+  await f.send("disk-queue", "QUEUED_DISK_FAULT")
+  const fault = failHistoryWrite(
+    t,
+    "appendFileSync",
+    (file, data) =>
+      String(file).endsWith(".jsonl") &&
+      String(data).includes('"role":"user"') &&
+      String(data).includes("QUEUED_DISK_FAULT")
+  )
+  release()
+  const failed = await f.settled()
+  assert.ok(fault.count() > 0)
+  fault.restore()
+  assert.equal(failed.phase, "failed")
+  assert.equal(failed.queue.items[0].status, "failed")
+  const refreshed = await f.read()
+  await f.service.dispatch("conversationQueueDeliver", {
+    sessionId: refreshed.id,
+    itemId: refreshed.queue.items[0].id,
+    revision: refreshed.queue.revision,
+  })
+  let recovered
+  for (let i = 0; i < 200; i++) {
+    recovered = await f.read()
+    if (recovered.phase === "completed" && !recovered.queue.items.length) break
+    await delay(25)
+  }
+  assert.equal(recovered.phase, "completed")
+  assert.equal(
+    recovered.messages.filter(
+      (item) => item.role === "user" && item.text === "QUEUED_DISK_FAULT"
+    ).length,
+    1
+  )
 })

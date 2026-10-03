@@ -74,6 +74,7 @@ async function fixture(t, respond) {
     handle(state, event)
     events.push({
       type: event.type, reason: event.reason, phase: state.phase,
+      ...(event.message?.errorMessage ? { sdkError: event.message.errorMessage } : {}),
       ...(event.type === "compaction_end" ? { contextState: chats.snapshot(state).contextState } : {}),
     })
   }
@@ -138,7 +139,7 @@ test("quota errors retain Pi's terminal classification while Moon persists safe 
   assert.equal(done.phase, "failed")
   assert.equal(f.requests.length, 1, "Pi quota/billing errors must not enter transient retry")
   assert.equal(f.events.some((event) => event.type === "auto_retry_start"), false)
-  assert.ok(f.chats.active.get("feedback-session").session.messages.some((message) => message.role === "assistant" && message.errorMessage?.includes(secret)), "The SDK-owned diagnostic must remain original for its recovery classifier")
+  assert.ok(f.events.some((event) => event.type === "message_end" && event.sdkError?.includes(secret)), "The public SDK message must retain its original diagnostic before the recovery classifier runs")
   assert.equal(JSON.stringify(done).includes(secret), false)
   assert.equal((await f.persisted()).includes(secret), false)
 })

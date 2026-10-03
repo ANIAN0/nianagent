@@ -11,10 +11,14 @@ export function createConversationService() {
       modelCall("conversationStop", { sessionId, runId }),
     retry: (input: RpcRequests["conversationRetry"]) =>
       modelCall("conversationRetry", input),
-    queueEdit: (input: RpcRequests["conversationQueueEdit"]) => modelCall("conversationQueueEdit", input),
-    queueRemove: (input: RpcRequests["conversationQueueRemove"]) => modelCall("conversationQueueRemove", input),
-    queueMode: (input: RpcRequests["conversationQueueMode"]) => modelCall("conversationQueueMode", input),
-    queueDeliver: (input: RpcRequests["conversationQueueDeliver"]) => modelCall("conversationQueueDeliver", input),
+    queueEdit: (input: RpcRequests["conversationQueueEdit"]) =>
+      modelCall("conversationQueueEdit", input),
+    queueRemove: (input: RpcRequests["conversationQueueRemove"]) =>
+      modelCall("conversationQueueRemove", input),
+    queueMode: (input: RpcRequests["conversationQueueMode"]) =>
+      modelCall("conversationQueueMode", input),
+    queueDeliver: (input: RpcRequests["conversationQueueDeliver"]) =>
+      modelCall("conversationQueueDeliver", input),
   }
 }
 export type ConversationService = ReturnType<typeof createConversationService>

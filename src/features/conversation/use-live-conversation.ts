@@ -12,7 +12,13 @@ import type { ConversationSnapshot } from "@/features/models/model-contract.gene
 import { createConversationService } from "./conversation-service"
 import { RpcRequestRejected } from "@/features/models/model-service"
 import { materialReference } from "@/features/materials/material-service"
-import { draftSignature, restoreConversationDrafts, saveConversationDraft, saveConversationRequest, type PendingSubmission } from "./conversation-draft-store"
+import {
+  draftSignature,
+  restoreConversationDrafts,
+  saveConversationDraft,
+  saveConversationRequest,
+  type PendingSubmission,
+} from "./conversation-draft-store"
 
 function failureMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error)
@@ -52,7 +58,9 @@ export function useLiveConversation(selectedId: string | undefined) {
   const [snapshots, setSnapshots] = useState<
     Record<string, ConversationSnapshot>
   >({})
-  const [drafts, setDrafts] = useState<Record<string, HomeDraft>>(restored.drafts)
+  const [drafts, setDrafts] = useState<Record<string, HomeDraft>>(
+    restored.drafts
+  )
   const draftsRef = useRef(drafts)
   const [draftErrors, setDraftErrors] = useState<Record<string, string>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -67,25 +75,61 @@ export function useLiveConversation(selectedId: string | undefined) {
   const changeDraft = useCallback((id: string, draft: HomeDraft) => {
     draftsRef.current = { ...draftsRef.current, [id]: draft }
     setDrafts(draftsRef.current)
-    try { saveConversationDraft(id, draft); setDraftErrors((all) => ({ ...all, [id]: "" })) }
-    catch { setDraftErrors((all) => ({ ...all, [id]: "草稿未保存，请释放本地存储空间后重试。" })) }
-  }, [])
-  const accept = useCallback((snapshot: ConversationSnapshot) => {
-    const previous = current.current[snapshot.id]
-    if (previous?.epoch === snapshot.epoch && previous.version > snapshot.version) return
-    current.current = { ...current.current, [snapshot.id]: snapshot }
-    setSnapshots(current.current)
-    setReadErrors((all) => ({ ...all, [snapshot.id]: "" }))
-    const submission = requests.current.get(snapshot.id)
-    const accepted = submission && (snapshot.queue?.acceptedRequestIds.includes(submission.id) || (snapshot.clientRequestId === submission.id && snapshot.inputAccepted))
-    const rejected = submission && snapshot.clientRequestId === submission.id && !snapshot.inputAccepted && ["failed", "interrupted"].includes(snapshot.phase)
-    if (submission && (accepted || rejected)) {
-      const editing = draftsRef.current[snapshot.id]
-      if (accepted && submission.kind === "send" && editing && draftSignature(editing) === draftSignature(submission.draft)) changeDraft(snapshot.id, { ...editing, text: "", materials: [] })
-      requests.current.delete(snapshot.id)
-      try { saveConversationRequest(snapshot.id) } catch { setDraftErrors((all) => ({ ...all, [snapshot.id]: "发送已确认，但本地回执清理失败；重新打开后将先核对原请求。" })) }
+    try {
+      saveConversationDraft(id, draft)
+      setDraftErrors((all) => ({ ...all, [id]: "" }))
+    } catch {
+      setDraftErrors((all) => ({
+        ...all,
+        [id]: "草稿未保存，请释放本地存储空间后重试。",
+      }))
     }
-  }, [changeDraft])
+  }, [])
+  const accept = useCallback(
+    (snapshot: ConversationSnapshot) => {
+      const previous = current.current[snapshot.id]
+      if (
+        previous?.epoch === snapshot.epoch &&
+        previous.version > snapshot.version
+      )
+        return
+      current.current = { ...current.current, [snapshot.id]: snapshot }
+      setSnapshots(current.current)
+      setReadErrors((all) => ({ ...all, [snapshot.id]: "" }))
+      const submission = requests.current.get(snapshot.id)
+      const accepted =
+        submission &&
+        (snapshot.queue?.acceptedRequestIds.includes(submission.id) ||
+          (snapshot.clientRequestId === submission.id &&
+            snapshot.inputAccepted))
+      const rejected =
+        submission &&
+        snapshot.clientRequestId === submission.id &&
+        !snapshot.inputAccepted &&
+        ["failed", "interrupted"].includes(snapshot.phase)
+      if (submission && (accepted || rejected)) {
+        const editing = draftsRef.current[snapshot.id]
+        if (
+          accepted &&
+          submission.kind === "send" &&
+          editing &&
+          draftSignature(editing) === draftSignature(submission.draft)
+        )
+          changeDraft(snapshot.id, { ...editing, text: "", materials: [] })
+        requests.current.delete(snapshot.id)
+        try {
+          saveConversationRequest(snapshot.id)
+        } catch {
+          setDraftErrors((all) => ({
+            ...all,
+            [snapshot.id]:
+              "发送已确认，但本地回执清理失败；重新打开后将先核对原请求。",
+          }))
+        }
+      }
+    },
+    [changeDraft]
+  )
   useEffect(() => {
     if (!selectedId) return
     const controller = new AbortController()
@@ -125,24 +169,49 @@ export function useLiveConversation(selectedId: string | undefined) {
       clearTimeout(timer)
     }
   }, [selectedId, service, reload, accept])
-  const submissionFor = (id: string, value: Omit<Extract<PendingSubmission, { kind: "send" }>, "id"> | Omit<Extract<PendingSubmission, { kind: "retry" }>, "id">) => {
+  const submissionFor = (
+    id: string,
+    value:
+      | Omit<Extract<PendingSubmission, { kind: "send" }>, "id">
+      | Omit<Extract<PendingSubmission, { kind: "retry" }>, "id">
+  ) => {
     const existing = requests.current.get(id)
     if (existing?.signature === value.signature) return existing
-    if (existing) throw new Error("上一条发送结果尚未确认。请先核对发送；当前新草稿会保留。")
-    const submission = { ...value, id: crypto.randomUUID() } as PendingSubmission
+    if (existing)
+      throw new Error(
+        "上一条发送结果尚未确认。请先核对发送；当前新草稿会保留。"
+      )
+    const submission = {
+      ...value,
+      id: crypto.randomUUID(),
+    } as PendingSubmission
     saveConversationRequest(id, submission)
     requests.current.set(id, submission)
     return submission
   }
-  async function submit(id: string, submission: PendingSubmission, signal?: AbortSignal) {
+  async function submit(
+    id: string,
+    submission: PendingSubmission,
+    signal?: AbortSignal
+  ) {
     try {
       return submission.kind === "send"
-        ? await service.send({ ...submission.input, clientRequestId: submission.id }, signal)
-        : await service.retry({ ...submission.input, clientRequestId: submission.id })
+        ? await service.send(
+            { ...submission.input, clientRequestId: submission.id },
+            signal
+          )
+        : await service.retry({
+            ...submission.input,
+            clientRequestId: submission.id,
+          })
     } catch (error) {
       if (error instanceof RpcRequestRejected) {
         requests.current.delete(id)
-        try { saveConversationRequest(id) } catch { /* Stored receipt remains safe to reconcile. */ }
+        try {
+          saveConversationRequest(id)
+        } catch {
+          /* Stored receipt remains safe to reconcile. */
+        }
       }
       throw error
     }
@@ -159,10 +228,12 @@ export function useLiveConversation(selectedId: string | undefined) {
     try {
       const snapshot = await action()
       accept(snapshot)
-      if (mutations.current.get(id) === mutation) setErrors((all) => ({ ...all, [id]: "" }))
+      if (mutations.current.get(id) === mutation)
+        setErrors((all) => ({ ...all, [id]: "" }))
       return snapshot
     } catch (error) {
-      if (mutations.current.get(id) === mutation) setErrors((all) => ({ ...all, [id]: failureMessage(error) }))
+      if (mutations.current.get(id) === mutation)
+        setErrors((all) => ({ ...all, [id]: failureMessage(error) }))
       throw error
     } finally {
       locks.current.delete(id)
@@ -187,7 +258,18 @@ export function useLiveConversation(selectedId: string | undefined) {
         materials: draft.materials.map(materialReference),
         ...resolveConversationModel(connections, draft),
       }
-      const submission = submissionFor(id, { kind: "send", input, signature: JSON.stringify(["send", draftSignature(draft), input.connectionId, input.modelId, input.thinking]), draft })
+      const submission = submissionFor(id, {
+        kind: "send",
+        input,
+        signature: JSON.stringify([
+          "send",
+          draftSignature(draft),
+          input.connectionId,
+          input.modelId,
+          input.thinking,
+        ]),
+        draft,
+      })
       return submit(id, submission, signal)
     })
     return snapshot
@@ -200,9 +282,17 @@ export function useLiveConversation(selectedId: string | undefined) {
     stopLocks.current.add(identity)
     mutations.current.set(id, (mutations.current.get(id) ?? 0) + 1)
     const mutation = mutations.current.get(id)
-    try { accept(await service.stop(id, snapshot.runId)); if (mutations.current.get(id) === mutation) setErrors((all) => ({ ...all, [id]: "" })) }
-    catch (error) { if (mutations.current.get(id) === mutation) setErrors((all) => ({ ...all, [id]: failureMessage(error) })); throw error }
-    finally { stopLocks.current.delete(identity) }
+    try {
+      accept(await service.stop(id, snapshot.runId))
+      if (mutations.current.get(id) === mutation)
+        setErrors((all) => ({ ...all, [id]: "" }))
+    } catch (error) {
+      if (mutations.current.get(id) === mutation)
+        setErrors((all) => ({ ...all, [id]: failureMessage(error) }))
+      throw error
+    } finally {
+      stopLocks.current.delete(identity)
+    }
   }
   async function retry(
     id: string,
@@ -210,35 +300,83 @@ export function useLiveConversation(selectedId: string | undefined) {
     connections: ModelConnection[]
   ) {
     const model = resolveConversationModel(connections, draft)
-    await perform(id, () => submit(id, submissionFor(id, { kind: "retry", input: { sessionId: id, ...model }, signature: JSON.stringify({ retry: true, ...model }), draft })))
+    await perform(id, () =>
+      submit(
+        id,
+        submissionFor(id, {
+          kind: "retry",
+          input: { sessionId: id, ...model },
+          signature: JSON.stringify({ retry: true, ...model }),
+          draft,
+        })
+      )
+    )
   }
   return {
     snapshots,
     drafts,
     errors: Object.fromEntries(
       Array.from(
-        new Set([...Object.keys(errors), ...Object.keys(readErrors), ...Object.keys(draftErrors)])
+        new Set([
+          ...Object.keys(errors),
+          ...Object.keys(readErrors),
+          ...Object.keys(draftErrors),
+        ])
       ).map((id) => [id, errors[id] || readErrors[id] || draftErrors[id] || ""])
     ),
     pending,
     send,
     stop,
     retry,
-    unconfirmed: Object.fromEntries([...requests.current.keys()].map((id) => [id, true])),
+    unconfirmed: Object.fromEntries(
+      [...requests.current.keys()].map((id) => [id, true])
+    ),
     submissionDraft: (id: string) => requests.current.get(id)?.draft,
-    reconcile: (id: string) => perform(id, async () => {
-      // Reuse the original payload/ID. Checking a lost reply cannot submit the
-      // newly edited draft or create a duplicate request.
-      const submission = requests.current.get(id)
-      if (!submission) return service.read(id)
-      return submit(id, submission)
-    }),
+    reconcile: (id: string) =>
+      perform(id, async () => {
+        // Reuse the original payload/ID. Checking a lost reply cannot submit the
+        // newly edited draft or create a duplicate request.
+        const submission = requests.current.get(id)
+        if (!submission) return service.read(id)
+        return submit(id, submission)
+      }),
     reload: () => setReload((value) => value + 1),
     change: changeDraft,
-    saveDraft: (id: string) => { if (draftsRef.current[id]) changeDraft(id, draftsRef.current[id]) },
-    queueEdit: (id: string, itemId: string, text: string) => perform(id, () => service.queueEdit({ sessionId: id, itemId, text, revision: current.current[id]?.queue?.revision ?? 0 })),
-    queueRemove: (id: string, itemId: string) => perform(id, () => service.queueRemove({ sessionId: id, itemId, revision: current.current[id]?.queue?.revision ?? 0 })),
-    queueMode: (id: string, mode: "single" | "all") => perform(id, () => service.queueMode({ sessionId: id, mode, revision: current.current[id]?.queue?.revision ?? 0 })),
-    queueDeliver: (id: string, itemId: string) => perform(id, () => service.queueDeliver({ sessionId: id, itemId, revision: current.current[id]?.queue?.revision ?? 0 })),
+    saveDraft: (id: string) => {
+      if (draftsRef.current[id]) changeDraft(id, draftsRef.current[id])
+    },
+    queueEdit: (id: string, itemId: string, text: string) =>
+      perform(id, () =>
+        service.queueEdit({
+          sessionId: id,
+          itemId,
+          text,
+          revision: current.current[id]?.queue?.revision ?? 0,
+        })
+      ),
+    queueRemove: (id: string, itemId: string) =>
+      perform(id, () =>
+        service.queueRemove({
+          sessionId: id,
+          itemId,
+          revision: current.current[id]?.queue?.revision ?? 0,
+        })
+      ),
+    queueMode: (id: string, mode: "single" | "all") =>
+      perform(id, () =>
+        service.queueMode({
+          sessionId: id,
+          mode,
+          revision: current.current[id]?.queue?.revision ?? 0,
+        })
+      ),
+    queueDeliver: (id: string, itemId: string) =>
+      perform(id, () =>
+        service.queueDeliver({
+          sessionId: id,
+          itemId,
+          revision: current.current[id]?.queue?.revision ?? 0,
+        })
+      ),
   }
 }

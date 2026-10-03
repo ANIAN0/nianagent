@@ -4,11 +4,15 @@
 
 `backend/conversation-controls.mjs` 拥有手动压缩操作的接受、取消与结果对账。操作回执原子保存到应用数据目录的 `conversations/controls/<sessionId>.json`，只保存操作身份与结果；摘要、保留起点和完整历史仍由Pi JSONL唯一持有。控制与发送、继续、配置应用共用SessionService会话门禁，压缩开始前原子保留busy，防止Pi `compact()` 首先abort正在执行的任务。
 
+控制结果未确认时，正式发送入口继续阻止新的运行，直到查询原操作确认Pi提交边界，避免后续自动压缩污染对账证据。完成、取消和失败回执保持终态，不会认领其他操作追加的摘要；内存任务按会话与操作双重身份管理。若Pi追加历史失败且磁盘暂不可读，只保留操作前只读快照并要求重读历史，不暴露未提交的内存摘要。取消在Pi创建摘要控制器前到达时，在正式手动压缩开始事件补发取消，仍以实际提交结果为准。
+
 `conversation-control-contract.mjs` 是输入、结果与调用说明的权威来源，汇入现有schema与接口目录。正式页面用 `useConversationControls` 以会话及操作标识恢复结果，切换或关闭面板不取消后台控制；网络未知时查询原操作，不重复发起。`CompactDialog` 和 `CompactionRecord` 的状态由服务提供，组件库复用正式组件但不调用模型。
 
 会话派生在独立打开的Pi SessionManager上调用官方 `createBranchedSession`，复制根到选定assistant entry的稳定前缀；不调用会替换源runtime的操作。源JSONL、active leaf和订阅保持不变。新会话复制已保存项目指令与工具选择快照，首次创建独立agent/订阅；重启可按需恢复。来源关系保存于Pi custom entry和会话摘要，草稿、待发送队列及控制请求归属Moon会话身份，不从历史复制。
 
 派生先持久化operation ID和新Moon会话ID，再生成Pi文件、保存路径回执、提交配置和索引。结果未知只查询原operation；恢复按持久lineage身份补齐索引，不依据标题猜测，不重新生成Pi路径。`session.copyConfiguration`在配置锁下复制明确快照，不重新发现磁盘指令，也不覆盖已经存在的新会话配置。
+
+摘要来源以实际compaction entryId关联。派生通过Pi公开custom entry在目标lineage保存已继承的手动摘要标识，只保留目标真实前缀中存在的摘要，不复制来源控制请求；继续派生保留相同来源。发布恢复按操作快照幂等补齐只读来源，已有目标运行时不通过第二个manager追加或移动叶子。旧版本已发布分支在restore阶段只读追溯lineage祖先的压缩回执并缓存来源；snapshot不读文件，不重写源或目标JSONL。
 
 ## 消息材料
 

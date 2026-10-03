@@ -112,12 +112,10 @@ export function useComposerMaterials({
     action: (signal: AbortSignal) => Promise<T>,
     accept: (result: T) => void
   ) {
-    if (
-      !alive.current ||
-      latest.current.disabled ||
-      latest.current.scope !== scope
-    )
-      return
+    // Entry points gate new work. Once reading an image has started, a temporary
+    // disabled phase must not strand its placeholder; ownership changes still
+    // cancel it and prevent a result from reaching another draft.
+    if (!alive.current || latest.current.scope !== scope) return
     const owner = scope
     const controller = new AbortController()
     requests.current.add(controller)

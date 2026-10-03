@@ -8,6 +8,7 @@ import {
 } from "node:fs/promises"
 import { join, resolve, relative, isAbsolute } from "node:path"
 import { randomUUID } from "node:crypto"
+import { SessionManager } from "@earendil-works/pi-coding-agent"
 import { assertSchema, schemas } from "./schema.mjs"
 
 const check = (value, message) => {
@@ -40,10 +41,21 @@ export class ConversationControls {
   file(id) {
     return join(this.directory, `${id}.json`)
   }
+  taskKey(operation) {
+    return `${operation.sessionId}:${operation.id}`
+  }
+  unresolvedReason(state) {
+    return (state.controls || []).some(
+      (operation) => !terminal.has(operation.status)
+    )
+      ? "请先检查上次操作的结果。"
+      : ""
+  }
   present(operation) {
     const {
       targetSessionFile: _file,
       configuration: _configuration,
+      inheritedManualCompactionIds: _inherited,
       ...result
     } = operation
     return structuredClone(result)
@@ -84,6 +96,7 @@ export class ConversationControls {
       if (error.code !== "ENOENT") throw error
       state.controls = []
     }
+    await this.restoreInheritedSources(state)
     state.controlsLoaded = true
     // The host has restarted. Reconcile Pi's actual commit boundary before
     // allowing any new operation; never repeat an unknown request automatically.
@@ -94,16 +107,11 @@ export class ConversationControls {
         continue
       }
       const committed = this.compactionFor(state, operation)
-      if (committed) {
-        operation.status = "completed"
-        operation.compactionEntryId = committed.id
-        operation.error = ""
-      } else {
-        operation.status = "failed"
-        operation.error = "上次压缩已中断，未保存新摘要；原上下文保留。"
-      }
-      operation.updatedAt = new Date().toISOString()
-      await this.persist(state)
+      await this.confirm(state, operation, {
+        status: committed ? "completed" : "failed",
+        ...(committed ? { compactionEntryId: committed.id } : {}),
+        error: committed ? "" : "上次压缩已中断，未保存新摘要；原上下文保留。",
+      })
     }
   }
   async persist(state, signal) {
@@ -121,9 +129,28 @@ export class ConversationControls {
       await rm(temporary, { force: true })
     }
   }
+  async confirm(state, operation, changes) {
+    const previous = structuredClone(operation)
+    Object.assign(operation, changes, { updatedAt: new Date().toISOString() })
+    try {
+      await this.persist(state)
+    } catch (error) {
+      // Until the receipt is durable, retain the unresolved gate. Otherwise a
+      // later send could append a summary that restart attributes to this one.
+      for (const key of Object.keys(operation)) delete operation[key]
+      Object.assign(operation, previous)
+      throw error
+    }
+  }
   compactionFor(state, operation) {
     if (operation.kind !== "compact") return undefined
     const entries = state.manager.getBranch()
+    if (operation.compactionEntryId)
+      return entries.find(
+        (entry) =>
+          entry.type === "compaction" &&
+          entry.id === operation.compactionEntryId
+      )
     const boundary = entries.findIndex(
       (entry) => entry.id === operation.anchorId
     )
@@ -146,17 +173,12 @@ export class ConversationControls {
     if (state.questions?.length || state.phase === "waiting")
       return "请先回答当前问题。"
     if (pendingQueue(state)) return "请先处理或删除待发送消息。"
-    if (
-      (state.controls || []).some(
-        (operation) => !terminal.has(operation.status)
-      )
-    )
-      return "请先检查上次操作的结果。"
-    return ""
+    return this.unresolvedReason(state)
   }
   projection(state) {
     const operations = state.controls || []
     const latest = operations.at(-1)
+    const manualCompactionIds = this.manualCompactionIds(state)
     return {
       control: {
         busy: !!state.controlBusy,
@@ -165,7 +187,10 @@ export class ConversationControls {
           (!state.manager.getBranch().some((entry) => entry.type === "message")
             ? "尚无可压缩的历史。"
             : ""),
-        forkDisabledReason: this.idleReason(state),
+        forkDisabledReason:
+          this.idleReason(state) ||
+          this.host.historyNotice?.(state.manager) ||
+          "",
         ...(latest ? { operation: this.present(latest) } : {}),
       },
       compactions: state.manager.getBranch().flatMap((entry, historyIndex) =>
@@ -178,9 +203,7 @@ export class ConversationControls {
                 summary: entry.summary,
                 firstKeptEntryId: entry.firstKeptEntryId,
                 tokensBefore: entry.tokensBefore,
-                source: operations.some(
-                  (operation) => operation.compactionEntryId === entry.id
-                )
+                source: manualCompactionIds.has(entry.id)
                   ? "manual"
                   : "automatic",
                 historyIndex,
@@ -191,6 +214,78 @@ export class ConversationControls {
             ]
       ),
     }
+  }
+  manualCompactionIds(state) {
+    const branch = state.manager.getBranch()
+    const actual = new Set(
+      branch
+        .filter((entry) => entry.type === "compaction")
+        .map((entry) => entry.id)
+    )
+    const candidates = [
+      ...(state.controls || [])
+        .filter((operation) => operation.kind === "compact")
+        .map((operation) => operation.compactionEntryId),
+      ...(state.inheritedManualCompactionIds || []),
+      ...branch.flatMap((entry) =>
+        entry.type === "custom" &&
+        ["moon-fork-lineage", "moon-compaction-provenance"].includes(
+          entry.customType
+        ) &&
+        Array.isArray(entry.data?.manualCompactionEntryIds)
+          ? entry.data.manualCompactionEntryIds
+          : []
+      ),
+    ]
+    return new Set(
+      candidates.filter((id) => typeof id === "string" && actual.has(id))
+    )
+  }
+  async restoreInheritedSources(state) {
+    // Older forks did not persist provenance in their copied Pi path. Restore
+    // their labels once, outside snapshot(), without editing either JSONL file.
+    if (!state.record.lineage?.sourceSessionId) return
+    if (
+      state.manager
+        .getBranch()
+        .some(
+          (entry) =>
+            entry.type === "custom" &&
+            entry.customType === "moon-fork-lineage" &&
+            entry.data?.sessionId === state.record.id &&
+            Array.isArray(entry.data.manualCompactionEntryIds)
+        )
+    )
+      return
+    const records = new Map(
+      (await this.host.store.list()).map((record) => [record.id, record])
+    )
+    const inherited = new Set()
+    const visited = new Set([state.record.id])
+    let sourceId = state.record.lineage.sourceSessionId
+    while (sourceId && !visited.has(sourceId)) {
+      visited.add(sourceId)
+      let document
+      try {
+        document = JSON.parse(await readFile(this.file(sourceId), "utf8"))
+      } catch (error) {
+        if (error.code !== "ENOENT") throw error
+      }
+      if (document) {
+        check(
+          document.version === 1 && Array.isArray(document.operations),
+          "来源压缩记录损坏；原历史未修改。"
+        )
+        for (const operation of document.operations)
+          if (
+            operation.kind === "compact" &&
+            typeof operation.compactionEntryId === "string"
+          )
+            inherited.add(operation.compactionEntryId)
+      }
+      sourceId = records.get(sourceId)?.lineage?.sourceSessionId
+    }
+    state.inheritedManualCompactionIds = [...inherited]
   }
   async state(sessionId, signal) {
     this.host.ensureOpen()
@@ -250,12 +345,14 @@ export class ConversationControls {
       state.entry.busy = true
       this.host.touch(state)
       const task = this.runCompact(state, operation)
-      this.tasks.set(operation.id, task)
-      void task.finally(() => this.tasks.delete(operation.id)).catch(() => {})
+      const taskKey = this.taskKey(operation)
+      this.tasks.set(taskKey, task)
+      void task.finally(() => this.tasks.delete(taskKey)).catch(() => {})
       return this.present(operation)
     })
   }
   async runCompact(state, operation) {
+    const before = structuredClone(state.manager.getEntries())
     try {
       await state.session.compact(operation.focus || undefined)
       const committed = this.compactionFor(state, operation)
@@ -278,7 +375,18 @@ export class ConversationControls {
           state.session.dispose()
           state.session = undefined
           this.host.sessions.active.delete(state.record.id)
-          state.manager = await this.host.fileManager(state.record)
+          try {
+            state.manager = await this.host.fileManager(state.record)
+          } catch (historyError) {
+            // Pi mutates its in-memory branch before a synchronous file append.
+            // Failed writes cannot remain authority for a later receipt lookup.
+            state.manager = SessionManager.inMemory(
+              state.record.cwd,
+              undefined,
+              before
+            )
+            state.historyError = historyError
+          }
           operation.status = "failed"
         }
       }
@@ -303,29 +411,33 @@ export class ConversationControls {
       const state = await this.state(sessionId, signal)
       const operation = state.controls.find((item) => item.id === operationId)
       if (!operation) return null
+      // A terminal result belongs to this operation forever. A later compaction
+      // may share its original anchor, but cannot change this receipt's identity.
+      if (terminal.has(operation.status)) return this.present(operation)
       if (operation.kind === "fork" && !terminal.has(operation.status))
         await this.reconcileFork(state, operation)
       const committed = this.compactionFor(state, operation)
       if (
         operation.kind === "compact" &&
-        operation.status === "unknown" &&
         !committed &&
-        !this.tasks.has(operation.id)
+        !this.tasks.has(this.taskKey(operation))
       ) {
-        operation.status = "failed"
-        operation.error = "未保存新摘要，原上下文保留；可以重新压缩。"
-        await this.persist(state)
+        await this.confirm(state, operation, {
+          status: "failed",
+          error: "未保存新摘要，原上下文保留；可以重新压缩。",
+        })
         this.host.touch(state)
       }
       if (
         committed &&
         operation.status !== "completed" &&
-        !this.tasks.has(operation.id)
+        !this.tasks.has(this.taskKey(operation))
       ) {
-        operation.status = "completed"
-        operation.compactionEntryId = committed.id
-        operation.error = ""
-        await this.persist(state)
+        await this.confirm(state, operation, {
+          status: "completed",
+          compactionEntryId: committed.id,
+          error: "",
+        })
         this.host.touch(state)
       }
       return this.present(operation)
@@ -338,7 +450,7 @@ export class ConversationControls {
       check(operation?.kind === "compact", "未找到本次压缩操作。")
       if (terminal.has(operation.status)) return this.present(operation)
       check(
-        state.controlBusy && this.tasks.has(operation.id),
+        state.controlBusy && this.tasks.has(this.taskKey(operation)),
         "无法确认正在运行的压缩，请检查状态。"
       )
       signal?.throwIfAborted()
@@ -379,6 +491,8 @@ export class ConversationControls {
         return this.present(previous)
       }
       check(!this.idleReason(state), this.idleReason(state))
+      const historyNotice = this.host.historyNotice?.(state.manager)
+      check(!historyNotice, historyNotice)
       const entry = state.manager
         .getBranch()
         .find((item) => item.id === entryId)
@@ -418,6 +532,7 @@ export class ConversationControls {
         updatedAt: now,
         error: "",
         configuration: structuredClone(configuration),
+        inheritedManualCompactionIds: [...this.manualCompactionIds(state)],
       }
       state.controls.push(operation)
       try {
@@ -442,6 +557,12 @@ export class ConversationControls {
           sourceTitle: state.record.title,
           sourceEntryId: entryId,
           operationId,
+          manualCompactionEntryIds:
+            operation.inheritedManualCompactionIds.filter((id) =>
+              manager
+                .getBranch()
+                .some((entry) => entry.type === "compaction" && entry.id === id)
+            ),
         })
         operation.targetSessionFile = manager.getSessionFile()
         await this.persist(state)
@@ -478,6 +599,7 @@ export class ConversationControls {
       operation.configuration,
       "派生配置快照"
     )
+    await this.ensureInheritedSources(state, operation)
     const lineage = {
       sourceSessionId: state.record.id,
       sourceTitle: state.record.title,
@@ -502,6 +624,43 @@ export class ConversationControls {
     await this.host.restore(record, selected)
     operation.status = "completed"
     operation.error = ""
+  }
+  async ensureInheritedSources(state, operation) {
+    const inherited = operation.inheritedManualCompactionIds || [
+      ...this.manualCompactionIds(state),
+    ]
+    if (!inherited.length) return
+    const active = this.host.active.get(operation.targetSessionId)
+    if (active) {
+      // Recovery must not append through a second manager after the target has
+      // its own live runtime. Labels can be restored without moving its leaf.
+      active.inheritedManualCompactionIds = [
+        ...new Set([
+          ...(active.inheritedManualCompactionIds || []),
+          ...inherited,
+        ]),
+      ]
+      return
+    }
+    const manager = await this.host.fileManager(
+      {
+        ...state.record,
+        sessionFile: operation.targetSessionFile,
+      },
+      true
+    )
+    const present = this.manualCompactionIds({ manager, controls: [] })
+    const missing = inherited.filter(
+      (id) =>
+        !present.has(id) &&
+        manager
+          .getBranch()
+          .some((entry) => entry.type === "compaction" && entry.id === id)
+    )
+    if (missing.length)
+      manager.appendCustomEntry("moon-compaction-provenance", {
+        manualCompactionEntryIds: missing,
+      })
   }
   async reconcileFork(state, operation) {
     if (!operation.targetSessionFile) {

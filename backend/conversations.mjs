@@ -145,11 +145,17 @@ export class ConversationService {
     signal?.throwIfAborted()
     return { connection, model, runtime, thinking }
   }
-  safeHistory(manager) {
+  safeHistory(manager, history = {}) {
     // Pi must retain the original diagnostic for its retry/overflow decisions.
     // Adapt only the public persistence boundary, leaving the event and agent
     // message untouched while keeping raw provider diagnostics off disk.
-    const persistence = { error: undefined, onInput: undefined }
+    const persistence = {
+      error: undefined,
+      onInput: undefined,
+      stableEntryIds: true,
+      migrationRequired: false,
+      ...history,
+    }
     this.persistence.set(manager, persistence)
     for (const method of [
       "appendMessage",
@@ -172,8 +178,10 @@ export class ConversationService {
             errorMessage: errorText(args[0].errorMessage),
           }
         let id
-        const input = method === "appendMessage" && args[0].role === "user"
-          ? persistence.beforeInput?.(args[0]) : undefined
+        const input =
+          method === "appendMessage" && args[0].role === "user"
+            ? persistence.beforeInput?.(args[0])
+            : undefined
         try {
           id = append(...args)
         } catch (error) {
@@ -190,6 +198,13 @@ export class ConversationService {
       }
     }
     return manager
+  }
+  historyNotice(manager) {
+    const history = this.persistence.get(manager)
+    if (!history?.migrationRequired) return ""
+    return history.stableEntryIds
+      ? "旧格式历史仍需迁移，暂不能创建分支；继续发送一次消息后由 Pi 自动迁移。"
+      : "旧格式历史尚未保存稳定的消息标识，暂不能创建分支；继续发送一次消息后由 Pi 自动迁移。"
   }
   async fileManager(record, persistent = false) {
     await mkdir(this.directory, { recursive: true, mode: 0o700 })
@@ -265,10 +280,17 @@ export class ConversationService {
     requireValue(sameCwd, "会话文件的工作目录与记录不一致；原文件未覆盖。")
     // Version migration and branch reconstruction remain Pi's responsibility.
     // Writes may open the persistent manager only after this preflight check.
+    // Capture the source version before Pi's in-memory API migrates the entries.
+    // v1 migration creates random IDs that cannot identify the unchanged file.
+    const version = header.version ?? 1
     return this.safeHistory(
       persistent
         ? SessionManager.open(file, this.directory, record.cwd)
-        : SessionManager.inMemory(record.cwd, undefined, entries)
+        : SessionManager.inMemory(record.cwd, undefined, entries),
+      {
+        stableEntryIds: persistent || version >= 2,
+        migrationRequired: !persistent && version < CURRENT_SESSION_VERSION,
+      }
     )
   }
   async restore(record, selected, signal) {
@@ -276,8 +298,12 @@ export class ConversationService {
     if (existing) {
       if (existing.historyError) {
         existing.manager = await this.fileManager(record)
-        try { await this.queue.reconcile(existing) }
-        catch { existing.queueError = "历史已核对，但队列状态保存失败；请检查磁盘与权限后重试。" }
+        try {
+          await this.queue.reconcile(existing)
+        } catch {
+          existing.queueError =
+            "历史已核对，但队列状态保存失败；请检查磁盘与权限后重试。"
+        }
         existing.historyError = undefined
       }
       if (selected && !existing.session)
@@ -402,7 +428,8 @@ export class ConversationService {
     }
     this.sessions.active.set(record.id, state.entry)
     state.session = session
-    this.persistence.get(state.manager).beforeInput = (message) => this.queue.beforeInput(state, message)
+    this.persistence.get(state.manager).beforeInput = (message) =>
+      this.queue.beforeInput(state, message)
     this.persistence.get(state.manager).onInput = (_message, queued) => {
       this.queue.afterInput(state, queued)
       if (!state.entry.busy) return
@@ -516,7 +543,8 @@ export class ConversationService {
     )
   }
   event(state, event) {
-    if (event.type === "message_start" && event.message.role === "user") this.queue.inputStarted(state, event.message)
+    if (event.type === "message_start" && event.message.role === "user")
+      this.queue.inputStarted(state, event.message)
     if (
       ["message_start", "message_update"].includes(event.type) &&
       event.message?.role === "assistant"
@@ -581,6 +609,15 @@ export class ConversationService {
     this.touch(state)
   }
   executionEvent(state, event) {
+    // Pi compact() awaits abort() before creating its compaction controller.
+    // A cancel accepted during that gap must abort once the controller exists,
+    // including idle manual compaction whose reply phase is already terminal.
+    if (
+      event.type === "compaction_start" &&
+      event.reason === "manual" &&
+      state.controlCancelRequested
+    )
+      state.session?.abortCompaction()
     // Stop and terminal states take precedence over late SDK recovery events.
     if (state.phase !== "running" || state.stopRequested) return
     const stage = (phase, extra = {}) => {
@@ -618,8 +655,6 @@ export class ConversationService {
       )
     }
     if (event.type === "compaction_start") {
-      if (event.reason === "manual" && state.controlCancelRequested)
-        state.session?.abortCompaction()
       state.compactionActive = true
       state.compactionReason = event.reason
       stage("compacting", { reason: compactionReason(event.reason) })
@@ -776,21 +811,26 @@ export class ConversationService {
     const nestedResults = mcpResultsIndex(branch)
     const cancellation = this.cancellations(state, branch, history)
     const entriesByMessage = new Map()
+    const stableEntryIds = this.persistence.get(state.manager)?.stableEntryIds !== false
     branch.forEach((entry, historyIndex) => {
       if (entry.type === "message")
-        entriesByMessage.set(entry.message, { entryId: entry.id, historyIndex })
+        entriesByMessage.set(entry.message, {
+          ...(stableEntryIds ? { entryId: entry.id } : {}),
+          historyIndex,
+        })
     })
     for (const entry of branch) {
-      if (entry.type === "custom" && entry.customType === "moon-request") nextMaterials = undefined
-      else if (entry.type === "custom" && entry.customType === "moon-materials") nextMaterials = entry.data
+      if (entry.type === "custom" && entry.customType === "moon-request")
+        nextMaterials = undefined
+      else if (entry.type === "custom" && entry.customType === "moon-materials")
+        nextMaterials = entry.data
       else if (entry.type === "message") {
         if (entry.message.role === "user" && nextMaterials) {
           materialInputs.set(entry.message, nextMaterials)
           nextMaterials = undefined
         }
         source.push(entry.message)
-      }
-      else if (entry.type === "custom_message" && entry.display)
+      } else if (entry.type === "custom_message" && entry.display)
         source.push({
           role: "user",
           content: entry.content,
@@ -826,14 +866,18 @@ export class ConversationService {
         item.text = prepared.text
         item.materials = prepared.materials
         item.attachments = prepared.materials.map((material) => ({
-          id: material.id, name: material.name,
+          id: material.id,
+          name: material.name,
           kind: material.type === "image" ? "image" : "file",
-          source: material.source, materialType: material.type,
+          source: material.source,
+          materialType: material.type,
         }))
       }
       if (message.role === "assistant") {
         item.model = message.model || state.record.modelId
         item.forkable =
+          !!item.entryId &&
+          !this.historyNotice(state.manager) &&
           !live &&
           ["stop", "length"].includes(message.stopReason) &&
           !message.content.some((part) => part.type === "toolCall")
@@ -944,6 +988,9 @@ export class ConversationService {
         ? { runtime: state.runtime }
         : {}),
       ...(state.notice ? { notice: state.notice } : {}),
+      ...(this.historyNotice(state.manager)
+        ? { historyNotice: this.historyNotice(state.manager) }
+        : {}),
       ...this.contextFeedback(state),
     }
     return snapshot
@@ -971,12 +1018,17 @@ export class ConversationService {
     signal
   ) {
     // Compatibility for direct callers written before message materials existed.
-    if (materials instanceof AbortSignal) { signal = materials; materials = [] }
+    if (materials instanceof AbortSignal) {
+      signal = materials
+      materials = []
+    }
     identity(sessionId)
     identity(workspaceId)
     identity(clientRequestId)
     requireValue(
-      typeof text === "string" && (text.trim() || materials.length) && text.length <= 100000,
+      typeof text === "string" &&
+        (text.trim() || materials.length) &&
+        text.length <= 100000,
       "请输入不超过 100000 字的消息。"
     )
     return this.start(
@@ -1040,7 +1092,9 @@ export class ConversationService {
           "已有会话不能更换工作区。"
         )
         const restored = await this.restore(record, undefined, signal)
-        const queuedReceipt = restored.queue.items.find((item) => item.clientRequestId === input.clientRequestId)
+        const queuedReceipt = restored.queue.items.find(
+          (item) => item.clientRequestId === input.clientRequestId
+        )
         if (queuedReceipt) {
           await this.queue.enqueueReceipt(restored, input)
           return restored
@@ -1054,13 +1108,27 @@ export class ConversationService {
           return restored
         }
         requireValue(!restored.controlBusy, "会话控制操作尚未完成，请稍候。")
+        const unresolvedControl = this.controls.unresolvedReason(restored)
+        requireValue(!unresolvedControl, unresolvedControl)
         if (restored.entry.busy && input.mode === "send") {
-          requireValue(record.modelId === selectionId(input.connectionId, input.modelId) && record.thinking === input.thinking, "运行中排队与补充沿用当前模型和思考强度；请等待结束后切换。")
+          requireValue(
+            record.modelId === selectionId(input.connectionId, input.modelId) &&
+              record.thinking === input.thinking,
+            "运行中排队与补充沿用当前模型和思考强度；请等待结束后切换。"
+          )
           await this.queue.enqueue(restored, input, signal)
           return restored
         }
-        requireValue(!restored.entry.busy, "此会话正在执行，请先停止或等待完成。")
-        if (input.mode === "queue") requireValue(!restored.queue.paused && restored.queue.items.some((item) => item.status === "pending"), "队列已暂停或没有可发送内容。")
+        requireValue(
+          !restored.entry.busy,
+          "此会话正在执行，请先停止或等待完成。"
+        )
+        if (input.mode === "queue")
+          requireValue(
+            !restored.queue.paused &&
+              restored.queue.items.some((item) => item.status === "pending"),
+            "队列已暂停或没有可发送内容。"
+          )
         if (input.mode === "retry") {
           requireValue(
             ["failed", "interrupted"].includes(restored.phase),
@@ -1091,12 +1159,20 @@ export class ConversationService {
         input.thinking,
         signal
       )
-      input.preparedMaterials = input.materials?.length || input.text.startsWith("/skill:") ? await this.models.materials.resolveForPrompt({
-        sessionId: input.sessionId, cwd, materials: input.materials ?? [], text: input.text,
-        model: selected.model, signal,
-      }) : { textPrefix: "", images: [], displayMaterials: [] }
+      input.preparedMaterials =
+        input.materials?.length || input.text.startsWith("/skill:")
+          ? await this.models.materials.resolveForPrompt({
+              sessionId: input.sessionId,
+              cwd,
+              materials: input.materials ?? [],
+              text: input.text,
+              model: selected.model,
+              signal,
+            })
+          : { textPrefix: "", images: [], displayMaterials: [] }
       let config = await this.sessions.readExclusive(input.sessionId, signal)
-      if (this.sessions.refreshForRunExclusive) await this.sessions.refreshForRunExclusive(input.sessionId, signal)
+      if (this.sessions.refreshForRunExclusive)
+        await this.sessions.refreshForRunExclusive(input.sessionId, signal)
       if (!config) {
         const catalog = await this.sessions.catalog(cwd, signal)
         config = await this.sessions.applyExclusive(
@@ -1120,7 +1196,14 @@ export class ConversationService {
             id: input.sessionId,
             workspaceId: input.workspaceId,
             cwd,
-            title: (input.text.trim() || input.preparedMaterials.displayMaterials.map((item) => item.name).join("、")).replace(/\s+/g, " ").slice(0, 80),
+            title: (
+              input.text.trim() ||
+              input.preparedMaterials.displayMaterials
+                .map((item) => item.name)
+                .join("、")
+            )
+              .replace(/\s+/g, " ")
+              .slice(0, 80),
             sessionFile: "",
             modelId: selectionId(input.connectionId, input.modelId),
             thinking: input.thinking,
@@ -1199,7 +1282,12 @@ export class ConversationService {
     })
     // A successful send response never precedes Pi saving the user input. It
     // waits only for prompt preflight, not model generation or tool execution.
-    if (state.queue.items.some((item) => item.clientRequestId === input.clientRequestId)) return this.snapshot(state)
+    if (
+      state.queue.items.some(
+        (item) => item.clientRequestId === input.clientRequestId
+      )
+    )
+      return this.snapshot(state)
     await state.accepted
     return this.snapshot(state)
   }
@@ -1215,10 +1303,10 @@ export class ConversationService {
       if (input.preparedMaterials?.displayMaterials.length)
         state.manager.appendCustomEntry("moon-materials", {
           clientRequestId: input.clientRequestId,
-          text: input.text, materials: input.preparedMaterials.displayMaterials,
+          text: input.text,
+          materials: input.preparedMaterials.displayMaterials,
         })
-      if (input.mode === "queue")
-        await this.queue.seed(state)
+      if (input.mode === "queue") await this.queue.seed(state)
       else if (input.mode === "retry")
         await state.session.sendCustomMessage(
           {
@@ -1229,14 +1317,19 @@ export class ConversationService {
           { triggerTurn: true }
         )
       else
-        await state.session.prompt((input.preparedMaterials?.textPrefix ?? "") + ((input.preparedMaterials?.text ?? input.text) || "请处理所附材料。"), {
-          images: input.preparedMaterials?.images ?? [],
-          expandPromptTemplates: false,
-          preflightResult: () => {
-            if (state.stopRequested || this.closed)
-              throw new Error("请求已停止。")
-          },
-        })
+        await state.session.prompt(
+          (input.preparedMaterials?.textPrefix ?? "") +
+            ((input.preparedMaterials?.text ?? input.text) ||
+              "请处理所附材料。"),
+          {
+            images: input.preparedMaterials?.images ?? [],
+            expandPromptTemplates: false,
+            preflightResult: () => {
+              if (state.stopRequested || this.closed)
+                throw new Error("请求已停止。")
+            },
+          }
+        )
       const last = [...state.manager.getBranch()]
         .reverse()
         .find(
@@ -1260,8 +1353,12 @@ export class ConversationService {
           state.toolProgress.clear()
           try {
             state.manager = await this.fileManager(state.record)
-            try { await this.queue.reconcile(state) }
-            catch { state.queueError = "历史已核对，但待处理状态保存失败；请检查磁盘与权限后重试。" }
+            try {
+              await this.queue.reconcile(state)
+            } catch {
+              state.queueError =
+                "历史已核对，但待处理状态保存失败；请检查磁盘与权限后重试。"
+            }
           } catch (error) {
             // Preserve the file, including any partial write. A later read/send
             // validates it again; never reuse Pi's uncertain in-memory entries.
@@ -1329,11 +1426,25 @@ export class ConversationService {
         }
         state.entry.busy = false
         if (state.phase !== "completed") {
-          try { await this.queue.pause(state) }
-          catch { state.queue.paused = true; state.queueError = "执行已停止，但队列状态保存失败；请检查磁盘与权限。" }
-        }
-        else if (this.queuePending(state) && !state.queue.paused && !this.closed)
-          queueMicrotask(() => { void this.queue.resume(state).catch(() => { state.queue.paused = true; state.queueError = "队列启动失败，请重新读取后继续。"; this.touch(state) }) })
+          try {
+            await this.queue.pause(state)
+          } catch {
+            state.queue.paused = true
+            state.queueError =
+              "执行已停止，但队列状态保存失败；请检查磁盘与权限。"
+          }
+        } else if (
+          this.queuePending(state) &&
+          !state.queue.paused &&
+          !this.closed
+        )
+          queueMicrotask(() => {
+            void this.queue.resume(state).catch(() => {
+              state.queue.paused = true
+              state.queueError = "队列启动失败，请重新读取后继续。"
+              this.touch(state)
+            })
+          })
         state.acceptedResolve?.()
         this.touch(state)
       })
@@ -1353,8 +1464,12 @@ export class ConversationService {
       )
       if (!state.entry.busy || state.stopRequested) return this.snapshot(state)
       signal?.throwIfAborted()
-      try { await this.queue.pause(state) }
-      catch { state.queue.paused = true; state.queueError = "队列状态保存失败，消息保留；正在停止当前执行。" }
+      try {
+        await this.queue.pause(state)
+      } catch {
+        state.queue.paused = true
+        state.queueError = "队列状态保存失败，消息保留；正在停止当前执行。"
+      }
       state.record = await this.store.update(
         sessionId,
         { status: "stopping" },
@@ -1415,9 +1530,19 @@ export class ConversationService {
     this.active.clear()
     await this.queue.close()
   }
-  queuePending(state) { return this.queue.pending(state) }
-  queueEdit(...args) { return this.queue.edit(...args) }
-  queueRemove(...args) { return this.queue.remove(...args) }
-  queueMode(...args) { return this.queue.mode(...args) }
-  queueDeliver(...args) { return this.queue.deliver(...args) }
+  queuePending(state) {
+    return this.queue.pending(state)
+  }
+  queueEdit(...args) {
+    return this.queue.edit(...args)
+  }
+  queueRemove(...args) {
+    return this.queue.remove(...args)
+  }
+  queueMode(...args) {
+    return this.queue.mode(...args)
+  }
+  queueDeliver(...args) {
+    return this.queue.deliver(...args)
+  }
 }

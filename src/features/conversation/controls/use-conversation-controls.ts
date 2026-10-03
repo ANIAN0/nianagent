@@ -1,4 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react"
 import {
   createConversationControlService,
   type ConversationControlService,
@@ -40,15 +46,41 @@ export function useConversationControls(
       ? received
       : cachedOperation
   const latest = useRef(operation)
-  function accept(value: ConversationControlOperation) {
-    setOperation(value)
-    latest.current = value
-    try {
-      localStorage.setItem(key(id), JSON.stringify(value))
-    } catch {
-      /* Receipt remains in memory. */
-    }
-  }
+  const accept = useCallback(
+    (value: ConversationControlOperation) => {
+      setOperation(value)
+      latest.current = value
+      try {
+        localStorage.setItem(key(id), JSON.stringify(value))
+      } catch {
+        /* Receipt remains in memory. */
+      }
+    },
+    [id]
+  )
+  const acceptCurrent = useCallback(
+    (requestId: string, value: ConversationControlOperation) => {
+      const current = latest.current
+      if (
+        !current ||
+        current.id !== requestId ||
+        value.id !== requestId ||
+        value.sessionId !== id
+      )
+        return
+      // Queries may return out of order even for the same operation. Once the
+      // host confirmed a terminal receipt, an earlier running receipt is stale.
+      if (
+        value.updatedAt < current.updatedAt ||
+        (["completed", "cancelled", "failed"].includes(current.status) &&
+          !["completed", "cancelled", "failed"].includes(value.status))
+      )
+        return current
+      accept(value)
+      return value
+    },
+    [accept, id]
+  )
   useEffect(() => {
     if (operation) {
       try {
@@ -68,17 +100,20 @@ export function useConversationControls(
     if (!value) return
     try {
       const result = await service.read(id, value.id)
-      accept(
+      const accepted = acceptCurrent(
+        value.id,
         result ?? {
           ...value,
           status: "failed",
           error: value.error || "请求尚未接受，未开始操作；可以重新操作。",
         }
       )
+      if (!accepted) return
       setError("")
-      return result ?? latest.current
+      return accepted
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
+      if (latest.current?.id === value.id)
+        setError(reason instanceof Error ? reason.message : String(reason))
     }
   }
   useEffect(() => {
@@ -101,16 +136,11 @@ export function useConversationControls(
             status: "failed" as const,
             error: previous.error || "请求尚未接受，未开始操作；可以重新操作。",
           }
-          setOperation(receipt)
+          if (!acceptCurrent(operationId!, receipt)) return
           setError("")
-          try {
-            localStorage.setItem(key(id), JSON.stringify(receipt))
-          } catch {
-            /* Retain in memory. */
-          }
         }
       } catch (reason) {
-        if (!controller.signal.aborted)
+        if (!controller.signal.aborted && latest.current?.id === operationId)
           setError(reason instanceof Error ? reason.message : String(reason))
       } finally {
         if (!controller.signal.aborted) timer = setTimeout(poll, 1000)
@@ -121,8 +151,11 @@ export function useConversationControls(
       controller.abort()
       clearTimeout(timer)
     }
-  }, [id, operationId, operationStatus, pending, service])
-  async function compact(focus: string) {
+  }, [id, operationId, operationStatus, pending, service, acceptCurrent])
+  async function compact(
+    focus: string,
+    onStarted?: (operationId: string) => void
+  ) {
     if (locked.current) return
     locked.current = true
     setPending(true)
@@ -139,15 +172,19 @@ export function useConversationControls(
       error: "",
     }
     accept(receipt)
+    onStarted?.(receipt.id)
     try {
       const result = await service.compact(id, receipt.id, focus)
-      accept(result)
-      return result
+      return acceptCurrent(receipt.id, result)
     } catch (reason) {
+      const current = latest.current
+      if (!current || current.id !== receipt.id) return
+      if (["completed", "cancelled", "failed"].includes(current.status))
+        return current
       setError(reason instanceof Error ? reason.message : String(reason))
       // Preserve original identity until the server confirms its result.
       accept({
-        ...receipt,
+        ...current,
         error: reason instanceof Error ? reason.message : String(reason),
       })
       return await read()
@@ -161,10 +198,11 @@ export function useConversationControls(
     locked.current = true
     setPending(true)
     try {
-      accept(await service.cancel(id, operation.id))
-      setError("")
+      if (acceptCurrent(operation.id, await service.cancel(id, operation.id)))
+        setError("")
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
+      if (latest.current?.id === operation.id)
+        setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
       locked.current = false
       setPending(false)
@@ -189,12 +227,15 @@ export function useConversationControls(
     accept(receipt)
     try {
       const result = await service.fork(id, receipt.id, entryId)
-      accept(result)
-      return result
+      return acceptCurrent(receipt.id, result)
     } catch (reason) {
+      const current = latest.current
+      if (!current || current.id !== receipt.id) return
+      if (["completed", "cancelled", "failed"].includes(current.status))
+        return current
       setError(reason instanceof Error ? reason.message : String(reason))
       accept({
-        ...receipt,
+        ...current,
         error: reason instanceof Error ? reason.message : String(reason),
       })
       return await read()

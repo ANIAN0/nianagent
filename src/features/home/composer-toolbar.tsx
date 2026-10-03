@@ -7,6 +7,7 @@ import { SendControl } from "./send-control"
 import type { HomeData, HomeDraft, Material } from "./home-types"
 
 export type ComposerToolbarProps = {
+  disabled?: boolean
   sessionId?: string
   data: Pick<
     HomeData,
@@ -28,6 +29,7 @@ export type ComposerToolbarProps = {
   choosingMaterials?: boolean
 }
 export function ComposerToolbar({
+  disabled = false,
   sessionId,
   data,
   anchorRef,
@@ -46,7 +48,7 @@ export function ComposerToolbar({
     >
       <MaterialPicker
         key={`${sessionId}:${workspacePath}`}
-        disabled={data.materialsEnabled === false}
+        disabled={disabled || data.materialsEnabled === false}
         anchorRef={anchorRef}
         onInsert={(text) =>
           onChange({ text: draft.text ? `${draft.text}\n${text}` : text })

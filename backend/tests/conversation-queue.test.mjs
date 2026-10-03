@@ -11,8 +11,21 @@ test("a failed mode transaction cannot leak through a concurrent durable Pi rece
   const directory = await mkdtemp(join(tmpdir(), "moon-queue-transaction-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const queue = new ConversationQueue(directory, { touch() {} })
-  const item = { id: "queue-item", clientRequestId: "submitted-input", fingerprint: "signature", text: "保留要求", materials: [], status: "dispatching", delivery: "followUp", error: "", createdAt: new Date().toISOString() }
-  const state = { record: { id: "session-test" }, manager: { getBranch: () => [] } }
+  const item = {
+    id: "queue-item",
+    clientRequestId: "submitted-input",
+    fingerprint: "signature",
+    text: "保留要求",
+    materials: [],
+    status: "dispatching",
+    delivery: "followUp",
+    error: "",
+    createdAt: new Date().toISOString(),
+  }
+  const state = {
+    record: { id: "session-test" },
+    manager: { getBranch: () => [] },
+  }
   await queue.load(state)
   await queue.commit(state, (document) => document.items.push(item))
   const value = { item }
@@ -29,10 +42,20 @@ test("a failed mode transaction cannot leak through a concurrent durable Pi rece
     return rename(...args)
   })
   syncBuiltinESMExports()
-  t.after(() => { mocked.mock.restore(); syncBuiltinESMExports() })
-  await assert.rejects(queue.commit(state, (document) => { document.mode = "all" }), /ENOSPC/)
+  t.after(() => {
+    mocked.mock.restore()
+    syncBuiltinESMExports()
+  })
+  await assert.rejects(
+    queue.commit(state, (document) => {
+      document.mode = "all"
+    }),
+    /ENOSPC/
+  )
   await queue.close()
-  const saved = JSON.parse(await readFile(join(queue.directory, "session-test.json"), "utf8"))
+  const saved = JSON.parse(
+    await readFile(join(queue.directory, "session-test.json"), "utf8")
+  )
   assert.equal(state.queue.mode, "single")
   assert.equal(saved.mode, "single")
   assert.equal(saved.items[0].status, "delivered")

@@ -49,7 +49,8 @@ export async function modelCall<K extends ModelOperation>(
     signal,
   })
   const payload = await response.json()
-  if (typeof payload.error === "string") throw new RpcRequestRejected(payload.error)
+  if (typeof payload.error === "string")
+    throw new RpcRequestRejected(payload.error)
   if (!response.ok) throw new Error("模型后端不可用，未能确认请求结果。")
   return payload.result as RpcResults[K]
 }

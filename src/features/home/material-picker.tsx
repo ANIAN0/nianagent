@@ -44,7 +44,12 @@ export type MaterialPickerProps = {
   workspacePath?: string
   onTextChange?: (text: string) => void
 }
-export function MaterialPicker({
+export function MaterialPicker(props: MaterialPickerProps) {
+  // A disabled phase owns no open candidates. Restoring the phase starts closed
+  // rather than revealing a portal left open during the previous submission.
+  return <MaterialPickerContent key={props.disabled ? "disabled" : "enabled"} {...props} />
+}
+function MaterialPickerContent({
   disabled = false,
   materials,
   selected,
@@ -142,6 +147,7 @@ export function MaterialPicker({
     }
   }, [open, anchorRef])
   function toggle() {
+    if (disabled || choosing) return
     setAvailableHeight(
       Math.max(
         100,
@@ -157,6 +163,7 @@ export function MaterialPicker({
     anchorRef?.current?.querySelector("textarea")?.focus()
   }
   function add(item: Material) {
+    if (disabled || choosing) return
     onAdd(item)
     if (inputMode !== "button" && onTextChange) {
       const textarea = anchorRef?.current?.querySelector("textarea")
@@ -180,6 +187,7 @@ export function MaterialPicker({
     anchorRef?.current?.querySelector("textarea")?.focus()
   }
   function insert(text: string) {
+    if (disabled || choosing) return
     if (inputMode === "skill" && onTextChange) {
       const textarea = anchorRef?.current?.querySelector("textarea")
       onTextChange(text + (textarea?.value.slice(queryRange.current.end) ?? ""))
@@ -283,6 +291,7 @@ export function MaterialPicker({
       .includes(query.toLowerCase())
   )
   function activate(item: Candidate) {
+    if (disabled || choosing) return
     if (item.id === "attachment") {
       if (onChooseAttachments) {
         setOpen(false)
@@ -299,6 +308,7 @@ export function MaterialPicker({
     }
   }
   function handleKey(event: KeyboardEvent) {
+    if (disabled || choosing) return
     if (event.isComposing) return
     if (event.shiftKey && (event.key === "Enter" || event.key === "Tab")) return
     if (
@@ -389,6 +399,7 @@ export function MaterialPicker({
         tabIndex={-1}
         aria-label="选择附件"
         onChange={(event) => {
+          if (disabled || choosing) { event.target.value = ""; return }
           Array.from(event.target.files ?? []).forEach((file) =>
             onAdd({
               id: `file:${file.name}:${file.size}:${file.lastModified}`,

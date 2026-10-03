@@ -56,7 +56,10 @@ export const controlSchemas = {
       minimum: 0,
       description: "Pi保存的压缩前估算用量",
     },
-    source: text("压缩来源", { enum: ["manual", "automatic"] }),
+    source: text(
+      "实际压缩来源；派生保留原摘要来源，不因新会话没有来源操作回执改标自动",
+      { enum: ["manual", "automatic"] }
+    ),
     historyIndex: {
       type: "integer",
       minimum: 0,
@@ -94,9 +97,9 @@ export const controlOperations = {
     response: ref("ConversationControlOperation"),
     result: "ConversationControlOperation",
     condition:
-      "来源空闲、无待答/待发送/未决操作，目标是当前Pi路径中已完成且没有未匹配工具调用的Agent回复；同标识同边界幂等。接受前可取消，接受后查询原操作，不重复创建。",
+      "来源空闲、无待答/待发送/未决操作，目标是当前Pi路径中已完成且没有未匹配工具调用的Agent回复；旧格式只读历史须先显式发送，由Pi完成持久迁移后才可派生，避免使用临时标识或改写来源。相同标识与边界幂等。接受前可取消，接受后查询原操作，不重复创建。",
     effect:
-      "Pi官方createBranchedSession复制根到选定回复的真实前缀，新会话拥有独立标识、配置和运行时；保留来源，不复制草稿、队列或未决操作，不回滚磁盘。",
+      "Pi官方createBranchedSession复制根到选定回复的真实前缀，保留已继承摘要的手动或自动来源。新会话拥有独立标识、配置和运行时；保留来源，不复制草稿、队列或未决操作，不回滚磁盘。",
     errors:
       "来源忙、边界无效、模型或工具失效、配置/历史损坏、请求标识冲突、存储失败或结果待确认。",
     example: {
@@ -138,8 +141,9 @@ export const controlOperations = {
     },
     result: "ConversationControlOperation | null",
     condition:
-      "查询原操作；依据实际Pi提交边界恢复结果，不重新执行模型、不重新创建历史。派生对账可补齐已创建Pi路径对应的配置和目录索引。",
-    effect: "返回原操作结果及权威摘要标识，重启恢复不重发。",
+      "查询原操作；终态回执不受后续操作影响。未决操作阻止新的发送与压缩，依据隔离期间的实际Pi提交边界恢复结果，不重新执行模型、不重新创建历史。派生对账可补齐已创建Pi路径对应的配置和目录索引。",
+    effect:
+      "返回原操作结果及权威摘要标识，重启恢复不重发；取消或失败的旧操作不认领后续摘要。",
     example: { sessionId: "sample-session", operationId: "sample-compact" },
   },
   conversationCompactCancel: {

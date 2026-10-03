@@ -73,8 +73,11 @@ export function LiveConversationView({
   const [compactOpen, setCompactOpen] = useState(false)
   const [compactFocus, setCompactFocus] = useState("")
   const [compactOperationId, setCompactOperationId] = useState<string>()
-  const compactCommand = useRef<string | undefined>(undefined)
+  const compactCommand = useRef<
+    { text: string; operationId?: string } | undefined
+  >(undefined)
   const latestDraft = useRef(draft)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
   useLayoutEffect(() => {
     latestDraft.current = draft
   }, [draft])
@@ -128,16 +131,19 @@ export function LiveConversationView({
     if (
       controls.operation?.kind === "compact" &&
       controls.operation.status === "completed" &&
-      compactCommand.current
+      compactCommand.current?.operationId === controls.operation.id
     ) {
-      if (latestDraft.current.text === compactCommand.current)
+      if (latestDraft.current.text === compactCommand.current.text)
         onChange({ ...latestDraft.current, text: "" })
       compactCommand.current = undefined
       onReload()
     }
   }, [controls.operation, onChange, onReload])
   function openCompact(command?: string) {
-    compactCommand.current = command ? latestDraft.current.text : undefined
+    if (!compactActive)
+      compactCommand.current = command
+        ? { text: latestDraft.current.text }
+        : undefined
     const previous =
       controls.operation?.kind === "compact" &&
       (compactActive ||
@@ -177,7 +183,14 @@ export function LiveConversationView({
       <ConversationMessageView
         message={message}
         workspacePath={snapshot?.cwd ?? workspacePath}
-        onOpenAttachment={(attachment) => setActiveMaterial({ ...attachment, kind: attachment.materialType === "skill" ? "Skill" : "附件", type: attachment.materialType ?? attachment.kind, status: "ready" })}
+        onOpenAttachment={(attachment) =>
+          setActiveMaterial({
+            ...attachment,
+            kind: attachment.materialType === "skill" ? "Skill" : "附件",
+            type: attachment.materialType ?? attachment.kind,
+            status: "ready",
+          })
+        }
         onFork={
           message.role === "assistant" &&
           message.entryId &&
@@ -190,7 +203,7 @@ export function LiveConversationView({
         forkPending={forkBusy && forkOperation?.anchorId === message.entryId}
         forkDisabledReason={
           !message.forkable
-            ? "请选择工具执行后的已完成回复。"
+            ? snapshot?.historyNotice || "请选择工具执行后的已完成回复。"
             : pending || forkBusy
               ? "正在提交会话操作。"
               : !data.models.includes(snapshot?.modelId ?? "")
@@ -271,6 +284,7 @@ export function LiveConversationView({
         items={historyItems}
         composer={
           <ConversationComposer
+            inputRef={inputRef}
             key={id}
             sessionId={id}
             data={data}
@@ -289,103 +303,168 @@ export function LiveConversationView({
               ...(snapshot?.context ??
                 snapshot?.contextState ?? { status: "unavailable" }),
               onCompact: () => openCompact(),
+              compactActive,
               compactDisabledReason,
             }}
             dock={
               <>
-              {!!snapshot?.queue?.items.length && onQueueEdit && onQueueRemove && onQueueDeliver && <QueueDock
-                items={snapshot.queue.items.map((item) => ({ ...item, draft: { ...draft, text: item.text, materials: item.materials } }))}
-                running={running} busy={pending || stopping || controlBlocked}
-                paused={snapshot.queue.paused} cwd={snapshot.cwd}
-                deliveryMode={snapshot.queue.mode} onDeliveryModeChange={onQueueMode}
-                onEdit={onQueueEdit} onRemove={onQueueRemove} onSendNow={onQueueDeliver}
-              />}
-              {runtime || forkOperation ||
-              stopping ||
-              snapshot?.notice ||
-              feedback ||
-              needsResend ||
-              canContinue || unconfirmed ? (
-                <div className="flex flex-col gap-2 pb-3">
-                  {(runtime || stopping || snapshot?.notice) && (
-                    <ExecutionFeedback
-                      key={id}
-                      runtime={runtime}
-                      stopping={stopping}
-                      notice={snapshot?.notice}
-                    />
-                  )}
-                  {forkOperation && (
-                    <ForkFeedback
-                      operation={forkOperation}
-                      error={controls.error}
-                      onCheck={() => {
-                        void controls.read()
+                {snapshot?.queue &&
+                  onQueueEdit &&
+                  onQueueRemove &&
+                  onQueueDeliver && (
+                    <QueueDock
+                      items={snapshot.queue.items.map((item) => ({
+                        ...item,
+                        draft: {
+                          ...draft,
+                          text: item.text,
+                          materials: item.materials,
+                        },
+                      }))}
+                      running={running}
+                      busy={pending || stopping || controlBlocked || forkBusy}
+                      paused={snapshot.queue.paused}
+                      cwd={snapshot.cwd}
+                      deliveryMode={snapshot.queue.mode}
+                      onRecoverEdit={(text) => {
+                        onChange({
+                          ...latestDraft.current,
+                          text: latestDraft.current.text
+                            ? `${latestDraft.current.text}\n${text}`
+                            : text,
+                        })
+                        requestAnimationFrame(() => {
+                          inputRef.current?.focus()
+                          const length = inputRef.current?.value.length ?? 0
+                          inputRef.current?.setSelectionRange(length, length)
+                        })
                       }}
-                      onOpen={onOpenConversation}
+                      onEdit={onQueueEdit}
+                      onRemove={onQueueRemove}
+                      onSendNow={onQueueDeliver}
                     />
                   )}
-                  {feedback && (
-                    <Alert
-                      variant={stoppedFeedback ? "default" : "destructive"}
-                    >
-                      <AlertDescription>
-                        {feedback}
-                        {needsResend && (
-                          <p>
-                            {draft.text.trim()
-                              ? "消息尚未发送，内容已保留在输入框。解决上面的错误后重新发送。"
-                              : "消息尚未发送，请解决上面的错误后在输入框重新填写并发送。"}
-                          </p>
+                {runtime ||
+                forkOperation ||
+                stopping ||
+                snapshot?.notice ||
+                snapshot?.historyNotice ||
+                feedback ||
+                needsResend ||
+                canContinue ||
+                unconfirmed ? (
+                  <div className="flex flex-col gap-2 pb-3">
+                    {snapshot?.historyNotice && (
+                      <Alert>
+                        <AlertDescription>
+                          {snapshot.historyNotice}
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                    {(runtime || stopping || snapshot?.notice) && (
+                      <ExecutionFeedback
+                        key={id}
+                        runtime={runtime}
+                        stopping={stopping}
+                        notice={snapshot?.notice}
+                      />
+                    )}
+                    {forkOperation && (
+                      <ForkFeedback
+                        operation={forkOperation}
+                        error={controls.error}
+                        onCheck={() => {
+                          void controls.read()
+                        }}
+                        onOpen={onOpenConversation}
+                      />
+                    )}
+                    {feedback && (
+                      <Alert
+                        variant={stoppedFeedback ? "default" : "destructive"}
+                      >
+                        <AlertDescription>
+                          {feedback}
+                          {needsResend && (
+                            <p>
+                              {draft.text.trim()
+                                ? "消息尚未发送，内容已保留在输入框。解决上面的错误后重新发送。"
+                                : "消息尚未发送，请解决上面的错误后在输入框重新填写并发送。"}
+                            </p>
+                          )}
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                    {needsResend && !feedback && (
+                      <Alert>
+                        <AlertDescription>
+                          消息尚未发送，请在输入框
+                          {draft.text.trim() ? "重新" : "填写后"}发送。
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                    {(canContinue || error || unconfirmed) && (
+                      <div className="flex items-center gap-2">
+                        {canContinue && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={
+                              pending || !data.models.includes(draft.model)
+                            }
+                            onClick={onContinue}
+                          >
+                            继续上次回复
+                          </Button>
                         )}
-                      </AlertDescription>
-                    </Alert>
-                  )}
-                  {needsResend && !feedback && (
-                    <Alert>
-                      <AlertDescription>
-                        消息尚未发送，请在输入框
-                        {draft.text.trim() ? "重新" : "填写后"}发送。
-                      </AlertDescription>
-                    </Alert>
-                  )}
-                  {(canContinue || error || unconfirmed) && (
-                    <div className="flex items-center gap-2">
-                      {canContinue && (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          disabled={
-                            pending || !data.models.includes(draft.model)
-                          }
-                          onClick={onContinue}
-                        >
-                          继续上次回复
-                        </Button>
-                      )}
-                      {error && (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          onClick={onReload}
-                        >
-                          重新读取
-                        </Button>
-                      )}
-                      {error?.includes("草稿未保存") && onSaveDraft && <Button type="button" size="sm" variant="outline" onClick={onSaveDraft}>重试保存草稿</Button>}
-                      {unconfirmed && onReconcile && <Button type="button" size="sm" variant="outline" disabled={pending} onClick={onReconcile}>核对发送</Button>}
-                    </div>
-                  )}
-                </div>
-              ) : undefined}
+                        {error && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={onReload}
+                          >
+                            重新读取
+                          </Button>
+                        )}
+                        {error?.includes("草稿未保存") && onSaveDraft && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={onSaveDraft}
+                          >
+                            重试保存草稿
+                          </Button>
+                        )}
+                        {unconfirmed && onReconcile && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={pending}
+                            onClick={onReconcile}
+                          >
+                            核对发送
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : undefined}
               </>
             }
           />
         }
       />
-      <MaterialPreviewDialog key={id} history material={activeMaterial} cwd={snapshot?.cwd ?? workspacePath ?? ""} onClose={() => setActiveMaterial(null)} />
+      <MaterialPreviewDialog
+        key={id}
+        history
+        material={activeMaterial}
+        cwd={snapshot?.cwd ?? workspacePath ?? ""}
+        onClose={() => setActiveMaterial(null)}
+      />
       <CompactDialog
         open={compactOpen}
         title={snapshot?.title ?? title}
@@ -403,10 +482,13 @@ export function LiveConversationView({
         onOpenChange={setCompactOpen}
         onFocusChange={setCompactFocus}
         onStart={() => {
-          void controls.compact(compactFocus).then((operation) => {
-            if (operation) setCompactOperationId(operation.id)
-            onReload()
-          })
+          void controls
+            .compact(compactFocus, (operationId) => {
+              setCompactOperationId(operationId)
+              if (compactCommand.current)
+                compactCommand.current.operationId = operationId
+            })
+            .then(onReload)
         }}
         onCancel={() => {
           void controls.cancel()

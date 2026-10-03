@@ -31,6 +31,16 @@ export default {
   viewport: { width: 560, height: 280 },
   states: [
     {
+      id: "legacy",
+      name: "旧历史待迁移",
+      condition: "旧格式只读历史尚未持久迁移",
+      expected:
+        "禁用说明与页面历史提醒一致，明确继续发送一次消息由Pi迁移后可用。",
+      render: () => (
+        <Example reason="旧格式历史仍需迁移，暂不能创建分支；继续发送一次消息后由 Pi 自动迁移。" />
+      ),
+    },
+    {
       id: "ready",
       name: "已完成回复",
       condition: "来源空闲且边界稳定",

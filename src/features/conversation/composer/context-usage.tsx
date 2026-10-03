@@ -30,6 +30,7 @@ export type ContextUsageProps = {
   reason?: string
   defaultOpen?: boolean
   onCompact?: () => void
+  compactActive?: boolean
   compactDisabledReason?: string
 }
 const format = (value: number) =>
@@ -65,6 +66,7 @@ export function ContextUsage({
   reason,
   defaultOpen,
   onCompact,
+  compactActive,
   compactDisabledReason,
 }: ContextUsageProps) {
   const known =
@@ -231,12 +233,12 @@ export function ContextUsage({
             <Button
               variant="outline"
               size="sm"
-              disabled={!!compactDisabledReason}
+              disabled={!compactActive && !!compactDisabledReason}
               onClick={onCompact}
             >
-              压缩上下文
+              {compactActive ? "查看压缩状态" : "压缩上下文"}
             </Button>
-            {compactDisabledReason && (
+            {!compactActive && compactDisabledReason && (
               <p className="context-usage-note">{compactDisabledReason}</p>
             )}
           </>

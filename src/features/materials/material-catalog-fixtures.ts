@@ -1,10 +1,10 @@
 import type { MaterialReference, MaterialPreview } from "@/features/models/model-contract.generated"
 import type { MaterialService } from "./material-service"
-export const sampleImageData = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aotkAAAAASUVORK5CYII="
+export const sampleImageData = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgaPj/HwAEggJ/59habAAAAABJRU5ErkJggg=="
 export const exampleMaterials: MaterialReference[] = [
   { id: "example-file", name: "首页验收说明.md", kind: "附件", type: "file", status: "ready", source: "H:/工作区/moon/docs/首页验收说明.md", description: "docs/首页验收说明.md" },
   { id: "example-skill", name: "code-review", kind: "Skill", type: "skill", status: "ready", source: "H:/工作区/moon/.agents/skills/code-review/SKILL.md", description: "检查正确性、遗漏及修改影响" },
-  { id: "example-image", name: "首页设计.png", kind: "附件", type: "image", status: "ready", source: "粘贴的图片", mimeType: "image/png", bytes: 68 },
+  { id: "example-image", name: "首页设计.png", kind: "附件", type: "image", status: "ready", source: "粘贴的图片", mimeType: "image/png", bytes: 70 },
 ]
 export const exampleMaterialService: MaterialService = {
   choose: async () => [exampleMaterials[2]!],

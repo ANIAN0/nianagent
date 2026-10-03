@@ -183,11 +183,11 @@ export type ConversationRuntime = {
 export type ConversationChatMessage = {
   /** 由 Pi 消息时间和顺序生成的稳定展示标识 */
   id: string
-  /** Pi已保存消息的权威条目标识；运行中的临时消息没有该字段 */
+  /** 原Pi历史已保存的权威条目标识；运行中消息或v1只读恢复的临时迁移标识不返回 */
   entryId?: string
   /** 在当前Pi分支中的位置 */
   historyIndex?: number
-  /** Pi已保存且完成的Agent回复边界，不含待执行工具调用；来源会话还需通过控制门禁 */
+  /** Pi已保存且完成的Agent回复边界，不含待执行工具调用；旧格式只读历史迁移前为false，来源会话还需通过控制门禁 */
   forkable?: boolean
   /** 消息角色 */
   role: "user" | "assistant"
@@ -275,6 +275,8 @@ export type ConversationSnapshot = {
   error: string
   /**  */
   messages: ConversationChatMessage[]
+  /** 旧格式历史的非阻断说明；只读恢复不持久化迁移标识，显式发送交由Pi迁移后恢复派生能力 */
+  historyNotice?: string
   /**  */
   queue?: ConversationQueue
   /** 待处理消息保存或恢复错误；不会自动重发 */
@@ -378,7 +380,7 @@ export type ConversationCompaction = {
   firstKeptEntryId: string
   /** Pi保存的压缩前估算用量 */
   tokensBefore: number
-  /** 压缩来源 */
+  /** 实际压缩来源；派生保留原摘要来源，不因新会话没有来源操作回执改标自动 */
   source: "manual" | "automatic"
   /** 当前Pi分支中的排列位置 */
   historyIndex: number

@@ -4,7 +4,14 @@ import {
 } from "@/features/session/session-service"
 import { effectiveThinking } from "./model-thinking"
 import "./home.css"
-import { useContext, useEffect, useMemo, useRef, useState } from "react"
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import { InputGroup } from "@/components/ui/input-group"
 import { Field, FieldGroup } from "@/components/ui/field"
 import { WorkspacePicker } from "./workspace-picker"
@@ -69,30 +76,50 @@ export function HomeComposer({
   ]
   const anchorRef = useRef<HTMLDivElement>(null)
   const [rawDraft, setDraft] = useState<HomeDraft>(() => {
-    const workspaceId = workspaces.find((item) => item.id === initialDraft.workspaceId)?.id ?? workspaces[0]?.id ?? ""
-    const provided = Object.fromEntries(Object.entries(initialDraft).filter(([, value]) => value !== undefined))
-    return ({
-    text: initialDraft.text ?? "",
-    model: models.includes(initialDraft.model ?? "")
-      ? initialDraft.model!
-      : (models[0] ?? ""),
-    thinking: initialDraft.thinking ?? "中等",
-    materials: initialDraft.materials ?? [],
-    session: initialDraft.session ?? {
-      toolIds: tools.map((tool) => tool.id),
-      instructionScope: "all",
-    },
-    ...draftStore?.read(workspaceId),
-    ...provided,
-    workspaceId,
-  })})
+    const workspaceId =
+      workspaces.find((item) => item.id === initialDraft.workspaceId)?.id ??
+      workspaces[0]?.id ??
+      ""
+    const provided = Object.fromEntries(
+      Object.entries(initialDraft).filter(([, value]) => value !== undefined)
+    )
+    return {
+      text: initialDraft.text ?? "",
+      model: models.includes(initialDraft.model ?? "")
+        ? initialDraft.model!
+        : (models[0] ?? ""),
+      thinking: initialDraft.thinking ?? "中等",
+      materials: initialDraft.materials ?? [],
+      session: initialDraft.session ?? {
+        toolIds: tools.map((tool) => tool.id),
+        instructionScope: "all",
+      },
+      ...draftStore?.read(workspaceId),
+      ...provided,
+      workspaceId,
+    }
+  })
   const [saveError, setSaveError] = useState("")
+  const latestDraft = useRef(rawDraft)
+  const updateDraft = useCallback(
+    (apply: (current: HomeDraft) => HomeDraft) => {
+      const next = apply(latestDraft.current)
+      latestDraft.current = next
+      setDraft(next)
+      if (!next.workspaceId) return
+      try {
+        draftStore?.write(next)
+        setSaveError("")
+      } catch {
+        setSaveError("草稿未保存，请释放本地存储空间后重试。")
+      }
+    },
+    [draftStore, setDraft, setSaveError]
+  )
   useEffect(() => {
     if (!rawDraft.workspaceId) return
     onDraftChange?.(rawDraft)
-    try { draftStore?.write(rawDraft); setSaveError("") }
-    catch { setSaveError("草稿未保存，请释放本地存储空间后重试。") }
-  }, [rawDraft, onDraftChange, draftStore])
+  }, [rawDraft, onDraftChange])
   const draft = {
     ...rawDraft,
     workspaceId:
@@ -122,9 +149,9 @@ export function HomeComposer({
     cwd: workspacePath,
     anchorRef,
     materials: draft.materials,
-    disabled: submitting,
+    disabled: submitting || data.materialsEnabled === false,
     update: (apply) =>
-      setDraft((current) => ({
+      updateDraft((current) => ({
         ...current,
         materials: apply(current.materials),
       })),
@@ -143,7 +170,7 @@ export function HomeComposer({
         .then(([catalog, saved]) => {
           if (controller.signal.aborted) return
           const options = saved ?? catalog.defaults
-          setDraft((draft) => ({
+          updateDraft((draft) => ({
             ...draft,
             session: {
               toolIds: [...options.toolIds],
@@ -162,7 +189,7 @@ export function HomeComposer({
       controller.abort()
       submitRequest.current?.abort()
     }
-  }, [sessionService, sessionId, workspacePath])
+  }, [sessionService, sessionId, workspacePath, updateDraft])
   const canSubmit =
     !submitting &&
     !materialController.choosing &&
@@ -190,9 +217,18 @@ export function HomeComposer({
       configRequest.current?.abort()
       submitRequest.current?.abort()
     }
-    setDraft((current) => patch.workspaceId !== undefined && patch.workspaceId !== current.workspaceId
-      ? { ...current, text: "", materials: [], ...draftStore?.read(patch.workspaceId), ...patch }
-      : { ...current, ...patch })
+    updateDraft((current) =>
+      patch.workspaceId !== undefined &&
+      patch.workspaceId !== current.workspaceId
+        ? {
+            ...current,
+            text: "",
+            materials: [],
+            ...draftStore?.read(patch.workspaceId),
+            ...patch,
+          }
+        : { ...current, ...patch }
+    )
     setResult("")
     if (patch.session) {
       configRequest.current?.abort()
@@ -227,9 +263,14 @@ export function HomeComposer({
   async function checkSubmission() {
     if (!onCheckSubmission || submitting) return
     setSubmitting(true)
-    try { await onCheckSubmission(sessionId); setResult("") }
-    catch (error) { setResult(error instanceof Error ? error.message : String(error)) }
-    finally { setSubmitting(false) }
+    try {
+      await onCheckSubmission(sessionId)
+      setResult("")
+    } catch (error) {
+      setResult(error instanceof Error ? error.message : String(error))
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -263,8 +304,43 @@ export function HomeComposer({
           if (!signal?.aborted) change({ workspaceId })
         }}
       />
-      {unconfirmedSessionIds.includes(sessionId) && <div role="status" className="mb-3 flex flex-wrap items-center gap-2 text-sm text-muted-foreground"><span>上一条发送结果待核对，当前草稿保留。</span><Button type="button" size="sm" variant="outline" disabled={submitting} onClick={checkSubmission}>核对发送</Button></div>}
-      {saveError && <p role="alert" className="text-destructive">{saveError}<Button type="button" variant="link" size="sm" onClick={() => { try { draftStore?.write(rawDraft); setSaveError("") } catch { /* Keep the visible failure. */ } }}>重试保存</Button></p>}
+      {unconfirmedSessionIds.includes(sessionId) && (
+        <div
+          role="status"
+          className="mb-3 flex flex-wrap items-center gap-2 text-sm text-muted-foreground"
+        >
+          <span>上一条发送结果待核对，当前草稿保留。</span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={submitting}
+            onClick={checkSubmission}
+          >
+            核对发送
+          </Button>
+        </div>
+      )}
+      {saveError && (
+        <p role="alert" className="text-destructive">
+          {saveError}
+          <Button
+            type="button"
+            variant="link"
+            size="sm"
+            onClick={() => {
+              try {
+                draftStore?.write(rawDraft)
+                setSaveError("")
+              } catch {
+                /* Keep the visible failure. */
+              }
+            }}
+          >
+            重试保存
+          </Button>
+        </p>
+      )}
       <form
         onSubmit={(event) => {
           event.preventDefault()
@@ -306,6 +382,7 @@ export function HomeComposer({
                   }
                 />
                 <ComposerToolbar
+                  disabled={submitting}
                   sessionId={sessionId}
                   anchorRef={anchorRef}
                   data={{
