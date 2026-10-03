@@ -64,5 +64,6 @@ export type HomeDraft = {
 }
 export type SubmitWork = (
   draft: HomeDraft,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  originalDraft?: HomeDraft
 ) => string | Promise<string>

@@ -13,12 +13,13 @@ export default {
   inputs: [
     "data: workspaces/models/materials/tools 可选资源。",
     "initialDraft?: Partial<HomeDraft>，初始需求、材料、模型和工具配置。",
-    "onSubmit: SubmitWork，支持异步提交与AbortSignal，保存配置成功后进入会话，失败保留草稿。",
+    "onSubmit: SubmitWork，接收canonical草稿、AbortSignal及原始草稿；成功表示输入已接受，失败保留草稿。",
     "onDraftChange保存当前窗口草稿；onChooseWorkspace/onWorkspaceSelect由正式App接入系统目录选择和工作区服务。",
   ],
   events: [
     "提交需有效文字或就绪材料、有效目录和兼容模型；Enter发送、Shift+Enter换行，候选选择和输入法选字不提交。",
     "材料添加去重，可逐项移除；选项变化清除上次反馈。",
+    "结果待核对时禁用新发送；核对原请求。发送前持久同一思考与材料身份，接受后的清理不依赖后来模型目录。",
   ],
   composition: [
     "WorkspacePicker、PromptInput、SelectedMaterials、ComposerToolbar",
@@ -28,6 +29,26 @@ export default {
   consumers: ["App（正式首页）", "HomePage（独立展示）"],
   viewport: { width: 800, height: 600 },
   states: [
+    {
+      id: "unconfirmed",
+      name: "原请求待核对",
+      condition: "原首页会话存在未清理提交身份。",
+      expected: "新发送禁用，草稿可编辑；核对按钮不发送改写后的草稿。",
+      render: () => (
+        <HomeComposer
+          data={homeData}
+          initialDraft={{
+            sessionId: "catalog-pending",
+            text: "保留尚未确认的需求",
+          }}
+          unconfirmedSessionIds={["catalog-pending"]}
+          onCheckSubmission={async () => {
+            throw new Error("示例回执仍待确认，原草稿保留。")
+          }}
+          onSubmit={submitMockWork}
+        />
+      ),
+    },
     {
       id: "empty",
       name: "空草稿",

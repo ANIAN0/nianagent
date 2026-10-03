@@ -26,6 +26,40 @@ const messageText = (message) =>
         .map((p) => p.text)
         .join("\n")
 
+// Only classify failures at the local delivery boundary. Never expose provider
+// diagnostics, filesystem paths, or arbitrary error text in the public result.
+export class QueueDispatchPersistenceError extends Error {
+  constructor(storage, cause) {
+    const code = new Set([
+      "EPERM",
+      "EACCES",
+      "EBUSY",
+      "ENOSPC",
+      "EIO",
+      "ENOENT",
+    ]).has(cause?.code)
+      ? cause.code
+      : "UNKNOWN"
+    const syscall = new Set([
+      "rename",
+      "write",
+      "open",
+      "mkdir",
+      "close",
+      "fsync",
+    ]).has(cause?.syscall)
+      ? cause.syscall
+      : "storage"
+    const source = storage === "queue" ? "待处理消息文件" : "会话目录索引"
+    super(`${source}提交失败（${code} / ${syscall}）；消息仍保留，尚未发送。`, {
+      cause,
+    })
+    this.name = "QueueDispatchPersistenceError"
+    this.code = code
+    this.syscall = syscall
+  }
+}
+
 /** Moon owns editable, durable pending inputs. Pi owns delivery boundaries and history. */
 export class ConversationQueue {
   constructor(directory, conversations) {
@@ -567,16 +601,24 @@ export class ConversationQueue {
         : waiting.slice(0, 1)
     const prepared = await this.prepare(state, batch)
     check(prepared.length, "没有可交付的消息，请检查队列中的失败原因。")
-    await this.commit(state, (queue) => {
-      queue.paused = false
-      prepared.forEach(({ item }) => {
-        item.status = "dispatching"
+    try {
+      await this.commit(state, (queue) => {
+        queue.paused = false
+        prepared.forEach(({ item }) => {
+          item.status = "dispatching"
+        })
       })
-    })
-    state.record = await this.conversations.store.update(state.record.id, {
-      lastRequestId: prepared[0].item.clientRequestId,
-      lastRequestFingerprint: prepared[0].item.fingerprint,
-    })
+    } catch (error) {
+      throw new QueueDispatchPersistenceError("queue", error)
+    }
+    try {
+      state.record = await this.conversations.store.update(state.record.id, {
+        lastRequestId: prepared[0].item.clientRequestId,
+        lastRequestFingerprint: prepared[0].item.fingerprint,
+      })
+    } catch (error) {
+      throw new QueueDispatchPersistenceError("index", error)
+    }
     for (const value of prepared) {
       state.queuePrepared.set(value.item.id, value)
       state.manager.appendMessage({

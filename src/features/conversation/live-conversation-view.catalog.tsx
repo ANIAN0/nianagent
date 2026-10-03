@@ -30,6 +30,8 @@ type Scenario =
   | "manual-compact-active"
   | "manual-compact-unknown"
   | "legacy-fork"
+  | "queue-not-delivered"
+  | "resend-with-paused-queue"
 function Example({ scenario }: { scenario: Scenario }) {
   const id = `catalog-${scenario}`
   const [initialControl] = useState<ConversationControlOperation | undefined>(
@@ -76,6 +78,8 @@ function Example({ scenario }: { scenario: Scenario }) {
   })
   const [version, setVersion] = useState(1)
   const [phase, setPhase] = useState(scenario)
+  const [queueText, setQueueText] =
+    useState("保留这条后续要求，恢复后继续执行。")
   const [retryAt] = useState(() => new Date(Date.now() + 20000).toISOString())
   const active = [
     "running",
@@ -90,6 +94,7 @@ function Example({ scenario }: { scenario: Scenario }) {
     text:
       scenario === "not-accepted" ||
       scenario === "resend-after-history" ||
+      scenario === "resend-with-paused-queue" ||
       scenario === "not-accepted-interrupted"
         ? "读取 README.md，确认桌面端和浏览器共用同一个后端。"
         : scenario === "compact-command-after-completed"
@@ -106,6 +111,8 @@ function Example({ scenario }: { scenario: Scenario }) {
     inputAccepted:
       phase !== "not-accepted" &&
       phase !== "resend-after-history" &&
+      phase !== "queue-not-delivered" &&
+      phase !== "resend-with-paused-queue" &&
       phase !== "not-accepted-interrupted",
     clientRequestId: "catalog-request",
     epoch: "catalog-host",
@@ -149,7 +156,10 @@ function Example({ scenario }: { scenario: Scenario }) {
       : {}),
     phase: active
       ? "running"
-      : phase === "not-accepted" || phase === "resend-after-history"
+      : phase === "not-accepted" ||
+          phase === "resend-after-history" ||
+          phase === "resend-with-paused-queue" ||
+          phase === "queue-not-delivered"
         ? "failed"
         : phase === "not-accepted-interrupted"
           ? "interrupted"
@@ -214,13 +224,38 @@ function Example({ scenario }: { scenario: Scenario }) {
           }
         : undefined,
     error:
-      phase === "not-accepted" || phase === "resend-after-history"
-        ? "所选模型已不可用，请重新选择模型。"
-        : phase === "failed"
-          ? "模型服务暂时不可用，请检查连接后继续。"
-          : phase === "interrupted" || phase === "not-accepted-interrupted"
-            ? "请求已停止。"
-            : "",
+      phase === "queue-not-delivered"
+        ? "待处理消息文件提交失败（EPERM / rename）；消息仍保留，尚未发送。"
+        : phase === "not-accepted" ||
+            phase === "resend-after-history" ||
+            phase === "resend-with-paused-queue"
+          ? "所选模型已不可用，请重新选择模型。"
+          : phase === "failed"
+            ? "模型服务暂时不可用，请检查连接后继续。"
+            : phase === "interrupted" || phase === "not-accepted-interrupted"
+              ? "请求已停止。"
+              : "",
+    queue:
+      phase === "queue-not-delivered" || phase === "resend-with-paused-queue"
+        ? {
+            revision: 1,
+            mode: "single",
+            paused: true,
+            acceptedRequestIds: ["queued-request"],
+            items: [
+              {
+                id: "queued-input",
+                clientRequestId: "queued-request",
+                text: queueText,
+                materials: [],
+                delivery: "steer",
+                status: "pending",
+                error: "执行已停止或失败，此消息尚未交付。",
+                createdAt: "2026-10-03T09:20:04Z",
+              },
+            ],
+          }
+        : undefined,
     messages:
       phase === "not-accepted" || phase === "not-accepted-interrupted"
         ? []
@@ -304,6 +339,9 @@ function Example({ scenario }: { scenario: Scenario }) {
         onStop={() => setPhase("interrupted")}
         onContinue={() => setPhase("running")}
         onReload={() => setPhase("completed")}
+        onQueueEdit={async (_id, text) => setQueueText(text)}
+        onQueueRemove={async () => setPhase("completed")}
+        onQueueDeliver={async () => setPhase("completed")}
       />
     </div>
   )
@@ -450,6 +488,20 @@ export default {
       expected:
         "保持中性停止反馈与原输入，提供重新发送指引，不把中断状态误判为可继续。",
       render: () => <Example scenario="not-accepted-interrupted" />,
+    },
+    {
+      id: "queue-not-delivered",
+      name: "队列恢复发送失败",
+      condition: "恢复排队消息在写入历史前失败，消息仍保留在队列。",
+      expected: "指引使用队列发送按钮继续，不要求重新填写或产生重复消息。",
+      render: () => <Example scenario="queue-not-delivered" />,
+    },
+    {
+      id: "resend-with-paused-queue",
+      name: "已有队列但新消息未接受",
+      condition: "旧队列已暂停，新输入因模型不可用而未接受，两条消息身份不同。",
+      expected: "新输入保留并指引重发；旧队列保留，不误认新消息已在队列中。",
+      render: () => <Example scenario="resend-with-paused-queue" />,
     },
     {
       id: "interrupted",

@@ -169,8 +169,15 @@ export function LiveConversationView({
     snapshot.messages.some((message) => message.role === "user") &&
     (snapshot.phase === "failed" || snapshot.phase === "interrupted")
   const needsResend =
+    !error &&
     snapshot?.inputAccepted === false &&
     (snapshot.phase === "failed" || snapshot.phase === "interrupted")
+  const pendingQueue =
+    !!snapshot?.queue?.items.length &&
+    (snapshot.queue.items.some(
+      (item) => item.clientRequestId === snapshot.clientRequestId
+    ) ||
+      /^(待处理消息文件|会话目录索引)提交失败（/.test(snapshot.error))
   const feedback = error || snapshot?.error || snapshot?.queueError
   const stoppedFeedback = !error && snapshot?.phase === "interrupted"
   const runtime = running ? snapshot?.runtime : undefined
@@ -387,9 +394,11 @@ export function LiveConversationView({
                           {feedback}
                           {needsResend && (
                             <p>
-                              {draft.text.trim()
-                                ? "消息尚未发送，内容已保留在输入框。解决上面的错误后重新发送。"
-                                : "消息尚未发送，请解决上面的错误后在输入框重新填写并发送。"}
+                              {pendingQueue
+                                ? "消息保留在排队列表中。解决上面的错误后，点击该消息的发送按钮继续。"
+                                : draft.text.trim()
+                                  ? "消息尚未发送，内容已保留在输入框。解决上面的错误后重新发送。"
+                                  : "消息尚未发送，请解决上面的错误后在输入框重新填写并发送。"}
                             </p>
                           )}
                         </AlertDescription>
@@ -398,8 +407,9 @@ export function LiveConversationView({
                     {needsResend && !feedback && (
                       <Alert>
                         <AlertDescription>
-                          消息尚未发送，请在输入框
-                          {draft.text.trim() ? "重新" : "填写后"}发送。
+                          {pendingQueue
+                            ? "消息保留在排队列表中，请点击该消息的发送按钮继续。"
+                            : `消息尚未发送，请在输入框${draft.text.trim() ? "重新" : "填写后"}发送。`}
                         </AlertDescription>
                       </Alert>
                     )}

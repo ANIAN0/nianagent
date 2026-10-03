@@ -45,15 +45,22 @@ export function homeSessionId(cwd: string): string {
     return crypto.randomUUID()
   }
 }
-export function consumeHomeSession(cwd: string): void {
+export function consumeHomeSession(
+  cwd: string,
+  strict = false,
+  expectedSessionId?: string
+): void {
   try {
     const stored = JSON.parse(localStorage.getItem(key) || "{}") as Record<
       string,
       string
     >
+    if (expectedSessionId && stored[cwd] && stored[cwd] !== expectedSessionId)
+      return
     delete stored[cwd]
     localStorage.setItem(key, JSON.stringify(stored))
-  } catch {
+  } catch (error) {
+    if (strict) throw error
     /* Storage can be disabled; active draft identity remains in memory. */
   }
 }

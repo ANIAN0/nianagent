@@ -10,6 +10,7 @@ import { ConversationService } from "../conversations.mjs"
 import { ConversationStore } from "../conversation-store.mjs"
 import { createBridge } from "./stdio-client.mjs"
 import fs from "node:fs"
+import filesystem from "node:fs/promises"
 import { syncBuiltinESMExports } from "node:module"
 
 const model = {
@@ -1700,3 +1701,138 @@ test("failed queued user persistence recovers in the same process without dispat
     1
   )
 })
+
+for (const storage of ["queue", "index"]) {
+  test(`restored queue delivery identifies ${storage} commit failure without claiming Pi history permissions`, async (t) => {
+    let release
+    const gate = new Promise((resolve) => {
+      release = resolve
+    })
+    const f = await fixture(t, async (_request, response, number) => {
+      response.write(chunk({ role: "assistant", content: "正在处理" }))
+      if (number === 1) await gate
+      response.end(chunk({}, "stop") + "data: [DONE]\n\n")
+    })
+    t.after(() => release())
+    const running = await f.send("storage-source", "原始工作")
+    await f.send("storage-pending", "PENDING_AFTER_RESTART")
+    await f.service.dispatch("conversationStop", {
+      sessionId: running.id,
+      runId: running.runId,
+    })
+    await f.settled()
+    await f.chats.close()
+    release()
+    const service = new ModelService(f.directory)
+    await service.initialize()
+    const restored = new ConversationService(
+      f.directory,
+      service,
+      service.sessions,
+      f.store,
+      f.workspaces
+    )
+    service.conversations = restored
+    t.after(async () => {
+      await restored.close()
+      await service.close()
+    })
+    const read = () =>
+      service.dispatch("conversationRead", { sessionId: running.id })
+    const original = await read()
+    const rename = filesystem.rename
+    let failures = 0
+    const fault = t.mock.method(
+      filesystem,
+      "rename",
+      async (source, destination) => {
+        const destinationFile =
+          storage === "queue"
+            ? join(restored.queue.directory, `${running.id}.json`)
+            : f.store.file
+        if (String(destination) === destinationFile) {
+          const candidate = JSON.parse(await readFile(source, "utf8"))
+          const selected =
+            storage === "queue"
+              ? candidate.items.some(
+                  (item) =>
+                    item.clientRequestId === "storage-pending" &&
+                    item.status === "dispatching"
+                )
+              : candidate.conversations.some(
+                  (record) =>
+                    record.id === running.id &&
+                    record.lastRequestId === "storage-pending"
+                )
+          if (selected) {
+            failures++
+            throw Object.assign(
+              new Error("EPERM rename PRIVATE_DIAGNOSTIC_PATH"),
+              { code: "EPERM", syscall: "rename" }
+            )
+          }
+        }
+        return rename(source, destination)
+      }
+    )
+    syncBuiltinESMExports()
+    t.after(() => {
+      fault.mock.restore()
+      syncBuiltinESMExports()
+    })
+    await service.dispatch("conversationQueueDeliver", {
+      sessionId: running.id,
+      itemId: original.queue.items[0].id,
+      revision: original.queue.revision,
+    })
+    let failed
+    for (let i = 0; i < 200; i++) {
+      failed = await read()
+      if (failed.phase === "failed") break
+      await delay(25)
+    }
+    assert.equal(failures, 1)
+    assert.equal(failed.phase, "failed")
+    assert.match(
+      failed.error,
+      storage === "queue" ? /待处理消息文件提交失败/ : /会话目录索引提交失败/
+    )
+    assert.match(failed.error, /EPERM \/ rename/)
+    assert.ok(!failed.error.includes("PRIVATE_DIAGNOSTIC_PATH"))
+    assert.ok(!failed.error.includes("会话文件权限不足"))
+    assert.equal(failed.queue.items[0].status, "pending")
+    assert.equal(failed.queue.paused, true)
+    assert.equal(
+      failed.messages.filter(
+        (message) =>
+          message.role === "user" && message.text === "PENDING_AFTER_RESTART"
+      ).length,
+      0
+    )
+    assert.equal(f.requests.length, 1)
+    fault.mock.restore()
+    syncBuiltinESMExports()
+    await service.dispatch("conversationQueueDeliver", {
+      sessionId: running.id,
+      itemId: failed.queue.items[0].id,
+      revision: failed.queue.revision,
+    })
+    let completed
+    for (let i = 0; i < 200; i++) {
+      completed = await read()
+      if (completed.phase === "completed" && !completed.queue.items.length)
+        break
+      await delay(25)
+    }
+    assert.equal(completed.phase, "completed")
+    assert.equal(completed.queue.items.length, 0)
+    assert.equal(
+      completed.messages.filter(
+        (message) =>
+          message.role === "user" && message.text === "PENDING_AFTER_RESTART"
+      ).length,
+      1
+    )
+    assert.equal(f.requests.length, 2)
+  })
+}

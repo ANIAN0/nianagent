@@ -4,15 +4,14 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { AppShell } from "@/features/home/app-shell"
 import { HomeComposer } from "@/features/home/home-composer"
+import { HomeSubmissionFeedback } from "@/features/home/home-submission-feedback"
+import { useHomeSubmissionNavigation } from "@/features/home/use-home-submission-navigation"
 import {
   NavigationBoundaryContext,
   useNavigationBoundaryState,
 } from "@/features/home/navigation-boundary"
 import type { HomeData, HomeDraft } from "@/features/home/home-types"
-import {
-  effectiveThinking,
-  thinkingLabels,
-} from "@/features/home/model-thinking"
+import { thinkingLabels } from "@/features/home/model-thinking"
 import { modelSelectionId } from "@/features/models/model-types"
 import { useModelCatalog } from "@/features/models/use-model-catalog"
 import type { LeaveGuard } from "@/features/models/connection-editor"
@@ -30,11 +29,19 @@ import { useLiveConversation } from "@/features/conversation/use-live-conversati
 import { LiveConversationView } from "@/features/conversation/live-conversation-view"
 import type { ConversationReadingPosition } from "@/features/conversation/conversation-list"
 import {
-  clearHomeDraft,
-  draftSignature,
+  acceptHomeDraftCache,
+  createHomeSubmission,
+  finishHomeSubmission,
+  matchesHomeSubmission,
+  removeHomeSubmission,
   restoreHomeDraft,
+  restoreHomeSubmissions,
+  saveHomeDraft as persistHomeDraft,
+  saveHomeSubmission,
   persistentHomeDraftStore,
+  type HomeSubmission,
 } from "@/features/conversation/conversation-draft-store"
+import { reconcileHomeRequest } from "@/features/home/home-submission-recovery"
 import {
   createMaterialService,
   MaterialServiceContext,
@@ -64,6 +71,14 @@ export default function App() {
     workspaceId?: string
     draft?: HomeDraft
   }>({ key: 0 })
+  const homeNavigation = useHomeSubmissionNavigation(homeDraft.key)
+  const [homeSubmissions, setHomeSubmissions] = useState(restoreHomeSubmissions)
+  const [homeCleanupErrors, setHomeCleanupErrors] = useState<
+    Record<string, { message: string; accepted: boolean }>
+  >({})
+  const [homeReconcileErrors, setHomeReconcileErrors] = useState<
+    Record<string, string>
+  >({})
   const saveHomeDraft = useCallback(
     (draft: HomeDraft) => setHomeDraft((previous) => ({ ...previous, draft })),
     []
@@ -71,9 +86,7 @@ export default function App() {
   const [positions] = useState(
     () => new Map<string, ConversationReadingPosition>()
   )
-  const models = useModelCatalog(() =>
-    navigation.run(() => setSettingsOpen(true))
-  )
+  const models = useModelCatalog(() => navigation.run(openSettings))
   const workspaces = useWorkspaces()
   const catalog = useConversationCatalog()
   const chat = useLiveConversation(selected)
@@ -82,6 +95,10 @@ export default function App() {
     settingsGuard.current = guard
   }, [])
   const [notice, setNotice] = useState("")
+  function openSettings() {
+    homeNavigation.leave()
+    setSettingsOpen(true)
+  }
   function leaveSettings(action: () => void) {
     navigation.run(() => {
       const leave = () =>
@@ -94,6 +111,7 @@ export default function App() {
     })
   }
   function selectConversation(id?: string) {
+    homeNavigation.leave()
     setSelected(id)
     setNotice("")
     try {
@@ -151,65 +169,102 @@ export default function App() {
     materials: [],
     session: { toolIds: [], instructionScope: "all" },
   }
-  function matchesHomeSubmission(candidate: HomeDraft, submitted: HomeDraft) {
-    return (
-      draftSignature({
-        ...candidate,
-        thinking: effectiveThinking(
-          candidate.thinking,
-          data.modelThinking?.[candidate.model]
-        ),
-      }) === draftSignature(submitted)
-    )
+  function forgetHomeSubmission(id: string, remove = true) {
+    if (remove) removeHomeSubmission(id)
+    setHomeSubmissions((previous) => {
+      const next = { ...previous }
+      delete next[id]
+      return next
+    })
+    setHomeCleanupErrors((previous) => {
+      const next = { ...previous }
+      delete next[id]
+      return next
+    })
   }
-  async function submitHome(draft: HomeDraft, signal?: AbortSignal) {
+  function acceptHomeSubmission(submission: HomeSubmission, cwd: string) {
+    try {
+      finishHomeSubmission(submission, () =>
+        consumeHomeSession(cwd, true, submission.sessionId)
+      )
+      forgetHomeSubmission(submission.sessionId, false)
+      setHomeDraft((previous) => acceptHomeDraftCache(previous, submission))
+      return true
+    } catch {
+      setHomeCleanupErrors((previous) => ({
+        ...previous,
+        [submission.sessionId]: {
+          accepted: true,
+          message:
+            "消息已接受，但首页草稿清理失败。原提交身份保留，请重试清理后再从首页发送。",
+        },
+      }))
+      return false
+    }
+  }
+  async function submitHome(
+    draft: HomeDraft,
+    signal?: AbortSignal,
+    original = draft
+  ) {
+    const ownsPage = homeNavigation.capture()
     const id = draft.sessionId ?? crypto.randomUUID()
     const workspace = workspaces.items.find(
       (item) => item.id === draft.workspaceId
     )
     if (!workspace || workspace.available === false)
       throw new Error("工作目录不可用，请重新选择工作区。")
-    const saved = await sessionService.read(id, signal)
-    const configuration =
-      saved ??
-      (await sessionService.apply(
-        { sessionId: id, cwd: workspace.path, ...draft.session },
-        signal
-      ))
-    signal?.throwIfAborted()
-    if (configuration.unavailableToolIds.length)
-      throw new Error("请在会话配置中取消不可用工具后再发送。")
-    const accepted = await chat.send(id, draft, models.connections, signal)
-    if (!accepted.inputAccepted)
-      throw new Error(accepted.error || "消息未能开始，请检查模型配置后重试。")
-    signal?.throwIfAborted()
-    consumeHomeSession(workspace.path)
-    setHomeDraft((previous) =>
-      previous.draft && matchesHomeSubmission(previous.draft, draft)
-        ? {
-            ...previous,
-            draft: {
-              ...previous.draft,
-              text: "",
-              materials: [],
-              sessionId: undefined,
-            },
-          }
-        : previous
-    )
-    if (
-      matchesHomeSubmission(
-        { ...draft, ...restoreHomeDraft(draft.workspaceId) },
-        draft
-      )
-    ) {
-      try {
-        clearHomeDraft(draft.workspaceId)
-      } catch {
-        /* Confirmed session history remains authoritative. */
-      }
+    const submission = {
+      ...createHomeSubmission({ ...draft, sessionId: id }, original),
+      cwd: workspace.path,
     }
-    selectConversation(id)
+    // Both records must be durable before any request can commit remotely.
+    persistHomeDraft(submission.draft)
+    saveHomeSubmission(submission)
+    setHomeSubmissions((previous) => ({ ...previous, [id]: submission }))
+    let started = false
+    try {
+      const saved = await sessionService.read(id, signal)
+      const configuration =
+        saved ??
+        (await sessionService.apply(
+          { sessionId: id, cwd: workspace.path, ...draft.session },
+          signal
+        ))
+      signal?.throwIfAborted()
+      if (configuration.unavailableToolIds.length)
+        throw new Error("请在会话配置中取消不可用工具后再发送。")
+      started = true
+      const accepted = await chat.send(
+        id,
+        submission.draft,
+        models.connections,
+        signal
+      )
+      if (!accepted.inputAccepted)
+        throw new Error(
+          accepted.error || "消息未能开始，请检查模型配置后重试。"
+        )
+      // Acceptance is irreversible even if the originating view was cancelled.
+      acceptHomeSubmission(submission, workspace.path)
+    } catch (error) {
+      if (!started || !chat.submissionDraft(id)) {
+        try {
+          forgetHomeSubmission(id)
+        } catch {
+          setHomeCleanupErrors((previous) => ({
+            ...previous,
+            [id]: {
+              accepted: false,
+              message:
+                "消息未接受，但首页提交标记清理失败。原草稿保留，请重试清理。",
+            },
+          }))
+        }
+      }
+      throw error
+    }
+    if (!signal?.aborted && ownsPage()) selectConversation(id)
     void catalog.refresh(true)
     return ""
   }
@@ -220,43 +275,49 @@ export default function App() {
         /* Per-session hook retains the error next to its composer. */
       })
   }
-  async function checkHomeSubmission(id: string) {
+  async function checkHomeSubmission(id: string, navigate = true) {
+    const ownsPage = homeNavigation.capture()
     const submitted = chat.submissionDraft(id)
-    const accepted = await chat.reconcile(id)
-    if (!accepted.inputAccepted)
-      throw new Error(accepted.error || "消息尚未接受，原草稿保留。")
-    if (
-      submitted &&
-      matchesHomeSubmission(
-        {
-          ...submitted,
-          ...restoreHomeDraft(submitted.workspaceId),
-        },
-        submitted
-      )
-    ) {
-      try {
-        clearHomeDraft(submitted.workspaceId)
-      } catch {
-        /* History receipt remains authoritative. */
-      }
+    let submission = homeSubmissions[id]
+    if (!submission && submitted) {
+      // Legacy requests did not record the pre-normalization draft. Preserve
+      // differing legacy text/settings rather than inventing a raw signature.
+      submission = createHomeSubmission({ ...submitted, sessionId: id })
+      saveHomeSubmission(submission)
+      setHomeSubmissions((previous) => ({ ...previous, [id]: submission }))
     }
-    consumeHomeSession(accepted.cwd)
-    if (submitted)
-      setHomeDraft((previous) =>
-        previous.draft && matchesHomeSubmission(previous.draft, submitted)
-          ? {
-              ...previous,
-              draft: {
-                ...previous.draft,
-                text: "",
-                materials: [],
-                sessionId: undefined,
-              },
-            }
-          : previous
-      )
-    selectConversation(id)
+    const accepted = await reconcileHomeRequest(
+      () => chat.reconcile(id),
+      () => forgetHomeSubmission(id),
+      () =>
+        setHomeCleanupErrors((previous) => ({
+          ...previous,
+          [id]: {
+            accepted: false,
+            message:
+              "消息未接受，但首页提交标记清理失败。原草稿保留，请重试清理。",
+          },
+        })),
+      !!submitted
+    )
+    if (!accepted.inputAccepted) {
+      throw new Error(accepted.error || "消息尚未接受，原草稿保留。")
+    }
+    const candidate =
+      submission && restoreHomeDraft(submission.draft.workspaceId)
+    const preserved =
+      candidate &&
+      !!(candidate.text?.trim() || candidate.materials?.length) &&
+      !matchesHomeSubmission(candidate, submission!)
+    if (submission && !acceptHomeSubmission(submission, accepted.cwd))
+      throw new Error("消息已接受，首页草稿尚未清理。请使用“重试清理”。")
+    if (navigate && ownsPage()) {
+      selectConversation(id)
+      if (preserved)
+        setNotice(
+          "原消息已接受。首页草稿与原提交记录不同，已保留；再次发送会作为新任务。"
+        )
+    }
     void catalog.refresh(true)
   }
   return (
@@ -269,7 +330,7 @@ export default function App() {
             historyState={catalog.historyState}
             historyError={catalog.historyError}
             onHistoryRetry={() => void catalog.refresh()}
-            onSettings={() => navigation.run(() => setSettingsOpen(true))}
+            onSettings={() => navigation.run(openSettings)}
             onSelectConversation={(item) =>
               leaveSettings(() => selectConversation(item.id))
             }
@@ -288,6 +349,59 @@ export default function App() {
                 <AlertDescription>{notice || models.error}</AlertDescription>
               </Alert>
             )}
+            {Object.entries(homeCleanupErrors).map(([id, cleanup]) => (
+              <HomeSubmissionFeedback
+                key={id}
+                message={cleanup.message}
+                onRetry={() => {
+                  const submission = homeSubmissions[id]
+                  if (!submission) return
+                  if (cleanup.accepted) {
+                    const workspace = workspaces.items.find(
+                      (item) => item.id === submission.draft.workspaceId
+                    )
+                    const cwd = submission.cwd ?? workspace?.path
+                    if (cwd) acceptHomeSubmission(submission, cwd)
+                  } else {
+                    try {
+                      forgetHomeSubmission(id)
+                    } catch {
+                      /* Keep the explicit retry state. */
+                    }
+                  }
+                }}
+              />
+            ))}
+            {Object.values(homeSubmissions)
+              .filter(
+                (submission) =>
+                  submission.sessionId !== homeDraft.draft?.sessionId &&
+                  !homeCleanupErrors[submission.sessionId]
+              )
+              .map((submission) => (
+                <HomeSubmissionFeedback
+                  key={`reconcile-${submission.sessionId}`}
+                  variant="default"
+                  message={
+                    homeReconcileErrors[submission.sessionId] ??
+                    `首页提交记录待核对 · ${workspaces.items.find((item) => item.id === submission.draft.workspaceId)?.name ?? submission.draft.workspaceId}`
+                  }
+                  actionLabel="核对记录"
+                  pending={chat.pending[submission.sessionId]}
+                  onRetry={() => {
+                    void checkHomeSubmission(submission.sessionId, false).catch(
+                      (error: unknown) =>
+                        setHomeReconcileErrors((previous) => ({
+                          ...previous,
+                          [submission.sessionId]:
+                            error instanceof Error
+                              ? error.message
+                              : String(error),
+                        }))
+                    )
+                  }}
+                />
+              ))}
             {settingsOpen && (
               <Suspense
                 fallback={
@@ -380,7 +494,12 @@ export default function App() {
                   )}
                   <HomeComposer
                     draftStore={persistentHomeDraftStore}
-                    unconfirmedSessionIds={Object.keys(chat.unconfirmed)}
+                    unconfirmedSessionIds={[
+                      ...new Set([
+                        ...Object.keys(chat.unconfirmed),
+                        ...Object.keys(homeSubmissions),
+                      ]),
+                    ]}
                     onCheckSubmission={checkHomeSubmission}
                     key={homeDraft.key}
                     data={data}

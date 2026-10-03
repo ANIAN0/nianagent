@@ -20,6 +20,10 @@ import { ComposerToolbar } from "./composer-toolbar"
 import { SelectedMaterials } from "./selected-materials"
 import type { HomeData, HomeDraft, SubmitWork, Workspace } from "./home-types"
 import type { HomeDraftStore } from "@/features/conversation/conversation-draft-store"
+import {
+  bindHomeDraftIdentity,
+  homeDraftSignature,
+} from "@/features/conversation/conversation-draft-store"
 import { Button } from "@/components/ui/button"
 import { useComposerMaterials } from "@/features/materials/use-composer-materials"
 import { materialsReady } from "@/features/materials/material-service"
@@ -68,13 +72,37 @@ export function HomeComposer({
   const sessionService = useContext(SessionServiceContext)
   const { models, materials, tools } = data
   const [addedWorkspaces, setWorkspaces] = useState<typeof data.workspaces>([])
-  const workspaces = [
-    ...data.workspaces,
-    ...addedWorkspaces.filter(
-      (item) => !data.workspaces.some((workspace) => workspace.id === item.id)
-    ),
-  ]
+  const workspaces = useMemo(
+    () => [
+      ...data.workspaces,
+      ...addedWorkspaces.filter(
+        (item) => !data.workspaces.some((workspace) => workspace.id === item.id)
+      ),
+    ],
+    [data.workspaces, addedWorkspaces]
+  )
+  const bindDraftIdentity = useCallback(
+    (candidate: HomeDraft) =>
+      bindHomeDraftIdentity(candidate, () => {
+        // Legacy nonempty drafts have no evidence tying them to the old cwd map.
+        // Give them a fresh identity; a receipt for an earlier input cannot erase them.
+        if (candidate.text.trim() || candidate.materials.length)
+          return crypto.randomUUID()
+        const cwd = workspaces.find(
+          (item) => item.id === candidate.workspaceId
+        )?.path
+        return sessionService && cwd ? homeSessionId(cwd) : crypto.randomUUID()
+      }),
+    [sessionService, workspaces]
+  )
   const anchorRef = useRef<HTMLDivElement>(null)
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
   const [rawDraft, setDraft] = useState<HomeDraft>(() => {
     const workspaceId =
       workspaces.find((item) => item.id === initialDraft.workspaceId)?.id ??
@@ -83,7 +111,7 @@ export function HomeComposer({
     const provided = Object.fromEntries(
       Object.entries(initialDraft).filter(([, value]) => value !== undefined)
     )
-    return {
+    return bindDraftIdentity({
       text: initialDraft.text ?? "",
       model: models.includes(initialDraft.model ?? "")
         ? initialDraft.model!
@@ -97,15 +125,23 @@ export function HomeComposer({
       ...draftStore?.read(workspaceId),
       ...provided,
       workspaceId,
-    }
+    })
+  })
+  const sessionSeed = useRef({
+    workspaceId: rawDraft.workspaceId,
+    session:
+      rawDraft.text.trim() || rawDraft.materials.length
+        ? rawDraft.session
+        : undefined,
   })
   const [saveError, setSaveError] = useState("")
   const latestDraft = useRef(rawDraft)
   const updateDraft = useCallback(
     (apply: (current: HomeDraft) => HomeDraft) => {
-      const next = apply(latestDraft.current)
+      const next = bindDraftIdentity(apply(latestDraft.current))
       latestDraft.current = next
       setDraft(next)
+      onDraftChange?.(next)
       if (!next.workspaceId) return
       try {
         draftStore?.write(next)
@@ -114,12 +150,8 @@ export function HomeComposer({
         setSaveError("草稿未保存，请释放本地存储空间后重试。")
       }
     },
-    [draftStore, setDraft, setSaveError]
+    [draftStore, bindDraftIdentity, onDraftChange, setDraft, setSaveError]
   )
-  useEffect(() => {
-    if (!rawDraft.workspaceId) return
-    onDraftChange?.(rawDraft)
-  }, [rawDraft, onDraftChange])
   const draft = {
     ...rawDraft,
     workspaceId:
@@ -135,13 +167,11 @@ export function HomeComposer({
   }
   const workspacePath =
     workspaces.find((item) => item.id === draft.workspaceId)?.path ?? ""
-  const sessionId = useMemo(
-    () =>
-      sessionService && workspacePath
-        ? homeSessionId(workspacePath)
-        : crypto.randomUUID(),
-    [sessionService, workspacePath]
-  )
+  const sessionId = rawDraft.sessionId!
+  useEffect(() => {
+    if (!rawDraft.workspaceId) return
+    onDraftChange?.({ ...rawDraft, sessionId })
+  }, [rawDraft, sessionId, onDraftChange])
   const [result, setResult] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const materialController = useComposerMaterials({
@@ -169,7 +199,12 @@ export function HomeComposer({
       ])
         .then(([catalog, saved]) => {
           if (controller.signal.aborted) return
-          const options = saved ?? catalog.defaults
+          const options =
+            saved ??
+            (sessionSeed.current.workspaceId === rawDraft.workspaceId
+              ? sessionSeed.current.session
+              : undefined) ??
+            catalog.defaults
           updateDraft((draft) => ({
             ...draft,
             session: {
@@ -189,9 +224,16 @@ export function HomeComposer({
       controller.abort()
       submitRequest.current?.abort()
     }
-  }, [sessionService, sessionId, workspacePath, updateDraft])
+  }, [
+    sessionService,
+    sessionId,
+    workspacePath,
+    rawDraft.workspaceId,
+    updateDraft,
+  ])
   const canSubmit =
     !submitting &&
+    !unconfirmedSessionIds.includes(sessionId) &&
     !materialController.choosing &&
     (!sessionService || readySession === sessionId) &&
     (!!draft.text.trim() || draft.materials.length > 0) &&
@@ -224,6 +266,7 @@ export function HomeComposer({
             ...current,
             text: "",
             materials: [],
+            sessionId: undefined,
             ...draftStore?.read(patch.workspaceId),
             ...patch,
           }
@@ -237,22 +280,32 @@ export function HomeComposer({
   }
   async function submit() {
     if (!canSubmit) return
+    const original = latestDraft.current
+    const submitted = {
+      ...draft,
+      sessionId,
+      text: draft.text.trim(),
+      modelLabel:
+        data.modelLabels?.[draft.model] ?? draft.modelLabel ?? draft.model,
+    }
+    // Store the same resolved values as the request; a later catalog refresh
+    // must not be needed to identify the input that was actually submitted.
+    updateDraft(() => submitted)
     submitRequest.current?.abort()
     const controller = new AbortController()
     submitRequest.current = controller
     setSubmitting(true)
     try {
-      const result = await onSubmit(
-        {
-          ...draft,
-          sessionId,
-          text: draft.text.trim(),
-          modelLabel:
-            data.modelLabels?.[draft.model] ?? draft.modelLabel ?? draft.model,
-        },
-        controller.signal
-      )
-      if (!controller.signal.aborted) setResult(result)
+      const result = await onSubmit(submitted, controller.signal, original)
+      if (!controller.signal.aborted && mounted.current) {
+        setResult(result)
+        updateDraft((current) =>
+          current.sessionId === submitted.sessionId &&
+          homeDraftSignature(current) === homeDraftSignature(submitted)
+            ? { ...current, text: "", materials: [], sessionId: undefined }
+            : current
+        )
+      }
     } catch (error) {
       if (!controller.signal.aborted)
         setResult(error instanceof Error ? error.message : String(error))
@@ -262,14 +315,31 @@ export function HomeComposer({
   }
   async function checkSubmission() {
     if (!onCheckSubmission || submitting) return
+    const previous = latestDraft.current
     setSubmitting(true)
     try {
       await onCheckSubmission(sessionId)
-      setResult("")
+      if (mounted.current) {
+        setResult("")
+        const stored = draftStore?.read(previous.workspaceId)
+        updateDraft((current) =>
+          current.sessionId === previous.sessionId &&
+          homeDraftSignature(current) === homeDraftSignature(previous)
+            ? {
+                ...current,
+                ...stored,
+                text: stored?.text ?? "",
+                materials: stored?.materials ?? [],
+                sessionId: stored?.sessionId,
+              }
+            : current
+        )
+      }
     } catch (error) {
-      setResult(error instanceof Error ? error.message : String(error))
+      if (mounted.current)
+        setResult(error instanceof Error ? error.message : String(error))
     } finally {
-      setSubmitting(false)
+      if (mounted.current) setSubmitting(false)
     }
   }
 

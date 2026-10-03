@@ -47,7 +47,7 @@ export function ComposerToolbar({
       className="@container gap-1.5 px-3 pt-2 pb-3"
     >
       <MaterialPicker
-        key={`${sessionId}:${workspacePath}`}
+        key={`materials:${sessionId}:${workspacePath}`}
         disabled={disabled || data.materialsEnabled === false}
         anchorRef={anchorRef}
         onInsert={(text) =>
@@ -74,7 +74,7 @@ export function ComposerToolbar({
         onThinkingChange={(thinking) => onChange({ thinking })}
       />
       <SessionConfig
-        key={`${sessionId}:${workspacePath}`}
+        key={`config:${sessionId}:${workspacePath}`}
         sessionId={sessionId}
         tools={data.tools}
         value={draft.session}

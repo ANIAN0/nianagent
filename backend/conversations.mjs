@@ -8,7 +8,10 @@ import {
   SessionManager,
 } from "@earendil-works/pi-coding-agent"
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai"
-import { ConversationQueue } from "./conversation-queue.mjs"
+import {
+  ConversationQueue,
+  QueueDispatchPersistenceError,
+} from "./conversation-queue.mjs"
 import { ConversationControls } from "./conversation-controls.mjs"
 
 const requireValue = (value, message) => {
@@ -38,6 +41,7 @@ const identity = (value) =>
 // Provider bodies can echo credentials and request headers. Persist/display
 // only fixed diagnostics; Pi classifies recovery using its untouched originals.
 const errorText = (error) => {
+  if (error instanceof QueueDispatchPersistenceError) return error.message
   const message = error instanceof Error ? error.message : String(error)
   if (/401|unauthoriz|invalid.{0,12}(api.?key|credential)/i.test(message))
     return "模型认证失败（401），请检查连接凭据。"

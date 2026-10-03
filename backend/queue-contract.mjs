@@ -123,6 +123,8 @@ export const queueOperations = {
     }),
     title: "立即交付待处理消息",
     input: ["sessionId", "itemId", "revision"],
+    errors:
+      "空闲恢复交付时，队列文件或会话索引提交失败在快照error区分存储来源，并仅显示白名单code/syscall，不返回路径或原始诊断；未进入Pi用户历史的条目继续保留并暂停。",
     effect:
       "运行中转为 steer，在工具结束的安全边界交付；空闲时恢复该项和后续队列，逐项再校验材料。结果未知读取原提交，不能重复发起。",
     example: {
