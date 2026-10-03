@@ -385,6 +385,78 @@ export type ConversationCompaction = {
   /** 保留起点在当前分支的位置；-1表示原记录不存在 */
   firstKeptHistoryIndex: number
 }
+export type McpEnvironmentEntry = {
+  /** 环境变量或请求头名称 */
+  name: string
+  /** 字面值或 ${ENV_NAME}，不执行命令 */
+  value: string
+}
+export type McpConfiguration = {
+  /** 稳定服务名称；横线与下划线视为相同身份 */
+  name: string
+  /** Pi 原生传输 */
+  transport: "stdio" | "http"
+  /** 单一可执行文件，不是 shell 命令 */
+  command: string
+  /**  */
+  args: string[]
+  /** 可选工作目录，相对路径以会话目录为基准 */
+  cwd: string
+  /**  */
+  env: McpEnvironmentEntry[]
+  /** Streamable HTTP URL */
+  url: string
+  /**  */
+  headers: McpEnvironmentEntry[]
+  /** 服务用途 */
+  description: string
+  /** 新会话及空闲会话下一次操作生效 */
+  enabled: boolean
+  /** 未另行选择时的 Pi 工具暴露方式 */
+  exposure: "codemode" | "deferred" | "direct" | "hidden"
+  /** 每个协议请求超时秒数，最大 120 */
+  timeout: number
+}
+export type McpDiscoveredTool = {
+  /** 服务器工具原名 */
+  name: string
+  /** Pi 模型工具名 */
+  id: string
+  /** 实际工具说明 */
+  description: string
+  /** 真实 JSON 参数 schema */
+  inputSchema: string
+}
+export type McpTestResult = {
+  /** 本次真实验证结果；验证结束即关闭测试连接 */
+  state: "connected" | "needs-auth" | "failed"
+  /** 脱敏后失败原因 */
+  error: string
+  /**  */
+  tools: McpDiscoveredTool[]
+  /** 验证时间 ISO 格式 */
+  testedAt: string
+}
+export type McpRuntimeState = {
+  /** 当前正式会话连接状态，不来自测试缓存 */
+  state: "connecting" | "connected" | "disconnected" | "needs-auth" | "failed"
+  /** 当前正式会话已连接数 */
+  connections: number
+  /** 当前连接的安全错误说明 */
+  error: string
+}
+export type McpServer = {
+  /**  */
+  configuration: McpConfiguration
+  /**  */
+  revision: number
+  /** 配置绝对路径，个人服务归 Moon agent/mcp.json */
+  source: string
+  /**  */
+  test?: McpTestResult
+  /**  */
+  runtime?: McpRuntimeState
+}
 export type InstructionScope = "all" | "directory" | "none"
 export type SessionTool = {
   /** Pi 注册工具名 */
@@ -674,6 +746,25 @@ export type RpcRequests = {
     /**  */
     materials: MaterialReference[]
   }
+  mcpList: Record<string, never>
+  mcpSave: {
+    /**  */
+    configuration: McpConfiguration
+    /**  */
+    revision?: number
+  }
+  mcpRemove: {
+    /** 服务名 */
+    name: string
+    /**  */
+    revision: number
+  }
+  mcpTest: {
+    /**  */
+    configuration: McpConfiguration
+    /** 真实会话目录，可空使用宿主目录 */
+    cwd: string
+  }
   workspaceList: Record<string, never>
   workspaceAdd: {
     /** 用户明确选择的存在目录 */
@@ -856,6 +947,10 @@ export type RpcResults = {
   materialCatalog: MaterialCatalog
   materialPreview: MaterialPreview
   materialRestore: MaterialReference[]
+  mcpList: McpServer[]
+  mcpSave: McpServer
+  mcpRemove: null
+  mcpTest: McpTestResult
   workspaceList: WorkspaceList
   workspaceAdd: WorkspaceRecord
   workspaceSelect: WorkspaceRecord

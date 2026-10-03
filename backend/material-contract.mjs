@@ -52,7 +52,7 @@ export const materialOperations = {
     ...common, method: "materials.prepare", args: ["sessionId", "cwd", "paths", "$signal"],
     request: o({ sessionId: identity, cwd, paths: a(s("明确选择的文件绝对路径", { maxLength: 4096 })) }),
     response: a(r("MaterialReference")), title: "准备附件或资源路径", input: ["sessionId", "cwd", "paths"], result: "MaterialReference[]",
-    effect: "图片最多8MiB，验证真实格式后固定保存；普通文件只保存真实路径；工作区Skill通过Pi目录识别。单项失败返回failed条目。",
+    effect: "图片最多8MiB，验证实际解码并按Pi官方尺寸与传输预算准备，历史保存原图；普通文件只保存真实路径；Skill通过Pi目录识别。单项失败返回failed条目。",
     example: { sessionId: "sample-session", cwd: "H:/workspace/moon", paths: ["H:/workspace/moon/README.md"] },
   },
   materialUpload: {

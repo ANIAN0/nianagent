@@ -188,7 +188,9 @@ export function ToolPicker({ tools, value, onChange }: ToolPickerProps) {
                         aria-label={`${tool.name}详情`}
                         className="mt-0.5 mr-2 mb-2.5 ml-6 border-l-2 px-2 py-1 text-xs text-muted-foreground"
                       >
-                        <p className="text-[13px] leading-5">{tool.detail}</p>
+                        <p className="text-[13px] leading-5 break-words whitespace-pre-wrap">
+                          {tool.detail}
+                        </p>
                         <dl className="mt-2 grid grid-cols-[48px_minmax(0,1fr)] gap-x-3 gap-y-1.5 border-t pt-2">
                           <dt>来源</dt>
                           <dd>{tool.group}</dd>

@@ -64,6 +64,7 @@ export default function ArchitecturePanel({ module }: { module: string }) {
     会话列表: "会话目录与 Pi 多轮对话",
     真实对话: "会话目录与 Pi 多轮对话",
     会话配置: "会话配置模块",
+    "MCP 服务": "MCP 服务模块",
   }
   return (
     <ArchitectureViewer

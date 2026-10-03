@@ -7,39 +7,66 @@ import {
   InputGroupAddon,
 } from "@/components/ui/input-group"
 import { homeData } from "../../../ui-catalog/fixtures/home"
+import { MaterialServiceContext } from "@/features/materials/material-service"
+import {
+  exampleMaterialService,
+  exampleMaterials,
+} from "@/features/materials/material-catalog-fixtures"
 function Example({ empty = false }: { empty?: boolean }) {
   const [selected, setSelected] = useState([homeData.materials[0]!])
   const [text, setText] = useState("")
   const anchorRef = useRef<HTMLDivElement>(null)
   return (
-    <div className="px-6 pt-[340px] pb-6">
-      <InputGroup ref={anchorRef} className="rounded-2xl">
-        <InputGroupTextarea
-          aria-label="工作需求"
-          placeholder="描述工作需求"
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-        />
-        <InputGroupAddon align="block-end">
-          <MaterialPicker
-            anchorRef={anchorRef}
-            materials={empty ? [] : homeData.materials}
-            selected={selected}
-            onAdd={(item) =>
-              setSelected((items) =>
-                items.some((entry) => entry.id === item.id)
-                  ? items
-                  : [...items, item]
-              )
+    <MaterialServiceContext.Provider
+      value={
+        empty
+          ? {
+              ...exampleMaterialService,
+              catalog: async (_id, cwd) => ({
+                cwd,
+                files: [],
+                skills: [],
+                diagnostics: [],
+              }),
             }
-            onInsert={setText}
+          : exampleMaterialService
+      }
+    >
+      <div className="px-6 pt-[340px] pb-6">
+        <InputGroup ref={anchorRef} className="rounded-2xl">
+          <InputGroupTextarea
+            aria-label="工作需求"
+            placeholder="描述工作需求"
+            value={text}
+            onChange={(event) => setText(event.target.value)}
           />
-        </InputGroupAddon>
-      </InputGroup>
-      <p role="status" className="mt-3 text-xs">
-        已选：{selected.map((item) => item.name).join("、")}
-      </p>
-    </div>
+          <InputGroupAddon align="block-end">
+            <MaterialPicker
+              anchorRef={anchorRef}
+              materials={empty ? [] : homeData.materials}
+              selected={selected}
+              onAdd={(item) =>
+                setSelected((items) =>
+                  items.some((entry) => entry.id === item.id)
+                    ? items
+                    : [...items, item]
+                )
+              }
+              onInsert={setText}
+              onTextChange={setText}
+              sessionId="catalog-example"
+              workspacePath="H:/工作区/moon"
+              onChooseAttachments={async () =>
+                setSelected((items) => [...items, exampleMaterials[2]!])
+              }
+            />
+          </InputGroupAddon>
+        </InputGroup>
+        <p role="status" className="mt-3 text-xs">
+          已选：{selected.map((item) => item.name).join("、")}
+        </p>
+      </div>
+    </MaterialServiceContext.Provider>
   )
 }
 export default {
@@ -51,20 +78,20 @@ export default {
   description:
     "与输入卡同宽的向上候选面板，包含添加、Skills、提示模板和内置命令；引用资源进入搜索面板。",
   boundary:
-    "草稿和材料由父级保存；附件只保留浏览器文件元数据，不读取内容或上传。正式基础对话尚未接入材料，调用方禁用入口；本目录的候选、模板与文件元数据为独立展示能力。",
+    "草稿由父级保存；正式入口经原生多选与材料服务准备，@检索真实工作区，/选择Pi发现的Skill。目录注入独立服务替身，操作不访问用户数据或模型。",
   inputs: [
     "materials、selected；anchorRef: 输入卡锚点；onInsert 存在时展示模板与命令。",
   ],
   events: ["onAdd(material)、onInsert(text)。"],
-  composition: ["InputGroup", "Button"],
+  composition: ["InputGroup", "Button", "MaterialCandidateList"],
   consumers: ["ComposerToolbar", "ConversationComposer"],
   viewport: { width: 880, height: 580 },
   states: [
     {
       id: "disabled",
-      name: "当前能力未接入",
-      condition: "基础真实对话尚未接入附件与 Skill",
-      expected: "入口禁用，不产生假附件",
+      name: "输入暂不可用",
+      condition: "调用方正在提交或禁止修改当前草稿",
+      expected: "入口禁用，不产生材料或修改输入",
       render: () => (
         <MaterialPicker
           disabled

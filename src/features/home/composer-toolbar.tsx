@@ -45,6 +45,7 @@ export function ComposerToolbar({
       className="@container gap-1.5 px-3 pt-2 pb-3"
     >
       <MaterialPicker
+        key={`${sessionId}:${workspacePath}`}
         disabled={data.materialsEnabled === false}
         anchorRef={anchorRef}
         onInsert={(text) =>

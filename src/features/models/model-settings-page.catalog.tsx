@@ -8,16 +8,18 @@ export default {
   group: "模型设置",
   source: "src/features/models/model-settings-page.tsx",
   description:
-    "设置工作区、连接目录与连接编辑；保存发布模型目录，返回工作台保留会话。",
+    "设置工作区、模型连接与MCP服务；保存发布目录，返回工作台保留会话。",
   boundary: "通过参数与事件传递数据；服务由宿主注入，展示与正式数据隔离。",
   inputs: [
     "service: ModelService",
+    "mcpService: MCP服务依赖；展示环境注入独立替身",
     "onConnectionsChange: 已保存目录变更",
     "registerLeave: 注册离开保护",
   ],
   events: ["onReturn 返回工作台；未保存先确认"],
   composition: [
     "ConnectionList",
+    "McpSettings",
     "ConnectionEditor",
     "AddConnectionDialog",
     "SettingsConfirmDialog",

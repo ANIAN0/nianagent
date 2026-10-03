@@ -10,6 +10,14 @@
 
 派生先持久化operation ID和新Moon会话ID，再生成Pi文件、保存路径回执、提交配置和索引。结果未知只查询原operation；恢复按持久lineage身份补齐索引，不依据标题猜测，不重新生成Pi路径。`session.copyConfiguration`在配置锁下复制明确快照，不重新发现磁盘指令，也不覆盖已经存在的新会话配置。
 
+## 消息材料
+
+`backend/materials.mjs` 统一负责材料准备、核对、恢复与预览。图片保存固定内容，普通文件保存真实绝对路径，Skill由Pi ResourceLoader发现并按本次选择固定正文、来源和相对参考目录。材料位于独立的`materials/`应用数据目录；移除草稿引用不会删除用户源文件，历史图片不依赖原工作目录仍存在。
+
+`material-contract.mjs` 定义选择、准备、图片上载、资源目录、预览及恢复接口，目录和前端DTO从同一来源生成。单图最多8MiB，仅上载操作允许16MiB传输请求，其余请求维持1MiB；普通文件引用不会将整文件内联上传。系统多选沿用Tauri已有反向宿主能力，浏览器与原生窗口共用同一宿主。
+
+正式输入通过`MaterialServiceContext`接入。材料控制、候选列表、缩略图和内容预览分别维护，组件目录注入隔离服务替身。草稿整体由应用持久化，材料控制器只核对恢复的引用；异步准备按会话和工作目录归属，移除或切换后的迟到结果不能重添材料。发送前及队列交付前使用公开`resolveForPrompt`核对来源及模型图片能力，传给Pi的是实际图片、文件路径说明和所选Skill正文。`moon-materials`作为Pi自定义历史元数据保存原始用户文字与材料身份，页面不显示展开后的指令正文冒充用户输入。
+
 ## 模型配置模块
 
 `backend/models.mjs` 是模型配置的业务入口，负责连接/模型校验、目录发现、Pi 调用检查、配置可用性和稳定身份。自定义连接使用 `moon-<connectionId>` 注册 Pi provider；订阅连接选择 Pi 的真实 provider，每个 provider 仅允许一个订阅连接。连接名和模型显示名都不是身份。
@@ -74,7 +82,7 @@ stdin关闭会中止请求、关闭HTTP并删除本实例运行文件和锁；Ru
 
 `backend/sessions.mjs` 由 ModelService 持有，通过同一契约派发 sessionCatalog、sessionRead、sessionApply。可在尚无模型和密钥时读取工具目录、配置工具与指令，不发起推理。对话服务开始生成前另行验证用户所选连接、模型和思考等级，并将正式 Pi AgentSession 注册到同一个 SessionService；配置专用会话不能直接作为生成会话。
 
-Pi 拥有工具注册、活动工具集与系统提示构造。目录来自 getAllTools；选择经过业务校验后调用 setActiveToolsByName，再读取 getActiveToolNames 确认。只接入 Pi 内置工具，关闭扩展、Skill、主题与提示模板自动加载，内存 SettingsManager 不读取用户 Pi settings 或安装资源包。工具注册不等于执行环境可用：Bash/PowerShell 使用 Pi 公开解析器，grep/find 检查 Pi 缓存二进制与 PATH；缺依赖标记不可用且拒绝选中，不触发 SDK 自动下载。默认活动集过滤不可用项，读取已保存配置保留 toolIds/revision，未知或依赖失效项通过 unavailableToolIds 明确返回，真实 Pi 活动集只启用可用项；用户可取消失效项后应用恢复。保存用户选择仍严格拒绝不可用项，不静默更换。具体文件权限在工具实际执行时判断。未知工具和重复项拒绝保存，不依赖 SDK 的静默忽略。
+Pi 拥有工具注册、活动工具集与系统提示构造。内置目录来自 getAllTools，MCP 目录使用与配置指纹匹配的真实验证结果；选择经过业务校验后设置活动工具，实际 MCP 权限另经精确 exposure 与公共 tool_call 门卫约束。内置工具目录来自 Pi；MCP 工具来自正式服务验证目录，由宿主显式 factory 注册，磁盘扩展、主题与提示模板不自动加载，内存 SettingsManager 不读取用户 Pi settings 或安装资源包。工具注册不等于执行环境可用：Bash/PowerShell 使用 Pi 公开解析器，grep/find 检查 Pi 缓存二进制与 PATH；缺依赖标记不可用且拒绝选中，不触发 SDK 自动下载。默认活动集过滤不可用项，读取已保存配置保留 toolIds/revision，未知或依赖失效项通过 unavailableToolIds 明确返回，真实 Pi 活动集只启用可用项；用户可取消失效项后应用恢复。保存用户选择仍严格拒绝不可用项，不静默更换。具体文件权限在工具实际执行时判断。未知工具和重复项拒绝保存，不依赖 SDK 的静默忽略。
 
 指令使用 Pi loadProjectContextFiles 的文件优先级、全局以及从根到工作目录的发现规则。个人指令目录是模型数据目录下 agent（如 `%LOCALAPPDATA%/Moon/models/agent`），与 CLI ~/.pi 分离。all 保留全部，directory 排除个人指令，none 不注入项目指令而保留 Pi 系统提示。loader 显式提供空 systemPrompt 并清空 systemPromptOverride，关闭 .pi/SYSTEM.md 的发现与覆盖；appendSystemPrompt 只注入 Moon 宿主运行环境说明，不发现或拼入 APPEND_SYSTEM.md。说明来自真实平台、原生 cwd 与 Pi 公开 shell 解析器，指导文件工具优先使用相对路径；Windows Bash 的 /tmp 等挂载路径必须经实际 cygpath 转换，禁止猜盘符。宿主说明是工具运行事实，与个人/目录指令分离，none 及已有会话 reload 都保留；项目文本不能替换 loader 的系统提示。每次应用读取实际指令并保存正文快照；普通读取恢复该快照，不因磁盘文件改变悄悄改变已生效配置。再次应用才更新文件内容。空 cwd 的目录查询显式返回宿主 process.cwd() 解析后的真实路径，仅供初始目录选择，不把虚构路径映射为真实路径；保存始终要求绝对存在目录，已保存会话不可换目录。
 
@@ -83,6 +91,20 @@ Pi 拥有工具注册、活动工具集与系统提示构造。目录来自 getA
 已有正式对话通过共享会话互斥锁与配置更新串行协调；运行或停止期间拒绝修改配置。对空闲的持久化 AgentSession，应用时更新资源快照、调用 Pi reload 并设置活动工具，保留同一个会话对象、SessionManager 及历史；提交失败恢复旧资源与工具。配置专用对象可以替换，含正式历史的对象不采用销毁重建策略。
 
 `/api-catalog/` 按模块展示模型、工作区、会话摘要、会话配置和对话契约，统一类型生成及真实传输。配置读取与应用只在本机进行；开始对话后，所选项目指令、用户消息和工具结果按 Pi 的上下文机制发送给用户选择的模型服务。
+
+## MCP 服务模块
+
+`backend/mcp.mjs` 管理 Moon 个人服务配置和协议验证；`mcp-contract.mjs` 是 MCP DTO、RPC 注册和接口文档的权威来源，前端通过现有 `modelCall` 使用同一宿主。数据位于 `agent/mcp.json`，保持 Pi 的 `mcpServers` 格式，额外 `moonRevisions` 提供乐观版本，`moonDiscovery` 保存与配置指纹匹配的真实验证目录和时间。读取不会启动服务；损坏文件不覆盖，写入使用文件锁和原子替换，提交前取消不写入。环境和请求头只展开 `${ENV_NAME}`，不执行命令表达式。
+
+验证使用官方 `@earendil-works/pi-mcp` 的 `McpClient` 与 stdio/Streamable HTTP 原生传输执行 initialize/tools/list，结束或取消等待关闭本次客户端及子进程，不执行业务工具。草稿测试不创建服务条目，保存时携带对应目录；已保存配置的匹配验证更新目录元数据。缓存是最近验证事实，和正式会话的当前连接状态分开展示。
+
+正式 SessionService 通过公开 MCP、codemode、tool-search factories 和 `bindExtensions` 接入；目录查询、配置候选与只读历史不建立 MCP 连接。每个会话独立连接、资源与配置快照，仅连接本会话已选择工具的服务。服务默认 hidden，精确 toolExposure 只开放所选原始工具名；统一 `tool_call` 门卫同时约束直接调用、搜索及 codemode 内调用，不以活动工具集合代替权限。新工具默认不可调用，撤回工具由 Pi 标为 hidden。发现入口由宿主激活，不额外授予文件或命令工具。
+
+保存服务配置不更换运行会话的连接；下一次空闲发送前 `refreshForRunExclusive` 或明确应用会话配置时，用原 SessionManager/AgentSession reload 最新快照并保持历史。选择失效工具时要求用户取消选择，不静默替换。runtime 持有官方传输的生命周期；dispose 关闭传输并拒绝迟到启动，宿主关闭等待清理。OAuth 账号管理未纳入本模块，原生扩展使用隔离内存认证状态，不读取其他 Pi CLI 的凭据；HTTP 凭据可通过请求头和环境引用配置，缺少授权明确显示 needs-auth。
+
+直接 MCP 调用沿正式 Pi 历史展示来源。codemode 子调用使用 Pi `toolResult.nestedCalls` 的权威身份、输入、状态与耗时；成功结果正文未包含在该记录，因此公开 `tool_result` 钩子仅把缺少的展示正文写入 `moon-mcp-result` custom entry，绑定 enclosing assistant entryId/content index。每次历史投影建立一次结果索引，provider 重复 toolCallId 不覆盖旧发生，不另建消息或工具历史数据库。
+
+设置页新增 MCP 分区。`McpSettings` 管理对象与请求，`McpServerList` 比较状态，`McpServerEditor` 管理候选与离开保护，`McpTransportFields`、`McpVariableFields`、`McpTestResult` 分别负责参数和验证目录，均有相邻正式组件展示定义。接口目录按正式注册加入 MCP 分组，并隐藏响应中的字面环境/请求头值。
 
 ## 工作区模块
 

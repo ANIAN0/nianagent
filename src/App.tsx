@@ -162,7 +162,9 @@ export default function App() {
       throw new Error(accepted.error || "消息未能开始，请检查模型配置后重试。")
     signal?.throwIfAborted()
     consumeHomeSession(workspace.path)
-    try { clearHomeDraft(draft.workspaceId) } catch { /* Confirmed session history remains authoritative. */ }
+    if (draftSignature({ ...draft, ...restoreHomeDraft(draft.workspaceId) }) === draftSignature(draft)) {
+      try { clearHomeDraft(draft.workspaceId) } catch { /* Confirmed session history remains authoritative. */ }
+    }
     selectConversation(id)
     void catalog.refresh(true)
     return ""

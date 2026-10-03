@@ -20,6 +20,34 @@ type Invocation = (
   signal: AbortSignal
 ) => Promise<unknown>
 
+function displayResult(operation: ModelOperation, result: unknown): unknown {
+  if (operation === "revealKey")
+    return { apiKey: "[敏感值已返回，目录不展示原文]" }
+  if (!["mcpList", "mcpSave"].includes(operation)) return result
+  const redact = (value: unknown) => {
+    if (!value || typeof value !== "object" || !("configuration" in value))
+      return value
+    const configuration = (value as { configuration: Record<string, unknown> })
+      .configuration
+    const fields = (entries: unknown) =>
+      Array.isArray(entries)
+        ? entries.map((entry) => ({
+            ...entry,
+            value: "[值已隐藏]",
+          }))
+        : entries
+    return {
+      ...value,
+      configuration: {
+        ...configuration,
+        env: fields(configuration.env),
+        headers: fields(configuration.headers),
+      },
+    }
+  }
+  return Array.isArray(result) ? result.map(redact) : redact(result)
+}
+
 /** Page-owned, in-memory drafts and a single explicit call lifecycle. No storage or autorun. */
 export function createRequestController(invoke: Invocation, now = Date.now) {
   let snapshot: Snapshot = {}
@@ -125,13 +153,7 @@ export function createRequestController(invoke: Invocation, now = Date.now) {
         update(operation, {
           response: {
             status: "success",
-            text: JSON.stringify(
-              operation === "revealKey"
-                ? { apiKey: "[敏感值已返回，目录不展示原文]" }
-                : result,
-              null,
-              2
-            ),
+            text: JSON.stringify(displayResult(operation, result), null, 2),
             elapsedMs: Math.max(0, now() - request.start),
             startedAt: new Date(request.start).toISOString(),
           },

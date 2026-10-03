@@ -61,6 +61,7 @@ export function useLiveConversation(selectedId: string | undefined) {
   const current = useRef(snapshots)
   const requests = useRef(restored.requests)
   const locks = useRef(new Set<string>())
+  const stopLocks = useRef(new Set<string>())
   const mutations = useRef(new Map<string, number>())
   const changeDraft = useCallback((id: string, draft: HomeDraft) => {
     draftsRef.current = { ...draftsRef.current, [id]: draft }
@@ -69,6 +70,8 @@ export function useLiveConversation(selectedId: string | undefined) {
     catch { setDraftErrors((all) => ({ ...all, [id]: "草稿未保存，请释放本地存储空间后重试。" })) }
   }, [])
   const accept = useCallback((snapshot: ConversationSnapshot) => {
+    const previous = current.current[snapshot.id]
+    if (previous?.epoch === snapshot.epoch && previous.version > snapshot.version) return
     current.current = { ...current.current, [snapshot.id]: snapshot }
     setSnapshots(current.current)
     setReadErrors((all) => ({ ...all, [snapshot.id]: "" }))
@@ -150,14 +153,15 @@ export function useLiveConversation(selectedId: string | undefined) {
     if (locks.current.has(id)) throw new Error("正在处理此会话的操作，请稍候。")
     locks.current.add(id)
     mutations.current.set(id, (mutations.current.get(id) ?? 0) + 1)
+    const mutation = mutations.current.get(id)
     setPending((all) => ({ ...all, [id]: true }))
     try {
       const snapshot = await action()
       accept(snapshot)
-      setErrors((all) => ({ ...all, [id]: "" }))
+      if (mutations.current.get(id) === mutation) setErrors((all) => ({ ...all, [id]: "" }))
       return snapshot
     } catch (error) {
-      setErrors((all) => ({ ...all, [id]: failureMessage(error) }))
+      if (mutations.current.get(id) === mutation) setErrors((all) => ({ ...all, [id]: failureMessage(error) }))
       throw error
     } finally {
       locks.current.delete(id)
@@ -190,7 +194,14 @@ export function useLiveConversation(selectedId: string | undefined) {
   async function stop(id: string) {
     const snapshot = current.current[id]
     if (!snapshot) return
-    await perform(id, () => service.stop(id, snapshot.runId))
+    const identity = `${id}:${snapshot.runId}`
+    if (stopLocks.current.has(identity)) return
+    stopLocks.current.add(identity)
+    mutations.current.set(id, (mutations.current.get(id) ?? 0) + 1)
+    const mutation = mutations.current.get(id)
+    try { accept(await service.stop(id, snapshot.runId)); if (mutations.current.get(id) === mutation) setErrors((all) => ({ ...all, [id]: "" })) }
+    catch (error) { if (mutations.current.get(id) === mutation) setErrors((all) => ({ ...all, [id]: failureMessage(error) })); throw error }
+    finally { stopLocks.current.delete(identity) }
   }
   async function retry(
     id: string,

@@ -68,11 +68,10 @@ export function HomeComposer({
     ),
   ]
   const anchorRef = useRef<HTMLDivElement>(null)
-  const [rawDraft, setDraft] = useState<HomeDraft>(() => ({
-    workspaceId:
-      workspaces.find((item) => item.id === initialDraft.workspaceId)?.id ??
-      workspaces[0]?.id ??
-      "",
+  const [rawDraft, setDraft] = useState<HomeDraft>(() => {
+    const workspaceId = workspaces.find((item) => item.id === initialDraft.workspaceId)?.id ?? workspaces[0]?.id ?? ""
+    const provided = Object.fromEntries(Object.entries(initialDraft).filter(([, value]) => value !== undefined))
+    return ({
     text: initialDraft.text ?? "",
     model: models.includes(initialDraft.model ?? "")
       ? initialDraft.model!
@@ -83,11 +82,13 @@ export function HomeComposer({
       toolIds: tools.map((tool) => tool.id),
       instructionScope: "all",
     },
-    ...draftStore?.read(initialDraft.workspaceId ?? workspaces[0]?.id ?? ""),
-    ...initialDraft,
-  }))
+    ...draftStore?.read(workspaceId),
+    ...provided,
+    workspaceId,
+  })})
   const [saveError, setSaveError] = useState("")
   useEffect(() => {
+    if (!rawDraft.workspaceId) return
     onDraftChange?.(rawDraft)
     try { draftStore?.write(rawDraft); setSaveError("") }
     catch { setSaveError("草稿未保存，请释放本地存储空间后重试。") }
@@ -116,8 +117,15 @@ export function HomeComposer({
   )
   const [result, setResult] = useState("")
   const materialController = useComposerMaterials({
-    sessionId, cwd: workspacePath, anchorRef, materials: draft.materials,
-    update: (apply) => setDraft((current) => ({ ...current, materials: apply(current.materials) })),
+    sessionId,
+    cwd: workspacePath,
+    anchorRef,
+    materials: draft.materials,
+    update: (apply) =>
+      setDraft((current) => ({
+        ...current,
+        materials: apply(current.materials),
+      })),
   })
   const [submitting, setSubmitting] = useState(false)
   const submitRequest = useRef<AbortController | null>(null)
@@ -158,8 +166,14 @@ export function HomeComposer({
     !submitting &&
     (!sessionService || readySession === sessionId) &&
     (!!draft.text.trim() || draft.materials.length > 0) &&
+    materialController.ready &&
     materialsReady(draft.materials) &&
-    !draft.materials.some((item) => item.type === "image" && data.modelInputs && !data.modelInputs[draft.model]?.includes("image")) &&
+    !draft.materials.some(
+      (item) =>
+        item.type === "image" &&
+        data.modelInputs &&
+        !data.modelInputs[draft.model]?.includes("image")
+    ) &&
     !!workspacePath &&
     workspaces.some(
       (item) => item.id === draft.workspaceId && item.available !== false
@@ -268,7 +282,18 @@ export function HomeComposer({
                   onSubmit={submit}
                 />
                 <SelectedMaterials
-                  materials={draft.materials.map((item) => item.type === "image" && data.modelInputs && !data.modelInputs[draft.model]?.includes("image") ? { ...item, status: "failed", error: "当前模型不支持图片，请更换模型或移除。" } : item)}
+                  key={`${sessionId}:${workspacePath}`}
+                  materials={draft.materials.map((item) =>
+                    item.type === "image" &&
+                    data.modelInputs &&
+                    !data.modelInputs[draft.model]?.includes("image")
+                      ? {
+                          ...item,
+                          status: "failed",
+                          error: "当前模型不支持图片，请更换模型或移除。",
+                        }
+                      : item
+                  )}
                   cwd={workspacePath}
                   onRemove={(id) =>
                     change({
@@ -301,7 +326,11 @@ export function HomeComposer({
                     void materialController.prepare(item)
                     setResult("")
                   }}
-                  onChooseAttachments={materialController.service ? materialController.choose : undefined}
+                  onChooseAttachments={
+                    materialController.service
+                      ? materialController.choose
+                      : undefined
+                  }
                   choosingMaterials={materialController.choosing}
                 />
               </InputGroup>
@@ -309,7 +338,11 @@ export function HomeComposer({
           </FieldGroup>
         </fieldset>
       </form>
-      {materialController.error && <p role="alert" className="mt-2 text-xs text-destructive">{materialController.error}</p>}
+      {materialController.error && (
+        <p role="alert" className="mt-2 text-xs text-destructive">
+          {materialController.error}
+        </p>
+      )}
       {submitting && (
         <p role="status" className="mt-3 text-xs text-muted-foreground">
           正在开始会话…

@@ -25,6 +25,7 @@ import {
 } from "@/features/models/model-types"
 import { homeData } from "./home"
 import "@/features/models/model-settings.css"
+import { createMcpFixtureService } from "./mcp"
 
 export function SettingsPageExample({
   empty = false,
@@ -50,6 +51,7 @@ export function SettingsPageExample({
     )
   )
   const [open, setOpen] = useState(true)
+  const [mcpService] = useState(createMcpFixtureService)
   return (
     <AppShell
       data={homeData}
@@ -58,7 +60,11 @@ export function SettingsPageExample({
       onSelectConversation={() => setOpen(false)}
     >
       {open ? (
-        <ModelSettingsPage service={service} onReturn={() => setOpen(false)} />
+        <ModelSettingsPage
+          service={service}
+          mcpService={mcpService}
+          onReturn={() => setOpen(false)}
+        />
       ) : (
         <div className="p-8">
           <Button onClick={() => setOpen(true)}>打开模型设置</Button>

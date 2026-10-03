@@ -25,7 +25,10 @@ import {
   InputGroupAddon,
 } from "@/components/ui/input-group"
 import type { Material } from "./home-types"
-import { MaterialCandidateList, type MaterialCandidate as Candidate } from "@/features/materials/material-candidate-list"
+import {
+  MaterialCandidateList,
+  type MaterialCandidate as Candidate,
+} from "@/features/materials/material-candidate-list"
 import { useResourceCatalog } from "@/features/materials/use-resource-catalog"
 export type MaterialPickerProps = {
   disabled?: boolean
@@ -56,7 +59,9 @@ export function MaterialPicker({
   const [open, setOpen] = useState(false)
   const [pane, setPane] = useState<"candidates" | "resources">("candidates")
   const [query, setQuery] = useState("")
-  const [inputMode, setInputMode] = useState<"button" | "file" | "skill">("button")
+  const [inputMode, setInputMode] = useState<"button" | "file" | "skill">(
+    "button"
+  )
   const queryRange = useRef({ start: 0, end: 0 })
   const [active, setActive] = useState(0)
   const trigger = useRef<HTMLButtonElement>(null)
@@ -66,17 +71,45 @@ export function MaterialPicker({
   const panel = useRef<HTMLDivElement>(null)
   const [availableHeight, setAvailableHeight] = useState(320)
   const [position, setPosition] = useState({ left: 0, width: 0, bottom: 0 })
-  const resources = useResourceCatalog({ sessionId, cwd: workspacePath, query, enabled: open && (pane === "resources" || inputMode !== "button"), fallback: materials })
-  const available = pane === "resources" ? resources.files : materials
+  const resources = useResourceCatalog({
+    sessionId,
+    cwd: workspacePath,
+    query,
+    enabled: open && (pane === "resources" || inputMode !== "button"),
+    fallback: materials,
+  })
+  const available =
+    inputMode === "file"
+      ? resources.files
+      : inputMode === "skill"
+        ? resources.skills
+        : pane === "resources"
+          ? [...resources.files, ...resources.skills]
+          : materials
   useEffect(() => {
     const textarea = anchorRef?.current?.querySelector("textarea")
     if (!textarea || !onTextChange || disabled) return
     function inspect() {
       const before = textarea!.value.slice(0, textarea!.selectionStart)
       const file = before.match(/(?:^|\s)@([^\s@]*)$/u)
+      const skill = before.match(/^\/(?:skill:)?([a-zA-Z0-9_-]*)$/u)
       if (file) {
-        queryRange.current = { start: before.length - file[1]!.length - 1, end: before.length }
-        setInputMode("file"); setPane("resources"); setQuery(file[1]!); setActive(0); setOpen(true)
+        queryRange.current = {
+          start: before.length - file[1]!.length - 1,
+          end: before.length,
+        }
+        setInputMode("file")
+        setPane("resources")
+        setQuery(file[1]!)
+        setActive(0)
+        setOpen(true)
+      } else if (skill) {
+        queryRange.current = { start: 0, end: before.length }
+        setInputMode("skill")
+        setPane("resources")
+        setQuery(skill[1]!)
+        setActive(0)
+        setOpen(true)
       } else if (inputMode !== "button") setOpen(false)
     }
     textarea.addEventListener("input", inspect)
@@ -128,8 +161,17 @@ export function MaterialPicker({
       if (textarea) {
         const { start, end } = queryRange.current
         const replacement = inputMode === "skill" ? `/skill:${item.name} ` : ""
-        onTextChange(textarea.value.slice(0, start) + replacement + textarea.value.slice(end))
-        requestAnimationFrame(() => textarea.setSelectionRange(start + replacement.length, start + replacement.length))
+        onTextChange(
+          textarea.value.slice(0, start) +
+            replacement +
+            textarea.value.slice(end)
+        )
+        requestAnimationFrame(() =>
+          textarea.setSelectionRange(
+            start + replacement.length,
+            start + replacement.length
+          )
+        )
       }
     }
     setOpen(false)
@@ -150,14 +192,44 @@ export function MaterialPicker({
       group: item.kind === "Skill" ? "Skills" : "文件",
       name: item.name,
       description:
-        item.error || [item.description, item.source].filter(Boolean).join(" · ") ||
+        item.error ||
+        [item.description, item.source].filter(Boolean).join(" · ") ||
         (item.kind === "Skill" ? "项目中的工作说明" : item.name),
       icon: item.kind === "Skill" ? Sparkles : FileText,
-      disabled: item.status === "failed" || selected.some((value) => value.id === item.id || value.source && value.source === item.source && value.type === item.type),
+      disabled:
+        item.status === "failed" ||
+        selected.some(
+          (value) =>
+            value.id === item.id ||
+            (value.source &&
+              value.source === item.source &&
+              value.type === item.type)
+        ),
+      selected: selected.some(
+        (value) =>
+          value.id === item.id ||
+          (value.source &&
+            value.source === item.source &&
+            value.type === item.type)
+      ),
     }))
   const candidates: Candidate[] =
     pane === "resources"
-      ? [...materialRows, ...(inputMode === "skill" && onInsert ? [{ id: "compact", group: "内置命令", name: "压缩当前上下文 · compact", description: "填写 /compact 后打开压缩表单", icon: Terminal, text: "/compact " }] : [])]
+      ? [
+          ...materialRows,
+          ...(inputMode === "skill" && onInsert
+            ? [
+                {
+                  id: "compact",
+                  group: "内置命令",
+                  name: "压缩当前上下文 · compact",
+                  description: "填写 /compact 后打开压缩表单",
+                  icon: Terminal,
+                  text: "/compact ",
+                },
+              ]
+            : []),
+        ]
       : [
           {
             id: "attachment",
@@ -210,10 +282,11 @@ export function MaterialPicker({
   )
   function activate(item: Candidate) {
     if (item.id === "attachment") {
-      if (onChooseAttachments) { setOpen(false); void onChooseAttachments() }
-      else fileInput.current?.click()
-    }
-    else if (item.id === "resources") {
+      if (onChooseAttachments) {
+        setOpen(false)
+        void onChooseAttachments()
+      } else fileInput.current?.click()
+    } else if (item.id === "resources") {
       setPane("resources")
       setActive(0)
       setQuery("")
@@ -225,6 +298,12 @@ export function MaterialPicker({
   }
   function handleKey(event: KeyboardEvent) {
     if (event.isComposing) return
+    if (
+      event.target instanceof Element &&
+      event.target.closest("button") &&
+      !event.target.closest("[data-candidate-index]")
+    )
+      return
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault()
       const enabled = rows
@@ -323,7 +402,7 @@ export function MaterialPicker({
         size="icon-xs"
         className="size-7 rounded-full bg-background"
         aria-label="添加附件或 Skill"
-      disabled={disabled || choosing}
+        disabled={disabled || choosing}
         title={choosing ? "正在选择附件…" : "添加附件或 Skill"}
         aria-expanded={open}
         aria-controls={open ? id : undefined}
@@ -378,7 +457,27 @@ export function MaterialPicker({
                 </InputGroup>
               </div>
             )}
-            <MaterialCandidateList id={id} rows={rows} active={active} listRef={list} maxHeight={Math.max(64, Math.min(320, availableHeight - 8 - (pane === "resources" && inputMode === "button" ? 54 : 0)))} loading={pane === "resources" && resources.loading} error={pane === "resources" ? resources.error : undefined} diagnostics={pane === "resources" ? resources.diagnostics : []} onRetry={resources.retry} onActive={setActive} onSelect={activate} />
+            <MaterialCandidateList
+              id={id}
+              rows={rows}
+              active={active}
+              listRef={list}
+              maxHeight={Math.max(
+                64,
+                Math.min(
+                  320,
+                  availableHeight -
+                    8 -
+                    (pane === "resources" && inputMode === "button" ? 54 : 0)
+                )
+              )}
+              loading={pane === "resources" && resources.loading}
+              error={pane === "resources" ? resources.error : undefined}
+              diagnostics={pane === "resources" ? resources.diagnostics : []}
+              onRetry={resources.retry}
+              onActive={setActive}
+              onSelect={activate}
+            />
           </div>,
           document.body
         )}

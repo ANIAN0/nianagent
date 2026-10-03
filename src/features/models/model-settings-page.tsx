@@ -4,6 +4,8 @@ import { ArrowLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ConnectionList } from "./connection-list"
 import { ConnectionEditor, type LeaveGuard } from "./connection-editor"
+import { McpSettings } from "@/features/mcp/mcp-settings"
+import type { McpService } from "@/features/mcp/mcp-service"
 import { AddConnectionDialog } from "./add-connection-dialog"
 import {
   SettingsConfirmDialog,
@@ -18,17 +20,20 @@ import {
 
 export type ModelSettingsPageProps = {
   service: ModelService
+  mcpService?: McpService
   onReturn: () => void
   onConnectionsChange?: (connections: ModelConnection[]) => void
   registerLeave?: (guard: LeaveGuard | null) => void
 }
 export function ModelSettingsPage({
   service,
+  mcpService,
   onReturn,
   onConnectionsChange,
   registerLeave,
 }: ModelSettingsPageProps) {
   const [connections, setConnections] = useState<ModelConnection[]>([])
+  const [section, setSection] = useState<"models" | "mcp">("models")
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [revision, setRevision] = useState(0)
@@ -117,15 +122,37 @@ export function ModelSettingsPage({
         <h2>模型与执行</h2>
         <Button
           variant="ghost"
-          aria-current="page"
+          aria-current={section === "models" ? "page" : undefined}
           className="w-full justify-start"
-          onClick={() => leave(() => closeEditor())}
+          onClick={() =>
+            leave(() => {
+              setSection("models")
+              closeEditor()
+            })
+          }
         >
           模型连接
         </Button>
+        <Button
+          variant="ghost"
+          aria-current={section === "mcp" ? "page" : undefined}
+          className="w-full justify-start"
+          onClick={() => {
+            if (section !== "mcp")
+              leave(() => {
+                setSection("mcp")
+                closeEditor()
+              })
+          }}
+        >
+          MCP 服务
+        </Button>
       </nav>
       <div className="model-settings-content">
-        {editor ? (
+        {section === "mcp" ? (
+          <McpSettings service={mcpService} registerLeave={storeGuard} />
+        ) : null}
+        {section === "models" && editor ? (
           <ConnectionEditor
             key={editor.id}
             initial={editor}
@@ -165,7 +192,9 @@ export function ModelSettingsPage({
             }}
           />
         ) : null}
-        <div className={editor ? "hidden" : "model-scroll"}>
+        <div
+          className={editor || section !== "models" ? "hidden" : "model-scroll"}
+        >
           {notice && (
             <p className="model-page-notice" role="status">
               {notice}

@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "1.0.0",
+    "@earendil-works/pi-mcp": "1.0.0",
     "@shadcn/react": "^0.3.1",
     "@tailwindcss/vite": "^4",
     "@tauri-apps/api": "^2.12.0",

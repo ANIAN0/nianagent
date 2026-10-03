@@ -20,8 +20,16 @@ import {
   getAgentDir,
   getShellConfig,
   getPowerShellConfig,
+  createCodemodeExtension,
+  createToolSearchExtension,
+  createMcpExtension,
 } from "@earendil-works/pi-coding-agent"
 import { assertSchema, schemas } from "./schema.mjs"
+import {
+  createMcpTransport,
+  recordNestedMcpResult,
+  safeMcpError,
+} from "./mcp.mjs"
 
 const names = {
   read: "读取文件",
@@ -59,6 +67,7 @@ export class SessionService {
     this.closed = false
     this.gates = new Map()
     this.resources = new WeakMap()
+    this.closing = new Set()
   }
   async exclusive(sessionId, action) {
     const previous = this.gates.get(sessionId) || Promise.resolve()
@@ -234,7 +243,44 @@ export class SessionService {
     this.ensureOpen()
     signal?.throwIfAborted()
     const settingsManager = SettingsManager.inMemory({ cacheWarming: "off" })
-    const instructionState = { files: instructions }
+    const mcpEnabled = !!options.sessionManager
+    const mcp = this.models.mcp
+    const mcpSnapshot = mcp
+      ? await mcp.sessionEntries(toolIds)
+      : { servers: [], errors: [] }
+    const mcpTools = mcp ? await mcp.catalog() : []
+    const instructionState = {
+      files: instructions,
+      toolIds: toolIds ? [...toolIds] : undefined,
+      mcpSnapshot,
+      mcpEnabled,
+      mcpStatuses: new Map(),
+      mcpAvailable: new Set(
+        mcpTools.filter((tool) => tool.available).map((tool) => tool.id)
+      ),
+      transports: new Set(),
+      disposed: false,
+    }
+    const owner = randomUUID()
+    const gates = (pi) => {
+      pi.on("tool_call", (event) => {
+        const selected = instructionState.toolIds
+        if (!selected) return
+        const indirect = ["codemode", "tool_search"].includes(event.toolName)
+        if (indirect && selected.some((id) => id.startsWith("mcp__"))) return
+        if (!selected.includes(event.toolName))
+          return { block: true, reason: "此工具未在当前会话中启用。" }
+      })
+      pi.on("session_shutdown", () => instructionState.mcpStatuses.clear())
+      pi.on("tool_result", (event, ctx) =>
+        recordNestedMcpResult(
+          pi,
+          event,
+          ctx,
+          mcp?.toolSource(event.toolName) || "MCP"
+        )
+      )
+    }
     const resourceLoader = new DefaultResourceLoader({
       cwd,
       agentDir: this.agentDir,
@@ -244,7 +290,56 @@ export class SessionService {
       noPromptTemplates: true,
       noThemes: true,
       noContextFiles: true,
-      extensionFactories: options.extensionFactories || [],
+      extensionFactories: [
+        gates,
+        ...(options.extensionFactories || []),
+        ...(mcpEnabled
+          ? [
+              createCodemodeExtension({ mode: "on" }),
+              createToolSearchExtension(),
+              createMcpExtension({
+                loadConfig: () => instructionState.mcpSnapshot,
+                credentials: mcp?.credentials,
+                logPath: join(this.agentDir, "mcp.log"),
+                createTransport: (entry, sessionCwd, authProvider) => {
+                  check(
+                    !instructionState.disposed && !this.closed,
+                    "会话已关闭，不再启动 MCP 服务。"
+                  )
+                  instructionState.mcpStatuses.set(entry.name, {
+                    state: "connecting",
+                    error: "",
+                  })
+                  let transport
+                  try {
+                    transport = createMcpTransport(
+                      entry,
+                      sessionCwd,
+                      authProvider,
+                      (status) =>
+                        instructionState.mcpStatuses.set(entry.name, status)
+                    )
+                  } catch (error) {
+                    instructionState.mcpStatuses.set(entry.name, {
+                      state: "failed",
+                      error: safeMcpError(error, entry.config),
+                    })
+                    throw error
+                  }
+                  instructionState.transports.add(transport)
+                  transport.onClose(() =>
+                    instructionState.transports.delete(transport)
+                  )
+                  return transport
+                },
+                // SDK slash commands must not silently edit Moon's revisioned file.
+                updateConfig: () => {
+                  throw new Error("请在 Moon 的 MCP 服务设置中修改配置。")
+                },
+              }),
+            ]
+          : []),
+      ],
       systemPrompt: "",
       systemPromptOverride: () => undefined,
       appendSystemPrompt: [this.runtimePrompt(cwd)],
@@ -267,27 +362,54 @@ export class SessionService {
       ...(options.model ? { model: options.model } : {}),
       ...(options.thinking ? { thinkingLevel: options.thinking } : {}),
     })
+    const dispose = session.dispose.bind(session)
+    session.dispose = () => {
+      instructionState.disposed = true
+      mcp?.runtime.delete(owner)
+      dispose()
+      const closing = Promise.allSettled(
+        [...instructionState.transports].map((transport) => transport.close())
+      )
+      instructionState.closing = closing
+      this.closing.add(closing)
+      void closing.finally(() => this.closing.delete(closing))
+    }
     try {
       if (options.extensionFactories?.length) await session.bindExtensions({})
       this.ensureOpen()
       signal?.throwIfAborted()
+      if (mcpEnabled) mcp?.runtime.set(owner, instructionState.mcpStatuses)
+      await session.bindExtensions({})
       if (toolIds) {
-        const available = new Set(
-          session.getAllTools().map((tool) => tool.name)
-        )
+        const available = new Set([
+          ...session.getAllTools().map((tool) => tool.name),
+          ...mcpTools.filter((tool) => tool.available).map((tool) => tool.id),
+        ])
         check(new Set(toolIds).size === toolIds.length, "工具选择不能重复。")
         const selected = toolIds.filter(
-          (name) => available.has(name) && !this.availability(name)
+          (name) =>
+            (name.startsWith("mcp__")
+              ? instructionState.mcpAvailable.has(name)
+              : available.has(name)) && !this.availability(name)
         )
         check(
           recover || selected.length === toolIds.length,
           "所选工具已不可用，请重新读取工具目录。"
         )
-        session.setActiveToolsByName(selected)
+        session.setActiveToolsByName(
+          selected.filter((name) => !name.startsWith("mcp__"))
+        )
+        if (mcpEnabled && selected.some((name) => name.startsWith("mcp__")))
+          session.setActiveToolsByName([
+            ...session.getActiveToolNames(),
+            "codemode",
+            "tool_search",
+          ])
         const effective = session.getActiveToolNames()
         check(
-          effective.length === selected.length &&
-            selected.every((name) => effective.includes(name)),
+          selected
+            .filter((name) => !name.startsWith("mcp__"))
+            .every((name) => effective.includes(name)),
           "部分工具未能启用，请重新读取工具目录。"
         )
       }
@@ -301,6 +423,7 @@ export class SessionService {
       return session
     } catch (error) {
       session.dispose()
+      await instructionState.closing
       throw error
     }
   }
@@ -313,15 +436,18 @@ export class SessionService {
       signal?.throwIfAborted()
       return {
         cwd,
-        tools: session.getAllTools().map((tool) => ({
-          id: tool.name,
-          name: names[tool.name] || tool.name,
-          description: descriptions[tool.name] || tool.description,
-          group: "Pi 内置工具",
-          detail: tool.description,
-          available: !this.availability(tool.name),
-          unavailableReason: this.availability(tool.name),
-        })),
+        tools: [
+          ...session.getAllTools().map((tool) => ({
+            id: tool.name,
+            name: names[tool.name] || tool.name,
+            description: descriptions[tool.name] || tool.description,
+            group: "Pi 内置工具",
+            detail: tool.description,
+            available: !this.availability(tool.name),
+            unavailableReason: this.availability(tool.name),
+          })),
+          ...(this.models.mcp ? await this.models.mcp.catalog() : []),
+        ],
         instructions,
         defaults: {
           toolIds: session.getActiveToolNames(),
@@ -337,27 +463,29 @@ export class SessionService {
     signal?.throwIfAborted()
     // Discovery does not start a model/session or executable extensions. Merge
     // resources already registered on a live session (e.g. package Skills).
+    const live = this.active.get(sessionId)?.session?.resourceLoader?.getSkills()
     const loader = new DefaultResourceLoader({
       cwd, agentDir: this.agentDir,
       settingsManager: SettingsManager.inMemory({ cacheWarming: "off" }),
       noExtensions: true, noSkills: false, noPromptTemplates: true,
       noThemes: true, noContextFiles: true,
+      additionalSkillPaths: (live?.skills ?? []).filter((skill) => skill.sourceInfo?.origin === "package").map((skill) => skill.filePath),
     })
     await loader.reload()
     signal?.throwIfAborted()
     const found = loader.getSkills()
-    const live = this.active.get(sessionId)?.session?.resourceLoader?.getSkills()
-    const skills = [...found.skills]
-    for (const skill of live?.skills ?? [])
-      if (!skills.some((item) => item.filePath === skill.filePath)) skills.push(skill)
-    return { skills, diagnostics: [...found.diagnostics, ...(live?.diagnostics ?? [])] }
+    return found
   }
   snapshot(record, session) {
     const registered = new Set(session.getAllTools().map((tool) => tool.name))
+    const resource = this.resources.get(session)
+    const configured = resource?.mcpAvailable || new Set()
     const available = record.toolIds.filter(
-      (name) => registered.has(name) && !this.availability(name)
+      (name) =>
+        (name.startsWith("mcp__")
+          ? configured.has(name)
+          : registered.has(name)) && !this.availability(name)
     )
-    if (session.isIdle) session.setActiveToolsByName(available)
     return {
       ...record,
       effectiveToolIds: session.getActiveToolNames(),
@@ -478,6 +606,9 @@ export class SessionService {
     let live
     let oldInstructions
     let oldTools
+    let oldSelection
+    let oldMcp
+    let oldAvailable
     try {
       this.ensureOpen()
       signal?.throwIfAborted()
@@ -530,9 +661,24 @@ export class SessionService {
         check(resource, "会话资源不可用，请重新打开会话。")
         oldInstructions = resource.files
         oldTools = live.session.getActiveToolNames()
+        oldSelection = resource.toolIds
+        oldMcp = resource.mcpSnapshot
+        oldAvailable = resource.mcpAvailable
+        resource.toolIds = [...toolIds]
+        resource.mcpSnapshot = await this.models.mcp.sessionEntries(toolIds)
+        resource.mcpAvailable = new Set(
+          (await this.models.mcp.catalog())
+            .filter((tool) => tool.available)
+            .map((tool) => tool.id)
+        )
         resource.files = instructions
         await live.session.reload()
-        live.session.setActiveToolsByName(toolIds)
+        live.session.setActiveToolsByName([
+          ...toolIds.filter((name) => !name.startsWith("mcp__")),
+          ...(toolIds.some((name) => name.startsWith("mcp__"))
+            ? ["codemode", "tool_search"]
+            : []),
+        ])
         signal?.throwIfAborted()
         this.ensureOpen()
       }
@@ -555,6 +701,9 @@ export class SessionService {
       try {
         if (!committed && live?.persistent && oldInstructions) {
           this.resources.get(live.session).files = oldInstructions
+          this.resources.get(live.session).toolIds = oldSelection
+          this.resources.get(live.session).mcpSnapshot = oldMcp
+          this.resources.get(live.session).mcpAvailable = oldAvailable
           await live.session.reload()
           live.session.setActiveToolsByName(oldTools)
         }
@@ -567,9 +716,66 @@ export class SessionService {
       }
     }
   }
-  close() {
+  async refreshForRunExclusive(sessionId, signal) {
+    const live = this.active.get(sessionId)
+    if (!live?.persistent || !this.models.mcp) return
+    check(
+      !live.busy && live.session.isIdle,
+      "会话正在执行，不能重载 MCP 配置。"
+    )
+    signal?.throwIfAborted()
+    const resource = this.resources.get(live.session)
+    const snapshot = await this.models.mcp.sessionEntries(resource.toolIds)
+    const available = new Set(
+      (await this.models.mcp.catalog())
+        .filter((tool) => tool.available)
+        .map((tool) => tool.id)
+    )
+    const unavailable = (resource.toolIds || []).filter(
+      (id) => id.startsWith("mcp__") && !available.has(id)
+    )
+    if (snapshot.fingerprint !== resource.mcpSnapshot.fingerprint) {
+      const previous = resource.mcpSnapshot
+      const oldAvailable = resource.mcpAvailable
+      const oldTools = live.session.getActiveToolNames()
+      resource.mcpSnapshot = snapshot
+      resource.mcpAvailable = available
+      try {
+        // Reload first: deleted/disabled services must close even when their old
+        // selection now blocks sending. The user selection remains unchanged.
+        await live.session.reload()
+        signal?.throwIfAborted()
+        live.session.setActiveToolsByName([
+          ...(resource.toolIds || []).filter(
+            (name) => !name.startsWith("mcp__")
+          ),
+          ...((resource.toolIds || []).some(
+            (name) => name.startsWith("mcp__") && available.has(name)
+          )
+            ? ["codemode", "tool_search"]
+            : []),
+        ])
+      } catch (error) {
+        resource.mcpSnapshot = previous
+        resource.mcpAvailable = oldAvailable
+        await live.session.reload()
+        live.session.setActiveToolsByName(oldTools)
+        throw error
+      }
+    }
+    check(
+      !unavailable.length,
+      "已选择的 MCP 工具已停用、删除或失效，请在会话配置中取消后重试。"
+    )
+  }
+  async close() {
     this.closed = true
-    for (const { session } of this.active.values()) session.dispose()
+    const entries = [...this.active.values()]
+    for (const { session } of entries) session.dispose()
+    await Promise.allSettled(
+      entries.map(({ session }) => this.resources.get(session)?.closing)
+    )
+    await Promise.allSettled([...this.closing])
     this.active.clear()
   }
 }

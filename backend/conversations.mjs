@@ -1,6 +1,7 @@
 import { mkdir, readFile } from "node:fs/promises"
 import { join, resolve, relative, isAbsolute } from "node:path"
 import { randomUUID, createHash } from "node:crypto"
+import { nestedMcpTools, mcpResultsIndex } from "./mcp.mjs"
 import {
   CURRENT_SESSION_VERSION,
   parseSessionEntries,
@@ -770,6 +771,7 @@ export class ConversationService {
     const materialInputs = new WeakMap()
     let nextMaterials
     const history = this.toolHistory(branch)
+    const nestedResults = mcpResultsIndex(branch)
     const cancellation = this.cancellations(state, branch, history)
     const entriesByMessage = new Map()
     branch.forEach((entry, historyIndex) => {
@@ -878,7 +880,7 @@ export class ConversationService {
             const tool = {
               id: part.id,
               name: part.name,
-              source: "Pi",
+              source: this.models.mcp?.toolSource(part.name) || "Pi",
               status,
               input: JSON.stringify(part.arguments, null, 2) || "{}",
               result: result
@@ -888,6 +890,19 @@ export class ConversationService {
             }
             tools.push(tool)
             blocks.push({ id: `${id}-${index}`, type: "tool", tool })
+            for (const nested of nestedMcpTools(
+              result,
+              nestedResults,
+              call,
+              (name) => this.models.mcp?.toolSource(name)
+            )) {
+              tools.push(nested)
+              blocks.push({
+                id: `${id}-${index}-${nested.id}`,
+                type: "tool",
+                tool: nested,
+              })
+            }
           }
         }
         if (tools.length) item.tools = tools
@@ -1074,8 +1089,8 @@ export class ConversationService {
         input.thinking,
         signal
       )
-      input.preparedMaterials = input.materials?.length ? await this.models.materials.resolveForPrompt({
-        sessionId: input.sessionId, cwd, materials: input.materials ?? [],
+      input.preparedMaterials = input.materials?.length || input.text.startsWith("/skill:") ? await this.models.materials.resolveForPrompt({
+        sessionId: input.sessionId, cwd, materials: input.materials ?? [], text: input.text,
         model: selected.model, signal,
       }) : { textPrefix: "", images: [], displayMaterials: [] }
       let config = await this.sessions.readExclusive(input.sessionId, signal)
@@ -1212,7 +1227,7 @@ export class ConversationService {
           { triggerTurn: true }
         )
       else
-        await state.session.prompt((input.preparedMaterials?.textPrefix ?? "") + (input.text || "请处理所附材料。"), {
+        await state.session.prompt((input.preparedMaterials?.textPrefix ?? "") + ((input.preparedMaterials?.text ?? input.text) || "请处理所附材料。"), {
           images: input.preparedMaterials?.images ?? [],
           expandPromptTemplates: false,
           preflightResult: () => {
@@ -1243,6 +1258,8 @@ export class ConversationService {
           state.toolProgress.clear()
           try {
             state.manager = await this.fileManager(state.record)
+            try { await this.queue.reconcile(state) }
+            catch { state.queueError = "历史已核对，但待处理状态保存失败；请检查磁盘与权限后重试。" }
           } catch (error) {
             // Preserve the file, including any partial write. A later read/send
             // validates it again; never reuse Pi's uncertain in-memory entries.

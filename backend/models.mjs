@@ -9,6 +9,7 @@ import { AuthorizationJobs } from "./oauth.mjs"
 import { dispatchOperation, assertSchema, schemas } from "./contract.mjs"
 import { SessionService } from "./sessions.mjs"
 import { MaterialService } from "./materials.mjs"
+import { McpService } from "./mcp.mjs"
 import { matchModel } from "./model-metadata.mjs"
 
 const apis = ["openai-responses", "openai-completions", "anthropic-messages"]
@@ -150,6 +151,7 @@ export class ModelService {
   constructor(directory) {
     this.store = new ModelStore(directory)
     this.jobs = new AuthorizationJobs(this)
+    this.mcp = new McpService(directory)
     this.sessions = new SessionService(directory, this)
     this.materials = new MaterialService(directory, this.sessions)
     this.workspaces = new WorkspaceService(directory)
@@ -547,7 +549,8 @@ export class ModelService {
     this.jobs.close()
     this.workspaces.close()
     await this.conversations.close()
-    this.sessions.close()
+    await this.sessions.close()
+    await this.mcp.close()
   }
 }
 function pickModel(model) {

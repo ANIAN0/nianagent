@@ -1,4 +1,5 @@
 import type { ModelPickerCatalog } from "./model-picker"
+import type { MaterialReference } from "@/features/models/model-contract.generated"
 export type Workspace = {
   id: string
   name: string
@@ -20,19 +21,10 @@ export type Conversation = {
   message?: string
   status?: ConversationStatus
 }
-export type Material = {
-  id: string
-  name: string
-  kind: "附件" | "Skill"
-  description?: string
-  type?: "file" | "image" | "skill"
-  status?: "preparing" | "ready" | "failed"
-  source?: string
-  mimeType?: string
-  bytes?: number
-  error?: string
-  thumbnail?: string
-}
+// Display fixtures may omit host fields; RPC preparation supplies the complete
+// authority-generated type. UI caches never become another independent DTO.
+export type Material = Pick<MaterialReference, "id" | "name" | "kind"> &
+  Partial<Omit<MaterialReference, "id" | "name" | "kind">>
 export type HomeTool = {
   available?: boolean
   unavailableReason?: string

@@ -32,6 +32,10 @@ export class ConversationQueue {
     }
     state.queue = queue
     state.queuePrepared = new Map()
+    await this.reconcile(state)
+  }
+  async reconcile(state) {
+    const queue = state.queue
     // A request marker followed by its real user entry is the saved receipt even
     // when the process died between Pi's append and the outbox rename.
     const delivered = new Set()
@@ -46,13 +50,27 @@ export class ConversationQueue {
       else if (item.status === "dispatching") { item.status = "failed"; item.error = "上次交付未完成；已核对历史，确认后可继续发送此消息。"; changed = true }
     }
     if (queue.items.some(active)) { queue.paused = true; changed = true }
-    if (changed) await this.save(state)
+    if (changed) {
+      queue.revision++
+      state.queuePrepared.clear()
+      await this.save(state)
+    }
+  }
+  serialize(state, action) {
+    const id = state.record.id
+    const previous = this.writes.get(id) || Promise.resolve()
+    const writing = previous.catch(() => {}).then(action)
+    this.writes.set(id, writing)
+    return writing.finally(() => { if (this.writes.get(id) === writing) this.writes.delete(id) })
   }
   save(state, signal) {
-    const id = state.record.id
-    const data = JSON.stringify(state.queue, null, 2)
-    const previous = this.writes.get(id) || Promise.resolve()
-    const writing = previous.catch(() => {}).then(async () => {
+    // Capture only after preceding mutations have committed or rolled back.
+    // A Pi receipt must not persist an uncommitted edit/mode candidate.
+    return this.serialize(state, () => this.write(state, signal))
+  }
+  async write(state, signal) {
+      const id = state.record.id
+      const data = JSON.stringify(state.queue, null, 2)
       await mkdir(this.directory, { recursive: true, mode: 0o700 })
       const temporary = join(this.directory, `.${id}-${randomUUID()}.tmp`)
       try {
@@ -61,9 +79,6 @@ export class ConversationQueue {
         signal?.throwIfAborted()
         await rename(temporary, join(this.directory, `${id}.json`))
       } finally { await rm(temporary, { force: true }) }
-    })
-    this.writes.set(id, writing)
-    return writing.finally(() => { if (this.writes.get(id) === writing) this.writes.delete(id) })
   }
   snapshot(state) {
     const queue = state.queue
@@ -72,10 +87,11 @@ export class ConversationQueue {
   }
   pending(state) { return !!state.queue?.items.some(active) }
   async commit(state, change, signal) {
+    return this.serialize(state, async () => {
     const before = structuredClone(state.queue)
     change(state.queue)
     state.queue.revision++
-    try { await this.save(state, signal) }
+    try { await this.write(state, signal) }
     catch (error) {
       // Pi can persist a dispatched user entry while this file write awaits IO.
       // Rolling that receipt back would resurrect an already delivered message.
@@ -92,6 +108,7 @@ export class ConversationQueue {
       throw error
     }
     this.conversations.touch(state)
+    })
   }
   async enqueue(state, input, signal) {
     check(!state.controlBusy && !state.stopRequested && state.phase === "running", "会话暂不能排队，请等待控制操作结束。")

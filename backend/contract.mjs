@@ -4,12 +4,14 @@ import { conversationOperations } from "./conversation-contract.mjs"
 import { materialOperations } from "./material-contract.mjs"
 import { queueOperations } from "./queue-contract.mjs"
 import { controlOperations } from "./conversation-control-contract.mjs"
+import { mcpOperations } from "./mcp-contract.mjs"
 import { schemas, object, ref, assertSchema } from "./schema.mjs"
 export { schemas, assertSchema } from "./schema.mjs"
 // Authority for RPC names, required input fields, documentation and dispatch.
 export const operations = {
   ...queueOperations,
   ...materialOperations,
+  ...mcpOperations,
   ...workspaceOperations,
   ...catalogOperations,
   ...conversationOperations,
@@ -24,9 +26,9 @@ export const operations = {
     input: ["cwd"],
     result: "SessionCatalog",
     condition:
-      "空 cwd 使用服务当前目录；显式路径必须为存在的绝对目录；只读，可取消；使用 Pi 发现规则，只注册内置工具，不执行工具、插件或模型调用。",
+      "空 cwd 使用服务当前目录；显式路径必须为存在的绝对目录；只读，可取消；读取 Pi 内置工具及已验证的 MCP 工具缓存，不连接 MCP 服务、不执行工具或模型调用。",
     errors: "目录无效、指令文件读取失败、Pi 初始化失败。",
-    effect: "读取工具和指令，不保存会话配置。",
+    effect: "读取工具和指令及实际 MCP 目录验证记录，不保存会话配置。",
     example: { cwd: "H:/workspace/moon" },
   },
   sessionRead: {
@@ -75,7 +77,7 @@ export const operations = {
         toolIds: {
           type: "array",
           items: { type: "string", minLength: 1 },
-          maxItems: 32,
+          maxItems: 1024,
         },
         instructionScope: ref("InstructionScope"),
         revision: { type: "integer", minimum: 1 },

@@ -84,17 +84,29 @@ export function ConversationComposer({
   }
   const hasDraft = !!draft.text.trim() || draft.materials.length > 0
   const materialController = useComposerMaterials({
-    sessionId, cwd: workspacePath, anchorRef, materials: draft.materials,
+    sessionId,
+    cwd: workspacePath,
+    anchorRef,
+    materials: draft.materials,
     update: (apply) => {
-      const next = { ...latest.current, materials: apply(latest.current.materials) }
+      const next = {
+        ...latest.current,
+        materials: apply(latest.current.materials),
+      }
       latest.current = next
       onChange(next)
     },
   })
   const valid =
     hasDraft &&
+    materialController.ready &&
     materialsReady(draft.materials) &&
-    !draft.materials.some((item) => item.type === "image" && data.modelInputs && !data.modelInputs[draft.model]?.includes("image")) &&
+    !draft.materials.some(
+      (item) =>
+        item.type === "image" &&
+        data.modelInputs &&
+        !data.modelInputs[draft.model]?.includes("image")
+    ) &&
     data.models.includes(draft.model) &&
     !stopping &&
     !blocked &&
@@ -147,7 +159,17 @@ export function ConversationComposer({
                 }}
               />
               <SelectedMaterials
-                materials={draft.materials.map((item) => item.type === "image" && data.modelInputs && !data.modelInputs[draft.model]?.includes("image") ? { ...item, status: "failed", error: "当前模型不支持图片，请更换模型或移除。" } : item)}
+                materials={draft.materials.map((item) =>
+                  item.type === "image" &&
+                  data.modelInputs &&
+                  !data.modelInputs[draft.model]?.includes("image")
+                    ? {
+                        ...item,
+                        status: "failed",
+                        error: "当前模型不支持图片，请更换模型或移除。",
+                      }
+                    : item
+                )}
                 cwd={workspacePath}
                 onRemove={(id) =>
                   change({
@@ -160,6 +182,7 @@ export function ConversationComposer({
                 className="@container gap-1.5 px-3 pt-2 pb-3"
               >
                 <MaterialPicker
+                  key={`${sessionId}:${workspacePath}`}
                   disabled={data.materialsEnabled === false}
                   anchorRef={anchorRef}
                   materials={data.materials}
@@ -175,7 +198,11 @@ export function ConversationComposer({
                   sessionId={sessionId}
                   workspacePath={workspacePath}
                   onTextChange={(text) => change({ text })}
-                  onChooseAttachments={materialController.service ? materialController.choose : undefined}
+                  onChooseAttachments={
+                    materialController.service
+                      ? materialController.choose
+                      : undefined
+                  }
                   choosing={materialController.choosing}
                 />
                 <div className="flex-1" />
@@ -204,7 +231,11 @@ export function ConversationComposer({
                   running={running}
                   stopping={stopping}
                   hasDraft={hasDraft}
-                  disabled={blocked || !data.models.includes(draft.model) || !valid && hasDraft}
+                  disabled={
+                    blocked ||
+                    !data.models.includes(draft.model) ||
+                    (!valid && hasDraft)
+                  }
                   onStop={onStop}
                 />
               </InputGroupAddon>
@@ -212,7 +243,11 @@ export function ConversationComposer({
           </Field>
         </FieldGroup>
       </form>
-      {materialController.error && <p role="alert" className="mt-2 text-xs text-destructive">{materialController.error}</p>}
+      {materialController.error && (
+        <p role="alert" className="mt-2 text-xs text-destructive">
+          {materialController.error}
+        </p>
+      )}
       {context && (
         <div className="conversation-context-slot">
           {onDeliveryModeChange && <QueueDeliveryControl mode={deliveryMode} disabled={blocked || stopping} onChange={onDeliveryModeChange} />}
