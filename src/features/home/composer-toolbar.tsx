@@ -11,6 +11,7 @@ export type ComposerToolbarProps = {
   data: Pick<
     HomeData,
     | "materials"
+    | "materialsEnabled"
     | "models"
     | "modelLabels"
     | "modelThinking"
@@ -40,6 +41,7 @@ export function ComposerToolbar({
       className="@container gap-1.5 px-3 pt-2 pb-3"
     >
       <MaterialPicker
+        disabled={data.materialsEnabled === false}
         anchorRef={anchorRef}
         onInsert={(text) =>
           onChange({ text: draft.text ? `${draft.text}\n${text}` : text })

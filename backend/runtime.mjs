@@ -11,6 +11,7 @@ import {
 import { join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 import lockfile from "proper-lockfile"
+import { readJsonBody } from "./http-body.mjs"
 
 export async function runtimeVersion() {
   const dir = dirname(fileURLToPath(import.meta.url))
@@ -68,15 +69,11 @@ export async function startRuntime(file, dispatch, publicError) {
       if (!res.writableEnded) controller.abort()
     })
     try {
-      let body = ""
-      for await (const chunk of req) {
-        body += chunk
-        if (Buffer.byteLength(body) > 1024 * 1024) throw new Error("请求过大。")
-      }
+      const input = await readJsonBody(req)
       const operation = req.url.slice("/api/models/".length).split("?")[0]
       const result = await dispatch(
         operation,
-        JSON.parse(body),
+        input,
         controller.signal
       )
       if (!res.destroyed) res.end(JSON.stringify({ result }))

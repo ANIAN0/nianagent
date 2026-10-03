@@ -17,6 +17,192 @@ export type WorkspaceList = {
   /** 上次选中的工作区，失效时仍保留标识 */
   selectedId: string | null
 }
+export type ConversationSummary = {
+  /** 稳定会话标识 */
+  id: string
+  /** 工作区稳定标识 */
+  workspaceId: string
+  /** 会话固定工作目录的绝对路径 */
+  cwd: string
+  /** 首条用户消息生成的会话标题 */
+  title: string
+  /** 创建时间，ISO 8601 */
+  createdAt: string
+  /** 最后内容或运行状态变化时间；标记已读不改变排序 */
+  updatedAt: string
+  /** 后端真实运行状态；未读状态由 unread 单独表达 */
+  status: "idle" | "running" | "stopping" | "completed" | "failed"
+  /** 是否有尚未读取的运行结果 */
+  unread: boolean
+  /** 单调递增版本；已读更新不覆盖较新的结果 */
+  revision: number
+  /** 最后使用的 Moon 模型选择标识 */
+  modelId: string
+  /** 最后使用的 Pi 思考等级 */
+  thinking: string
+  /** 最近消息摘要，最多 2000 字符 */
+  lastMessage: string
+  /** 最后一次运行错误；正常时为空 */
+  lastError: string
+  /** 当前或最后一次运行标识；尚未运行时为空 */
+  runId: string
+}
+export type ConversationFilter = {
+  /** 可选工作区标识 */
+  workspaceId?: string
+  /** 标题、工作目录或最近消息关键词；忽略大小写 */
+  query?: string
+}
+export type ConversationChatTool = {
+  /** Pi toolCallId */
+  id: string
+  /** 工具名称 */
+  name: string
+  /** 工具来源 */
+  source: string
+  /** 实际执行状态 */
+  status: "running" | "success" | "failed" | "stopped" | "not-run"
+  /** 序列化工具输入 */
+  input: string
+  /** 实际工具结果 */
+  result: string
+  /** Pi shell 实际退出码，0 是成功；未返回时省略，不从文本推断 */
+  exitCode?: number
+  /** Pi shell 实际 wall_time_seconds 换算为毫秒；未返回时省略 */
+  durationMs?: number
+}
+export type ConversationRuntime = {
+  /** 本次回复的实时执行阶段；只在 running 返回，不代表任务验收结果 */
+  phase: "responding" | "tool" | "retrying" | "compacting"
+  /** 阶段发生时的 ISO 时间 */
+  updatedAt: string
+  /** 当前运行的 Pi 工具名称 */
+  toolName?: string
+  /** Pi 当前自动重试次数 */
+  attempt?: number
+  /** Pi 本次自动重试上限 */
+  maxAttempts?: number
+  /** Pi 重试等待结束的 ISO 时间；等待结束后下一次事件更新阶段 */
+  retryAt?: string
+  /** 固定安全原因，不包含提供者原始响应或凭据 */
+  reason?: string
+  /** 自动重试属于回复请求还是上下文压缩 */
+  retrySource?: "response" | "compaction"
+}
+export type ConversationChatMessage = {
+  /** 由 Pi 消息时间和顺序生成的稳定展示标识 */
+  id: string
+  /** 消息角色 */
+  role: "user" | "assistant"
+  /** 消息文本 */
+  text: string
+  /** ISO 时间 */
+  time: string
+  /** 实际模型 */
+  model?: string
+  /** 消息状态 */
+  status: "sending" | "streaming" | "settled" | "interrupted" | "failed"
+  /**  */
+  thinking?: {
+    /** Pi 实际返回的思考内容 */
+    text: string
+  }
+  /**  */
+  tools?: ConversationChatTool[]
+  /**  */
+  blocks?: (
+    | {
+        /** 内容标识 */
+        id: string
+        /**  */
+        type: "text"
+        /** 文本 */
+        text: string
+      }
+    | {
+        /** 内容标识 */
+        id: string
+        /**  */
+        type: "tool"
+        /**  */
+        tool: ConversationChatTool
+      }
+  )[]
+}
+export type ConversationSnapshot = {
+  /** 稳定的业务会话/请求标识 */
+  id: string
+  /** 会话标题 */
+  title: string
+  /** 稳定的业务会话/请求标识 */
+  workspaceId: string
+  /** 真实工作目录 */
+  cwd: string
+  /** 当前宿主单调更新版本，结合 epoch 判断新宿主 */
+  version: number
+  /** 宿主启动标识 */
+  epoch: string
+  /** 最后接受的客户端请求标识；空会话为空 */
+  clientRequestId: string
+  /** 仅在 Pi 持久化方法成功返回后确认用户消息（或继续指令）已接受；消息事件本身不代表保存成功。该输入写入失败时返回 false、保留草稿，明确重发使用新请求标识；相同标识不重复执行。 */
+  inputAccepted: boolean
+  /** 本次或最后一次运行标识 */
+  runId: string
+  /** 真实回复运行状态；completed 仅表示本轮运行结束，不代表用户任务验收成功 */
+  phase:
+    "idle" | "running" | "stopping" | "completed" | "failed" | "interrupted"
+  /** 连接 ID/模型 ID 的选择值 */
+  modelId: string
+  /** 模型连接 ID */
+  connectionId: string
+  /** 服务端模型 ID */
+  providerModelId: string
+  /** Pi 原生思考等级；不支持思考的模型只能使用 off */
+  thinking: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
+  /** 错误说明，成功为空 */
+  error: string
+  /**  */
+  messages: ConversationChatMessage[]
+  /**  */
+  runtime?: ConversationRuntime
+  /**  */
+  notice?: {
+    /** 非阻断执行提醒 */
+    kind: "compaction-failed"
+    /** 安全说明；不把压缩失败等同任务失败 */
+    message: string
+    /** 提醒发生时的 ISO 时间 */
+    occurredAt: string
+    /** 此提醒所属回复运行标识；新回复清除旧提醒 */
+    runId: string
+  }
+  /**  */
+  context?: {
+    /** Pi getContextUsage 提供的上下文 token 估算，不等同完整请求或精确计费 */
+    usedTokens: number
+    /** 当前模型上下文上限 */
+    contextWindow: number
+    /** 统计的权威来源 */
+    source?: "pi-context-estimate"
+    /** Pi 统计为上下文估算，正式实现为 true */
+    estimated?: boolean
+    /** 统计读取时点的 ISO 时间 */
+    observedAt?: string
+    /** true 表示从正式历史恢复的已记录统计，并非当前实时请求 */
+    restored?: boolean
+  }
+  /**  */
+  contextState?: {
+    /** 未知用量的原因分类；不会同时返回 context */
+    status: "awaiting-response" | "unavailable"
+    /** 已知的模型上下文上限 */
+    contextWindow?: number
+    /** 未知状态确认时点的 ISO 时间 */
+    observedAt: string
+    /** 未知用量的安全说明 */
+    reason: string
+  }
+}
 export type InstructionScope = "all" | "directory" | "none"
 export type SessionTool = {
   /** Pi 注册工具名 */
@@ -238,6 +424,60 @@ export type RpcRequests = {
     id: string
   }
   workspaceChoose: Record<string, never>
+  conversationList: {
+    /**  */
+    filter?: ConversationFilter
+  }
+  conversationInfo: {
+    /** 稳定会话标识 */
+    id: string
+  }
+  conversationMarkRead: {
+    /** 稳定会话标识 */
+    id: string
+    /** 页面已展示的摘要版本 */
+    revision: number
+  }
+  conversationSend: {
+    /** 稳定的业务会话/请求标识 */
+    sessionId: string
+    /** 稳定的业务会话/请求标识 */
+    workspaceId: string
+    /** 稳定的业务会话/请求标识 */
+    clientRequestId: string
+    /** 本轮用户文本 */
+    text: string
+    /** 连接目录中的精确 ID */
+    connectionId: string
+    /** 模型的精确 ID，允许斜杠 */
+    modelId: string
+    /** Pi 原生思考等级；不支持思考的模型只能使用 off */
+    thinking: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
+  }
+  conversationRead: {
+    /** 稳定的业务会话/请求标识 */
+    sessionId: string
+    /** 可选：客户端已见版本；本版始终返回完整快照 */
+    afterVersion?: number
+  }
+  conversationStop: {
+    /** 稳定的业务会话/请求标识 */
+    sessionId: string
+    /** 稳定的业务会话/请求标识 */
+    runId: string
+  }
+  conversationRetry: {
+    /** 稳定的业务会话/请求标识 */
+    sessionId: string
+    /** 稳定的业务会话/请求标识 */
+    clientRequestId: string
+    /** 连接目录中的精确 ID */
+    connectionId: string
+    /** 模型的精确 ID，允许斜杠 */
+    modelId: string
+    /** Pi 原生思考等级；不支持思考的模型只能使用 off */
+    thinking: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
+  }
   sessionCatalog: {
     /**  */
     cwd: string
@@ -317,6 +557,13 @@ export type RpcResults = {
   workspaceSelect: WorkspaceRecord
   workspaceGet: WorkspaceRecord | null
   workspaceChoose: WorkspaceRecord | null
+  conversationList: ConversationSummary[]
+  conversationInfo: ConversationSummary | null
+  conversationMarkRead: ConversationSummary
+  conversationSend: ConversationSnapshot
+  conversationRead: ConversationSnapshot
+  conversationStop: ConversationSnapshot
+  conversationRetry: ConversationSnapshot
   sessionCatalog: SessionCatalog
   sessionRead: SessionConfiguration | null
   sessionApply: SessionConfiguration

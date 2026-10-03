@@ -1,4 +1,7 @@
 import { WorkspaceService } from "./workspaces.mjs"
+import { ConversationStore } from "./conversation-store.mjs"
+import { ConversationCatalogService } from "./conversation-catalog.mjs"
+import { ConversationService } from "./conversations.mjs"
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai"
 import { ModelRuntime } from "@earendil-works/pi-coding-agent"
 import { ModelStore, memoryCredentials } from "./store.mjs"
@@ -148,9 +151,21 @@ export class ModelService {
     this.jobs = new AuthorizationJobs(this)
     this.sessions = new SessionService(directory, this)
     this.workspaces = new WorkspaceService(directory)
+    this.conversationStore = new ConversationStore(directory)
+    this.conversationCatalog = new ConversationCatalogService(
+      this.conversationStore
+    )
+    this.conversations = new ConversationService(
+      directory,
+      this,
+      this.sessions,
+      this.conversationStore,
+      this.workspaces
+    )
   }
   async initialize() {
     await this.store.initialize()
+    await this.conversationStore.initialize({ recoverInterrupted: true })
   }
   async runtime(connection, credentials = this.store.credentialStore()) {
     const runtime = await ModelRuntime.create({
@@ -526,9 +541,10 @@ export class ModelService {
     return dispatchOperation(this, operation, input, signal)
   }
 
-  close() {
+  async close() {
     this.jobs.close()
     this.workspaces.close()
+    await this.conversations.close()
     this.sessions.close()
   }
 }

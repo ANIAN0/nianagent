@@ -2,7 +2,6 @@ import { createInterface } from "node:readline"
 import { join } from "node:path"
 import { homedir } from "node:os"
 import { startRuntime, runtimeVersion } from "./runtime.mjs"
-import { ModelService } from "./models.mjs"
 import {
   connectDirectoryHost,
   acceptDirectoryReply,
@@ -16,17 +15,34 @@ const directory =
     "Moon",
     "models"
   )
-const service = new ModelService(directory)
+let service
 const pending = new Map()
 // Keep the transport alive even when initialization fails: both native and web
 // callers must receive the actual safe configuration error, not a process hint.
 let initialized
 function ensureInitialized() {
-  initialized ??= service.initialize().catch((error) => {
+  initialized ??= initializeService().catch((error) => {
     initialized = undefined
     throw error
   })
   return initialized
+}
+async function initializeService() {
+  // Publish the transport before loading Pi's large dependency graph. Tauri's
+  // startup handshake must not wait for model libraries or user-data recovery.
+  const { ModelService } = await import("./models.mjs")
+  if (closing) throw new Error("Moon 正在退出。")
+  const candidate = new ModelService(directory)
+  service = candidate
+  try {
+    await candidate.initialize()
+    if (closing) throw new Error("Moon 正在退出。")
+    return candidate
+  } catch (error) {
+    await candidate.close()
+    if (service === candidate) service = undefined
+    throw error
+  }
 }
 const version = await runtimeVersion()
 const inFlight = new Set()
@@ -35,8 +51,10 @@ async function execute(operation, input, signal) {
   if (operation === "$runtime") return runtime?.info ?? { version }
   if ((await runtimeVersion()) !== version)
     throw new Error("模型服务代码已更新，请重启 Moon 后重新读取。")
-  await ensureInitialized()
-  return service.dispatch(operation, input, signal)
+  const ready = await ensureInitialized()
+  signal?.throwIfAborted()
+  if (closing) throw new Error("Moon 正在退出。")
+  return ready.dispatch(operation, input, signal)
 }
 async function dispatch(operation, input, signal) {
   if (closing) throw new Error("Moon 正在退出。")
@@ -95,7 +113,7 @@ input.on("close", async () => {
   closing = true
   closeDirectoryHost()
   for (const controller of pending.values()) controller.abort()
-  await service.close()
+  await service?.close()
   await runtime?.close()
   // Let cancelled writes reach their finally blocks before terminating Node.
   await Promise.allSettled([...inFlight])

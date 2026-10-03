@@ -4,7 +4,7 @@
 
 `backend/models.mjs` 是模型配置的业务入口，负责连接/模型校验、目录发现、Pi 调用检查、配置可用性和稳定身份。自定义连接使用 `moon-<connectionId>` 注册 Pi provider；订阅连接选择 Pi 的真实 provider，每个 provider 仅允许一个订阅连接。连接名和模型显示名都不是身份。
 
-`backend/schema.mjs` 是字段结构与静态约束来源，`backend/contract.mjs` 定义操作、说明及派发绑定。前端 DTO 由契约生成；`backend/models.mjs` 执行依赖业务状态的校验。`/api-catalog/` 直接读取该目录并调用同一个正式服务，不复制后端逻辑。
+`backend/schema.mjs` 和 `backend/contract.mjs` 汇总各功能契约及操作绑定；工作区、会话摘要和对话分别在 `workspace-contract.mjs`、`conversation-catalog-contract.mjs`、`conversation-contract.mjs` 维护结构、约束与说明。前端 DTO 由汇总契约生成，业务模块执行依赖存储状态的校验。`/api-catalog/` 直接读取该目录并调用同一个正式服务，不复制后端逻辑。
 
 ## Pi 运行时和认证
 
@@ -24,18 +24,22 @@ API/环境变量/无凭据切换清除原 stored key；环境变量仅在后端�
 
 Node.js >=22.19 是桌面及开发环境的运行前提。`backend/rpc.mjs` 运行在独立 Node 子进程，同时接收原生 stdin/stdout JSON 行请求及浏览器代理的鉴权回环 HTTP 请求；SDK 不进入 WebView bundle。`src-tauri/src/models.rs` 管理进程、请求分派、超时、取消和退出清理，通过三个 Tauri 命令提供模型 RPC、取消和授权链接打开。
 
-浏览器开发/生产预览通过 Vite `modelBackendPlugin` 同源 POST 转发到同一个 Node RPC；校验 Origin 和 Content-Type，通过实例文件连接Tauri子进程的回环HTTP端口，不创建第二个后端。浏览器不具备 Tauri 能力时仍可完整使用模型配置。单纯托管 dist 不含此本地后端。
+浏览器开发/生产预览通过 Vite `modelBackendPlugin` 同源 POST 转发到同一个 Node RPC；校验 Origin 和 Content-Type，通过实例文件连接 Tauri 子进程的回环 HTTP 端口，不创建第二个后端。模型、工作区、会话目录和对话共用此传输；目录选择请求由 Node 通过宿主能力通道交给 Rust，浏览器不直接调用系统对话框。单纯托管 dist 不含此本地后端。
+
+浏览器代理使用内置 `node:http` 连接回环宿主，显式总等待与原生命令一致：目录选择 610 秒，其他请求 60 秒；目录能力自身 600 秒超时先返回具体选择错误。取消或客户端断开销毁上游请求，沿宿主 HTTP 关闭信号中止同一操作；迟到目录结果不登记，已提交写入不回滚。响应超时与服务断连分开提示，不因用户仍在目录窗中选择就声称宿主已退出。
 
 `pnpm backend:package` 使用 pnpm deploy 生成独立的 `src-tauri/runtime/`（正式构建产物，包含生产依赖），Tauri 将其作为资源打包。当前依赖系统 Node，没有打包 Node 可执行文件；安装目标需要安装满足版本要求的 Node。
 
-## 前端与其余功能
+## 前端状态与展示边界
 
-`src/features/models/model-service.ts` 是正式适配器。组件库继续显式注入 mock service；真实模型页不使用示例密钥、固定账号或内置假连接。已保存可用模型进入首页和对话选择器，删除模型后保留旧选择但禁止发送，不自动替换。模型配置已接入后端，消息生成、会话历史与工具执行仍是原有前端模拟，会话配置已绑定真实 Pi AgentSession；真实消息生成与工具执行尚未接入。
+`src/features/models/model-service.ts` 提供共用 `modelCall` 传输，功能适配器分别位于 models、workspaces、session 和 conversation。`App.tsx` 组合工作区、模型目录、会话摘要及当前对话；`use-live-conversation.ts` 分开保存服务器快照与编辑草稿，轮询不能用服务器数据覆盖用户输入。当前会话正文成功显示后，才以已展示的摘要 revision 标记已读，旧读取不能清掉较新的完成结果。读取错误与发送/停止错误分别维护。
+
+已保存可用模型进入首页和对话选择器；删除模型后保留旧选择但禁止发送，不自动替换。模型能力只由后端 Pi 目录提供，前端统一计算展示和提交的有效思考等级。正式入口提供文本多轮、真实思考/工具结果、停止及继续回复，尚未接入附件、排队、分步问答。组件库显式注入 mock service；`use-conversations.ts`、`mock-conversations.ts` 及 fixtures 只驱动独立展示，不写正式数据或发起模型推理。
 
 
 ## 模型接口契约与目录匹配
 
-`backend/schema.mjs` 定义字段类型、必填项和结构约束；`backend/contract.mjs` 定义操作绑定、输入输出、条件、错误和取消边界。运行时校验请求与响应，接口目录直接展示这些字段。`pnpm contract:generate` 生成前端 DTO 和逐操作类型；`pnpm contract:check` 检查漂移，构建前自动执行。并发版本、授权租约、唯一名称等依赖存储状态的约束仍在业务层执行。
+`backend/schema.mjs` 汇总字段类型、必填项和结构约束；`backend/contract.mjs` 汇总操作绑定、输入输出、条件、错误和取消边界。运行时校验请求与响应，接口目录直接展示这些字段。`pnpm contract:generate` 生成前端 DTO 和逐操作类型；`pnpm contract:check` 检查漂移，构建前自动执行。并发版本、授权租约、唯一名称等依赖存储状态的约束仍在业务层执行。
 
 发现模型按服务 ID、规范化 ID、命名空间末段及名称匹配当前安装的 Pi 目录。匹配仅补充能力，不修改连接协议或实际模型 ID。优先使用相同端点的来源；多来源仅填入一致字段，思考等级取共同支持且映射一致的部分。冲突和未知字段在界面注明，允许人工确认。Pi 目录描述不等于兼容服务承诺，实际调用仍需检查模型。
 
@@ -43,34 +47,70 @@ Node.js >=22.19 是桌面及开发环境的运行前提。`backend/rpc.mjs` 运�
 
 ## 验收修正后的恢复与选择语义
 
-RPC 初始化失败不会终止进程或永久缓存错误；同一批请求共用初始化，后续请求可在文件修复后重新初始化。存储初始化只读取，不改写已有文档；读取检查连接、凭据与授权租约结构，旧 v1 缺失 authorizations 时只在内存补空对象，真实写事务才持久化。
+RPC 初始化失败不会终止进程或永久缓存错误；同一批请求共用初始化，后续请求可在文件修复后重新初始化。模型凭据存储初始化只读取，不改写已有文档；读取检查连接、凭据与授权租约结构，旧 v1 缺失 authorizations 时只在内存补空对象，真实写事务才持久化。
 
 DirectoryProtocol 是独立的目录协议枚举；ModelApi 仍允许 Pi 提供者使用其调用协议。模型列表由后端 Pi getSupportedThinkingLevels 计算只读 supportedThinkingLevels，前端仅做中文映射。首页与对话共用有效选择计算；不支持的旧思考等级在展示和提交时归一，无思考模型不显示强度入口。
 
 编辑、删除模型及目录补全会使旧检查结果失效。发现与检查提供取消请求，保留草稿；写入期间禁止离开并提示原因。删除确认提供取消请求，随后重新读取目录；传输取消不承诺撤回已经提交的数据，状态读取失败必须提示重新读取。
 
-## 统一模型服务宿主
+## 统一后端宿主
 
-Tauri启动时创建一个RPC子进程，并等待运行就绪握手。该进程拥有唯一ModelService，stdin RPC与回环HTTP共同调用同一dispatch；业务、取消及错误过滤不重复。`backend/runtime.mjs`管理随机端口、令牌、实例ID、源码版本和数据目录运行锁。Vite只读取runtime.json并转发，不能启动服务；无宿主、旧版本和断连均明确报错。HTTP仅绑定127.0.0.1，要求令牌并拒绝带Origin的直接请求；Vite验证同源请求。
+Tauri 启动时创建一个 RPC 子进程，并等待运行就绪握手。该进程中的 ModelService 装配模型、工作区、会话配置、共享 ConversationStore、摘要目录及 ConversationService；stdin RPC 与回环 HTTP 共同调用同一 dispatch，不重复创建业务实例。`backend/runtime.mjs` 管理随机端口、令牌、实例 ID、源码版本和数据目录运行锁。Vite 只读取 runtime.json 并转发，不能启动服务；无宿主、旧版本和断连均明确报错。HTTP 仅绑定 127.0.0.1，要求令牌并拒绝带 Origin 的直接请求；Vite 验证同源请求。
 
 stdin关闭会中止请求、关闭HTTP并删除本实例运行文件和锁；Rust退出先关闭stdin等待清理，超时再终止。源码版本检查要求后端更新后重启。目录锁与实例信息仅为运行数据，不改变连接文件。开发态可用MOON_DATA_DIR隔离桌面测试；浏览器代理通过MOON_RUNTIME_FILE指向该实例，生产桌面仍使用系统目录。
 
 
 ## 会话配置模块
 
-`backend/sessions.mjs` 由现有 ModelService 持有并复用唯一 Tauri Node 宿主，通过同一契约派发 sessionCatalog、sessionRead、sessionApply，不新建服务或进程。`SessionService` 只依赖模型模块公开的 runtime() 创建无网络 ModelRuntime；可在尚无模型和密钥时配置工具与指令，不发起推理。实际聊天以后必须另行绑定用户选择的模型、思考等级与调用边界，不把无模型配置会话当成可直接生成的会话。
+`backend/sessions.mjs` 由 ModelService 持有，通过同一契约派发 sessionCatalog、sessionRead、sessionApply。可在尚无模型和密钥时读取工具目录、配置工具与指令，不发起推理。对话服务开始生成前另行验证用户所选连接、模型和思考等级，并将正式 Pi AgentSession 注册到同一个 SessionService；配置专用会话不能直接作为生成会话。
 
-Pi 拥有工具注册、活动工具集与系统提示构造。目录来自 getAllTools；选择经过业务校验后调用 setActiveToolsByName，再读取 getActiveToolNames 确认。只接入 Pi 内置工具，关闭扩展、Skill、主题与提示模板自动加载，内存 SettingsManager 不读取用户 Pi settings 或安装资源包。工具注册不等于执行环境可用：Bash/PowerShell 使用 Pi 公开解析器，grep/find 检查 Pi 缓存二进制与 PATH；缺依赖标记不可用且拒绝选中，不触发 SDK 自动下载。默认活动集过滤不可用项，读取已保存配置保留 toolIds/revision，未知或依赖失效项通过 unavailableToolIds 明确返回，真实 Pi 活动集只启用可用项；用户可取消失效项后应用恢复。保存用户选择仍严格拒绝不可用项，不静默更换。具体文件权限只在未来实际执行时判断。未知工具和重复项拒绝保存，不依赖 SDK 的静默忽略。
+Pi 拥有工具注册、活动工具集与系统提示构造。目录来自 getAllTools；选择经过业务校验后调用 setActiveToolsByName，再读取 getActiveToolNames 确认。只接入 Pi 内置工具，关闭扩展、Skill、主题与提示模板自动加载，内存 SettingsManager 不读取用户 Pi settings 或安装资源包。工具注册不等于执行环境可用：Bash/PowerShell 使用 Pi 公开解析器，grep/find 检查 Pi 缓存二进制与 PATH；缺依赖标记不可用且拒绝选中，不触发 SDK 自动下载。默认活动集过滤不可用项，读取已保存配置保留 toolIds/revision，未知或依赖失效项通过 unavailableToolIds 明确返回，真实 Pi 活动集只启用可用项；用户可取消失效项后应用恢复。保存用户选择仍严格拒绝不可用项，不静默更换。具体文件权限在工具实际执行时判断。未知工具和重复项拒绝保存，不依赖 SDK 的静默忽略。
 
-指令使用 Pi loadProjectContextFiles 的文件优先级、全局以及从根到工作目录的发现规则。个人指令目录是模型数据目录下 agent（如 `%LOCALAPPDATA%/Moon/models/agent`），与 CLI ~/.pi 分离。all 保留全部，directory 排除个人指令，none 不注入项目指令而保留 Pi 系统提示。显式清空 loader 的 systemPromptOverride/appendSystemPromptOverride，避免 .pi/SYSTEM.md 等隐式覆盖逃逸指令范围与快照。每次应用读取实际指令并保存正文快照；普通读取恢复该快照，不因磁盘文件改变悄悄改变已生效配置。再次应用才更新文件内容。空 cwd 的目录查询显式返回宿主 process.cwd() 解析后的真实路径，仅供初始目录选择，不把虚构路径映射为真实路径；保存始终要求绝对存在目录，已保存会话不可换目录。
+指令使用 Pi loadProjectContextFiles 的文件优先级、全局以及从根到工作目录的发现规则。个人指令目录是模型数据目录下 agent（如 `%LOCALAPPDATA%/Moon/models/agent`），与 CLI ~/.pi 分离。all 保留全部，directory 排除个人指令，none 不注入项目指令而保留 Pi 系统提示。loader 显式提供空 systemPrompt 并清空 systemPromptOverride，关闭 .pi/SYSTEM.md 的发现与覆盖；appendSystemPrompt 只注入 Moon 宿主运行环境说明，不发现或拼入 APPEND_SYSTEM.md。说明来自真实平台、原生 cwd 与 Pi 公开 shell 解析器，指导文件工具优先使用相对路径；Windows Bash 的 /tmp 等挂载路径必须经实际 cygpath 转换，禁止猜盘符。宿主说明是工具运行事实，与个人/目录指令分离，none 及已有会话 reload 都保留；项目文本不能替换 loader 的系统提示。每次应用读取实际指令并保存正文快照；普通读取恢复该快照，不因磁盘文件改变悄悄改变已生效配置。再次应用才更新文件内容。空 cwd 的目录查询显式返回宿主 process.cwd() 解析后的真实路径，仅供初始目录选择，不把虚构路径映射为真实路径；保存始终要求绝对存在目录，已保存会话不可换目录。
 
-数据保存在模型数据目录下 `session-config/sessions.json`，独立于模型凭据。revision 防止并发覆盖；跨进程锁内校验版本、创建候选 Pi 会话、原子提交工具和指令。Pi SessionManager 与 SettingsManager 均使用内存模式，避免 SDK 在事务外写盘。rename 为提交边界，提交前取消销毁候选并保留旧值；提交后取消不回滚，调用方重新读取确认。保存失败保留原会话。恢复构建并保留真实 Pi 配置会话，通过版本比较防止异步恢复覆盖新提交，再返回实际工具集，不扩展到消息历史持久化。正在执行的会话不允许更改配置；当前尚无真实生成入口。
+配置数据保存在模型数据目录下 `session-config/sessions.json`，独立于模型凭据和消息历史。revision 防止并发覆盖；锁内校验版本、建立临时候选并以 rename 原子提交。候选使用内存 SessionManager 和 SettingsManager，验证工具与指令本身不写聊天历史。提交前取消保留旧值；提交后取消不回滚，调用方重新读取确认。
 
-`/api-catalog/` 按契约的模块字段分组展示模型配置和会话配置，统一类型生成及真实传输。会话配置内容与工作目录可能含本地项目数据，沿用本机宿主鉴权，不向外部发送。
+已有正式对话通过共享会话互斥锁与配置更新串行协调；运行或停止期间拒绝修改配置。对空闲的持久化 AgentSession，应用时更新资源快照、调用 Pi reload 并设置活动工具，保留同一个会话对象、SessionManager 及历史；提交失败恢复旧资源与工具。配置专用对象可以替换，含正式历史的对象不采用销毁重建策略。
 
-当前 Pi 对象是配置专用会话，尚无消息历史；应用时构建候选后替换不会丢失正式聊天内容。后续真实聊天接入必须在同一个业务会话上更新工具/资源并维护历史，不能继续用本次配置专用重建方式替换包含消息的会话。
+`/api-catalog/` 按模块展示模型、工作区、会话摘要、会话配置和对话契约，统一类型生成及真实传输。配置读取与应用只在本机进行；开始对话后，所选项目指令、用户消息和工具结果按 Pi 的上下文机制发送给用户选择的模型服务。
+
+## 工作区模块
+
+`backend/workspaces.mjs` 持有 `workspaces.json`，负责路径规范化、稳定 ID、重复目录合并、最近选择和可访问状态。Windows 目录身份不区分大小写，以真实路径比较；目录失效保留原记录与原因，选择或发送前重新校验。文件锁与原子替换保护修改，取消在提交前检查，损坏文件不以空列表替代。
+
+首页的“添加工作区”调用 workspaceChoose。`backend/native-directory.mjs` 使用同一 stdin/stdout 通道的宿主能力请求，由 Rust 打开 Windows 原生目录选择器；不启动 shell、不创建新后端，也不让用户在网页弹窗填写路径。浏览器走已有回环代理到同一个宿主；无桌面宿主时明确失败。取消目录选择返回 null，不保存或改变选择。
+
+## 会话目录与 Pi 多轮对话
+
+`backend/conversation-store.mjs` 是共享会话摘要存储，文件为 `conversations/index.json`。ConversationService 更新真实状态、模型选择、最近消息及未读结果，`conversation-catalog.mjs` 提供列表、过滤、摘要读取和标记已读。标记已读只在已展示 revision 仍匹配时修改 unread，不覆盖并发结束状态，也不改变时间排序；重复调用不重复写入。启动时仅恢复遗留 running/stopping 为中断失败，不自动重新发送请求。摘要 DTO 不暴露 Pi 文件路径和内部请求去重字段。
+
+`backend/conversations.mjs` 负责模型绑定、执行生命周期和前端快照。正式历史由 Pi 官方 SessionManager 在 `conversations/pi/` 写入 JSONL，Moon 不维护另一份消息数据库。恢复正文先读取并验证非空行 JSON、合法文件头、支持的版本和 cwd，再通过公开 parseSessionEntries 与 SessionManager.inMemory 恢复官方分支与内存迁移，不调用会修复空文件、追加换行或迁移磁盘的 open。截断和损坏历史明确拒绝且字节不变；合法 v1/v2、空行、未知类型对象条目及未带末尾换行保持兼容。读取不要求模型连接或工作目录仍存在，也不发起推理。开始新回复时才重新校验历史并交由公开 SessionManager.open 恢复持久管理器，沿同一 leaf 接续，格式迁移及换行修复由 Pi 负责；继续发送才检查工作区、模型、思考等级和工具配置。工作区与 cwd 创建后不可改变。
+
+发送使用客户端稳定请求 ID 和内容指纹，原子记录接受边界，并在 Pi 会话中保存请求记录，重试传输不会重复推理。前端成功清空输入前，后端确认 Pi 已接受用户消息；等待模型和工具完成不是发送应答的前提。接受后离开页面或取消读取不停止已开始工作；显式停止绑定当前 runId，并等待 Pi abort 保留实际结果。失败或中断且本轮 inputAccepted、有用户历史时，“继续上次回复”在原上下文中发送 Pi 自定义续接消息，不重新执行原始用户消息。未接受的预检失败须保留草稿重新发送，旧轮用户历史不能绕过本轮接受校验。
+
+Pi 负责模型流、思考、工具调用、上下文及历史格式；Moon 将事件投影为可轮询快照，提供正文、思考、工具输入输出和真实状态。SDK 的事件与 agent 消息保持原始诊断供其原生重试、额度错误和上下文溢出分类；Moon 不修改共享 errorMessage。公开 SessionManager.appendMessage 在落盘边界复制含诊断的 assistant 消息，仅副本采用安全错误说明，保留官方消息历史且不保存外部响应中的原始诊断。DTO 与运行状态分别在展示边界脱敏，不引入自定义恢复分类器。输入草稿与服务快照分离，轮询失败保留已展示历史。正式入口当前只接文本基础多轮，不启用排队、附件或分步问答；组件库中的相关演示不进入生产执行链路。
+
+快照的 `phase` 表示本轮回复生命周期，`completed` 不证明用户任务通过验收。可选 `runtime` 来自 Pi 1.0.0 的实际事件：回复与工具执行、`compaction_start/end`、`auto_retry_start/end` 及压缩摘要的 `summarization_retry_*`。重试次数、等待截止时间和安全原因由这些事件提供，不推测；停止、终态及宿主重启清除实时阶段。多个工具同时执行时，仍有工具运行就保留工具阶段。工具执行成功只说明该工具完成。
+
+非取消的压缩失败单独形成可选 `notice`，与回复 `error/phase` 分开。阈值压缩失败不强制判定已经完成的回复失败；上下文溢出恢复是否失败仍依据 Pi 本轮最终结果。安全提醒写入 `moon-run-result` 并可在重启后恢复，新回复清除旧提醒；终态清除实时阶段不抹掉这条用户需要知道的结果。
+
+Pi 内置 bash/powershell 共用 shell 实现；Moon 将执行结束事件中的 `structuredContent.exit_code/wall_time_seconds` 投影为可选 `exitCode/durationMs`。Pi 正式工具消息未保留这些字段，因此通过官方 `appendCustomEntry` 写入 `moon-shell-result`，实时与重启后的 JSONL 历史共用同一恢复入口。工具发生身份采用官方 assistant entry.id 与 content index，provider 的 toolCallId 仍保持原值；同一运行或不同运行中复用 ID 不覆盖先前结果。新 shell marker 保存 callEntryId/callIndex，旧 marker 依据其在官方 branch 中的写入位置关联对应 assistant 工具批次；toolResult 按该批次内尚未匹配的对应调用逐项关联。进度以发生身份维护，历史元数据直接由 branch 派生，不维护第二份历史库。退出码 0 与未提供明确区分，不解析输出文字伪造元数据；非零退出码表示命令失败，不覆盖实际输出。
+
+主动停止以 Moon 的请求与运行结果标记为依据。Pi 即使将取消编码为末尾回复的 `stopReason=error`，该运行仍投影为中断；早先真实失败保持不变。停止时记录实际运行的调用发生，通过 `moon-run-result.stoppedToolCalls` 的 entryId/index 精确恢复；stoppedToolIds 保留旧格式兼容。旧标记按该轮最新对应发生恢复，不把同 ID 的早期工具一起取消；实际成功和非零退出结果优先于取消标记。只将没有真实退出码的取消错误显示为已停止，不把退出码非零的命令失败改成取消。重启后的历史使用各轮标记，不依赖当前会话状态推断。
+
+工具状态仅来自实际 toolResult、当前 run 所属 call 的 toolProgress，以及实际停止的工具标记；partial assistant 中出现但没有开始执行的调用显示 not-run。旧工具缺结果不会因后来会话进入 running/stopping 而被标成正在执行或停止，历史与当前执行明确区分。
+
+`getContextUsage()` 是 Pi 基于会话投影及模型报告的上下文估算。Moon 标注来源、估算性质和读取时点，不声称是精确计费或完整请求。压缩后 Pi 返回未知 tokens 时，用 `contextState` 表示等待下一次回复；未提供统计不显示虚构的 0%。每轮结束把统计写入官方 JSONL 的 `moon-context-usage` custom entry；重启只读恢复并标记 `restored`、保留原统计时点，不依赖存活的模型连接。旧历史未记录统计时明确未知，后续真实回复才更新。
 
 
 ## 桌面窗口生命周期
 
 `window_lifecycle.rs` 管理任务栏窗口、托盘及关闭隐藏。官方 single-instance 插件在 setup 创建后端前执行，重复启动恢复已有宿主。关闭只隐藏 WebView，不改变草稿或服务状态；主动退出经 RunEvent 调用 ModelBackend.shutdown，停止标志阻止请求重建子进程，随后关闭 stdin 等待清理，超时终止子进程。Windows GUI 子系统覆盖 debug/release；setup 内部捕获启动错误、释放服务，再通过原生错误框报告。
+
+## 持久化确认与传输边界
+
+`inputAccepted` 由 Pi 公开的 `appendMessage` / `appendCustomMessageEntry` 成功返回确认；`message_end` 发生在保存之前，不能用来确认接受。JSONL 写入失败后禁止继续向同一内存树追加，释放活动 AgentSession，并从原文件验证恢复；截断文件保留并明确报错，不自动修复。未保存输入留在前端草稿，恢复后以新请求标识重发。
+
+两个 HTTP 入口共用 `http-body.mjs`，按原始字节限制 1 MiB，收集完整字节后统一 UTF-8 解码，中文与 emoji 跨网络数据块仍完整。
+
+Node 启动先建立轻量传输与运行锁，`$runtime` 只确认该唯一宿主已经可通信。Pi 及业务模块在首个业务请求时动态加载，同批请求共用初始化；失败释放候选服务并允许后续请求重新初始化。慢依赖加载不占用原生 30 秒启动握手期限，页面沿用读取中、错误和重试状态；退出过程中不允许迟到创建业务服务。

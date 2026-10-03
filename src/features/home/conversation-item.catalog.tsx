@@ -16,11 +16,8 @@ function StatusExamples() {
               workspaceId: "demo",
               title: conversationStatusLabels[status],
               updatedLabel: "刚刚",
-              status:
-                read.includes(status) &&
-                (status === "completed" || status === "failed")
-                  ? "idle"
-                  : status,
+              status,
+              unread: !read.includes(status),
             }}
             onSelect={() => setRead((previous) => [...previous, status])}
           />

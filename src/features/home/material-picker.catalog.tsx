@@ -51,15 +51,29 @@ export default {
   description:
     "与输入卡同宽的向上候选面板，包含添加、Skills、提示模板和内置命令；引用资源进入搜索面板。",
   boundary:
-    "草稿和材料由父级保存；附件只保留浏览器文件元数据，不读取内容或上传。",
+    "草稿和材料由父级保存；附件只保留浏览器文件元数据，不读取内容或上传。正式基础对话尚未接入材料，调用方禁用入口；本目录的候选、模板与文件元数据为独立展示能力。",
   inputs: [
     "materials、selected；anchorRef: 输入卡锚点；onInsert 存在时展示模板与命令。",
   ],
   events: ["onAdd(material)、onInsert(text)。"],
   composition: ["InputGroup", "Button"],
-  consumers: ["ComposerToolbar"],
+  consumers: ["ComposerToolbar", "ConversationComposer"],
   viewport: { width: 880, height: 580 },
   states: [
+    {
+      id: "disabled",
+      name: "当前能力未接入",
+      condition: "基础真实对话尚未接入附件与 Skill",
+      expected: "入口禁用，不产生假附件",
+      render: () => (
+        <MaterialPicker
+          disabled
+          materials={[]}
+          selected={[]}
+          onAdd={() => {}}
+        />
+      ),
+    },
     {
       id: "available",
       name: "候选与资源搜索",

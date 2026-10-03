@@ -6,14 +6,84 @@ export default {
   layer: "复合组件",
   group: "对话过程",
   source: "src/features/conversation/messages/tool-call.tsx",
-  description: "工具摘要与独立折叠的输入、结果。",
-  boundary: "只查看已记录数据，不执行真实命令。",
-  inputs: ["tool: ConversationToolCall", "defaultOpen"],
+  description:
+    "工具摘要、独立折叠的输入与结果，以及正式结构化退出码和耗时；区分已停止与尚未执行的调用。",
+  boundary:
+    "只查看已记录数据，不执行真实命令。not-run表示调用已经生成但从未开始执行，不能展示成功或失败，不补退出码与耗时。",
+  inputs: [
+    "tool: ConversationToolCall（exitCode/durationMs仅按记录展示）",
+    "defaultOpen",
+  ],
   events: ["展开工具、输入、结果", "展开超过20行的结果"],
   composition: ["Collapsible", "Button", "Separator"],
-  consumers: ["ExecutionProcess"],
+  consumers: ["ExecutionProcess", "AssistantMessage"],
   viewport: { width: 760, height: 500 },
   states: [
+    {
+      id: "not-run",
+      name: "调用未执行",
+      condition:
+        "Pi正在生成Bash调用参数，输入仅有部分命令，执行开始前本轮中断或结束，状态为not-run。",
+      expected:
+        "摘要显示未执行，展开结果明确写此调用未执行；保留已记录的部分命令，不显示成功/失败、退出码未提供或耗时。",
+      render: () => (
+        <div className="p-6">
+          <ToolCall
+            defaultOpen
+            tool={{
+              id: "not-run-bash",
+              name: "bash",
+              source: "Pi",
+              status: "not-run",
+              input: '{"command":"node scripts/veri"}',
+            }}
+          />
+        </div>
+      ),
+    },
+    {
+      id: "command-success",
+      name: "命令退出码0",
+      condition: "Pi结构化返回退出码0与耗时840ms",
+      expected: "显示成功；展开结果显示0与840毫秒，不把0当缺失。",
+      render: () => (
+        <div className="p-6">
+          <ToolCall
+            defaultOpen
+            tool={{
+              id: "command",
+              name: "powershell",
+              source: "Pi",
+              status: "success",
+              input: '{"command":"Test-Path README.md"}',
+              result: "True",
+              exitCode: 0,
+              durationMs: 840,
+            }}
+          />
+        </div>
+      ),
+    },
+    {
+      id: "command-code-unknown",
+      name: "命令退出码未知",
+      condition: "历史工具结果缺少退出码",
+      expected: "摘要已返回，结果退出码未提供；不补0或宣称命令成功。",
+      render: () => (
+        <div className="p-6">
+          <ToolCall
+            defaultOpen
+            tool={{
+              id: "unknown-code",
+              name: "powershell",
+              source: "Pi",
+              status: "success",
+              result: "该历史只保存了输出文本。",
+            }}
+          />
+        </div>
+      ),
+    },
     {
       id: "stopped",
       name: "执行中断",
@@ -86,10 +156,11 @@ export default {
             defaultOpen
             tool={{
               id: "failed",
-              name: "运行命令",
+              name: "powershell",
               source: "内置工具",
               status: "success",
               exitCode: 1,
+              durationMs: 1260,
               result: "找不到指定文件。",
             }}
           />

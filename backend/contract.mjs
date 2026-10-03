@@ -1,9 +1,13 @@
 import { workspaceOperations } from "./workspace-contract.mjs"
+import { conversationOperations as catalogOperations } from "./conversation-catalog-contract.mjs"
+import { conversationOperations } from "./conversation-contract.mjs"
 import { schemas, object, ref, assertSchema } from "./schema.mjs"
 export { schemas, assertSchema } from "./schema.mjs"
 // Authority for RPC names, required input fields, documentation and dispatch.
 export const operations = {
   ...workspaceOperations,
+  ...catalogOperations,
+  ...conversationOperations,
   sessionCatalog: {
     module: "会话配置",
     method: "sessions.catalog",
@@ -39,7 +43,7 @@ export const operations = {
       "无记录返回 null；恢复真实 Pi 会话和指令快照。保留保存的toolIds/revision；未知或依赖失效项列入unavailableToolIds，effectiveToolIds仅为实际可用活动集，允许用户取消失效项后重新应用。",
     errors:
       "配置文件损坏、工作目录失效；工具失效作为可编辑结果返回，不阻断读取。",
-    effect: "恢复内存会话，不发起推理、不写配置。",
+    effect: "恢复内存会话，不发起推理、不写配置。Pi 默认系统提示与 Moon 宿主运行环境说明始终保留；项目指令范围不隐藏原生工作目录与工具路径语义。",
     example: { sessionId: "sample-session" },
   },
   sessionApply: {
@@ -70,7 +74,7 @@ export const operations = {
         instructionScope: ref("InstructionScope"),
         revision: { type: "integer", minimum: 1 },
       },
-      ["sessionId", "cwd", "toolIds", "instructionScope"],
+      ["sessionId", "cwd", "toolIds", "instructionScope"]
     ),
     response: ref("SessionConfiguration"),
     title: "应用会话配置",
@@ -80,7 +84,7 @@ export const operations = {
       "新建省略 revision；更新必须带当前 revision，cwd 不可变。锁内复查版本，未知/重复工具拒绝。构建真实 Pi 会话成功才提交；rename 前取消无写入，提交后取消不回滚，可读取确认。正在运行的会话拒绝更改。",
     errors: "版本冲突、目录无效、工具不可用、指令读取失败、会话忙、存储失败。",
     effect:
-      "原子保存工具选择和实际指令快照，并替换生效 Pi 会话。只配置不调用模型。",
+      "原子保存工具选择和实际指令快照，并在已有 Pi 会话中应用，保留消息历史。只配置不调用模型。",
     example: {
       sessionId: "sample-session",
       cwd: "H:/workspace/moon",
@@ -351,9 +355,7 @@ export async function dispatchOperation(service, operation, input, signal) {
   const owner = path.reduce((value, key) => value[key], service)
   const result =
     (await owner[method](
-      ...definition.args.map((key) =>
-        key === "$signal" ? signal : input[key],
-      ),
+      ...definition.args.map((key) => (key === "$signal" ? signal : input[key]))
     )) ?? null
   assertSchema(definition.response, result, "返回结果")
   return result

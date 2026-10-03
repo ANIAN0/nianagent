@@ -57,6 +57,24 @@ export class SessionService {
     this.models = models
     this.active = new Map()
     this.closed = false
+    this.gates = new Map()
+    this.resources = new WeakMap()
+  }
+  async exclusive(sessionId, action) {
+    const previous = this.gates.get(sessionId) || Promise.resolve()
+    let release
+    const gate = new Promise((done) => {
+      release = done
+    })
+    this.gates.set(sessionId, gate)
+    await previous
+    try {
+      this.ensureOpen()
+      return await action()
+    } finally {
+      release()
+      if (this.gates.get(sessionId) === gate) this.gates.delete(sessionId)
+    }
   }
   ensureOpen() {
     check(!this.closed, "会话配置服务已关闭，请重新打开 Moon。")
@@ -171,10 +189,44 @@ export class SessionService {
     }
     return ""
   }
-  async create(cwd, instructions, toolIds, signal, recover = false) {
+  runtimePrompt(cwd) {
+    const lines = [
+      "## Moon host runtime",
+      `Host operating system: ${process.platform === "win32" ? "Windows (win32)" : process.platform}.`,
+      `Native working directory: ${JSON.stringify(cwd)}.`,
+      "File tools (read, write, edit, ls, grep, find) run in the native host filesystem. Prefer paths relative to this working directory; use native absolute paths only when necessary.",
+    ]
+    if (process.platform === "win32") {
+      try {
+        lines.push(`Bash executable resolved by Pi: ${JSON.stringify(getShellConfig().shell)}.`)
+      } catch {
+        lines.push("Pi has no available Bash executable in this host environment.")
+      }
+      try {
+        lines.push(`PowerShell executable resolved by Pi: ${JSON.stringify(getPowerShellConfig().shell)}.`)
+      } catch {
+        lines.push("Pi has no available PowerShell executable in this host environment.")
+      }
+      lines.push(
+        "Windows Bash may use Git Bash/MSYS/Cygwin path mappings. Paths printed by pwd, including /tmp and /c, are shell paths, not native Windows absolute paths; never pass them unchanged to file tools.",
+        "If a native absolute path is required and cygpath is available in that shell, obtain it with cygpath -w \"$PWD\" (or convert the specific quoted shell path). Otherwise use the native working directory above and relative file paths. Never guess drive letters or shell mount mappings.",
+        "Quote paths containing spaces or non-ASCII characters in shell commands. PowerShell uses native Windows paths.",
+      )
+    }
+    return lines.join("\n")
+  }
+  async create(
+    cwd,
+    instructions,
+    toolIds,
+    signal,
+    recover = false,
+    options = {}
+  ) {
     this.ensureOpen()
     signal?.throwIfAborted()
     const settingsManager = SettingsManager.inMemory({ cacheWarming: "off" })
+    const instructionState = { files: instructions }
     const resourceLoader = new DefaultResourceLoader({
       cwd,
       agentDir: this.agentDir,
@@ -184,10 +236,11 @@ export class SessionService {
       noPromptTemplates: true,
       noThemes: true,
       noContextFiles: true,
+      systemPrompt: "",
       systemPromptOverride: () => undefined,
-      appendSystemPromptOverride: () => [],
+      appendSystemPrompt: [this.runtimePrompt(cwd)],
       agentsFilesOverride: () => ({
-        agentsFiles: instructions.map(({ path, content }) => ({
+        agentsFiles: instructionState.files.map(({ path, content }) => ({
           path,
           content,
         })),
@@ -200,8 +253,10 @@ export class SessionService {
       agentDir: this.agentDir,
       settingsManager,
       resourceLoader,
-      sessionManager: SessionManager.inMemory(cwd),
-      modelRuntime: await this.models.runtime(),
+      sessionManager: options.sessionManager || SessionManager.inMemory(cwd),
+      modelRuntime: options.modelRuntime || (await this.models.runtime()),
+      ...(options.model ? { model: options.model } : {}),
+      ...(options.thinking ? { thinkingLevel: options.thinking } : {}),
     })
     try {
       this.ensureOpen()
@@ -232,6 +287,7 @@ export class SessionService {
             .getActiveToolNames()
             .filter((name) => !this.availability(name))
         )
+      this.resources.set(session, instructionState)
       return session
     } catch (error) {
       session.dispose()
@@ -271,7 +327,7 @@ export class SessionService {
     const available = record.toolIds.filter(
       (name) => registered.has(name) && !this.availability(name)
     )
-    session.setActiveToolsByName(available)
+    if (session.isIdle) session.setActiveToolsByName(available)
     return {
       ...record,
       effectiveToolIds: session.getActiveToolNames(),
@@ -281,6 +337,11 @@ export class SessionService {
     }
   }
   async read(sessionId, signal) {
+    return this.exclusive(sessionId, () =>
+      this.readExclusive(sessionId, signal)
+    )
+  }
+  async readExclusive(sessionId, signal) {
     this.ensureOpen()
     this.identity(sessionId)
     signal?.throwIfAborted()
@@ -315,10 +376,30 @@ export class SessionService {
       return this.snapshot(record, session)
     }
     session.dispose()
-    if (current.revision > record.revision) return this.read(sessionId, signal)
+    if (current.revision > record.revision)
+      return this.readExclusive(sessionId, signal)
     return this.snapshot(record, current.session)
   }
   async apply(sessionId, cwd, toolIds, instructionScope, revision, signal) {
+    return this.exclusive(sessionId, () =>
+      this.applyExclusive(
+        sessionId,
+        cwd,
+        toolIds,
+        instructionScope,
+        revision,
+        signal
+      )
+    )
+  }
+  async applyExclusive(
+    sessionId,
+    cwd,
+    toolIds,
+    instructionScope,
+    revision,
+    signal
+  ) {
     this.ensureOpen()
     this.identity(sessionId)
     cwd = await this.cwd(cwd)
@@ -330,6 +411,9 @@ export class SessionService {
     const temporary = join(this.directory, `.sessions-${randomUUID()}.tmp`)
     let candidate
     let committed = false
+    let live
+    let oldInstructions
+    let oldTools
     try {
       this.ensureOpen()
       signal?.throwIfAborted()
@@ -345,8 +429,9 @@ export class SessionService {
         !previous || previous.cwd === cwd,
         "已有会话不能更换工作目录，请新建会话。"
       )
+      live = this.active.get(sessionId)
       check(
-        !this.active.get(sessionId)?.session.isStreaming,
+        !live?.busy && (!live || live.session.isIdle),
         "会话正在执行，请结束后再调整配置。"
       )
       const all =
@@ -376,9 +461,23 @@ export class SessionService {
       })
       signal?.throwIfAborted()
       this.ensureOpen()
+      if (live?.persistent) {
+        const resource = this.resources.get(live.session)
+        check(resource, "会话资源不可用，请重新打开会话。")
+        oldInstructions = resource.files
+        oldTools = live.session.getActiveToolNames()
+        resource.files = instructions
+        await live.session.reload()
+        live.session.setActiveToolsByName(toolIds)
+        signal?.throwIfAborted()
+        this.ensureOpen()
+      }
       await rename(temporary, this.file)
       committed = true
-      if (this.closed) candidate.dispose()
+      if (live?.persistent) {
+        live.revision = record.revision
+        candidate.dispose()
+      } else if (this.closed) candidate.dispose()
       else {
         this.active.get(sessionId)?.session.dispose()
         this.active.set(sessionId, {
@@ -390,9 +489,17 @@ export class SessionService {
     } finally {
       if (candidate && !committed) candidate.dispose()
       try {
-        await rm(temporary, { force: true })
+        if (!committed && live?.persistent && oldInstructions) {
+          this.resources.get(live.session).files = oldInstructions
+          await live.session.reload()
+          live.session.setActiveToolsByName(oldTools)
+        }
       } finally {
-        await unlock()
+        try {
+          await rm(temporary, { force: true })
+        } finally {
+          await unlock()
+        }
       }
     }
   }

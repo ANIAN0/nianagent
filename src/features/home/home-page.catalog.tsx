@@ -7,18 +7,19 @@ export default {
   layer: "页面",
   group: "工作空间",
   source: "src/features/home/home-page.tsx",
-  description: "编排侧栏、工作输入区和范围提示；保持原首页的信息层次。",
+  description:
+    "供组件库独立展示首页布局的组合包装，复用正式应用布局和输入组件。",
   boundary:
-    "只包含首页；外部入口提示尚未实现，所有提交是模拟。业务数据和提交函数由 App 注入。需要 ThemeProvider。",
+    "此包装只用于首页独立展示，data与onSubmit由展示调用方注入；本目录状态使用模拟提交，不读取真实会话、不调用模型。正式入口由App直接组合AppShell和HomeComposer并连接真实服务。需要ThemeProvider。",
   inputs: [
     "data: HomeData，首页所有业务选项及会话。",
     "onSubmit: SubmitWork，传递给 HomeComposer。",
   ],
   events: [
-    "新建会话重建草稿；桌面侧栏折叠为 56px 图标列，宽度可在 240–360px 调整，Ctrl+B 折叠、Ctrl+K 搜索；窄屏打开导航弹窗，Escape 关闭。",
+    "新建会话重建展示草稿；侧栏与搜索只演示选项，不进入真实对话；桌面侧栏折叠为56px图标列，宽度可在240–360px调整，Ctrl+B折叠、Ctrl+K搜索；窄屏打开导航弹窗，Escape关闭。",
   ],
   composition: ["AppShell、HomeComposer"],
-  consumers: ["首页独立展示"],
+  consumers: ["home-page.catalog.tsx（独立首页展示）"],
   viewport: { width: 1280, height: 800 },
   states: [
     {
@@ -26,7 +27,7 @@ export default {
       name: "默认首页",
       condition: "完整模拟数据。",
       expected:
-        "输入与发送、搜索、菜单、材料及重置均可操作；宽度小于 768px 使用抽屉导航。",
+        "输入、模拟发送、搜索和菜单可操作；材料能力仅在此演示。历史选项不进入正式对话，宽度小于768px使用抽屉导航。",
       render: () => <HomePage data={homeData} onSubmit={submitMockWork} />,
     },
     {

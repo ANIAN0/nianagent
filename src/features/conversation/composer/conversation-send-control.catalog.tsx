@@ -16,6 +16,20 @@ export default {
   viewport: { width: 340, height: 160 },
   states: [
     {
+      id: "basic-running",
+      name: "真实对话生成中",
+      condition: "运行且有下一条草稿；基础模式不排队",
+      expected: "始终显示停止；草稿保留",
+      render: () => (
+        <ConversationSendControl
+          running
+          hasDraft
+          allowQueue={false}
+          onStop={() => {}}
+        />
+      ),
+    },
+    {
       id: "idle",
       name: "发送",
       condition: "有效草稿",

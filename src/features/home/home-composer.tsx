@@ -1,8 +1,6 @@
 import {
   homeSessionId,
   SessionServiceContext,
-  lastHomeWorkspace,
-  rememberHomeWorkspace,
 } from "@/features/session/session-service"
 import { effectiveThinking } from "./model-thinking"
 import "./home.css"
@@ -24,17 +22,30 @@ export type HomeComposerProps = {
     | "modelThinking"
     | "modelCatalog"
     | "materials"
+    | "materialsEnabled"
     | "tools"
   >
   initialDraft?: Partial<HomeDraft>
+  onDraftChange?: (draft: HomeDraft) => void
   onSubmit: SubmitWork
   onWorkspaceAdd?: (workspace: Workspace) => void
+  onChooseWorkspace?: (signal: AbortSignal) => Promise<Workspace | null>
+  onWorkspaceSelect?: (id: string, signal?: AbortSignal) => Promise<void>
+  workspaceLoading?: boolean
+  workspaceError?: string
+  onWorkspaceRetry?: () => void
 }
 export function HomeComposer({
   data,
   initialDraft = {},
   onSubmit,
+  onDraftChange,
   onWorkspaceAdd,
+  onChooseWorkspace,
+  onWorkspaceSelect,
+  workspaceLoading,
+  workspaceError,
+  onWorkspaceRetry,
 }: HomeComposerProps) {
   const sessionService = useContext(SessionServiceContext)
   const { models, materials, tools } = data
@@ -48,12 +59,7 @@ export function HomeComposer({
   const anchorRef = useRef<HTMLDivElement>(null)
   const [rawDraft, setDraft] = useState<HomeDraft>(() => ({
     workspaceId:
-      workspaces.find(
-        (item) =>
-          item.id ===
-          (initialDraft.workspaceId ??
-            (sessionService ? lastHomeWorkspace() : undefined))
-      )?.id ??
+      workspaces.find((item) => item.id === initialDraft.workspaceId)?.id ??
       workspaces[0]?.id ??
       "",
     text: initialDraft.text ?? "",
@@ -67,8 +73,17 @@ export function HomeComposer({
       instructionScope: "all",
     },
   }))
+  useEffect(() => {
+    onDraftChange?.(rawDraft)
+  }, [rawDraft, onDraftChange])
   const draft = {
     ...rawDraft,
+    workspaceId:
+      rawDraft.workspaceId ||
+      data.workspaces.find((item) => item.id === initialDraft.workspaceId)
+        ?.id ||
+      data.workspaces[0]?.id ||
+      "",
     thinking: effectiveThinking(
       rawDraft.thinking,
       data.modelThinking?.[rawDraft.model]
@@ -77,7 +92,10 @@ export function HomeComposer({
   const workspacePath =
     workspaces.find((item) => item.id === draft.workspaceId)?.path ?? ""
   const sessionId = useMemo(
-    () => (sessionService ? homeSessionId(workspacePath) : crypto.randomUUID()),
+    () =>
+      sessionService && workspacePath
+        ? homeSessionId(workspacePath)
+        : crypto.randomUUID(),
     [sessionService, workspacePath]
   )
   const [result, setResult] = useState("")
@@ -121,7 +139,9 @@ export function HomeComposer({
     (!sessionService || readySession === sessionId) &&
     !!draft.text.trim() &&
     !!workspacePath &&
-    workspaces.some((item) => item.id === draft.workspaceId) &&
+    workspaces.some(
+      (item) => item.id === draft.workspaceId && item.available !== false
+    ) &&
     models.includes(draft.model)
   function change(patch: Partial<HomeDraft>) {
     if (
@@ -171,22 +191,29 @@ export function HomeComposer({
         开始一项工作
       </h1>
       <WorkspacePicker
-        allowCreate={!sessionService}
         workspaces={workspaces}
-        onAdd={(item) => {
-          if (sessionService) rememberHomeWorkspace(item)
-          onWorkspaceAdd?.(item)
-          setWorkspaces((current) =>
-            current.some((entry) => entry.id === item.id)
-              ? current
-              : [...current, item]
-          )
-        }}
         value={draft.workspaceId}
-        onChange={(workspaceId) => {
-          const workspace = workspaces.find((item) => item.id === workspaceId)
-          if (sessionService && workspace) rememberHomeWorkspace(workspace)
-          change({ workspaceId })
+        loading={workspaceLoading}
+        error={workspaceError}
+        onRetry={onWorkspaceRetry}
+        disabled={submitting}
+        onChooseDirectory={
+          onChooseWorkspace
+            ? async (signal) => {
+                const item = await onChooseWorkspace(signal)
+                if (!item || signal.aborted) return
+                setWorkspaces((items) => [
+                  ...items.filter((current) => current.id !== item.id),
+                  item,
+                ])
+                onWorkspaceAdd?.(item)
+                change({ workspaceId: item.id })
+              }
+            : undefined
+        }
+        onChange={async (workspaceId, signal) => {
+          await onWorkspaceSelect?.(workspaceId, signal)
+          if (!signal?.aborted) change({ workspaceId })
         }}
       />
       <form
@@ -221,6 +248,7 @@ export function HomeComposer({
                   sessionId={sessionId}
                   anchorRef={anchorRef}
                   data={{
+                    materialsEnabled: data.materialsEnabled,
                     materials,
                     models,
                     tools,
@@ -256,7 +284,7 @@ export function HomeComposer({
       </form>
       {submitting && (
         <p role="status" className="mt-3 text-xs text-muted-foreground">
-          正在保存会话配置…
+          正在开始会话…
         </p>
       )}
       {result && (

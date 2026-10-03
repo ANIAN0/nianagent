@@ -3,6 +3,7 @@ import { join } from "node:path"
 import { homedir } from "node:os"
 import { request as httpRequest } from "node:http"
 import { runtimeVersion } from "./runtime.mjs"
+import { readJsonBody } from "./http-body.mjs"
 
 // Match the native command deadline. The directory host owns its shorter
 // 600s user-selection wait; this margin lets its specific error reach the UI.
@@ -151,14 +152,10 @@ export function modelBackendPlugin() {
         if (!res.writableEnded) controller.abort()
       })
       try {
-        let body = ""
-        for await (const chunk of req) {
-          body += chunk
-          if (body.length > 1024 * 1024) throw new Error("请求过大。")
-        }
+        const input = await readJsonBody(req)
         const result = await bridge.call(
           req.url.split("?")[0].replace(/^\//, ""),
-          JSON.parse(body),
+          input,
           controller.signal
         )
         res.setHeader("content-type", "application/json")

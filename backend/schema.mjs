@@ -1,4 +1,6 @@
 import { workspaceSchemas } from "./workspace-contract.mjs"
+import { conversationSchemas as catalogSchemas } from "./conversation-catalog-contract.mjs"
+import { conversationSchemas } from "./conversation-contract.mjs"
 // JSON Schema subset used by runtime validation, generated TypeScript and docs.
 const string = (description, extra = {}) => ({
   type: "string",
@@ -13,7 +15,7 @@ const array = (items, description) => ({ type: "array", items, description })
 export const object = (
   properties,
   required = Object.keys(properties),
-  description = "",
+  description = ""
 ) => ({
   type: "object",
   properties,
@@ -25,9 +27,11 @@ export const ref = (name) => ({ $ref: name })
 const levels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
 export const schemas = {
   ...workspaceSchemas,
+  ...catalogSchemas,
+  ...conversationSchemas,
   InstructionScope: enumeration(
     ["all", "directory", "none"],
-    "项目指令加载范围，不影响应用系统指令。",
+    "项目指令加载范围，不影响应用系统指令。"
   ),
   SessionTool: object({
     id: string("Pi 注册工具名"),
@@ -42,7 +46,7 @@ export const schemas = {
     path: string("实际指令文件绝对路径"),
     source: enumeration(
       ["global", "directory"],
-      "Moon 个人指令或工作目录链指令",
+      "Moon 个人指令或工作目录链指令"
     ),
     content: string("本次实际加载的指令内容"),
   }),
@@ -53,11 +57,11 @@ export const schemas = {
     toolIds: array(string("已选择工具名"), "保存的工具选择"),
     effectiveToolIds: array(
       string("Pi 活动工具名"),
-      "从真实 Pi 会话读回的生效集合",
+      "从真实 Pi 会话读回的生效集合"
     ),
     unavailableToolIds: array(
       string("失效工具名"),
-      "只读；保存但未知或本机依赖失效的工具，可取消后重新应用",
+      "只读；保存但未知或本机依赖失效的工具，可取消后重新应用"
     ),
     instructionScope: ref("InstructionScope"),
     instructions: array(ref("SessionInstruction"), "已提交的有效指令快照"),
@@ -67,7 +71,7 @@ export const schemas = {
     tools: array(ref("SessionTool"), "本宿主实际注册的 Pi 内置工具"),
     instructions: array(
       ref("SessionInstruction"),
-      "当前目录发现的所有指令；应用按范围选择",
+      "当前目录发现的所有指令；应用按范围选择"
     ),
     defaults: object({
       toolIds: array(string("Pi 默认活动工具名"), "默认活动集"),
@@ -77,10 +81,10 @@ export const schemas = {
 
   DirectoryProtocol: enumeration(
     ["openai-completions", "anthropic-messages"],
-    "模型目录协议；Responses 仅用于模型调用，不提供目录接口。",
+    "模型目录协议；Responses 仅用于模型调用，不提供目录接口。"
   ),
   ModelApi: string(
-    "模型调用协议；自定义模型支持 openai-completions / openai-responses / anthropic-messages，订阅沿用 Pi 协议。",
+    "模型调用协议；自定义模型支持 openai-completions / openai-responses / anthropic-messages，订阅沿用 Pi 协议。"
   ),
   ThinkingLevelMap: object(
     Object.fromEntries(
@@ -90,9 +94,9 @@ export const schemas = {
           anyOf: [string("传给模型提供者的等级值"), { type: "null" }],
           description: "null 表示不支持；缺省遵从 Pi 默认映射。",
         },
-      ]),
+      ])
     ),
-    [],
+    []
   ),
   ModelDefinition: object(
     {
@@ -103,20 +107,20 @@ export const schemas = {
       name: string("模型显示名称。", { minLength: 1, maxLength: 300 }),
       api: ref("ModelApi"),
       reasoning: boolean(
-        "是否支持思考；未匹配时缺省，保存 API 模型前必须补全。",
+        "是否支持思考；未匹配时缺省，保存 API 模型前必须补全。"
       ),
       thinkingLevelMap: ref("ThinkingLevelMap"),
       supportedThinkingLevels: array(
         enumeration(levels, "Pi 思考等级"),
-        "只读；由 Pi 依据模型能力计算，不支持思考时为空。",
+        "只读；由 Pi 依据模型能力计算，不支持思考时为空。"
       ),
       input: array(
         enumeration(["text", "image"], "输入模态"),
-        "支持的输入模态。",
+        "支持的输入模态。"
       ),
       contextWindow: integer("上下文 token 上限，保存 API 模型前必填。"),
       maxTokens: integer(
-        "输出 token 上限，不能超过上下文；保存 API 模型前必填。",
+        "输出 token 上限，不能超过上下文；保存 API 模型前必填。"
       ),
       metadata: object({
         status: enumeration(["matched", "partial", "unknown"], "能力匹配状态"),
@@ -124,7 +128,7 @@ export const schemas = {
         conflicts: array(string("存在分歧的字段"), "需要用户确认的字段"),
       }),
     },
-    ["id", "name", "api", "input"],
+    ["id", "name", "api", "input"]
   ),
   ModelConnection: object(
     {
@@ -138,7 +142,7 @@ export const schemas = {
       }),
       kind: enumeration(["api", "subscription"], "连接类型，保存后不可更改。"),
       revision: integer(
-        "编辑/删除必须带读取到的版本；新建不传，旧版本或已删除记录拒绝覆盖。",
+        "编辑/删除必须带读取到的版本；新建不传，旧版本或已删除记录拒绝覆盖。"
       ),
       providerId: string("订阅选择 Pi 提供者，每个提供者只允许一个连接。", {
         maxLength: 100,
@@ -147,11 +151,11 @@ export const schemas = {
       issue: string("只读的配置问题说明。"),
       endpoint: string(
         "HTTP(S)服务端点；可空保存，发现/调用前必填；禁止内嵌凭据、查询和片段。",
-        { maxLength: 1000 },
+        { maxLength: 1000 }
       ),
       credential: enumeration(
         ["key", "environment", "none"],
-        "凭据方式；切换会清除旧存储密钥。",
+        "凭据方式；切换会清除旧存储密钥。"
       ),
       keySaved: boolean("只读凭据存在标记，不是密钥内容。"),
       apiKey: string("仅请求可带密钥；响应固定空串。禁止命令/变量表达式。", {
@@ -159,10 +163,10 @@ export const schemas = {
       }),
       clearKey: boolean("明确删除存储密钥。空密钥默认保留已保存值。"),
       environmentVariable: string(
-        "后端环境变量名称，仅 environment 模式使用。",
+        "后端环境变量名称，仅 environment 模式使用。"
       ),
       headers: string(
-        "JSON 字符串字典；只允许字面量，禁止认证头、命令和变量表达式。",
+        "JSON 字符串字典；只允许字面量，禁止认证头、命令和变量表达式。"
       ),
       account: object({
         name: string("账号显示名"),
@@ -172,7 +176,7 @@ export const schemas = {
       models: {
         ...array(
           ref("ModelDefinition"),
-          "该连接保存的模型，API 模型 ID 不能重复。",
+          "该连接保存的模型，API 模型 ID 不能重复。"
         ),
         maxItems: 1000,
       },
@@ -188,7 +192,7 @@ export const schemas = {
       "environmentVariable",
       "headers",
       "models",
-    ],
+    ]
   ),
   AuthEvent: object(
     {
@@ -202,10 +206,10 @@ export const schemas = {
       intervalSeconds: { type: "number", description: "轮询间隔秒数" },
       links: array(
         object({ url: string("链接地址"), label: string("显示名") }, ["url"]),
-        "授权链接",
+        "授权链接"
       ),
     },
-    ["type"],
+    ["type"]
   ),
   AuthPrompt: object(
     {
@@ -220,26 +224,26 @@ export const schemas = {
             label: string("显示名"),
             description: string("选项说明"),
           },
-          ["id", "label"],
+          ["id", "label"]
         ),
-        "仅 select 提示提供",
+        "仅 select 提示提供"
       ),
     },
-    ["id", "type", "message"],
+    ["id", "type", "message"]
   ),
   AuthState: object(
     {
       id: string("授权任务 ID"),
       status: enumeration(
         ["pending", "complete", "error", "cancelled"],
-        "任务状态",
+        "任务状态"
       ),
       connection: ref("ModelConnection"),
       error: string("安全错误说明"),
       events: array(ref("AuthEvent"), "Pi 实际通知，不含凭据"),
       prompt: ref("AuthPrompt"),
     },
-    ["id", "status", "connection", "events"],
+    ["id", "status", "connection", "events"]
   ),
 }
 export function assertSchema(schema, value, path = "参数") {
@@ -273,7 +277,7 @@ export function assertSchema(schema, value, path = "参数") {
     if (schema.maxItems !== undefined && value.length > schema.maxItems)
       invalid("元素过多")
     value.forEach((item, index) =>
-      assertSchema(schema.items, item, `${path}[${index}]`),
+      assertSchema(schema.items, item, `${path}[${index}]`)
     )
     return
   }

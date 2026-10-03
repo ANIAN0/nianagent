@@ -16,6 +16,7 @@ export type ConversationToolCall = {
   input?: string
   result?: string
   exitCode?: number
+  durationMs?: number
 }
 export type ConversationMessage = {
   id: string

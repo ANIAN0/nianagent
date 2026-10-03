@@ -26,9 +26,14 @@ export default {
   group: "工作空间",
   source: "src/features/home/app-shell.tsx",
   description: "首页、对话和设置共享的侧栏、搜索与移动导航。",
-  boundary: "内容由children传入，导航事件由应用处理，不保存会话消息。",
-  inputs: ["data、activeConversationId、children"],
-  events: ["onNew、onSelectConversation、onSettings；Ctrl+B切换导航，Ctrl+K搜索。"],
+  boundary:
+    "内容由children传入，导航事件由应用处理，不保存会话消息。正式App通过NavigationBoundaryContext与配置保存共用导航边界；保存期间鼠标入口和快捷键均等待，独立展示默认不阻断。",
+  inputs: [
+    "data、activeConversationId、children；historyState、historyError 同时传入侧栏和搜索。",
+  ],
+  events: [
+    "onNew、onSelectConversation、onSettings、onHistoryRetry；Ctrl+B切换导航，Ctrl+K搜索；持有保存租约时不打开第二个浮层、不卸载正在保存的页面。联动状态见会话配置/保存期间的应用导航边界。",
+  ],
   composition: ["HomeSidebar、ConversationSearch、Dialog、Button"],
   consumers: ["App、HomePage"],
   viewport: { width: 1280, height: 720 },

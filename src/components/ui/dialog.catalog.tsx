@@ -34,11 +34,23 @@ export default {
   group: "弹层",
   source: "src/components/ui/dialog.tsx",
   description: "模态内容与焦点管理。",
-  boundary: "每个弹窗提供标题和描述；打开状态可由父级控制。",
+  boundary:
+    "每个弹窗提供标题和描述；打开状态可由父级控制。基础组件管理模态焦点，业务层负责保存期间的关闭/导航边界；不依赖DOM查询推断业务忙状态。",
   inputs: ["open/onOpenChange；showCloseButton。"],
   events: ["onOpenChange(open)。"],
   composition: ["Radix Dialog", "Button"],
-  consumers: ["SessionConfig", "HomePage"],
+  consumers: [
+    "AppShell",
+    "ConversationSearch",
+    "SessionConfig",
+    "DirectoryPicker",
+    "AddConnectionDialog",
+    "ModelEditor",
+    "SettingsConfirmDialog",
+    "PiAuthorization",
+    "SubscriptionAuthorization",
+    "MessageAttachments",
+  ],
   viewport: { width: 480, height: 360 },
   states: [
     {

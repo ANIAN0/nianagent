@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/input-group"
 import type { Material } from "./home-types"
 export type MaterialPickerProps = {
+  disabled?: boolean
   materials: Material[]
   selected: Material[]
   onAdd: (material: Material) => void
@@ -43,6 +44,7 @@ type Candidate = {
   text?: string
 }
 export function MaterialPicker({
+  disabled = false,
   materials,
   selected,
   onAdd,
@@ -281,6 +283,8 @@ export function MaterialPicker({
         size="icon-xs"
         className="size-7 rounded-full bg-background"
         aria-label="添加附件或 Skill"
+        disabled={disabled}
+        title={disabled ? "附件与 Skill 尚未接入" : "添加附件或 Skill"}
         aria-expanded={open}
         aria-controls={open ? id : undefined}
         onClick={toggle}

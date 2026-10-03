@@ -56,8 +56,11 @@ export default {
     "PromptInput",
     "MaterialPicker",
     "SelectedMaterials",
-    "SessionConfig",
-    "ConversationHistory",
+    "ToolPicker",
+    "ConversationSearch",
+    "ConversationComposer",
+    "ConversationSendControl",
+    "ApiKeyField",
   ],
   viewport: { width: 480, height: 360 },
   states: [

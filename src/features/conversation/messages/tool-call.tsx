@@ -18,6 +18,11 @@ const labels = {
   "not-run": "未执行",
 }
 
+const formatDuration = (milliseconds: number) =>
+  milliseconds < 1000
+    ? `${Math.round(milliseconds)} 毫秒`
+    : `${Math.round(milliseconds / 100) / 10} 秒`
+
 export function ToolCall({
   tool,
   defaultOpen = false,
@@ -27,12 +32,17 @@ export function ToolCall({
 }) {
   const [full, setFull] = useState(false)
   const lines = tool.result?.split("\n") ?? []
+  const command = tool.name === "bash" || tool.name === "powershell"
   const status =
     tool.status === "success" &&
     tool.exitCode !== undefined &&
     tool.exitCode !== 0
       ? "failed"
       : tool.status
+  const statusLabel =
+    command && status === "success" && tool.exitCode === undefined
+      ? "已返回"
+      : labels[status]
   return (
     <Collapsible
       defaultOpen={defaultOpen}
@@ -41,7 +51,7 @@ export function ToolCall({
     >
       <CollapsibleTrigger
         className="conversation-process-trigger"
-        aria-label={`工具调用 ${tool.name}`}
+        aria-label={`工具调用 ${tool.name}，${statusLabel}`}
       >
         <Wrench aria-hidden />
         <strong className="conversation-tool-name" title={tool.name}>
@@ -53,7 +63,7 @@ export function ToolCall({
         </span>
         <span className="conversation-tool-status">
           <span aria-hidden />
-          {labels[status]}
+          {statusLabel}
         </span>
         <ChevronDown className="conversation-disclosure-chevron" aria-hidden />
       </CollapsibleTrigger>
@@ -100,11 +110,29 @@ export function ToolCall({
                     : `展开已保存内容（${lines.length} 行）`}
                 </Button>
               )}
-              {tool.exitCode !== undefined && (
-                <p className="conversation-tool-exit">
-                  退出码：{tool.exitCode}
-                </p>
-              )}
+              {status !== "not-run" &&
+                (tool.exitCode !== undefined ||
+                  tool.durationMs !== undefined ||
+                  (command && status !== "running")) && (
+                  <dl className="conversation-tool-metrics">
+                    {(tool.exitCode !== undefined || command) && (
+                      <div>
+                        <dt>退出码</dt>
+                        <dd>
+                          {tool.exitCode === undefined
+                            ? "未提供"
+                            : tool.exitCode}
+                        </dd>
+                      </div>
+                    )}
+                    {tool.durationMs !== undefined && (
+                      <div>
+                        <dt>耗时</dt>
+                        <dd>{formatDuration(tool.durationMs)}</dd>
+                      </div>
+                    )}
+                  </dl>
+                )}
             </CollapsibleContent>
           </Collapsible>
         </div>

@@ -8,7 +8,7 @@ import { createInterface } from "node:readline"
 import { once } from "node:events"
 import { fileURLToPath } from "node:url"
 
-async function fixture(t) {
+async function fixture(t, { execArgv = [] } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "moon-runtime-test-"))
   const file = join(directory, "runtime.json")
   const env = {
@@ -18,7 +18,7 @@ async function fixture(t) {
   }
   const child = spawn(
     process.execPath,
-    [fileURLToPath(new URL("../rpc.mjs", import.meta.url))],
+    [...execArgv, fileURLToPath(new URL("../rpc.mjs", import.meta.url))],
     { env, stdio: ["pipe", "pipe", "pipe"], windowsHide: true }
   )
   const exited = once(child, "exit")
@@ -132,3 +132,42 @@ test("runtime publish failure removes its temporary file and lock", async (t) =>
   )
   assert.deepEqual(await readdir(directory), ["runtime.json"])
 })
+
+test(
+  "transport handshake and health do not wait for Pi imports longer than native startup deadline",
+  { timeout: 50000 },
+  async (t) => {
+    // Delay only the real models module using Node's loader API. Production has
+    // no test delay flag and still loads the actual Pi dependency graph.
+    const loader = `import { setTimeout as delay } from 'node:timers/promises';
+    export async function load(url, context, nextLoad) {
+      if (url.endsWith('/models.mjs')) await delay(31000);
+      return nextLoad(url, context);
+    }`
+    const hook = `import { register } from 'node:module'; register(${JSON.stringify("data:text/javascript," + encodeURIComponent(loader))}, import.meta.url);`
+    const start = Date.now()
+    const f = await fixture(t, {
+      execArgv: [
+        "--import",
+        "data:text/javascript," + encodeURIComponent(hook),
+      ],
+    })
+    assert.ok(
+      Date.now() - start < 10000,
+      "desktop can open before Pi finishes importing"
+    )
+    const listing = f.call("list")
+    const second = f.call("list")
+    assert.equal((await f.call("$runtime")).result.instance, f.info.instance)
+    const health = await fetch(`http://127.0.0.1:${f.info.port}/health`, {
+      headers: { "x-moon-token": f.info.token },
+    })
+    assert.equal(health.status, 200)
+    assert.deepEqual((await listing).result, [])
+    assert.deepEqual((await second).result, [])
+    assert.ok(
+      Date.now() - start >= 31000,
+      "the injected slow import actually ran"
+    )
+  }
+)

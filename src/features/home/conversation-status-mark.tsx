@@ -6,24 +6,37 @@ export const conversationStatusLabels: Record<ConversationStatus, string> = {
   running: "运行中",
   stopping: "正在停止",
   waiting: "待回答",
-  completed: "未读：已完成",
-  failed: "未读：执行失败",
+  completed: "回复结束",
+  failed: "回复失败",
+}
+export function conversationStatusLabel(
+  status: ConversationStatus,
+  unread?: boolean
+) {
+  const terminal = status === "completed" || status === "failed"
+  return `${terminal && unread !== false ? "未读：" : ""}${conversationStatusLabels[status]}`
 }
 
 export function ConversationStatusMark({
   status,
+  unread,
 }: {
   status: ConversationStatus
+  unread?: boolean
 }) {
-  if (status === "idle") return null
+  if (
+    status === "idle" ||
+    (unread === false && (status === "completed" || status === "failed"))
+  )
+    return null
   const spinning = status === "running" || status === "stopping"
   return (
     <span
       className="conversation-status-mark"
       data-status={status}
       role="img"
-      aria-label={conversationStatusLabels[status]}
-      title={conversationStatusLabels[status]}
+      aria-label={conversationStatusLabel(status, unread)}
+      title={conversationStatusLabel(status, unread)}
     >
       {spinning ? (
         <LoaderCircle className="motion-safe:animate-spin" aria-hidden />

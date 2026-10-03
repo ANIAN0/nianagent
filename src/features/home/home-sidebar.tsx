@@ -5,6 +5,7 @@ import { PrimaryNavigation } from "./primary-navigation"
 import { ConversationHistory } from "./conversation-history"
 import { UserMenu } from "./user-menu"
 import type { HomeData, Conversation } from "./home-types"
+import type { HistoryState } from "@/features/conversation/conversation-catalog-service"
 
 export type HomeSidebarProps = {
   data: Pick<HomeData, "conversations" | "workspaces">
@@ -16,6 +17,9 @@ export type HomeSidebarProps = {
   onSearch: () => void
   onSettings?: () => void
   onNotice: (message: string) => void
+  historyState?: HistoryState
+  historyError?: string
+  onHistoryRetry?: () => void
 }
 export function HomeSidebar({
   data,
@@ -27,6 +31,9 @@ export function HomeSidebar({
   onSearch,
   onNotice,
   onSettings,
+  historyState,
+  historyError,
+  onHistoryRetry,
 }: HomeSidebarProps) {
   return (
     <div
@@ -117,6 +124,9 @@ export function HomeSidebar({
           </div>
           <ConversationHistory
             data={data}
+            historyState={historyState}
+            historyError={historyError}
+            onHistoryRetry={onHistoryRetry}
             activeConversationId={activeConversationId}
             onNew={onNew}
             onSelect={(item) =>

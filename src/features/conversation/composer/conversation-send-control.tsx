@@ -2,6 +2,7 @@ import { ArrowUp, LoaderCircle, Square } from "lucide-react"
 import { InputGroupButton } from "@/components/ui/input-group"
 
 export type ConversationSendControlProps = {
+  allowQueue?: boolean
   running?: boolean
   stopping?: boolean
   hasDraft: boolean
@@ -9,13 +10,14 @@ export type ConversationSendControlProps = {
   onStop: () => void
 }
 export function ConversationSendControl({
+  allowQueue = true,
   running = false,
   stopping = false,
   hasDraft,
   disabled = false,
   onStop,
 }: ConversationSendControlProps) {
-  const stop = stopping || (running && (!hasDraft || disabled))
+  const stop = stopping || (running && (!allowQueue || !hasDraft || disabled))
   const label = stopping
     ? "正在停止"
     : stop
@@ -32,7 +34,14 @@ export function ConversationSendControl({
       aria-label={label}
       title={label}
       disabled={stopping || (!stop && (disabled || !hasDraft))}
-      onClick={stop ? onStop : undefined}
+      onClick={
+        stop
+          ? (event) => {
+              event.preventDefault()
+              onStop()
+            }
+          : undefined
+      }
     >
       {stopping ? (
         <LoaderCircle className="animate-spin" />

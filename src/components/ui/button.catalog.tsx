@@ -51,7 +51,7 @@ export default {
   composition: ["Radix Slot、CVA"],
   consumers: [
     "WorkspacePicker、MaterialChip、PrimaryNavigation、ConversationGroup、ConversationItem、UserMenu",
-    "HomeSidebar、HomePage、InputGroupButton、Dialog、组件库外壳",
+    "HomeSidebar、AppShell、LiveConversationView、SessionConfig、InputGroupButton、Dialog、组件库外壳",
   ],
   viewport: { width: 640, height: 240 },
   states: [

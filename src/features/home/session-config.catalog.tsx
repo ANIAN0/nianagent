@@ -12,6 +12,11 @@ import type {
   SessionCatalog,
 } from "@/features/models/model-contract.generated"
 import { SessionConfig } from "./session-config"
+import { AppShell } from "./app-shell"
+import {
+  NavigationBoundaryContext,
+  useNavigationBoundaryState,
+} from "./navigation-boundary"
 function Example({ empty = false }: { empty?: boolean }) {
   const [value, setValue] = useState<SessionOptions>({
     toolIds: empty ? [] : homeData.tools.map((tool) => tool.id),
@@ -34,8 +39,9 @@ function Example({ empty = false }: { empty?: boolean }) {
 function AsyncExample({
   mode,
 }: {
-  mode: "ready" | "loading" | "load-error" | "save-error"
+  mode: "ready" | "loading" | "load-error" | "save-error" | "save-wait"
 }) {
+  const navigation = useNavigationBoundaryState()
   const [value, setValue] = useState<SessionOptions>({
     toolIds: [],
     instructionScope: "all",
@@ -76,14 +82,17 @@ function AsyncExample({
       ],
       defaults: { toolIds: ["read"], instructionScope: "all" },
     }
-    const delay = (signal?: AbortSignal) =>
+    const delay = (signal?: AbortSignal, saving = false) =>
       new Promise<void>((resolve, reject) => {
         signal?.throwIfAborted()
         const finish = () => {
           signal?.removeEventListener("abort", abort)
           resolve()
         }
-        const timer = setTimeout(finish, mode === "loading" ? 5000 : 500)
+        const timer = setTimeout(
+          finish,
+          mode === "loading" || (saving && mode === "save-wait") ? 5000 : 500
+        )
         const abort = () => {
           clearTimeout(timer)
           reject(new DOMException("已取消", "AbortError"))
@@ -102,7 +111,7 @@ function AsyncExample({
         return snapshots.get(id) ?? null
       },
       apply: async (input, signal) => {
-        await delay(signal)
+        await delay(signal, true)
         if (mode === "save-error" && saves++ === 0)
           throw new Error("配置保存失败，候选选择已保留。")
         const result: SessionConfiguration = {
@@ -118,37 +127,59 @@ function AsyncExample({
       },
     }
   })
-  return (
-    <SessionServiceContext.Provider value={service}>
-      <div className="@container p-6">
-        <SessionConfig
-          sessionId={sessionId}
-          tools={[]}
-          value={value}
-          workspacePath="H:/workspace/moon"
-          onChange={setValue}
-        />
-        <Button
-          variant="link"
-          size="sm"
-          className="ml-4"
-          onClick={() => {
+  const content = (
+    <div className="@container p-6">
+      <SessionConfig
+        sessionId={sessionId}
+        tools={[]}
+        value={value}
+        workspacePath="H:/workspace/moon"
+        onChange={setValue}
+      />
+      <Button
+        variant="link"
+        size="sm"
+        className="ml-4"
+        disabled={navigation.blocked}
+        onClick={() => {
+          navigation.run(() => {
             setSessionId((id) =>
               id === "preview-session-a"
                 ? "preview-session-b"
                 : "preview-session-a"
             )
             setValue({ toolIds: [], instructionScope: "all" })
-          }}
-        >
-          切换演示会话
-        </Button>
-        <p className="mt-4 text-xs" role="status">
-          {sessionId} · 已应用 {value.toolIds.length} 个工具 ·{" "}
-          {value.instructionScope}
-        </p>
-      </div>
-    </SessionServiceContext.Provider>
+          })
+        }}
+      >
+        切换演示会话
+      </Button>
+      <p className="mt-4 text-xs" role="status">
+        {sessionId} · 已应用 {value.toolIds.length} 个工具 ·{" "}
+        {value.instructionScope}
+      </p>
+    </div>
+  )
+  return (
+    <NavigationBoundaryContext.Provider value={navigation}>
+      <SessionServiceContext.Provider value={service}>
+        {mode === "save-wait" ? (
+          <AppShell
+            data={homeData}
+            activeConversationId={sessionId}
+            onNew={() => setSessionId("preview-session-a")}
+            onSelectConversation={(item) => {
+              setSessionId(item.id)
+              setValue({ toolIds: [], instructionScope: "all" })
+            }}
+          >
+            {content}
+          </AppShell>
+        ) : (
+          content
+        )}
+      </SessionServiceContext.Provider>
+    </NavigationBoundaryContext.Provider>
   )
 }
 export default {
@@ -159,17 +190,22 @@ export default {
   source: "src/features/home/session-config.tsx",
   description: "在工具和项目指令两个面板中修改会话候选配置。",
   boundary:
-    "弹窗拥有候选值；正式入口使用SessionService读取与保存，取消丢弃编辑，异步结果按sessionId和目录隔离。展示通过独立服务替身避免访问生产。",
+    "弹窗拥有候选值；正式入口使用SessionService读取与保存，取消丢弃编辑，异步结果按sessionId和目录隔离。保存通过NavigationBoundaryContext持有应用导航租约，成功或失败返回后释放。展示通过独立服务替身避免访问生产。",
   inputs: [
     "sessionId、tools、value: SessionOptions、workspacePath；SessionServiceContext提供真实或演示服务。",
   ],
-  events: ["onChange(value)，仅应用时触发。"],
+  events: [
+    "onChange(value)：首次读取用于同步已有保存值，候选编辑不回写，应用成功后回写新值。",
+    "保存期间禁止关闭、切换会话和全局搜索；footer解释等待。成功后关闭并在入口显示配置已应用，失败保留候选。",
+  ],
   composition: [
     "Dialog",
     "Tabs",
     "ToolPicker",
     "InstructionScopePicker",
     "Button",
+    "Alert",
+    "Skeleton",
   ],
   consumers: ["ComposerToolbar", "ConversationComposer"],
   viewport: { width: 720, height: 620 },
@@ -201,6 +237,14 @@ export default {
       condition: "首次应用失败",
       expected: "保留选择，重试成功才关闭并更新已应用值。",
       render: () => <AsyncExample mode="save-error" />,
+    },
+    {
+      id: "save-wait",
+      name: "保存期间的应用导航边界",
+      condition: "配置应用延迟5秒；组件与AppShell共用正式导航边界。",
+      expected:
+        "点击应用后Ctrl+K/Ctrl+B、会话选择、切换演示会话和Esc不能离开保存画面；结果返回后显示配置已应用，导航恢复。",
+      render: () => <AsyncExample mode="save-wait" />,
     },
     {
       id: "enabled",

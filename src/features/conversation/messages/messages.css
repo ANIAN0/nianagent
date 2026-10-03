@@ -353,6 +353,10 @@
 }
 .conversation-detail-content pre {
   max-width: 100%;
+  max-height: 240px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
   margin: 0;
   color: var(--muted-foreground);
   font-size: 12px;
@@ -361,13 +365,31 @@
   overflow-wrap: anywhere;
 }
 .conversation-tool-output {
+  max-height: 280px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.conversation-tool-exit {
+.conversation-tool-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 20px;
   margin: 8px 0 0;
   color: var(--muted-foreground);
   font-size: 12px;
+}
+.conversation-tool-metrics > div {
+  display: flex;
+  gap: 8px;
+}
+.conversation-tool-metrics dd {
+  color: var(--foreground);
+  font-variant-numeric: tabular-nums;
+}
+.conversation-tool[data-status="failed"] .conversation-tool-metrics dd {
+  color: var(--destructive);
 }
 .conversation-process-trigger:focus-visible,
 .conversation-execution-summary:focus-visible,

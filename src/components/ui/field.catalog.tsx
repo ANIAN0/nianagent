@@ -28,7 +28,18 @@ export default {
   ],
   events: ["字段本身不发业务事件；Switch.onCheckedChange 修改父状态。"],
   composition: ["FieldGroup、Field、FieldLabel、Switch"],
-  consumers: ["HomeComposer 表单布局、SessionConfig 配置字段"],
+  consumers: [
+    "HomeComposer",
+    "ConversationComposer",
+    "QueueDock",
+    "QuestionComposer",
+    "ConnectionFields",
+    "CredentialFields",
+    "ApiKeyField",
+    "ModelEditor",
+    "PiAuthorization",
+    "SubscriptionAuthorization",
+  ],
   viewport: { width: 480, height: 240 },
   states: [
     {

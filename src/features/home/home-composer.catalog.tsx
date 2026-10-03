@@ -9,11 +9,12 @@ export default {
   source: "src/features/home/home-composer.tsx",
   description: "选择工作上下文、编辑需求和材料，通过提交回调获得结果反馈。",
   boundary:
-    "只负责输入与本地草稿；数据及提交行为由调用方提供，不读取文件、不调用模型。初始草稿仅在挂载时读取，重建实例可重置。",
+    "负责首页输入与本地草稿；正式App提供真实工作区选择及提交行为，SessionServiceContext提供配置读取与保存，组件本身不调用模型。此目录使用隔离数据与模拟提交，材料能力仅供展示。初始草稿仅在挂载时读取，重建实例可重置。",
   inputs: [
     "data: workspaces/models/materials/tools 可选资源。",
     "initialDraft?: Partial<HomeDraft>，初始需求、材料、模型和工具配置。",
     "onSubmit: SubmitWork，支持异步提交与AbortSignal，保存配置成功后进入会话，失败保留草稿。",
+    "onDraftChange保存当前窗口草稿；onChooseWorkspace/onWorkspaceSelect由正式App接入系统目录选择和工作区服务。",
   ],
   events: [
     "提交仅在非空需求、有效目录及模型时触发；Enter 发送、Shift+Enter 换行，输入法组合阶段不提交。",
@@ -24,7 +25,7 @@ export default {
     "ComposerToolbar 负责材料、模型、思考、配置与发送",
     "FieldGroup/Field、InputGroup",
   ],
-  consumers: ["HomePage"],
+  consumers: ["App（正式首页）", "HomePage（独立展示）"],
   viewport: { width: 800, height: 600 },
   states: [
     {
@@ -47,6 +48,23 @@ export default {
             materials: [homeData.materials[0]!, homeData.materials[2]!],
           }}
           onSubmit={submitMockWork}
+        />
+      ),
+    },
+    {
+      id: "send-rejected",
+      name: "发送未接受",
+      condition: "提交函数在消息被接受前失败。",
+      expected: "反馈靠近输入，原文字、模型与工作区保留，可修正后重新发送。",
+      render: () => (
+        <HomeComposer
+          data={homeData}
+          initialDraft={{
+            text: "读取 README.md，确认两个入口使用同一个后端。",
+          }}
+          onSubmit={() => {
+            throw new Error("模型不可用，消息尚未发送。请检查连接后重新发送。")
+          }}
         />
       ),
     },

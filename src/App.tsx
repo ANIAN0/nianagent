@@ -1,475 +1,293 @@
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
+import { AppShell } from "@/features/home/app-shell"
+import { HomeComposer } from "@/features/home/home-composer"
+import {
+  NavigationBoundaryContext,
+  useNavigationBoundaryState,
+} from "@/features/home/navigation-boundary"
+import type { HomeData, HomeDraft } from "@/features/home/home-types"
+import { thinkingLabels } from "@/features/home/model-thinking"
+import { modelSelectionId } from "@/features/models/model-types"
+import { useModelCatalog } from "@/features/models/use-model-catalog"
+import type { LeaveGuard } from "@/features/models/connection-editor"
 import {
   createSessionService,
   SessionServiceContext,
   consumeHomeSession,
-  readHomeWorkspaces,
 } from "@/features/session/session-service"
-import { thinkingLabels } from "@/features/home/model-thinking"
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
-import { createModelService } from "@/features/models/model-service"
-import type { ModelConnection } from "@/features/models/model-types"
+import { useWorkspaces } from "@/features/workspaces/use-workspaces"
 import {
-  connectionIssue,
-  modelSelectionId,
-} from "@/features/models/model-types"
-import type { LeaveGuard } from "@/features/models/connection-editor"
+  useConversationCatalog,
+  toHomeConversation,
+} from "@/features/conversation/conversation-catalog-service"
+import { useLiveConversation } from "@/features/conversation/use-live-conversation"
+import { LiveConversationView } from "@/features/conversation/live-conversation-view"
+import type { ConversationReadingPosition } from "@/features/conversation/conversation-list"
+
 const ModelSettingsPage = lazy(() =>
   import("@/features/models/model-settings-page").then((module) => ({
     default: module.ModelSettingsPage,
   }))
 )
-import { homeData } from "@/features/home/mock-data"
-import { AppShell } from "@/features/home/app-shell"
-import { HomeComposer } from "@/features/home/home-composer"
-import { ConversationPage } from "@/features/conversation/conversation-page"
-import { ConversationMessageView } from "@/features/conversation/messages/conversation-message-view"
-import { ConversationComposer } from "@/features/conversation/composer/conversation-composer"
-import { QuestionComposer } from "@/features/conversation/composer/question-composer"
-import { QueueDock } from "@/features/conversation/composer/queue-dock"
-import { useConversations } from "@/features/conversation/use-conversations"
-import type { ConversationReadingPosition } from "@/features/conversation/conversation-list"
-import {
-  conversationReadVersion,
-  conversationStatus,
-} from "@/features/conversation/conversation-status"
+const selectedKey = "moon.conversation.selected.v1"
+function restoreSelection() {
+  try {
+    return localStorage.getItem(selectedKey) || undefined
+  } catch {
+    return undefined
+  }
+}
 export default function App() {
-  const { sessions, dispatch } = useConversations()
+  const navigation = useNavigationBoundaryState()
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [sessionService] = useState(() => createSessionService())
-  const [workspaceError, setWorkspaceError] = useState("")
-  const [workspaceReload, setWorkspaceReload] = useState(0)
-  const [modelService] = useState(() => createModelService())
-  const [connections, setConnections] = useState<ModelConnection[]>([])
-  const [modelLabels, setModelLabels] = useState<Record<string, string>>({})
-  const [modelLoading, setModelLoading] = useState(true)
-  const [modelRefresh, setModelRefresh] = useState(0)
-  const [modelLoadError, setModelLoadError] = useState("")
-  useEffect(() => {
-    const controller = new AbortController()
-    modelService
-      .list(controller.signal)
-      .then((items) => {
-        if (controller.signal.aborted) return
-        if (
-          items.some((connection) =>
-            connection.models.some(
-              (model) => !Array.isArray(model.supportedThinkingLevels)
-            )
-          )
-        ) {
-          throw new Error("模型后端未返回思考等级，请重启模型后端后重新读取。")
-        }
-        setModelLoading(false)
-        setConnections(items)
-        setModelLabels(
-          Object.fromEntries(
-            items.flatMap((connection) =>
-              connection.models.map((model) => [
-                modelSelectionId(connection, model),
-                `${model.name} · ${connection.name}`,
-              ])
-            )
-          )
-        )
-        setModelLoadError("")
-      })
-      .catch((error) => {
-        if (!controller.signal.aborted) setModelLoading(false)
-        if (!controller.signal.aborted)
-          setModelLoadError(
-            error instanceof Error ? error.message : "模型配置读取失败。"
-          )
-      })
-    return () => controller.abort()
-  }, [modelService, modelRefresh])
-
-  useEffect(() => {
-    const refresh = () => setModelRefresh((value) => value + 1)
-    window.addEventListener("focus", refresh)
-    return () => window.removeEventListener("focus", refresh)
-  }, [])
-
+  const [selected, setSelected] = useState<string | undefined>(restoreSelection)
+  const [sessionService] = useState(createSessionService)
+  const [homeDraft, setHomeDraft] = useState<{
+    key: number
+    workspaceId?: string
+    draft?: HomeDraft
+  }>({ key: 0 })
+  const saveHomeDraft = useCallback(
+    (draft: HomeDraft) => setHomeDraft((previous) => ({ ...previous, draft })),
+    []
+  )
+  const [positions] = useState(
+    () => new Map<string, ConversationReadingPosition>()
+  )
+  const models = useModelCatalog(() =>
+    navigation.run(() => setSettingsOpen(true))
+  )
+  const workspaces = useWorkspaces()
+  const catalog = useConversationCatalog()
+  const chat = useLiveConversation(selected)
   const settingsGuard = useRef<LeaveGuard | null>(null)
   const registerSettingsLeave = useCallback((guard: LeaveGuard | null) => {
     settingsGuard.current = guard
   }, [])
+  const [notice, setNotice] = useState("")
   function leaveSettings(action: () => void) {
-    const leave = () => {
-      setSettingsOpen(false)
-      action()
-    }
-    if (settingsOpen && settingsGuard.current) settingsGuard.current(leave)
-    else leave()
-  }
-  const [selected, setSelected] = useState<string>()
-  const [readVersions, setReadVersions] = useState<Record<string, string>>({})
-  function selectConversation(id?: string) {
-    setReadVersions((versions) => {
-      const next = { ...versions }
-      for (const session of sessions) {
-        if (session.id === selected || session.id === id)
-          next[session.id] = conversationReadVersion(session)
-      }
-      return next
+    navigation.run(() => {
+      const leave = () =>
+        navigation.run(() => {
+          setSettingsOpen(false)
+          action()
+        })
+      if (settingsOpen && settingsGuard.current) settingsGuard.current(leave)
+      else leave()
     })
+  }
+  function selectConversation(id?: string) {
     setSelected(id)
+    setNotice("")
+    try {
+      if (id) localStorage.setItem(selectedKey, id)
+      else localStorage.removeItem(selectedKey)
+    } catch {
+      /* In-memory navigation remains available. */
+    }
   }
-  const [positions] = useState(
-    () => new Map<string, ConversationReadingPosition>()
-  )
-  const [homeDraft, setHomeDraft] = useState<{
-    key: number
-    workspaceId?: string
-  }>({ key: 0 })
-  const [workspaces, setWorkspaces] = useState(() => [
-    ...homeData.workspaces.map((workspace, index) =>
-      index === 0 ? { ...workspace, name: "工作目录", path: "" } : workspace
-    ),
-    ...readHomeWorkspaces().filter(
-      (workspace) =>
-        !homeData.workspaces.some((item) => item.id === workspace.id)
-    ),
-  ])
+  const current = selected ? chat.snapshots[selected] : undefined
+  const metadata = catalog.conversations.find((item) => item.id === selected)
+  const markRead = catalog.markRead
   useEffect(() => {
-    const controller = new AbortController()
-    sessionService
-      .catalog("", controller.signal)
-      .then((catalog) => {
-        if (controller.signal.aborted) return
-        const cwd = catalog.cwd
-        setWorkspaces((items) =>
-          items.map((workspace, index) =>
-            index === 0
-              ? {
-                  ...workspace,
-                  path: cwd,
-                  name: cwd.split(/[\\/]/).filter(Boolean).at(-1) || cwd,
-                }
-              : workspace
-          )
-        )
-        setWorkspaceError("")
-      })
-      .catch((error) => {
-        if (!controller.signal.aborted)
-          setWorkspaceError(
-            error instanceof Error ? error.message : String(error)
-          )
-      })
-    return () => controller.abort()
-  }, [sessionService, workspaceReload])
-  const current = sessions.find((s) => s.id === selected)
-  const data = {
-    ...homeData,
-    workspaces,
-    models: connections
-      .filter((connection) => !connectionIssue(connection))
-      .flatMap((connection) =>
-        connection.models.map((model) => modelSelectionId(connection, model))
-      ),
-    modelLabels,
-    modelCatalog: {
-      items: connections.flatMap((connection) =>
-        connection.models.map((model) => ({
-          value: modelSelectionId(connection, model),
-          name: model.name,
-          connection: connection.name,
-          modelId: model.id,
-        }))
-      ),
-      status: modelLoading
-        ? ("loading" as const)
-        : modelLoadError
-          ? ("error" as const)
-          : ("ready" as const),
-      error: modelLoadError,
-      onRetry: () => {
-        setModelLoading(true)
-        setModelLoadError("")
-        setModelRefresh((value) => value + 1)
-      },
-      onOpenSettings: () => setSettingsOpen(true),
-    },
-    modelThinking: Object.fromEntries(
-      connections.flatMap((connection) =>
-        connection.models.map((model) => [
-          modelSelectionId(connection, model),
-          (model.supportedThinkingLevels ?? []).map(
-            (level) => thinkingLabels[level]
-          ),
-        ])
-      )
-    ),
-    conversations: sessions.map((s) => ({
-      id: s.id,
-      title: s.title,
-      workspaceId: s.workspaceId,
-      updatedLabel:
-        homeData.conversations.find((c) => c.id === s.id)?.updatedLabel ??
-        "刚刚",
-      message: s.messages.at(-1)?.text,
-      status: conversationStatus(
-        s,
-        selected === s.id || readVersions[s.id] === conversationReadVersion(s)
-      ),
-    })),
+    if (
+      !selected ||
+      !current ||
+      !metadata?.unread ||
+      settingsOpen ||
+      document.visibilityState === "hidden"
+    )
+      return
+    if (
+      metadata.runId !== current.runId ||
+      metadata.status !==
+        (current.phase === "interrupted" ? "idle" : current.phase)
+    )
+      return
+    void markRead(selected, metadata.revision).catch((error) =>
+      setNotice(error instanceof Error ? error.message : String(error))
+    )
+  }, [selected, current, metadata, markRead, settingsOpen])
+  const data: HomeData = {
+    workspaces: workspaces.items,
+    conversations: catalog.conversations.map(toHomeConversation),
+    ...models.data,
+    materials: [],
+    materialsEnabled: false,
+    tools: [],
   }
-  let turn = 0
+  const selectedConnection = models.connections.find(
+    (item) => item.id === current?.connectionId
+  )
+  const selectedModel = selectedConnection?.models.find(
+    (item) => item.id === current?.providerModelId
+  )
+  const currentDraft: HomeDraft = (selected && chat.drafts[selected]) || {
+    sessionId: selected,
+    workspaceId: current?.workspaceId ?? metadata?.workspaceId ?? "",
+    text: "",
+    model:
+      selectedConnection && selectedModel
+        ? modelSelectionId(selectedConnection, selectedModel)
+        : (current?.modelId ?? ""),
+    thinking: thinkingLabels[current?.thinking ?? "off"] ?? "",
+    materials: [],
+    session: { toolIds: [], instructionScope: "all" },
+  }
+  async function submitHome(draft: HomeDraft, signal?: AbortSignal) {
+    const id = draft.sessionId ?? crypto.randomUUID()
+    const workspace = workspaces.items.find(
+      (item) => item.id === draft.workspaceId
+    )
+    if (!workspace || workspace.available === false)
+      throw new Error("工作目录不可用，请重新选择工作区。")
+    const saved = await sessionService.read(id, signal)
+    const configuration =
+      saved ??
+      (await sessionService.apply(
+        { sessionId: id, cwd: workspace.path, ...draft.session },
+        signal
+      ))
+    signal?.throwIfAborted()
+    if (configuration.unavailableToolIds.length)
+      throw new Error("请在会话配置中取消不可用工具后再发送。")
+    const accepted = await chat.send(id, draft, models.connections, signal)
+    if (!accepted.inputAccepted)
+      throw new Error(accepted.error || "消息未能开始，请检查模型配置后重试。")
+    signal?.throwIfAborted()
+    consumeHomeSession(workspace.path)
+    selectConversation(id)
+    void catalog.refresh(true)
+    return ""
+  }
+  function action(operation: Promise<unknown>) {
+    void operation
+      .then(() => catalog.refresh(true))
+      .catch(() => {
+        /* Per-session hook retains the error next to its composer. */
+      })
+  }
   return (
-    <SessionServiceContext.Provider value={sessionService}>
-      <AppShell
-        data={data}
-        activeConversationId={selected}
-        onSettings={() => setSettingsOpen(true)}
-        onSelectConversation={(item) =>
-          leaveSettings(() => selectConversation(item.id))
-        }
-        onNew={(workspaceId) => {
-          leaveSettings(() => {
-            selectConversation(undefined)
-            setHomeDraft((v) => ({ key: v.key + 1, workspaceId }))
-          })
-        }}
-      >
-        {workspaceError && (
-          <div role="alert" className="px-4 py-2 text-sm text-destructive">
-            工作目录读取失败：{workspaceError}{" "}
-            <Button
-              variant="link"
-              size="sm"
-              onClick={() => setWorkspaceReload((value) => value + 1)}
-            >
-              重新读取
-            </Button>
-          </div>
-        )}
-        {modelLoadError && (
-          <p role="alert" className="px-4 py-2 text-sm text-destructive">
-            模型配置读取失败：{modelLoadError}
-          </p>
-        )}
-        {settingsOpen && (
-          <Suspense
-            fallback={
-              <div role="status" className="p-8">
-                正在打开设置…
-              </div>
-            }
-          >
-            <ModelSettingsPage
-              service={modelService}
-              onReturn={() => setSettingsOpen(false)}
-              onConnectionsChange={(items) => {
-                setModelLoadError("")
-                setConnections(items)
-                setModelLabels((previous) => ({
-                  ...previous,
-                  ...Object.fromEntries(
-                    items.flatMap((connection) =>
-                      connection.models.map((model) => [
-                        modelSelectionId(connection, model),
-                        `${model.name} · ${connection.name}`,
-                      ])
-                    )
-                  ),
-                }))
-              }}
-              registerLeave={registerSettingsLeave}
-            />
-          </Suspense>
-        )}
-        <div
-          className={settingsOpen ? "hidden" : "flex min-h-0 flex-1 flex-col"}
+    <NavigationBoundaryContext.Provider value={navigation}>
+      <SessionServiceContext.Provider value={sessionService}>
+        <AppShell
+          data={data}
+          activeConversationId={selected}
+          historyState={catalog.historyState}
+          historyError={catalog.historyError}
+          onHistoryRetry={() => void catalog.refresh()}
+          onSettings={() => navigation.run(() => setSettingsOpen(true))}
+          onSelectConversation={(item) =>
+            leaveSettings(() => selectConversation(item.id))
+          }
+          onNew={(workspaceId) =>
+            leaveSettings(() => {
+              selectConversation()
+              setHomeDraft((value) => ({ key: value.key + 1, workspaceId }))
+            })
+          }
         >
-          {current ? (
-            <ConversationPage
-              viewKey={current.id}
-              title={current.title}
-              workspacePath={
-                workspaces.find((w) => w.id === current.workspaceId)?.path ??
-                current.workspaceId
-              }
-              status={
-                current.phase === "running"
-                  ? "正在生成"
-                  : current.phase === "stopping"
-                    ? "正在停止"
-                    : current.phase === "waiting"
-                      ? "等待回答"
-                      : ""
-              }
-              state={current.loadState}
-              error={current.error}
-              connectionMessage={current.connectionMessage}
-              readingPositions={positions}
-              items={current.messages.map((message, index) => ({
-                id: message.id,
-                revision: message.text + message.status,
-                content: (
-                  <ConversationMessageView
-                    message={message}
-                    onRetry={
-                      index === current.messages.length - 1 &&
-                      current.phase === "idle"
-                        ? () => dispatch({ type: "retry", id: current.id })
-                        : undefined
-                    }
-                  />
-                ),
-                ...(message.role === "user"
-                  ? {
-                      turn: ++turn,
-                      prompt: message.text,
-                      response: current.messages[index + 1]?.text,
-                    }
-                  : {}),
-              }))}
-              question={
-                current.questions?.length ? (
-                  <QuestionComposer
-                    key={current.id}
-                    questions={current.questions}
-                    draft={current.questionDraft}
-                    onDraftChange={(draft) =>
-                      dispatch({
-                        type: "question-draft",
-                        id: current.id,
-                        draft,
-                      })
-                    }
-                    onAnswer={(answers) =>
-                      dispatch({ type: "answer", id: current.id, answers })
-                    }
-                    onCancel={() =>
-                      dispatch({ type: "cancel", id: current.id })
-                    }
-                    onStop={() => dispatch({ type: "stop", id: current.id })}
-                    stopping={current.phase === "stopping"}
-                  />
-                ) : undefined
-              }
-              composer={
-                <ConversationComposer
-                  sessionId={current.id}
-                  key={current.id}
-                  data={data}
-                  draft={current.draft}
-                  workspacePath={
-                    workspaces.find((w) => w.id === current.workspaceId)
-                      ?.path ?? current.workspaceId
-                  }
-                  running={current.phase === "running"}
-                  stopping={current.phase === "stopping"}
-                  blocked={Boolean(current.connectionMessage)}
-                  onChange={(draft) =>
-                    dispatch({ type: "change", id: current.id, draft })
-                  }
-                  onSubmit={(draft) =>
-                    dispatch({
-                      type: "send",
-                      id: current.id,
-                      draft,
-                      key: crypto.randomUUID(),
-                    })
-                  }
-                  onStop={() => dispatch({ type: "stop", id: current.id })}
-                  context={{
-                    usedTokens: current.compacted ? 26000 : 53760,
-                    contextWindow: 128000,
-                    onCompact: () =>
-                      dispatch({ type: "compact", id: current.id }),
-                    compactDisabledReason:
-                      current.phase !== "idle"
-                        ? "请等待当前工作结束后压缩"
-                        : current.compacted
-                          ? "已完成模拟压缩"
-                          : undefined,
-                  }}
-                  dock={
-                    <QueueDock
-                      items={current.queue}
-                      running={current.phase === "running"}
-                      busy={current.phase === "stopping"}
-                      deliveryMode={current.deliveryMode ?? "single"}
-                      onDeliveryModeChange={(mode) =>
-                        dispatch({ type: "mode", id: current.id, mode })
-                      }
-                      onEdit={(key, text) =>
-                        dispatch({
-                          type: "queue-edit",
-                          id: current.id,
-                          key,
-                          text,
-                        })
-                      }
-                      onRemove={(key) =>
-                        dispatch({ type: "queue-remove", id: current.id, key })
-                      }
-                      onSendNow={(key) =>
-                        dispatch({ type: "queue-send", id: current.id, key })
-                      }
-                    />
-                  }
-                />
-              }
-            />
-          ) : (
-            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-              <HomeComposer
-                key={homeDraft.key}
-                data={data}
-                initialDraft={{ workspaceId: homeDraft.workspaceId }}
-                onWorkspaceAdd={(workspace) =>
-                  setWorkspaces((list) =>
-                    list.some((w) => w.id === workspace.id)
-                      ? list
-                      : [...list, workspace]
-                  )
-                }
-                onSubmit={async (draft, signal) => {
-                  const id = draft.sessionId ?? crypto.randomUUID()
-                  const cwd =
-                    workspaces.find(
-                      (workspace) => workspace.id === draft.workspaceId
-                    )?.path ?? ""
-                  const saved = await sessionService.read(id, signal)
-                  const configuration =
-                    saved ??
-                    (await sessionService.apply(
-                      { sessionId: id, cwd, ...draft.session },
-                      signal
-                    ))
-                  signal?.throwIfAborted()
-                  if (configuration.unavailableToolIds.length) {
-                    throw new Error(
-                      "会话包含不可用工具，请在会话配置中取消这些工具后再发送。"
-                    )
-                  }
-                  consumeHomeSession(
-                    workspaces.find(
-                      (workspace) => workspace.id === draft.workspaceId
-                    )?.path ?? ""
-                  )
-                  dispatch({
-                    type: "create",
-                    id,
-                    draft: {
-                      ...draft,
-                      session: {
-                        toolIds: configuration.toolIds,
-                        instructionScope: configuration.instructionScope,
-                      },
-                    },
-                  })
-                  setSelected(id)
-                  return ""
-                }}
-              />
-            </div>
+          {(models.error || notice) && (
+            <Alert
+              variant="destructive"
+              className="shrink-0 rounded-none border-x-0 border-t-0"
+            >
+              <AlertDescription>{notice || models.error}</AlertDescription>
+            </Alert>
           )}
-        </div>
-      </AppShell>
-    </SessionServiceContext.Provider>
+          {settingsOpen && (
+            <Suspense
+              fallback={
+                <div role="status" className="p-8">
+                  正在打开设置…
+                </div>
+              }
+            >
+              <ModelSettingsPage
+                service={models.service}
+                onReturn={() => navigation.run(() => setSettingsOpen(false))}
+                onConnectionsChange={models.update}
+                registerLeave={registerSettingsLeave}
+              />
+            </Suspense>
+          )}
+          <div
+            className={settingsOpen ? "hidden" : "flex min-h-0 flex-1 flex-col"}
+          >
+            {selected ? (
+              <LiveConversationView
+                id={selected}
+                title={metadata?.title ?? "正在读取会话"}
+                workspacePath={metadata?.cwd}
+                snapshot={current}
+                error={chat.errors[selected]}
+                pending={chat.pending[selected]}
+                data={data}
+                draft={currentDraft}
+                positions={positions}
+                onChange={(draft) => chat.change(selected, draft)}
+                onSend={(draft) =>
+                  action(chat.send(selected, draft, models.connections))
+                }
+                onStop={() => action(chat.stop(selected))}
+                onContinue={() =>
+                  action(chat.retry(selected, currentDraft, models.connections))
+                }
+                onReload={chat.reload}
+              />
+            ) : workspaces.loading ? (
+              <div
+                role="status"
+                aria-label="正在读取工作区"
+                className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-8 pt-24"
+              >
+                <Skeleton className="mx-auto h-8 w-44" />
+                <Skeleton className="h-28 w-full rounded-2xl" />
+              </div>
+            ) : (
+              <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+                {workspaces.error && (
+                  <Alert
+                    variant="destructive"
+                    className="mx-auto mt-6 max-w-3xl"
+                  >
+                    <AlertDescription>
+                      {workspaces.error}
+                      <Button
+                        variant="link"
+                        size="sm"
+                        onClick={workspaces.refresh}
+                      >
+                        重新读取
+                      </Button>
+                    </AlertDescription>
+                  </Alert>
+                )}
+                <HomeComposer
+                  key={homeDraft.key}
+                  data={data}
+                  initialDraft={
+                    homeDraft.draft ?? {
+                      workspaceId:
+                        homeDraft.workspaceId ?? workspaces.selectedId,
+                    }
+                  }
+                  onDraftChange={saveHomeDraft}
+                  onSubmit={submitHome}
+                  onChooseWorkspace={workspaces.choose}
+                  onWorkspaceSelect={workspaces.select}
+                  workspaceLoading={workspaces.loading}
+                  workspaceError={workspaces.error}
+                  onWorkspaceRetry={workspaces.refresh}
+                />
+              </div>
+            )}
+          </div>
+        </AppShell>
+      </SessionServiceContext.Provider>
+    </NavigationBoundaryContext.Provider>
   )
 }

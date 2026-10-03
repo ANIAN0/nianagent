@@ -11,6 +11,8 @@ import {
 import { HomeSidebar } from "./home-sidebar"
 import { ConversationSearch } from "./conversation-search"
 import type { HomeData, Conversation } from "./home-types"
+import type { HistoryState } from "@/features/conversation/conversation-catalog-service"
+import { useNavigationBoundary } from "./navigation-boundary"
 
 export function AppShell({
   data,
@@ -18,6 +20,9 @@ export function AppShell({
   onNew,
   onSelectConversation,
   onSettings,
+  historyState,
+  historyError,
+  onHistoryRetry,
   children,
 }: {
   data: HomeData
@@ -25,8 +30,13 @@ export function AppShell({
   onNew: (workspaceId?: string) => void
   onSelectConversation: (conversation: Conversation) => void
   onSettings?: () => void
+  historyState?: HistoryState
+  historyError?: string
+  onHistoryRetry?: () => void
   children: ReactNode
 }) {
+  const { run: runNavigation, blocked: navigationBlocked } =
+    useNavigationBoundary()
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [sidebarWidth, setSidebarWidth] = useState(280)
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -40,8 +50,10 @@ export function AppShell({
         event.key.toLowerCase() === "k"
       ) {
         event.preventDefault()
-        setSearchOpen((open) => !open)
-        setMobileOpen(false)
+        runNavigation(() => {
+          setSearchOpen((open) => !open)
+          setMobileOpen(false)
+        })
       }
       if (
         (event.ctrlKey || event.metaKey) &&
@@ -49,40 +61,55 @@ export function AppShell({
         event.key.toLowerCase() === "b"
       ) {
         event.preventDefault()
-        if (window.matchMedia("(min-width: 768px)").matches)
-          setSidebarOpen((open) => !open)
-        else setMobileOpen((open) => !open)
+        runNavigation(() => {
+          if (window.matchMedia("(min-width: 768px)").matches)
+            setSidebarOpen((open) => !open)
+          else setMobileOpen((open) => !open)
+        })
       }
     }
     window.addEventListener("keydown", handleKey)
     return () => window.removeEventListener("keydown", handleKey)
-  }, [])
+  }, [runNavigation])
   const sidebarProps = {
     data,
     activeConversationId,
+    historyState,
+    historyError,
+    onHistoryRetry,
     onSelectConversation: (item: Conversation) => {
-      setMobileOpen(false)
-      onSelectConversation(item)
+      runNavigation(() => {
+        setMobileOpen(false)
+        onSelectConversation(item)
+      })
     },
-    onClose: () => setSidebarOpen((open) => !open),
+    onClose: () => runNavigation(() => setSidebarOpen((open) => !open)),
     onNew: (id?: string) => {
-      onNew(id)
-      setMobileOpen(false)
-      setNotice("")
+      runNavigation(() => {
+        onNew(id)
+        setMobileOpen(false)
+        setNotice("")
+      })
     },
     onSearch: () => {
-      setMobileOpen(false)
-      setSearchOpen(true)
+      runNavigation(() => {
+        setMobileOpen(false)
+        setSearchOpen(true)
+      })
     },
     onSettings: onSettings
       ? () => {
-          setMobileOpen(false)
-          onSettings()
+          runNavigation(() => {
+            setMobileOpen(false)
+            onSettings()
+          })
         }
       : undefined,
     onNotice: (message: string) => {
-      setMobileOpen(false)
-      setNotice(message)
+      runNavigation(() => {
+        setMobileOpen(false)
+        setNotice(message)
+      })
     },
   }
   function resize(width: number) {
@@ -139,29 +166,39 @@ export function AppShell({
           size="icon"
           aria-label="打开导航"
           className="absolute top-3 left-3 z-10 md:hidden"
-          onClick={() => setMobileOpen(true)}
+          disabled={navigationBlocked}
+          onClick={() => runNavigation(() => setMobileOpen(true))}
         >
           <PanelLeft />
         </Button>
         {children}
       </main>
-      <Dialog open={mobileOpen} onOpenChange={setMobileOpen}>
+      <Dialog
+        open={mobileOpen && !navigationBlocked}
+        onOpenChange={(open) => runNavigation(() => setMobileOpen(open))}
+      >
         <DialogContent
           className="inset-y-0 left-0 h-dvh w-80 max-w-[calc(100vw-48px)] translate-x-0 translate-y-0 gap-0 rounded-none p-0"
           showCloseButton={false}
         >
           <DialogHeader className="sr-only">
             <DialogTitle>Moon 导航</DialogTitle>
-            <DialogDescription>导航和模拟历史会话</DialogDescription>
+            <DialogDescription>导航与本地历史会话</DialogDescription>
           </DialogHeader>
-          <HomeSidebar {...sidebarProps} onClose={() => setMobileOpen(false)} />
+          <HomeSidebar
+            {...sidebarProps}
+            onClose={() => runNavigation(() => setMobileOpen(false))}
+          />
         </DialogContent>
       </Dialog>
       <ConversationSearch
         data={data}
-        open={searchOpen}
-        onOpenChange={setSearchOpen}
-        onSelect={onSelectConversation}
+        historyState={historyState}
+        historyError={historyError}
+        onHistoryRetry={onHistoryRetry}
+        open={searchOpen && !navigationBlocked}
+        onOpenChange={(open) => runNavigation(() => setSearchOpen(open))}
+        onSelect={(item) => runNavigation(() => onSelectConversation(item))}
       />
       <Dialog
         open={!!notice}

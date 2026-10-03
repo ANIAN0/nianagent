@@ -16,6 +16,7 @@ import { ConversationSendControl } from "./conversation-send-control"
 import { ContextUsage, type ContextUsageProps } from "./context-usage"
 
 export type ConversationComposerProps = {
+  allowQueue?: boolean
   sessionId?: string
   data: Pick<
     HomeData,
@@ -24,6 +25,7 @@ export type ConversationComposerProps = {
     | "modelThinking"
     | "modelCatalog"
     | "materials"
+    | "materialsEnabled"
     | "tools"
   >
   draft: HomeDraft
@@ -38,6 +40,7 @@ export type ConversationComposerProps = {
   onStop: () => void
 }
 export function ConversationComposer({
+  allowQueue = true,
   sessionId,
   data,
   draft: rawDraft,
@@ -73,7 +76,11 @@ export function ConversationComposer({
   }
   const hasDraft = !!draft.text.trim() || draft.materials.length > 0
   const valid =
-    hasDraft && data.models.includes(draft.model) && !stopping && !blocked
+    hasDraft &&
+    data.models.includes(draft.model) &&
+    !stopping &&
+    !blocked &&
+    (!running || allowQueue)
   function submit() {
     if (valid)
       onSubmit({
@@ -100,7 +107,9 @@ export function ConversationComposer({
                 aria-label="对话消息"
                 placeholder={
                   running
-                    ? "写下一项任务，或补充当前工作的要求"
+                    ? allowQueue
+                      ? "写下一项任务，或补充当前工作的要求"
+                      : "可以先写下一条消息，回复结束后发送"
                     : "描述你要做的事"
                 }
                 value={draft.text}
@@ -132,6 +141,7 @@ export function ConversationComposer({
                 className="@container gap-1.5 px-3 pt-2 pb-3"
               >
                 <MaterialPicker
+                  disabled={data.materialsEnabled === false}
                   anchorRef={anchorRef}
                   materials={data.materials}
                   selected={draft.materials}
@@ -168,6 +178,7 @@ export function ConversationComposer({
                   onThinkingChange={(thinking) => change({ thinking })}
                 />
                 <SessionConfig
+                  disabled={running || stopping || blocked}
                   key={`${sessionId}:${workspacePath}`}
                   sessionId={sessionId}
                   tools={data.tools}
@@ -176,6 +187,7 @@ export function ConversationComposer({
                   onChange={(session) => change({ session })}
                 />
                 <ConversationSendControl
+                  allowQueue={allowQueue}
                   running={running}
                   stopping={stopping}
                   hasDraft={hasDraft}

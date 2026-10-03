@@ -113,6 +113,32 @@ test("scope, empty tools, snapshot restore, and per-session isolation", async (t
   )
 })
 
+test("host runtime guidance survives no project instructions and cannot be replaced by hidden Pi prompt files", async (t) => {
+  const { service, root, directory, apply } = await fixture(t)
+  const cwd = join(root, "中文 工作目录")
+  await mkdir(join(cwd, ".pi"), { recursive: true })
+  await writeFile(join(cwd, "AGENTS.md"), "UNLOADED_DIRECTORY_CONTEXT")
+  await writeFile(join(cwd, ".pi", "SYSTEM.md"), "HIDDEN_DIRECTORY_REPLACEMENT")
+  await writeFile(join(cwd, ".pi", "APPEND_SYSTEM.md"), "HIDDEN_DIRECTORY_APPEND")
+  await writeFile(join(directory, "agent", "SYSTEM.md"), "HIDDEN_GLOBAL_REPLACEMENT")
+  await writeFile(join(directory, "agent", "APPEND_SYSTEM.md"), "HIDDEN_GLOBAL_APPEND")
+  const configuration = await apply({ cwd, instructionScope: "none" })
+  assert.deepEqual(configuration.instructions, [])
+  const session = service.sessions.active.get("session-a").session
+  const prompt = session.systemPrompt
+  assert.ok(prompt.includes("Moon host runtime"))
+  assert.ok(prompt.includes(JSON.stringify(configuration.cwd)))
+  assert.ok(prompt.includes("Prefer paths relative to this working directory"))
+  assert.ok(!prompt.includes("UNLOADED_DIRECTORY_CONTEXT"))
+  assert.ok(!prompt.includes("HIDDEN_"))
+  assert.ok(!prompt.includes("MOON_TEST_GLOBAL_INSTRUCTIONS"))
+  if (process.platform === "win32") {
+    assert.ok(prompt.includes("Windows (win32)"))
+    assert.ok(prompt.includes("cygpath -w \"$PWD\""))
+    assert.ok(prompt.includes("Never guess drive letters or shell mount mappings"))
+  }
+})
+
 test("conflicts and invalid configuration preserve committed state", async (t) => {
   const { service, cwd, root, apply } = await fixture(t)
   await apply()

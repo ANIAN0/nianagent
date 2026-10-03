@@ -9,6 +9,10 @@ export type Workspace = {
 export type ConversationStatus =
   "idle" | "running" | "stopping" | "waiting" | "completed" | "failed"
 export type Conversation = {
+  unread?: boolean
+  revision?: number
+  updatedAt?: string
+  cwd?: string
   id: string
   workspaceId: string
   title: string
@@ -38,6 +42,7 @@ export type SessionOptions = {
   instructionScope: InstructionScope
 }
 export type HomeData = {
+  materialsEnabled?: boolean
   workspaces: Workspace[]
   conversations: Conversation[]
   models: string[]

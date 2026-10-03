@@ -4,6 +4,9 @@ import { createServer, request } from "node:http"
 import { mkdtemp, mkdir, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { setTimeout as delay } from "node:timers/promises"
+import { Readable } from "node:stream"
+import { readJsonBody } from "../http-body.mjs"
 import { modelBackendPlugin, bridgeWaitMs } from "../bridge.mjs"
 import { startRuntime } from "../runtime.mjs"
 import { WorkspaceService } from "../workspaces.mjs"
@@ -96,7 +99,7 @@ async function fixture(t, dispatchOverride) {
       req.end("{}")
     })
   }
-  return { runtime, service, other, call }
+  return { runtime, service, other, call, proxyPort: proxy.address().port }
 }
 
 test("browser proxy keeps native directory choice pending beyond 300s and registers its real result", async (t) => {
@@ -199,4 +202,69 @@ test("explicit proxy response deadline cancels a stalled host request without ca
   assert.equal(response.status, 400)
   assert.match(response.error, /响应超时/)
   assert.doesNotMatch(response.error, /无法连接|重启/)
+})
+
+test("HTTP host and browser proxy preserve Chinese and emoji at every byte boundary", async (t) => {
+  const f = await fixture(t, async (_operation, input) => input)
+  const input = { text: "中文消息🌙", name: "配置" }
+  const body = Buffer.from(JSON.stringify(input))
+  for (const direct of [true, false]) {
+    for (let split = 1; split < body.length; split++) {
+      const result = await new Promise((resolve, reject) => {
+        const req = request(
+          {
+            hostname: "127.0.0.1",
+            port: direct ? f.runtime.info.port : f.proxyPort,
+            path: "/api/models/echo",
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              ...(direct ? { "x-moon-token": f.runtime.info.token } : {}),
+            },
+          },
+          (res) => {
+            let text = ""
+            res.setEncoding("utf8")
+            res.on("data", (chunk) => {
+              text += chunk
+            })
+            res.on("error", reject)
+            res.on("end", () => {
+              try {
+                resolve(JSON.parse(text))
+              } catch (error) {
+                reject(error)
+              }
+            })
+          }
+        )
+        req.on("error", reject)
+        req.write(body.subarray(0, split))
+        void delay(5).then(() => req.end(body.subarray(split)))
+      })
+      assert.deepEqual(
+        result.result,
+        input,
+        `${direct ? "host" : "proxy"} split ${split}`
+      )
+    }
+  }
+})
+
+test("JSON body limit counts bytes including multibyte text and rejects malformed JSON", async () => {
+  const limit = 1024 * 1024
+  const allowed = Buffer.from('"' + "a".repeat(limit - 2) + '"')
+  assert.equal((await readJsonBody(Readable.from([allowed]))).length, limit - 2)
+  await assert.rejects(
+    readJsonBody(
+      Readable.from([
+        Buffer.from('"' + "中".repeat(Math.ceil(limit / 3)) + '"'),
+      ])
+    ),
+    /请求过大/
+  )
+  await assert.rejects(
+    readJsonBody(Readable.from([Buffer.from("{bad")])),
+    SyntaxError
+  )
 })

@@ -22,25 +22,68 @@ export type ContextUsageProps = {
     cacheReadTokens: number
   }
   updatedAt?: string
+  source?: "pi-context-estimate"
+  estimated?: boolean
+  observedAt?: string
+  restored?: boolean
+  status?: "awaiting-response" | "unavailable"
+  reason?: string
+  defaultOpen?: boolean
   onCompact?: () => void
   compactDisabledReason?: string
 }
 const format = (value: number) =>
-  value < 1000 ? String(value) : `${Math.round(value / 100) / 10}K`
+  value < 1000
+    ? String(value)
+    : value < 1000000
+      ? `${Math.round(value / 100) / 10}K`
+      : `${Math.round(value / 100000) / 10}M`
+const formatTime = (value?: string) => {
+  if (!value) return "尚无记录"
+  const time = new Date(value)
+  return Number.isNaN(time.getTime())
+    ? value
+    : new Intl.DateTimeFormat("zh-CN", {
+        month: "numeric",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      }).format(time)
+}
 export function ContextUsage({
   usedTokens,
   contextWindow,
   breakdown,
   cumulative,
   updatedAt,
+  source,
+  estimated,
+  observedAt,
+  restored,
+  status,
+  reason,
+  defaultOpen,
   onCompact,
   compactDisabledReason,
 }: ContextUsageProps) {
   const known =
-    usedTokens !== undefined && contextWindow !== undefined && contextWindow > 0
+    usedTokens !== undefined &&
+    Number.isFinite(usedTokens) &&
+    usedTokens >= 0 &&
+    contextWindow !== undefined &&
+    Number.isFinite(contextWindow) &&
+    contextWindow > 0
+  const isEstimate = estimated ?? source === "pi-context-estimate"
+  const unknownLabel =
+    status === "awaiting-response" ? "上下文待更新" : "上下文未知"
   const percent = known
-    ? Math.max(0, Math.min(100, Math.round((usedTokens / contextWindow) * 100)))
+    ? Math.max(0, Math.min(100, (usedTokens / contextWindow) * 100))
     : undefined
+  const percentLabel =
+    percent !== undefined && percent > 0 && percent < 1
+      ? "<1%"
+      : `${Math.round(percent ?? 0)}%`
   const parts = breakdown
     ? [
         { label: "系统提示词", value: breakdown.systemTokens, key: "system" },
@@ -49,16 +92,20 @@ export function ContextUsage({
       ]
     : []
   return (
-    <Popover>
+    <Popover defaultOpen={defaultOpen}>
       <PopoverTrigger asChild>
         <Button
           variant="ghost"
           size="xs"
           className="context-usage-trigger"
-          aria-label={known ? `上下文已用 ${percent}%` : "上下文未知"}
+          aria-label={
+            known
+              ? `上下文已用 ${percentLabel}${restored ? "，历史记录" : ""}`
+              : unknownLabel
+          }
         >
           <CircleGauge data-icon="inline-start" />
-          {known ? `${percent}%` : "上下文未知"}
+          {known ? percentLabel : unknownLabel}
         </Button>
       </PopoverTrigger>
       <PopoverContent
@@ -71,11 +118,12 @@ export function ContextUsage({
       >
         <div className="context-usage-heading">
           <span>上下文已用</span>
-          <strong>{known ? `${percent}%` : "未知"}</strong>
-          <Badge variant="secondary">估算</Badge>
+          <strong>{known ? percentLabel : "未知"}</strong>
+          {known && isEstimate && <Badge variant="secondary">估算</Badge>}
           {known && (
             <strong>
-              ~{format(usedTokens)} / {format(contextWindow)}
+              {isEstimate ? "~" : ""}
+              {format(usedTokens)} / {format(contextWindow)}
             </strong>
           )}
         </div>
@@ -108,21 +156,52 @@ export function ContextUsage({
                 <i data-part={part.key} />
                 {part.label}
               </dt>
-              <dd>~{format(part.value)}</dd>
+              <dd>
+                {isEstimate ? "~" : ""}
+                {format(part.value)}
+              </dd>
             </div>
           ))}
         </dl>
         <Separator />
         <dl>
           <div>
-            <dt>数据范围</dt>
-            <dd>完整请求（模拟）</dd>
+            <dt>数据来源</dt>
+            <dd>
+              {source === "pi-context-estimate" ? "Pi 上下文估算" : "未记录"}
+            </dd>
+          </div>
+          {contextWindow !== undefined && (
+            <div>
+              <dt>模型容量</dt>
+              <dd>{format(contextWindow)} tokens</dd>
+            </div>
+          )}
+          <div>
+            <dt>统计状态</dt>
+            <dd>
+              {!known ? unknownLabel : restored ? "从历史恢复" : "已记录占用"}
+            </dd>
           </div>
           <div>
             <dt>更新时间</dt>
-            <dd>{updatedAt ?? "尚无记录"}</dd>
+            <dd title={observedAt ?? updatedAt}>
+              {formatTime(observedAt ?? updatedAt)}
+            </dd>
           </div>
         </dl>
+        <p className="context-usage-note">
+          {!known
+            ? (reason ?? "尚无可用的上下文用量，完成模型回复后再查看。")
+            : source === "pi-context-estimate"
+              ? "Pi 根据模型返回的用量及后续消息估算当前上下文，不代表精确请求大小或计费。"
+              : "此记录未注明统计来源，不能确认测量方式。"}
+        </p>
+        {restored && known && (
+          <p className="context-usage-note">
+            显示已保存的历史统计，下一次模型回复后更新。
+          </p>
+        )}
         {cumulative && (
           <>
             <Separator />
@@ -143,7 +222,9 @@ export function ContextUsage({
             </dl>
           </>
         )}
-        <p className="context-usage-note">累计用量不等于当前上下文占用。</p>
+        {cumulative && (
+          <p className="context-usage-note">累计用量不等于当前上下文占用。</p>
+        )}
         {onCompact && (
           <>
             <Separator />

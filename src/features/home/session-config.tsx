@@ -21,8 +21,10 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { ToolPicker } from "./tool-picker"
 import { InstructionScopePicker } from "./instruction-scope-picker"
 import type { HomeTool, SessionOptions } from "./home-types"
+import { useNavigationBoundary } from "./navigation-boundary"
 
 export type SessionConfigProps = {
+  disabled?: boolean
   sessionId?: string
   tools: HomeTool[]
   value: SessionOptions
@@ -38,6 +40,7 @@ export function SessionConfig(props: SessionConfigProps) {
   )
 }
 function SessionConfigPanel({
+  disabled = false,
   sessionId,
   tools,
   value,
@@ -45,6 +48,7 @@ function SessionConfigPanel({
   onChange,
 }: SessionConfigProps) {
   const service = useContext(SessionServiceContext)
+  const navigation = useNavigationBoundary()
   const [open, setOpen] = useState(false)
   const [pending, setPending] = useState(value)
   const [baseline, setBaseline] = useState(value)
@@ -54,8 +58,17 @@ function SessionConfigPanel({
     "ready" | "loading" | "load-error" | "saving"
   >("ready")
   const [error, setError] = useState("")
+  const [applied, setApplied] = useState(false)
   const request = useRef<AbortController | null>(null)
-  useEffect(() => () => request.current?.abort(), [sessionId, workspacePath])
+  const releaseNavigation = useRef<(() => void) | null>(null)
+  useEffect(
+    () => () => {
+      request.current?.abort()
+      releaseNavigation.current?.()
+      releaseNavigation.current = null
+    },
+    [sessionId, workspacePath]
+  )
   async function load() {
     request.current?.abort()
     const controller = new AbortController()
@@ -101,8 +114,10 @@ function SessionConfigPanel({
     }
   }
   async function apply() {
+    if (releaseNavigation.current) return
     if (!service) {
       onChange(pending)
+      setApplied(true)
       setOpen(false)
       return
     }
@@ -110,6 +125,8 @@ function SessionConfigPanel({
     request.current?.abort()
     const controller = new AbortController()
     request.current = controller
+    const release = navigation.acquire()
+    releaseNavigation.current = release
     setPhase("saving")
     setError("")
     try {
@@ -129,11 +146,16 @@ function SessionConfigPanel({
         instructionScope: result.instructionScope,
       })
       setPhase("ready")
+      setApplied(true)
       setOpen(false)
     } catch (cause) {
       if (controller.signal.aborted || request.current !== controller) return
       setPhase("ready")
       setError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      release()
+      if (releaseNavigation.current === release)
+        releaseNavigation.current = null
     }
   }
   const availableTools = catalog?.tools ?? tools
@@ -173,9 +195,11 @@ function SessionConfigPanel({
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        if (phase === "saving") return
-        if (next) void load()
-        else request.current?.abort()
+        if (releaseNavigation.current) return
+        if (next) {
+          setApplied(false)
+          void load()
+        } else request.current?.abort()
         setOpen(next)
       }}
     >
@@ -186,9 +210,22 @@ function SessionConfigPanel({
           variant="ghost"
           className="gap-1 rounded-full font-normal"
           aria-label="打开会话配置"
+          disabled={disabled}
+          title={
+            disabled
+              ? "请等待当前回复结束后修改会话配置"
+              : applied
+                ? "会话配置已应用"
+                : "会话配置"
+          }
         >
           <SlidersHorizontal className="size-3.5" />
-          <span className="hidden @sm:inline">会话配置</span>
+          <span
+            className="hidden @sm:inline"
+            role={applied ? "status" : undefined}
+          >
+            {applied ? "配置已应用" : "会话配置"}
+          </span>
           <ChevronDown className="size-3" />
         </Button>
       </DialogTrigger>
@@ -318,7 +355,12 @@ function SessionConfigPanel({
             </Button>
           </div>
         )}
-        <div className="flex shrink-0 justify-end gap-2 border-t px-6 py-4">
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t px-6 py-4">
+          {phase === "saving" && (
+            <p role="status" className="mr-auto text-xs text-muted-foreground">
+              正在保存，请稍候…
+            </p>
+          )}
           <DialogClose asChild>
             <Button
               type="button"
