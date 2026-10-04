@@ -11,6 +11,9 @@ import { SessionService } from "./sessions.mjs"
 import { MaterialService } from "./materials.mjs"
 import { McpService } from "./mcp.mjs"
 import { matchModel } from "./model-metadata.mjs"
+import { ExtensionService } from "./extensions.mjs"
+import { recordedWrite, readWriteReceipt } from "./write-receipts.mjs"
+import { operationError } from "./operation-issue.mjs"
 
 const apis = ["openai-responses", "openai-completions", "anthropic-messages"]
 const cost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
@@ -150,8 +153,11 @@ function validateModel(model) {
 export class ModelService {
   constructor(directory) {
     this.store = new ModelStore(directory)
+    this.accountLogouts = new Map()
+    this.closed = false
     this.jobs = new AuthorizationJobs(this)
     this.mcp = new McpService(directory)
+    this.extensions = new ExtensionService(directory)
     this.sessions = new SessionService(directory, this)
     this.materials = new MaterialService(directory, this.sessions)
     this.workspaces = new WorkspaceService(directory)
@@ -169,6 +175,7 @@ export class ModelService {
   }
   async initialize() {
     await this.store.initialize()
+    await this.extensions.discover()
     await this.conversationStore.initialize({ recoverInterrupted: true })
   }
   async runtime(connection, credentials = this.store.credentialStore()) {
@@ -219,6 +226,7 @@ export class ModelService {
       issue: "",
     }
     if (connection.kind === "subscription") {
+      result.accountOperationBusy = this.accountLogouts.has(connection.providerId)
       result.account = {
         name: connection.providerId,
         plan: "Pi OAuth",
@@ -262,8 +270,20 @@ export class ModelService {
       data.connections.map((connection) => this.present(connection, data))
     )
   }
-  async save(connection, signal) {
+  async save(connection, signal, operationRequestId) {
+    return recordedWrite({ store: this.store, operation: "save", targetId: connection.id, input: connection, requestId: operationRequestId, signal,
+      action: (commit) => this.saveConnection(connection, signal, commit),
+      replay: async () => {
+        const data = await this.store.read()
+        const current = data.connections.find((item) => item.id === connection.id)
+        if (!current) throw operationError("write_already_committed", "原保存已完成，但连接后来已删除，请重新读取目录。", "reload")
+        return this.present(current, data)
+      },
+    })
+  }
+  async saveConnection(connection, signal, commit) {
     validate(connection)
+    this.assertAccountIdle(connection)
     const before = await this.store.read()
     const previous = before.connections.find(
       (item) => item.id === connection.id
@@ -344,6 +364,7 @@ export class ModelService {
     signal?.throwIfAborted()
     await this.store.update((data) => {
       signal?.throwIfAborted()
+      this.assertAccountIdle(stored)
       const current = data.connections.find((item) => item.id === connection.id)
       requireValue(
         !(data.authorizations[providerId(stored)]?.expiresAt > Date.now()),
@@ -372,10 +393,16 @@ export class ModelService {
         if (credential) data.credentials[providerId(stored)] = credential
         else delete data.credentials[providerId(stored)]
       }
+      commit?.(data, stored.revision)
     }, signal)
     return this.present(stored, await this.store.read())
   }
-  async remove(id, revision, signal) {
+  async remove(id, revision, signal, operationRequestId) {
+    return recordedWrite({ store: this.store, operation: "remove", targetId: id, input: { id, revision }, requestId: operationRequestId, signal,
+      action: (commit) => this.removeConnection(id, revision, signal, commit), replay: () => undefined,
+    })
+  }
+  async removeConnection(id, revision, signal, commit) {
     requireValue(!this.jobs.hasConnection(id), "请先结束该连接的授权。")
     await this.store.update((data) => {
       const item = data.connections.find((value) => value.id === id)
@@ -383,9 +410,11 @@ export class ModelService {
         item && item.revision === revision,
         "连接已更新或删除，请刷新。"
       )
+      this.assertAccountIdle(item)
       data.connections = data.connections.filter((value) => value.id !== id)
       delete data.credentials[providerId(item)]
       delete data.authorizations[providerId(item)]
+      commit?.(data, revision)
     }, signal)
   }
   async prepared(connection, model) {
@@ -530,27 +559,67 @@ export class ModelService {
       )
     }
   }
+  assertAccountIdle(connection) {
+    if (connection?.kind !== "subscription") return
+    requireValue(!this.closed, "模型服务已关闭。")
+    if (this.accountLogouts.has(connection.providerId))
+      throw operationError("account_operation_busy", "该提供者正在退出登录，请等待结束后重新读取连接。", "check")
+  }
   async logout(id, signal) {
-    requireValue(!this.jobs.hasConnection(id), "请先取消授权。")
+    requireValue(!this.closed, "模型服务已关闭。")
+    signal?.throwIfAborted()
     const data = await this.store.read()
+    signal?.throwIfAborted()
     const connection = data.connections.find((item) => item.id === id)
     requireValue(connection?.kind === "subscription", "订阅连接不存在。")
-    await this.store.update((data) => {
-      delete data.authorizations[connection.providerId]
-    }, signal)
-    await (await this.runtime()).logout(connection.providerId, { signal })
+    requireValue(!this.jobs.hasProvider(connection.providerId), "请先取消该提供者的授权并等待清理结束。")
+    this.assertAccountIdle(connection)
+    const controller = new AbortController()
+    const ownedSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal
+    const owner = { controller }
+    // Pi serializes credential operations per ModelRuntime instance. Moon
+    // creates separate runtime snapshots, so the service owns this boundary.
+    this.accountLogouts.set(connection.providerId, owner)
+    owner.done = (async () => {
+      try {
+        ownedSignal.throwIfAborted()
+        await this.store.update((document) => {
+          ownedSignal.throwIfAborted()
+          requireValue(document.connections.some((item) => item.id === id && item.kind === "subscription" && item.providerId === connection.providerId && item.revision === connection.revision), "连接已更新或删除，请重新读取。")
+          requireValue(!this.jobs.hasProvider(connection.providerId), "该提供者的授权尚未结束。")
+          delete document.authorizations[connection.providerId]
+        }, ownedSignal)
+        const runtime = await this.runtime()
+        ownedSignal.throwIfAborted()
+        // Credential absence is not settlement: SDK logout also refreshes
+        // provider composition/model availability before its promise settles.
+        await runtime.logout(connection.providerId, { signal: ownedSignal })
+      } finally {
+        if (this.accountLogouts.get(connection.providerId) === owner) this.accountLogouts.delete(connection.providerId)
+      }
+    })()
+    await owner.done
     return this.present(connection, await this.store.read())
   }
   async dispatch(operation, input, signal) {
     return dispatchOperation(this, operation, input, signal)
   }
+  async writeReceipt(operation, requestId, signal) {
+    const store = operation.startsWith("mcp") ? this.mcp.receiptStore() : operation === "extensionConfigure" ? this.extensions.receiptStore() : this.store
+    return readWriteReceipt(store, operation, requestId, signal)
+  }
 
   async close() {
-    this.jobs.close()
+    this.closed = true
+    const logouts = [...this.accountLogouts.values()]
+    for (const owner of logouts) owner.controller.abort(new DOMException("Model service closed", "AbortError"))
+    await this.jobs.close()
+    await Promise.allSettled(logouts.map((owner) => owner.done))
     this.workspaces.close()
     await this.conversations.close()
     await this.sessions.close()
     await this.mcp.close()
+    await this.extensions.close()
   }
 }
 function pickModel(model) {

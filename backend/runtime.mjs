@@ -6,24 +6,22 @@ import {
   rename,
   unlink,
   mkdir,
-  readdir,
 } from "node:fs/promises"
 import { join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 import lockfile from "proper-lockfile"
 import { readJsonBody } from "./http-body.mjs"
+import { backendSourceFiles } from "./extensions/source-files.mjs"
 
 export async function runtimeVersion() {
   const dir = dirname(fileURLToPath(import.meta.url))
   const hash = createHash("sha256")
-  for (const name of (await readdir(dir))
-    .filter((n) => n.endsWith(".mjs"))
-    .sort()) {
+  for (const name of await backendSourceFiles(dir)) {
     hash.update(name).update(await readFile(join(dir, name)))
   }
   return hash.digest("hex")
 }
-export async function startRuntime(file, dispatch, publicError) {
+export async function startRuntime(file, dispatch, publicFailure) {
   const version = await runtimeVersion()
   await mkdir(dirname(file), { recursive: true })
   const release = await lockfile
@@ -68,18 +66,29 @@ export async function startRuntime(file, dispatch, publicError) {
     res.on("close", () => {
       if (!res.writableEnded) controller.abort()
     })
+    const operation = req.url.slice("/api/models/".length).split("?")[0]
     try {
-      const operation = req.url.slice("/api/models/".length).split("?")[0]
-      const input = await readJsonBody(req, operation === "materialUpload" ? 16 * 1024 * 1024 : 1024 * 1024)
-      const result = await dispatch(
-        operation,
-        input,
-        controller.signal
+      const input = await readJsonBody(
+        req,
+        operation === "materialUpload" ? 16 * 1024 * 1024 : 1024 * 1024
       )
+      const result = await dispatch(operation, input, controller.signal)
       if (!res.destroyed) res.end(JSON.stringify({ result }))
     } catch (error) {
-      if (!res.destroyed)
-        res.writeHead(400).end(JSON.stringify({ error: publicError(error) }))
+      if (!res.destroyed) {
+        const failure = publicFailure(
+          error,
+          operation,
+          controller.signal.aborted
+        )
+        res
+          .writeHead(400)
+          .end(
+            JSON.stringify(
+              typeof failure === "string" ? { error: failure } : failure
+            )
+          )
+      }
     } finally {
       controllers.delete(controller)
     }

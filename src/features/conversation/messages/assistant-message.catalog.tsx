@@ -7,7 +7,8 @@ export default {
   group: "对话消息",
   source: "src/features/conversation/messages/assistant-message.tsx",
   description: "无气泡正文，组合过程、Markdown、附件和操作栏。",
-  boundary: "过程与正文保持独立；流式追加不替换组件身份。",
+  boundary:
+    "过程与正文保持独立；流式追加不替换组件身份。结构化失败由所属历史项显示，空失败回复不生成第二份状态和操作栏。",
   inputs: ["message: ConversationMessage"],
   events: ["onRetry", "onOpenAttachment"],
   composition: [
@@ -131,9 +132,9 @@ export default {
     },
     {
       id: "failed",
-      name: "回复失败",
-      condition: "没有正文",
-      expected: "失败说明与重试入口均可見。",
+      name: "旧数据失败状态",
+      condition: "旧数据没有结构化 issue，且没有正文。",
+      expected: "兼容旧数据的失败标记；正式结构化失败由历史项统一反馈。",
       render: () => (
         <div className="p-6">
           <AssistantMessage

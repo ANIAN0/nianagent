@@ -54,6 +54,10 @@ export type HomeData = {
 }
 export type HomeDraft = {
   sessionId?: string
+  /** Client-only receipt marker used for a durable, idempotent Home→conversation handoff. */
+  homeTransferId?: string
+  /** Client-only guard against merging the same refused submission twice on a storage retry. */
+  homeRecoveryKey?: string
   workspaceId: string
   text: string
   model: string
@@ -62,8 +66,12 @@ export type HomeDraft = {
   materials: Material[]
   session: SessionOptions
 }
+export type HomeSubmitReceipt = {
+  message?: string
+  disposition: "conversation"
+}
 export type SubmitWork = (
   draft: HomeDraft,
   signal?: AbortSignal,
   originalDraft?: HomeDraft
-) => string | Promise<string>
+) => string | HomeSubmitReceipt | Promise<string | HomeSubmitReceipt>

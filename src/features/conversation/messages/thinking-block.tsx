@@ -1,4 +1,3 @@
-import { useState } from "react"
 import { Brain, ChevronDown } from "lucide-react"
 import {
   Collapsible,
@@ -6,20 +5,27 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
 import { MarkdownContent } from "./markdown-content"
+import { useMessageDisclosure } from "./message-environment"
+import { thinkingSummary } from "./thinking-summary"
 import "./messages.css"
 
 export function ThinkingBlock({
   text,
   running = false,
   defaultOpen = false,
+  occurrenceId,
 }: {
   text: string
   running?: boolean
   defaultOpen?: boolean
+  occurrenceId?: string
 }) {
-  const [open, setOpen] = useState(defaultOpen)
-  const lines = text.split("\n").filter((line) => line.trim())
-  const summary = (running ? lines.at(-1) : lines[0])?.replaceAll("**", "")
+  const [open, setOpen] = useMessageDisclosure(
+    occurrenceId,
+    "thinking",
+    defaultOpen,
+  )
+  const summary = thinkingSummary(text, running)
   if (!text.trim()) return null
   return (
     <Collapsible

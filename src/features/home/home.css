@@ -5,9 +5,24 @@
 }
 
 @media (max-width: 767px) {
-  .home-launch { width: calc(100% - 32px); padding-bottom: 24px; }
+  .home-launch {
+    width: calc(100% - 32px);
+    padding-bottom: 24px;
+  }
 }
 
 @media (max-height: 600px) {
-  .home-launch { margin-block: 0; padding-block: 72px 40px; }
+  .home-launch {
+    margin-block: 0;
+    padding-block: 24px 40px;
+  }
+  [data-sidebar="collapsed"] .home-launch {
+    padding-top: 72px;
+  }
+}
+
+@media (max-width: 767px) and (max-height: 600px) {
+  .home-launch {
+    padding-top: 72px;
+  }
 }

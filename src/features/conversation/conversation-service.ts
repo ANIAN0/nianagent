@@ -3,6 +3,26 @@ import type { RpcRequests } from "@/features/models/model-contract.generated"
 
 export function createConversationService() {
   return {
+    queueReceipt: (
+      sessionId: string,
+      operationRequestId: string,
+      signal?: AbortSignal
+    ) =>
+      modelCall(
+        "conversationQueueReceiptRead",
+        { sessionId, operationRequestId },
+        signal
+      ),
+    receipt: (
+      sessionId: string,
+      clientRequestId: string,
+      signal?: AbortSignal
+    ) =>
+      modelCall(
+        "conversationReceiptRead",
+        { sessionId, clientRequestId },
+        signal
+      ),
     read: (sessionId: string, signal?: AbortSignal) =>
       modelCall("conversationRead", { sessionId }, signal),
     send: (input: RpcRequests["conversationSend"], signal?: AbortSignal) =>

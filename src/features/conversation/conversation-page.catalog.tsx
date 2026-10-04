@@ -63,6 +63,7 @@ function Example({ scenario = "ready" }: { scenario?: Scenario }) {
   return (
     <div style={{ height: "100dvh" }}>
       <ConversationPage
+        keepComposer
         viewKey={session.id}
         title={session.title}
         workspacePath={workspace.path}
@@ -119,12 +120,24 @@ function Example({ scenario = "ready" }: { scenario?: Scenario }) {
         }
         composer={
           <ConversationComposer
+            deliveryMode={session.deliveryMode ?? "single"}
+            queuedCount={session.queue.length}
+            onDeliveryModeChange={(mode) =>
+              dispatch({ type: "mode", id: session.id, mode })
+            }
             data={homeData}
             draft={session.draft}
             workspacePath={workspace.path}
             running={running}
             stopping={stopping}
-            blocked={scenario === "disconnected"}
+            blocked={scenario === "disconnected" || loadState !== "ready"}
+            blockedReason={
+              loadState !== "ready"
+                ? "会话尚未读取完成，草稿保留；请先重新读取会话。"
+                : scenario === "disconnected"
+                  ? "请先重新读取会话，草稿仍可编辑。"
+                  : undefined
+            }
             onChange={(draft) =>
               dispatch({ type: "change", id: session.id, draft })
             }
@@ -142,11 +155,13 @@ function Example({ scenario = "ready" }: { scenario?: Scenario }) {
               contextWindow: 128000,
               onCompact: () => dispatch({ type: "compact", id: session.id }),
               compactDisabledReason:
-                session.phase !== "idle"
-                  ? "当前工作结束后可压缩"
-                  : session.compacted
-                    ? "当前上下文已整理"
-                    : undefined,
+                loadState !== "ready"
+                  ? "请先重新读取会话。"
+                  : session.phase !== "idle"
+                    ? "当前工作结束后可压缩"
+                    : session.compacted
+                      ? "当前上下文已整理"
+                      : undefined,
             }}
             dock={
               <QueueDock
@@ -154,9 +169,6 @@ function Example({ scenario = "ready" }: { scenario?: Scenario }) {
                 running={running}
                 busy={stopping}
                 deliveryMode={session.deliveryMode ?? "single"}
-                onDeliveryModeChange={(mode) =>
-                  dispatch({ type: "mode", id: session.id, mode })
-                }
                 onEdit={(key, text) =>
                   dispatch({ type: "queue-edit", id: session.id, key, text })
                 }

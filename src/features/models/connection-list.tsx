@@ -1,4 +1,7 @@
 import { useState } from "react"
+import { OperationFeedback } from "@/components/feedback/operation-feedback"
+import { RecoveryAction } from "@/components/feedback/recovery-action"
+import type { FeedbackDescription } from "@/lib/operation-issue"
 import { Ellipsis, Pencil, Plus, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -38,6 +41,8 @@ export function ConnectionList({
   connections,
   loading,
   error,
+  failure,
+  blockedIds = [],
   busy,
   onRetry,
   onAdd,
@@ -51,6 +56,8 @@ export function ConnectionList({
   onViewChange?: (patch: Partial<ConnectionListView>) => void
   loading?: boolean
   error?: string
+  failure?: FeedbackDescription
+  blockedIds?: string[]
   busy?: boolean
   onRetry: () => void
   onAdd: () => void
@@ -86,7 +93,10 @@ export function ConnectionList({
           <h2>模型连接</h2>
           <p>管理模型服务、凭据与各连接的模型。</p>
         </div>
-        <Button disabled={loading || busy || !!error} onClick={onAdd}>
+        <Button
+          disabled={loading || busy || !!error || !!failure}
+          onClick={onAdd}
+        >
           <Plus />
           添加连接
         </Button>
@@ -102,18 +112,29 @@ export function ConnectionList({
             <Skeleton className="h-16 w-full" key={id} />
           ))}
         </div>
-      ) : error ? (
-        <Empty>
-          <EmptyHeader>
-            <EmptyTitle>无法读取模型连接</EmptyTitle>
-            <EmptyDescription>{error}</EmptyDescription>
-          </EmptyHeader>
-          <EmptyContent>
-            <Button variant="outline" onClick={onRetry}>
-              重新读取
-            </Button>
-          </EmptyContent>
-        </Empty>
+      ) : error || failure ? (
+        <OperationFeedback
+          title="无法读取模型连接"
+          {...(failure ?? {
+            message: error!,
+            code: "read_failed",
+            recovery: "reload",
+          })}
+          actions={
+            <RecoveryAction
+              issue={
+                failure ?? {
+                  message: error!,
+                  code: "read_failed",
+                  recovery: "reload",
+                }
+              }
+              onRetry={onRetry}
+              onReload={onRetry}
+              labels={{ retry: "重新读取" }}
+            />
+          }
+        />
       ) : (
         <>
           <div className="model-toolbar">
@@ -151,13 +172,14 @@ export function ConnectionList({
                     .slice((currentPage - 1) * size, currentPage * size)
                     .map((item) => {
                       const issue = connectionIssue(item)
+                      const itemBusy = busy || blockedIds.includes(item.id)
                       return (
                         <TableRow key={item.id}>
                           <TableCell>
                             <button
                               id={`model-connection-${item.id}`}
                               className="model-name"
-                              disabled={busy}
+                              disabled={itemBusy}
                               onClick={() => onEdit(item)}
                               aria-label={`编辑 ${item.name} 连接`}
                             >
@@ -214,7 +236,7 @@ export function ConnectionList({
                                 <Button
                                   size="icon-sm"
                                   variant="ghost"
-                                  disabled={busy}
+                                  disabled={itemBusy}
                                   aria-label={`${item.name} 的操作`}
                                 >
                                   <Ellipsis />

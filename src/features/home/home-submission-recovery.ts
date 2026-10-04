@@ -1,12 +1,10 @@
 import type { ConversationSnapshot } from "@/features/models/model-contract.generated"
-import { RpcRequestRejected } from "@/features/models/model-service"
 
-/** A definitive rejection unlocks resending; unknown or active requests retain their identity. */
+/** Only an authoritative receipt can reject a send; reconciliation itself is read-only. */
 export async function reconcileHomeRequest(
   reconcile: () => Promise<ConversationSnapshot>,
   forgetRejected: () => void,
-  cleanupFailed: () => void,
-  replayingSubmission = false
+  cleanupFailed: () => void
 ): Promise<ConversationSnapshot> {
   const forget = () => {
     try {
@@ -15,14 +13,8 @@ export async function reconcileHomeRequest(
       cleanupFailed()
     }
   }
-  let snapshot: ConversationSnapshot
-  try {
-    snapshot = await reconcile()
-  } catch (error) {
-    // A rejected history read says nothing about the original send's receipt.
-    if (replayingSubmission && error instanceof RpcRequestRejected) forget()
-    throw error
-  }
+  // Failure to read says nothing about the original send's receipt.
+  const snapshot = await reconcile()
   if (
     !snapshot.inputAccepted &&
     ["failed", "interrupted"].includes(snapshot.phase)

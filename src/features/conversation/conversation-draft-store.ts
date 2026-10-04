@@ -1,5 +1,11 @@
 import type { HomeDraft } from "@/features/home/home-types"
 import type { RpcRequests } from "@/features/models/model-contract.generated"
+import type { FeedbackDescription } from "@/lib/operation-issue"
+import {
+  followingHomeDraft,
+  recoverRejectedHomeDraft,
+} from "@/features/home/home-submission-draft"
+import { hasPreparingHomeMaterials } from "@/features/home/home-submission-lifecycle"
 
 const prefix = "moon.chat.draft.v1."
 const requestPrefix = "moon.chat.request.v1."
@@ -7,19 +13,31 @@ const homePrefix = "moon.home.draft.v1."
 const homeSubmissionPrefix = "moon.home.submission.v1."
 export type HomeSubmission = {
   sessionId: string
+  /** Recorded before the first await; receipt inspection never guesses a different request. */
+  clientRequestId?: string
+  /** Recovery phase is persisted before crossing a side-effect boundary. */
+  stage?: "prepared" | "sending" | "rejected" | "accepted"
   cwd?: string
   draft: HomeDraft
+  originalDraft?: HomeDraft
+  /** Versioned separation between the immutable copy and the next editable input. */
+  followingDraft?: true
+  transfer?: { draft: HomeDraft; signature: string }
   signatures: string[]
 }
 export type HomeDraftCache = {
   key: number
   workspaceId?: string
   draft?: HomeDraft
+  issue?: FeedbackDescription
 }
 export type PendingSubmission = {
   signature: string
   id: string
   draft: HomeDraft
+  stage?: "prepared" | "sending" | "accepted" | "rejected"
+  /** Written with the original receipt before a model request can begin. */
+  followingDraft?: true
 } & (
   | {
       kind: "send"
@@ -97,10 +115,9 @@ export function saveConversationRequest(id: string, value?: PendingSubmission) {
       JSON.stringify({
         ...value,
         draft: storedDraft(value.draft),
-        input:
-          value.kind === "send"
-            ? { ...value.input, materials: storedDraft(value.draft).materials }
-            : value.input,
+        // The RPC payload remains its contract-shaped immutable copy. UI-only
+        // thumbnail/ownership fields must never be restored into an RPC request.
+        input: value.input,
       })
     )
   else localStorage.removeItem(requestPrefix + id)
@@ -150,7 +167,10 @@ export function createHomeSubmission(
   if (!draft.sessionId) throw new Error("首页提交缺少会话身份。")
   return {
     sessionId: draft.sessionId,
-    draft: storedDraft(draft),
+    stage: "prepared",
+    clientRequestId: crypto.randomUUID(),
+    draft: storedDraft(structuredClone(draft)),
+    originalDraft: storedDraft(structuredClone(original)),
     signatures: [
       ...new Set([homeDraftSignature(draft), homeDraftSignature(original)]),
     ],
@@ -172,7 +192,8 @@ export function matchesHomeSubmission(
 }
 export function acceptHomeDraftCache(
   previous: HomeDraftCache,
-  submission: HomeSubmission
+  submission: HomeSubmission,
+  transferred = false
 ): HomeDraftCache {
   if (!previous.draft) return previous
   const matches = matchesHomeSubmission(previous.draft, submission)
@@ -183,9 +204,11 @@ export function acceptHomeDraftCache(
     // An already reopened HomeComposer owns its raw draft. Remount it from
     // this accepted cache; changing initialDraft alone cannot update that state.
     key: previous.key + 1,
-    draft: matches
-      ? { ...previous.draft, text: "", materials: [], sessionId: undefined }
-      : { ...previous.draft, sessionId: undefined },
+    issue: undefined,
+    draft:
+      matches || transferred
+        ? { ...previous.draft, text: "", materials: [], sessionId: undefined }
+        : { ...previous.draft, sessionId: undefined },
   }
 }
 export function saveHomeSubmission(submission: HomeSubmission) {
@@ -193,6 +216,63 @@ export function saveHomeSubmission(submission: HomeSubmission) {
     homeSubmissionPrefix + submission.sessionId,
     JSON.stringify(submission)
   )
+}
+/** No model request may start until both the original copy and next draft are durable. */
+export function prepareHomeSubmission(
+  submission: HomeSubmission,
+  following: HomeDraft
+) {
+  saveHomeDraft(submission.originalDraft ?? submission.draft)
+  saveHomeSubmission(submission)
+  try {
+    saveHomeDraft(following)
+  } catch (error) {
+    // Never discard the only immutable copy if restoring the original also fails.
+    saveHomeDraft(submission.originalDraft ?? submission.draft)
+    removeHomeSubmission(submission.sessionId)
+    throw error
+  }
+}
+
+export function recoverRejectedHomeSubmission(
+  submission: HomeSubmission,
+  editing?: HomeDraft
+) {
+  const current = editing ?? readHomeDraft(submission.draft.workspaceId)
+  const recovery = recoverRejectedHomeDraft(submission, {
+    ...followingHomeDraft(submission.draft),
+    ...current,
+  })
+  saveHomeDraft(recovery.draft)
+  return recovery
+}
+
+/** Freeze one handoff snapshot so cleanup retries cannot duplicate the next message. */
+export function recordHomeTransfer(
+  submission: HomeSubmission,
+  editing?: HomeDraft
+): HomeSubmission {
+  if (submission.transfer) {
+    if (hasPreparingHomeMaterials(submission.transfer.draft))
+      throw new Error("下一条草稿的材料尚未准备完成，不能冻结交接副本。")
+    return submission
+  }
+  // A previous edit may remain only in memory after a local write failure. Never
+  // replace it with stale storage or clear Home until that exact source is durable.
+  if (editing) saveHomeDraft(editing)
+  const current = editing ?? readHomeDraft(submission.draft.workspaceId)
+  const draft = matchesHomeSubmission(current, submission)
+    ? followingHomeDraft(submission.draft)
+    : { ...followingHomeDraft(submission.draft), ...current }
+  if (hasPreparingHomeMaterials(draft))
+    throw new Error("下一条草稿的材料尚未准备完成，不能冻结交接副本。")
+  const updated = {
+    ...submission,
+    stage: "accepted" as const,
+    transfer: { draft, signature: homeDraftSignature(draft) },
+  }
+  saveHomeSubmission(updated)
+  return updated
 }
 export function restoreHomeSubmissions(): Record<string, HomeSubmission> {
   const submissions: Record<string, HomeSubmission> = {}
@@ -229,11 +309,19 @@ export function removeHomeSubmission(sessionId: string) {
 /** Remove the durable submission last, so a failed cleanup can be reconciled after restart. */
 export function finishHomeSubmission(
   submission: HomeSubmission,
-  beforeForget?: () => void
+  beforeForget?: () => void,
+  transferred = false
 ) {
   const current = readHomeDraft(submission.draft.workspaceId)
   const matches = matchesHomeSubmission(current, submission)
-  if (matches) {
+  const transferredCurrent =
+    transferred &&
+    !!submission.transfer &&
+    current.sessionId === submission.sessionId &&
+    typeof current.text === "string" &&
+    Array.isArray(current.materials) &&
+    homeDraftSignature(current as HomeDraft) === submission.transfer.signature
+  if (matches || transferredCurrent) {
     try {
       clearHomeDraft(submission.draft.workspaceId)
     } catch {

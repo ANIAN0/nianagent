@@ -4,6 +4,7 @@ import {
   readFile,
   writeFile,
   rename,
+  open,
   rm,
   realpath,
   stat,
@@ -21,6 +22,7 @@ import {
 } from "node:path"
 import { createHash, randomUUID } from "node:crypto"
 import { pickNativeFiles } from "./native-directory.mjs"
+import { operationError } from "./operation-issue.mjs"
 import {
   resizeImage,
   formatDimensionNote,
@@ -40,6 +42,36 @@ const safe = (error) =>
   /[\u4e00-\u9fff]/u.test(error?.message || "")
     ? error.message
     : "文件无法读取，请检查路径与权限。"
+async function readableSource(path, cwd, scope) {
+  const file = await open(path, "r")
+  try {
+    const current = await realpath(path)
+    const [opened, resolved] = await Promise.all([file.stat(), stat(current)])
+    if (!same(current, path) || (scope === "workspace" && !within(cwd, current)) ||
+      !opened.isFile() || opened.dev !== resolved.dev || opened.ino !== resolved.ino)
+      throw operationError("material_source_changed", "文件来源已改变，未读取新的目标；请重新选择。", "none")
+    return { file, size: opened.size }
+  } catch (error) {
+    await file.close()
+    throw error
+  }
+}
+async function boundedSource(path, cwd, scope, maximum) {
+  const { file, size } = await readableSource(path, cwd, scope)
+  try {
+    if (size > maximum) throw operationError("material_invalid", "材料超过允许的读取大小，请选择较小文件。", "none")
+    const buffer = Buffer.alloc(Math.min(size, maximum) + 1)
+    let bytesRead = 0
+    while (bytesRead < buffer.length) {
+      const read = await file.read(buffer, bytesRead, buffer.length - bytesRead, bytesRead)
+      if (!read.bytesRead) break
+      bytesRead += read.bytesRead
+    }
+    if (bytesRead > maximum || bytesRead > size)
+      throw operationError("material_source_changed", "材料在读取期间变化或超过限制，请重新选择。", "none")
+    return buffer.subarray(0, bytesRead)
+  } finally { await file.close() }
+}
 function imageType(data) {
   if (
     data.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
@@ -92,21 +124,45 @@ export class MaterialService {
   }
   async record(cwd, id) {
     if (!/^[a-f0-9]{64}$/.test(id))
-      throw new Error("材料标识无效，请重新选择。")
+      throw operationError(
+        "material_invalid",
+        "材料标识无效，请重新选择。",
+        "none"
+      )
     let record
     try {
       record = JSON.parse(
         await readFile(join(this.directory, `${id}.json`), "utf8")
       )
-    } catch {
-      throw new Error("已准备材料不存在或已损坏，请重新选择。")
+    } catch (error) {
+      if (error instanceof SyntaxError || error.code === "ENOENT")
+        throw operationError(
+          "material_invalid",
+          "已准备材料不存在或已损坏，请重新选择。",
+          "none"
+        )
+      // An inaccessible cache is different from permanently missing content.
+      // Keep the filesystem cause so normal storage recovery remains possible.
+      throw error
     }
     if (
+      !record ||
+      typeof record !== "object" ||
+      Array.isArray(record) ||
       record.id !== id ||
+      typeof record.cwd !== "string" ||
+      typeof record.name !== "string" ||
+      !record.name ||
+      typeof record.source !== "string" ||
+      !record.source ||
       !same(record.cwd, cwd) ||
       !["file", "image", "skill"].includes(record.type)
     )
-      throw new Error("材料不属于当前工作目录，请重新选择。")
+      throw operationError(
+        "material_invalid",
+        "材料不属于当前工作目录，请重新选择。",
+        "none"
+      )
     return record
   }
   async choose(sessionId, cwd, signal) {
@@ -115,7 +171,15 @@ export class MaterialService {
     const paths = await pickNativeFiles(signal)
     return paths ? this.prepare(sessionId, cwd, paths, signal) : []
   }
-  async prepare(sessionId, cwd, paths, signal) {
+  async prepare(sessionId, cwd, paths, scope = "selected", signal) {
+    // Keep existing direct/native callers' AbortSignal position compatible.
+    if (scope instanceof AbortSignal) {
+      signal = scope
+      scope = "selected"
+    }
+    if (scope === undefined) scope = "selected"
+    if (!["selected", "workspace"].includes(scope))
+      throw new Error("材料读取范围无效。")
     this.sessions.identity(sessionId)
     cwd = await this.sessions.cwd(cwd)
     const resources = await this.sessions.skillResources(cwd, sessionId, signal)
@@ -123,8 +187,11 @@ export class MaterialService {
     for (const source of paths) {
       signal?.throwIfAborted()
       try {
-        if (!isAbsolute(source)) throw new Error("请选择文件的实际绝对路径。")
-        const path = await realpath(source)
+        if (scope !== "workspace" && !isAbsolute(source))
+          throw new Error("请选择文件的实际绝对路径。")
+        const path = await realpath(scope === "workspace" ? resolve(cwd, source) : source)
+        if (scope === "workspace" && !within(cwd, path))
+          throw operationError("material_outside_workspace", "该链接不在当前工作目录内，未读取文件。", "none")
         if (!(await stat(path)).isFile()) throw new Error("所选路径不是文件。")
         await access(path, constants.R_OK)
         const skill = resources.skills.find((item) => same(item.filePath, path))
@@ -135,7 +202,7 @@ export class MaterialService {
             )
           )
             throw new Error("同名Skill存在来源冲突，请先消除冲突后再使用。")
-          const content = bodyOf(await readFile(path, "utf8"))
+          const content = bodyOf((await boundedSource(path, cwd, scope, 512 * 1024)).toString("utf8"))
           if (Buffer.byteLength(content) > 512 * 1024)
             throw new Error("Skill正文超过512KiB，请精简说明后重新选择。")
           results.push(
@@ -160,13 +227,17 @@ export class MaterialService {
         ) {
           const size = (await stat(path)).size
           if (size > maximumImage)
-            throw new Error("图片超过8MiB，请选择较小图片。")
+            throw operationError(
+              "material_invalid",
+              "图片超过8MiB，请选择较小图片。",
+              "none"
+            )
           results.push(
             await this.saveImage(
               cwd,
               basename(path),
               path,
-              await readFile(path),
+              await boundedSource(path, cwd, scope, maximumImage),
               signal
             )
           )
@@ -182,6 +253,7 @@ export class MaterialService {
                 description: within(cwd, path)
                   ? relative(cwd, path)
                   : dirname(path),
+                scope,
               },
               signal
             )
@@ -196,6 +268,7 @@ export class MaterialService {
           status: "failed",
           source,
           error: safe(error),
+          retryable: error.issue?.recovery !== "none",
         })
       }
     }
@@ -203,16 +276,26 @@ export class MaterialService {
   }
   async saveImage(cwd, name, source, data, signal) {
     if (data.length > maximumImage)
-      throw new Error("图片超过8MiB，请选择较小图片。")
+      throw operationError(
+        "material_invalid",
+        "图片超过8MiB，请选择较小图片。",
+        "none"
+      )
     const mimeType = imageType(data)
     if (!mimeType)
-      throw new Error(
-        "暂支持 PNG、JPEG、WebP 和 GIF 图片；所选内容不是有效图片。"
+      throw operationError(
+        "material_invalid",
+        "暂支持 PNG、JPEG、WebP 和 GIF 图片；所选内容不是有效图片。",
+        "none"
       )
     const piImage = await resizeImage(data, mimeType)
     signal?.throwIfAborted()
     if (!piImage)
-      throw new Error("Pi无法解码这张图片，请检查图片内容或重新选择。")
+      throw operationError(
+        "material_invalid",
+        "Pi无法解码这张图片，请检查图片内容或重新选择。",
+        "none"
+      )
     // Keep the original for history; Pi's public preparation keeps inference
     // images within its documented provider-compatible dimensions/byte budget.
     return this.save(
@@ -230,6 +313,42 @@ export class MaterialService {
       signal
     )
   }
+  // Official Pi image outputs already belong to the transcript. Store their
+  // fixed bytes in the same cache as input images, even after cwd was removed.
+  // This is an internal projection capability, not a second upload endpoint.
+  async captureImage(cwd, name, mimeType, data, signal) {
+    cwd = resolve(cwd)
+    name = name.slice(0, 490) + ({ "image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "image/gif": ".gif" }[mimeType] || "")
+    const source = "Pi 正式消息中的固定图片"
+    const failure = (error) => ({
+      id: hash(`${cwd}\0failed-image\0${name}`),
+      name, kind: "附件", type: "image", status: "failed", source,
+      error: safe(error), retryable: error.issue?.recovery !== "none",
+    })
+    try {
+      signal?.throwIfAborted()
+      if (typeof data !== "string" || data.length > 12 * 1024 * 1024 || !/^[a-zA-Z0-9+/]*={0,2}$/.test(data))
+        throw operationError("material_invalid", "Pi返回的图片内容无效或超过预览限制。", "none")
+      const bytes = Buffer.from(data, "base64")
+      if (imageType(bytes) !== mimeType)
+        throw operationError("material_invalid", "Pi返回的图片类型无法预览。", "none")
+      const id = hash(`${cwd}\0image\0${name}\0${hash(bytes)}`)
+      try {
+        const saved = await this.record(cwd, id)
+        await this.verify(saved, "", signal)
+        return this.reference(saved)
+      } catch (error) {
+        if (signal?.aborted) throw error
+        // Invalid/missing derived cache can be rebuilt from Pi's authoritative
+        // fixed output. Other filesystem failures retain the normal recovery.
+        if (error.issue?.code !== "material_invalid") throw error
+      }
+      return await this.saveImage(cwd, name, source, bytes, signal)
+    } catch (error) {
+      if (signal?.aborted) throw error
+      return failure(error)
+    }
+  }
   async upload(sessionId, cwd, name, mimeType, data, signal) {
     this.sessions.identity(sessionId)
     cwd = await this.sessions.cwd(cwd)
@@ -237,10 +356,18 @@ export class MaterialService {
       !/^image\/(png|jpeg|webp|gif)$/.test(mimeType) ||
       !/^[a-zA-Z0-9+/]*={0,2}$/.test(data)
     )
-      throw new Error("仅支持有效 PNG、JPEG、WebP 和 GIF 图片。")
+      throw operationError(
+        "material_invalid",
+        "仅支持有效 PNG、JPEG、WebP 和 GIF 图片。",
+        "none"
+      )
     const buffer = Buffer.from(data, "base64")
     if (imageType(buffer) !== mimeType)
-      throw new Error("图片类型与实际内容不一致，请重新选择。")
+      throw operationError(
+        "material_invalid",
+        "图片类型与实际内容不一致，请重新选择。",
+        "none"
+      )
     return this.saveImage(
       cwd,
       name || "粘贴图片",
@@ -254,7 +381,7 @@ export class MaterialService {
     cwd = await this.sessions.cwd(cwd)
     const resources = await this.sessions.skillResources(cwd, sessionId, signal)
     const diagnostics = resources.diagnostics.map((item) => item.message)
-    const lower = query.toLowerCase()
+    const lower = query.replaceAll("\\", "/").toLowerCase()
     const files = []
     let examined = 0
     let limited = false
@@ -286,7 +413,7 @@ export class MaterialService {
           if (limited) return
         } else if (
           entry.isFile() &&
-          relative(cwd, path).toLowerCase().includes(lower)
+          relative(cwd, path).replaceAll("\\", "/").toLowerCase().includes(lower)
         ) {
           try {
             const actual = await realpath(path)
@@ -341,11 +468,27 @@ export class MaterialService {
   async verify(record, sessionId, signal) {
     signal?.throwIfAborted()
     if (record.type === "image") {
-      if (!imageType(Buffer.from(record.data, "base64")))
-        throw new Error("保存的图片内容损坏，请重新选择。")
+      const data =
+        typeof record.data === "string"
+          ? Buffer.from(record.data, "base64")
+          : null
+      if (
+        !data ||
+        !imageType(data) ||
+        record.id !==
+          hash(`${record.cwd}\0image\0${record.name}\0${hash(data)}`)
+      )
+        throw operationError(
+          "material_invalid",
+          "保存的图片内容损坏，请重新选择。",
+          "none"
+        )
       return
     }
     try {
+      const currentPath = await realpath(record.source)
+      if (!same(currentPath, record.source) || (record.scope === "workspace" && !within(record.cwd, currentPath)))
+        throw new Error()
       if (!(await stat(record.source)).isFile()) throw new Error()
       await access(record.source, constants.R_OK)
     } catch {
@@ -371,13 +514,40 @@ export class MaterialService {
     cwd = await this.sessions.cwd(cwd)
     const output = []
     for (const material of materials) {
+      signal?.throwIfAborted()
+      // Initial path preparation can fail before installing any fixed record.
+      // Its separate identity namespace survives a draft round-trip without
+      // rereading the source; only an explicit retry may prepare that path again.
+      // Fixed image/file/Skill records never have this provisional identity.
+      if (
+        material.kind === "附件" &&
+        material.type === "file" &&
+        ["failed", "preparing"].includes(material.status) &&
+        material.retryable !== false &&
+        typeof material.source === "string" &&
+        isAbsolute(material.source) &&
+        material.id === hash(`${cwd}\0failed\0${material.source}`)
+      ) {
+        output.push({
+          ...material,
+          status: "failed",
+          error: "材料尚未准备，请重新检查。",
+          retryable: true,
+        })
+        continue
+      }
       try {
         const record = await this.record(cwd, material.id)
         await this.verify(record, sessionId, signal)
         output.push(this.reference(record))
       } catch (error) {
         if (signal?.aborted) throw error
-        output.push({ ...material, status: "failed", error: safe(error) })
+        output.push({
+          ...material,
+          status: "failed",
+          error: safe(error),
+          retryable: error.issue?.recovery !== "none",
+        })
       }
     }
     return output
@@ -405,13 +575,11 @@ export class MaterialService {
     }
     if (record.type === "skill") result.content = record.content
     if (record.type === "file") {
-      const size = (await stat(record.source)).size
+      const { file, size } = await readableSource(record.source, cwd, record.scope)
       if (size > 128 * 1024) {
         result.truncated = true
       }
       // Bound the read itself, not only its returned string.
-      const { open } = await import("node:fs/promises")
-      const file = await open(record.source, "r")
       try {
         const buffer = Buffer.alloc(Math.min(size, 128 * 1024))
         const { bytesRead } = await file.read(buffer, 0, buffer.length, 0)
@@ -434,6 +602,7 @@ export class MaterialService {
     signal,
   }) {
     const parts = []
+    const referencedFiles = []
     const images = []
     const displayMaterials = []
     const seen = new Set()
@@ -507,16 +676,31 @@ export class MaterialService {
         })
         const note = formatDimensionNote(prepared)
         if (note) parts.push(`Image ${JSON.stringify(record.name)}: ${note}`)
-      } else if (record.type === "file")
-        parts.push(
-          `Referenced file: ${JSON.stringify(record.source)}. Read this path with an enabled file tool when needed; this reference is not a claim that it has been read.`
-        )
-      else
+      } else if (record.type === "file") {
+        // Keep the verified absolute identity, using the DSH @"path" mention
+        // seam. Windows forward slashes avoid JSON-escaped backslash ambiguity;
+        // a POSIX filename may contain a literal backslash and must keep it.
+        const path =
+          process.platform === "win32"
+            ? record.source.replaceAll("\\", "/")
+            : record.source
+        referencedFiles.push(`@${JSON.stringify(path)}`)
+      } else
         parts.push(
           `<skill name=${JSON.stringify(record.name)} location=${JSON.stringify(record.source)}>\nReferences are relative to ${record.baseDir}.\n\n${record.content}\n</skill>`
         )
       displayMaterials.push(this.reference(record))
     }
+    if (referencedFiles.length)
+      parts.unshift(
+        [
+          "Referenced files (not read):",
+          ...referencedFiles,
+          "These @-prefixed absolute paths are files the user explicitly selected. Their contents are not included and have not been read.",
+          "When the user's task needs their contents, use the enabled read tool with the exact path inside the quotes. Do not guess substitute filenames or claim to have inspected a file before a successful read. If the read tool is unavailable or reading fails, explain the limitation.",
+          "A Skill base directory applies only to relative resources inside that Skill. It must not reinterpret the user-referenced absolute file paths above.",
+        ].join("\n")
+      )
     return {
       text,
       textPrefix: parts.length ? `${parts.join("\n\n")}\n\n` : "",

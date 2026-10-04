@@ -1,5 +1,5 @@
 import { LoaderCircle } from "lucide-react"
-import { Alert, AlertDescription } from "@/components/ui/alert"
+import { OperationFeedback } from "@/components/feedback/operation-feedback"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -17,6 +17,8 @@ import {
 } from "@/components/ui/field"
 import { Textarea } from "@/components/ui/textarea"
 import type { ConversationControlOperation } from "@/features/models/model-contract.generated"
+import { feedbackFromError } from "@/lib/operation-issue"
+import type { ConversationControlAction } from "./use-conversation-controls"
 
 export type CompactDialogProps = {
   open: boolean
@@ -26,7 +28,14 @@ export type CompactDialogProps = {
   focus: string
   operation?: ConversationControlOperation
   error?: string
+  issue?: {
+    message: string
+    details?: string
+    action?: ConversationControlAction
+    uncertain?: boolean
+  }
   pending?: boolean
+  pendingAction?: ConversationControlAction
   disabledReason?: string
   onOpenChange: (open: boolean) => void
   onFocusChange: (focus: string) => void
@@ -42,7 +51,9 @@ export function CompactDialog({
   focus,
   operation,
   error,
+  issue,
   pending,
+  pendingAction,
   disabledReason,
   onOpenChange,
   onFocusChange,
@@ -50,18 +61,36 @@ export function CompactDialog({
   onCancel,
   onCheck,
 }: CompactDialogProps) {
+  const current = operation?.kind === "compact" ? operation : undefined
   const active =
-    operation?.kind === "compact" &&
-    ["running", "cancelling", "unknown"].includes(operation.status)
-  const completed =
-    operation?.kind === "compact" && operation.status === "completed"
+    !!current && ["running", "cancelling", "unknown"].includes(current.status)
+  const completed = current?.status === "completed"
+  const cancelled = current?.status === "cancelled"
+  const failed = current?.status === "failed"
+  const unknown =
+    current?.status === "unknown" ||
+    (issue?.action === "cancel" && issue.uncertain)
+  const feedback =
+    issue ??
+    (error || (!cancelled && current?.error)
+      ? feedbackFromError(error || current?.error)
+      : failed
+        ? {
+            message: "本次压缩未完成，原上下文与历史保留。",
+            details: undefined,
+          }
+        : undefined)
+  const submissionPending = pending && pendingAction === "compact"
+  const checking = pending && pendingAction === "check"
+  const cancelling =
+    current?.status === "cancelling" || (pending && pendingAction === "cancel")
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl">
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>压缩当前上下文</DialogTitle>
           <DialogDescription>
-            保留重点后继续工作。完整会话历史仍可查看。
+            整理当前上下文，为后续工作保留重点。原会话历史仍可查看。
           </DialogDescription>
         </DialogHeader>
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
@@ -69,8 +98,8 @@ export function CompactDialog({
           <dd className="wrap-break-word">{title}</dd>
           <dt className="text-muted-foreground">模型</dt>
           <dd className="wrap-break-word">{model || "尚未选择"}</dd>
-          <dt className="text-muted-foreground">记录范围</dt>
-          <dd>当前会话路径 · {messageCount} 条消息</dd>
+          <dt className="text-muted-foreground">范围</dt>
+          <dd>当前会话 · {messageCount} 条消息</dd>
         </dl>
         <FieldGroup>
           <Field>
@@ -90,24 +119,55 @@ export function CompactDialog({
             </FieldDescription>
           </Field>
         </FieldGroup>
-        {(error || operation?.error) && (
-          <Alert variant="destructive">
-            <AlertDescription>{error || operation?.error}</AlertDescription>
-          </Alert>
-        )}
-        {active && (
+        {unknown && !submissionPending ? (
+          <OperationFeedback
+            title={
+              issue?.action === "cancel" ? "取消结果待确认" : "压缩结果待确认"
+            }
+            message={
+              feedback?.message ||
+              "尚未确认摘要是否保存。请先检查结果，避免重复压缩。"
+            }
+            details={feedback?.details}
+            severity="warning"
+          />
+        ) : feedback && !completed ? (
+          <OperationFeedback
+            title={
+              issue?.action === "cancel"
+                ? "取消压缩未生效"
+                : issue?.action === "check"
+                  ? "暂时无法检查压缩状态"
+                  : "压缩未完成"
+            }
+            message={feedback.message}
+            details={feedback.details}
+            severity={active ? "warning" : "error"}
+          />
+        ) : completed ? (
+          <OperationFeedback
+            title="上下文已压缩"
+            message="摘要已加入会话记录，原历史仍可查看。压缩后用量待更新。"
+            severity="info"
+          />
+        ) : cancelled ? (
+          <OperationFeedback
+            title="压缩已取消"
+            message="原上下文与历史保留，可以修改重点后重新开始。"
+            severity="info"
+          />
+        ) : null}
+        {active && (!unknown || submissionPending) && (
           <p role="status" className="flex items-center gap-2 text-sm">
-            <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" />
-            {operation?.status === "cancelling"
+            <LoaderCircle
+              className="size-4 animate-spin motion-reduce:animate-none"
+              aria-hidden="true"
+            />
+            {cancelling
               ? "正在取消压缩"
-              : operation?.status === "unknown"
-                ? "压缩结果待确认"
-                : "正在压缩上下文"}
-          </p>
-        )}
-        {completed && (
-          <p role="status" className="text-sm">
-            压缩已完成，摘要已保存。压缩后占用待更新。
+              : submissionPending
+                ? "正在提交压缩请求"
+                : "正在整理上下文"}
           </p>
         )}
         {!active && !completed && disabledReason && (
@@ -115,17 +175,27 @@ export function CompactDialog({
         )}
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            {" "}
             {active ? "返回会话" : completed ? "关闭" : "取消"}
           </Button>
           {active ? (
             <>
-              <Button variant="outline" disabled={pending} onClick={onCheck}>
-                检查压缩状态
+              <Button
+                variant={unknown ? "default" : "outline"}
+                disabled={pending}
+                onClick={onCheck}
+              >
+                {checking && (
+                  <LoaderCircle
+                    data-icon="inline-start"
+                    className="animate-spin motion-reduce:animate-none"
+                  />
+                )}
+                {checking ? "正在检查" : "检查压缩状态"}
               </Button>
-              {operation?.status !== "unknown" && (
+              {!unknown && (
                 <Button
-                  disabled={pending || operation?.status === "cancelling"}
+                  variant="outline"
+                  disabled={pending || cancelling}
                   onClick={onCancel}
                 >
                   取消压缩
@@ -135,7 +205,7 @@ export function CompactDialog({
           ) : (
             !completed && (
               <Button disabled={pending || !!disabledReason} onClick={onStart}>
-                {operation?.status === "failed" ? "重新压缩" : "开始压缩"}
+                {failed || cancelled ? "重新压缩" : "开始压缩"}
               </Button>
             )
           )}

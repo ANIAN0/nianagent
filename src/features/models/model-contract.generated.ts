@@ -1,4 +1,171 @@
 // Generated from backend/schema.mjs and backend/contract.mjs. Do not edit.
+export const transportRecoveryByOperation = {
+  list: "reload",
+  revealKey: "reload",
+  providers: "reload",
+  discover: "reload",
+  check: "none",
+  sessionCatalog: "reload",
+  sessionRead: "reload",
+  sessionApply: "check",
+  save: "check",
+  remove: "check",
+  authStart: "check",
+  authPoll: "reload",
+  authReply: "check",
+  authCancel: "check",
+  logout: "check",
+  workspaceList: "reload",
+  workspaceGet: "reload",
+  workspaceAdd: "check",
+  workspaceSelect: "check",
+  workspaceChoose: "check",
+  conversationList: "reload",
+  conversationInfo: "reload",
+  conversationMarkRead: "check",
+  conversationRead: "reload",
+  conversationReceiptRead: "reload",
+  conversationSend: "check",
+  conversationRetry: "check",
+  conversationStop: "check",
+  conversationQueueEdit: "check",
+  conversationQueueRemove: "check",
+  conversationQueueMode: "check",
+  conversationQueueDeliver: "check",
+  conversationQueueReceiptRead: "reload",
+  conversationFork: "check",
+  conversationCompact: "check",
+  conversationControlRead: "reload",
+  conversationCompactCancel: "check",
+  materialChoose: "check",
+  materialPrepare: "check",
+  materialUpload: "check",
+  materialCatalog: "reload",
+  materialPreview: "reload",
+  materialRestore: "reload",
+  mcpList: "reload",
+  mcpSave: "check",
+  mcpRemove: "check",
+  mcpTest: "reload",
+  extensionList: "reload",
+  extensionConfigure: "check",
+  writeReceiptRead: "reload",
+} as const
+export const receiptOperationNames = [
+  "extensionConfigure",
+  "mcpSave",
+  "mcpRemove",
+  "save",
+  "remove",
+] as const
+export const queueReceiptOperationNames = [
+  "conversationQueueRemove",
+  "conversationQueueMode",
+  "conversationQueueDeliver",
+] as const
+export type ExtensionPresentation = {
+  /** 声明中的稳定结果种类；按kind/version选择展示，不按工具或插件名称分支 */
+  kind: string
+  /** 结果协议版本；不支持的版本仍呈现原始文本 */
+  version: number
+  /** 经过声明结果schema核对的JSON对象字符串，最多64KiB；不含宿主对象或函数 */
+  payload: string
+}
+export type ExtensionResultKind = {
+  /** 稳定展示种类 */
+  kind: string
+  /**  */
+  version: number
+  /** 权威结果JSON Schema，来自模块声明 */
+  schema: string
+}
+export type ExtensionDescriptor = {
+  /** 稳定模块身份，与名称/安装目录显示文字无关 */
+  id: string
+  /** 模块名称 */
+  name: string
+  /** 能力及适用场景 */
+  description: string
+  /** Moon公开扩展契约版本 */
+  apiVersion: 1
+  /** 模块代码版本 */
+  version: string
+  /** 配置CAS版本；未保存时为0 */
+  revision: number
+  /** 下一次空闲加载启停，当前已接受运行保持快照 */
+  enabled: boolean
+  /** 已保存JSON配置；默认配置同样经过声明schema核对 */
+  configuration: string
+  /** 模块权威JSON Schema，title/description/default用于设置字段展示 */
+  configurationSchema: string
+  /**  */
+  tools: SessionTool[]
+  /**  */
+  resultKinds: ExtensionResultKind[]
+  /** 声明能否加载；不会把测试成功当持续连接 */
+  state: "ready" | "failed"
+  /**  */
+  issue?: OperationIssue
+  /** 持有此模块工具快照的正式会话数，资源按首次执行创建；不含只读目录 */
+  activeSessions: number
+}
+export type WriteReceipt = {
+  /** 客户端冻结的原写入身份；同标识不重复执行，结果未知只读原回执 */
+  operationRequestId: string
+  /** 原操作名 */
+  operation: "save" | "remove" | "mcpSave" | "mcpRemove" | "extensionConfigure"
+  /** 原目标稳定标识；缺少回执时为空，不能猜测已提交 */
+  targetId: string
+  /** committed 与业务数据同原子文件提交；rejected 未提交；unknown 不得盲重试 */
+  state: "committed" | "rejected" | "unknown"
+  /** 原操作完成时的目标版本，不等于当前最新版本 */
+  revision?: number
+  /**  */
+  issue?: OperationIssue
+}
+export type OperationIssue = {
+  /** 稳定问题类别，不能通过解析显示文案决定恢复动作 */
+  code: string
+  /** 已脱敏的用户原因；不包含提供方响应、凭据或内部文件标识 */
+  summary: string
+  /** 可选安全诊断，只含允许公开的错误码与操作类别 */
+  details?: string
+  /** 所属操作允许的恢复方向；具体按钮由该操作的调用方提供 */
+  recovery: "retry" | "reload" | "check" | "settings" | "restart" | "none"
+  /** 取消/等待属于info，非阻断问题warning，操作失败error */
+  severity: "error" | "warning" | "info"
+}
+export type RpcFailure = {
+  /** 兼容旧客户端的安全错误摘要 */
+  error: string
+  /**  */
+  issue: OperationIssue
+}
+export type ConversationQueueOperationReceipt = {
+  /** 稳定会话、消息或提交标识 */
+  sessionId: string
+  /** 稳定会话、消息或提交标识 */
+  operationRequestId: string
+  /** 原队列操作名，不按当前队列外观推断 */
+  operation?:
+    | "conversationQueueRemove"
+    | "conversationQueueMode"
+    | "conversationQueueDeliver"
+  /** 冻结请求的原队列CAS版本 */
+  baseRevision?: number
+  /** 本次动作采用时原子提交的队列版本，不是当前最新版本 */
+  revision?: number
+  /** 稳定会话、消息或提交标识 */
+  itemId?: string
+  /** 本次请求的交付模式 */
+  mode?: "single" | "all"
+  /**  */
+  issue?: OperationIssue
+  /** committed证明原动作采用；不是Pi输入ACK或回答完成。missing/current preparing为unknown，cold preparing为rejected */
+  state: "committed" | "rejected" | "unknown"
+  /** 仅宿主确认原ID无登记时为true，允许用户显式恢复冻结同ID/同内容/同CAS的原操作；不是新ID重发或自动补发 */
+  retryOriginalAllowed?: true
+}
 export type ConversationQueueItem = {
   /** 稳定会话、消息或提交标识 */
   id: string
@@ -16,6 +183,10 @@ export type ConversationQueueItem = {
   error: string
   /** 提交时间 */
   createdAt: string
+  /** 最后成功编辑的原队列版本，需与编辑请求身份一起匹配 */
+  editBaseRevision?: number
+  /** 最后成功编辑的clientEditId；即使交付失败仍保留 */
+  editRequestId?: string
 }
 export type ConversationQueue = {
   /** 队列乐观并发版本 */
@@ -26,6 +197,19 @@ export type ConversationQueue = {
   paused: boolean
   /**  */
   items: ConversationQueueItem[]
+  /** 已交付/已删除原项的最小终态回执，用于核对未知编辑；不返回文字、材料或媒体正文。 */
+  retiredItems?: {
+    /** 稳定会话、消息或提交标识 */
+    id: string
+    /** 稳定会话、消息或提交标识 */
+    clientRequestId: string
+    /** 不可再修改的原项终态 */
+    status: "delivered" | "removed"
+    /** 最后成功编辑请求的原队列版本；需同时匹配editRequestId证明本次编辑已提交 */
+    editBaseRevision?: number
+    /** 最后成功编辑请求的clientEditId；与冻结提交身份核对，不返回编辑正文 */
+    editRequestId?: string
+  }[]
   /** 已持久接受的提交回执，用于原请求核对，已交付/已删除仍保留 */
   acceptedRequestIds: string[]
 }
@@ -50,6 +234,8 @@ export type MaterialReference = {
   bytes?: number
   /** 材料失败的具体安全原因 */
   error?: string
+  /** 失败条目的权威恢复标记；false需重新选择或移除，true允许人工重试准备/核对。旧草稿可缺省，恢复时由服务重新判定。 */
+  retryable?: boolean
   /** 固定图片缩略图；仅界面本地使用，不是请求必需字段 */
   thumbnail?: string
 }
@@ -144,6 +330,50 @@ export type ConversationFilter = {
   /** 标题、工作目录或最近消息关键词；忽略大小写 */
   query?: string
 }
+export type ConversationRequestReceipt = {
+  /** 稳定的业务会话/请求标识 */
+  sessionId: string
+  /** 稳定的业务会话/请求标识 */
+  clientRequestId: string
+  /** 仅原请求的接受结论；accepted由正式Pi输入或已存队列证明，未知不重发 */
+  state: "accepted" | "rejected" | "unknown"
+  /**  */
+  issue?: OperationIssue
+}
+export type ConversationToolTarget = {
+  /** 工具目标类型 */
+  kind: "file" | "command"
+  /** 按Pi参数和会话cwd解析的请求路径；预览另经realpath及目录边界核验 */
+  path?: string
+  /** 工作区内相对路径或完整外部路径 */
+  displayPath?: string
+  /** Pi工具原始路径参数 */
+  requestedPath?: string
+  /** read请求的起始行，从1开始 */
+  line?: number
+  /** read请求的行数 */
+  lineCount?: number
+  /** Pi实际接收的命令参数 */
+  command?: string
+  /** 命令所属会话工作目录 */
+  cwd?: string
+}
+export type ConversationToolDetails = {
+  /** Pi edit实际成功结果的差异，不由模型正文或预计参数构造 */
+  diff?: string
+  /** Pi edit实际成功结果的unified patch */
+  patch?: string
+  /** Pi实际结果的首个改动行，从1开始 */
+  firstChangedLine?: number
+}
+export type ConversationFileArtifact = {
+  /** 成功的Pi文件操作目标路径，打开时仍须核对当前磁盘及权限边界 */
+  path: string
+  /** 可读的文件目标 */
+  displayPath: string
+  /** 成功文件工具的实际操作；Pi无前像时只称write，不猜创建/覆盖 */
+  operation: "write" | "edit"
+}
 export type ConversationChatTool = {
   /** Pi toolCallId */
   id: string
@@ -161,6 +391,22 @@ export type ConversationChatTool = {
   exitCode?: number
   /** Pi shell 实际 wall_time_seconds 换算为毫秒；未返回时省略 */
   durationMs?: number
+  /** Pi assistant entryId与内容位置组成的调用身份；旧格式未持久迁移时使用稳定展示id，不冒充正式entryId；不以可重复的提供者toolCallId作为唯一键 */
+  occurrenceId?: string
+  /**  */
+  target?: ConversationToolTarget
+  /** Pi工具文本结果在Moon展示截断前的字符数；不是源文件总长度 */
+  resultLength?: number
+  /** Pi结果本身或Moon展示结果发生截断；不能将展示文本当完整文件 */
+  resultTruncated?: boolean
+  /**  */
+  details?: ConversationToolDetails
+  /**  */
+  images?: MaterialReference[]
+  /**  */
+  artifact?: ConversationFileArtifact
+  /**  */
+  presentation?: ExtensionPresentation
 }
 export type ConversationRuntime = {
   /** 本次回复的实时执行阶段；只在 running 返回，不代表任务验收结果 */
@@ -185,8 +431,20 @@ export type ConversationChatMessage = {
   id: string
   /** 原Pi历史已保存的权威条目标识；运行中消息或v1只读恢复的临时迁移标识不返回 */
   entryId?: string
-  /** 在当前Pi分支中的位置 */
+  /** 在完整Pi分支中的位置，包含custom条目；pending位于branch.length，继续指令使用原custom_message位置 */
   historyIndex?: number
+  /** 对应可见用户输入的稳定展示标识，用于聚合该输入之后的正式阶段；不是Pi fork锚点 */
+  userTurnId?: string
+  /** 可见用户输入的正式类型；不按正文文案猜继续请求 */
+  inputKind?: "continuation"
+  /** 可见继续指令所恢复的前一用户轮次；独立输入身份保留，便于标注历史attempt恢复关系 */
+  continuationOf?: string
+  /** Moon正式请求标记提供的运行归属；旧记录缺失时省略，不推测 */
+  runId?: string
+  /** Pi正式assistant停止原因；length表示输出上限，不当作完整答案 */
+  stopReason?: "stop" | "length" | "toolUse" | "error" | "aborted"
+  /** Pi当前仍在生成的内容块；结束的thinking不随整条消息继续显示运行态 */
+  activeBlockId?: string
   /** Pi已保存且完成的Agent回复边界，不含待执行工具调用；旧格式只读历史迁移前为false，来源会话还需通过控制门禁 */
   forkable?: boolean
   /** 消息角色 */
@@ -199,6 +457,8 @@ export type ConversationChatMessage = {
   model?: string
   /** 消息状态 */
   status: "sending" | "streaming" | "settled" | "interrupted" | "failed"
+  /**  */
+  issue?: OperationIssue
   /**  */
   thinking?: {
     /** Pi 实际返回的思考内容 */
@@ -230,6 +490,26 @@ export type ConversationChatMessage = {
         type: "text"
         /** 文本 */
         text: string
+        /** 此块是否仍在生成 */
+        phase?: "running" | "settled"
+      }
+    | {
+        /** 原始Pi内容位置生成的标识 */
+        id: string
+        /**  */
+        type: "thinking"
+        /** 该位置的Pi思考正文 */
+        text: string
+        /** 此思考块的真实生成阶段 */
+        phase: "running" | "settled"
+      }
+    | {
+        /** 原始Pi内容位置生成的标识 */
+        id: string
+        /**  */
+        type: "image"
+        /**  */
+        image: MaterialReference
       }
     | {
         /** 内容标识 */
@@ -260,6 +540,8 @@ export type ConversationSnapshot = {
   inputAccepted: boolean
   /** 本次或最后一次运行标识 */
   runId: string
+  /** 输入已接受且末次回复失败/停止或Pi length截断；继续是新的幂等可见指令，不重发原请求或自动执行旧工具 */
+  canContinue?: boolean
   /** 真实回复运行状态；completed 仅表示本轮运行结束，不代表用户任务验收成功 */
   phase:
     "idle" | "running" | "stopping" | "completed" | "failed" | "interrupted"
@@ -274,6 +556,10 @@ export type ConversationSnapshot = {
   /** 错误说明，成功为空 */
   error: string
   /**  */
+  issue?: OperationIssue
+  /** 本次运行失败对应的正式 Pi 回复条目 ID；无对应回复时省略 */
+  issueEntryId?: string
+  /**  */
   messages: ConversationChatMessage[]
   /** 旧格式历史的非阻断说明；只读恢复不持久化迁移标识，显式发送交由Pi迁移后恢复派生能力 */
   historyNotice?: string
@@ -281,6 +567,8 @@ export type ConversationSnapshot = {
   queue?: ConversationQueue
   /** 待处理消息保存或恢复错误；不会自动重发 */
   queueError?: string
+  /**  */
+  queueIssue?: OperationIssue
   /**  */
   control?: ConversationControl
   /**  */
@@ -604,6 +892,8 @@ export type ModelConnection = {
     /** 是否存在订阅凭据；实际权限需检查模型调用。 */
     loggedIn: boolean
   }
+  /** 只读；正式订阅连接始终为true/false。true表示此提供者的完整退出登录操作仍运行，凭据不存在不能证明SDK清理结束。明确false才允许结束未知等待，缺省代表旧宿主须重启。 */
+  accountOperationBusy?: boolean
   /** 该连接保存的模型，API 模型 ID 不能重复。 */
   models: ModelDefinition[]
 }
@@ -664,17 +954,45 @@ export type AuthState = {
   events: AuthEvent[]
   /**  */
   prompt?: AuthPrompt
+  /** 授权准备、Pi登录或清理阶段；settling仍pending，原lease清理结束才公开终态，保留原任务ID供取消/失败恢复 */
+  stage?: "preparing" | "authorizing" | "settling"
+  /**  */
+  issue?: OperationIssue
 }
 export type RpcRequests = {
+  extensionList: Record<string, never>
+  extensionConfigure: {
+    /** 已发现模块稳定ID */
+    id: string
+    /**  */
+    revision: number
+    /**  */
+    enabled: boolean
+    /** JSON对象，按模块configurationSchema验证 */
+    configuration: string
+    /** 客户端冻结的原写入身份；同标识不重复执行，结果未知只读原回执 */
+    operationRequestId?: string
+  }
+  writeReceiptRead: {
+    /** 原操作名 */
+    operation:
+      "save" | "remove" | "mcpSave" | "mcpRemove" | "extensionConfigure"
+    /** 客户端冻结的原写入身份；同标识不重复执行，结果未知只读原回执 */
+    operationRequestId: string
+  }
   conversationQueueEdit: {
     /** 稳定会话、消息或提交标识 */
     sessionId: string
     /** 稳定会话、消息或提交标识 */
     itemId: string
-    /** 修改后的原始文字，材料保留 */
+    /** 修改后的原始文字 */
     text: string
     /**  */
     revision: number
+    /** 可选完整材料选择；省略保留旧材料，空数组解除全部引用。提交前重新核对，不删除源文件。 */
+    materials?: MaterialReference[]
+    /** 可选冻结编辑身份；界面在RPC前持久保存，未知时只核对，不重发 */
+    clientEditId?: string
   }
   conversationQueueRemove: {
     /** 稳定会话、消息或提交标识 */
@@ -683,6 +1001,8 @@ export type RpcRequests = {
     itemId: string
     /**  */
     revision: number
+    /** 稳定会话、消息或提交标识 */
+    operationRequestId?: string
   }
   conversationQueueMode: {
     /** 稳定会话、消息或提交标识 */
@@ -691,6 +1011,8 @@ export type RpcRequests = {
     mode: "single" | "all"
     /**  */
     revision: number
+    /** 稳定会话、消息或提交标识 */
+    operationRequestId?: string
   }
   conversationQueueDeliver: {
     /** 稳定会话、消息或提交标识 */
@@ -699,6 +1021,14 @@ export type RpcRequests = {
     itemId: string
     /**  */
     revision: number
+    /** 稳定会话、消息或提交标识 */
+    operationRequestId?: string
+  }
+  conversationQueueReceiptRead: {
+    /** 稳定会话、消息或提交标识 */
+    sessionId: string
+    /** 稳定会话、消息或提交标识 */
+    operationRequestId: string
   }
   materialChoose: {
     /** 会话稳定标识 */
@@ -713,6 +1043,8 @@ export type RpcRequests = {
     cwd: string
     /**  */
     paths: string[]
+    /** selected用于用户明确系统选择绝对路径；workspace用于Agent正文链接/本地图像/成果，可使用相对cwd路径，必须realpath位于cwd内 */
+    scope?: "selected" | "workspace"
   }
   materialUpload: {
     /** 会话稳定标识 */
@@ -754,12 +1086,16 @@ export type RpcRequests = {
     configuration: McpConfiguration
     /**  */
     revision?: number
+    /** 客户端冻结的原写入身份；同标识不重复执行，结果未知只读原回执 */
+    operationRequestId?: string
   }
   mcpRemove: {
     /** 服务名 */
     name: string
     /**  */
     revision: number
+    /** 客户端冻结的原写入身份；同标识不重复执行，结果未知只读原回执 */
+    operationRequestId?: string
   }
   mcpTest: {
     /**  */
@@ -794,6 +1130,12 @@ export type RpcRequests = {
     id: string
     /** 页面已展示的摘要版本 */
     revision: number
+  }
+  conversationReceiptRead: {
+    /** 稳定的业务会话/请求标识 */
+    sessionId: string
+    /** 稳定的业务会话/请求标识 */
+    clientRequestId: string
   }
   conversationSend: {
     /** 稳定的业务会话/请求标识 */
@@ -896,12 +1238,16 @@ export type RpcRequests = {
   save: {
     /**  */
     connection: ModelConnection
+    /** 客户端冻结的原写入身份；同标识不重复执行，结果未知只读原回执 */
+    operationRequestId?: string
   }
   remove: {
     /**  */
     id: string
     /**  */
     revision: number
+    /** 客户端冻结的原写入身份；同标识不重复执行，结果未知只读原回执 */
+    operationRequestId?: string
   }
   discover: {
     /**  */
@@ -916,6 +1262,8 @@ export type RpcRequests = {
   authStart: {
     /**  */
     connection: ModelConnection
+    /** 客户端冻结的原写入身份；同标识不重复执行，结果未知只读原回执 */
+    operationRequestId?: string
   }
   authPoll: {
     /**  */
@@ -939,10 +1287,14 @@ export type RpcRequests = {
   }
 }
 export type RpcResults = {
+  extensionList: ExtensionDescriptor[]
+  extensionConfigure: ExtensionDescriptor
+  writeReceiptRead: WriteReceipt
   conversationQueueEdit: ConversationSnapshot
   conversationQueueRemove: ConversationSnapshot
   conversationQueueMode: ConversationSnapshot
   conversationQueueDeliver: ConversationSnapshot
+  conversationQueueReceiptRead: ConversationQueueOperationReceipt
   materialChoose: MaterialReference[]
   materialPrepare: MaterialReference[]
   materialUpload: MaterialReference
@@ -961,6 +1313,7 @@ export type RpcResults = {
   conversationList: ConversationSummary[]
   conversationInfo: ConversationSummary | null
   conversationMarkRead: ConversationSummary
+  conversationReceiptRead: ConversationRequestReceipt
   conversationSend: ConversationSnapshot
   conversationRead: ConversationSnapshot
   conversationStop: ConversationSnapshot

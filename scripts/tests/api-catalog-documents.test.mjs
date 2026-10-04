@@ -41,7 +41,11 @@ test("every formal operation document preserves its definition and contains comp
     )
     assert.deepEqual(Object.keys(document).sort(), ["definition", "schemas"])
     assert.deepEqual(document.definition, formal)
-    const needed = referencedNames([formal.request, formal.response])
+    const needed = referencedNames([
+      formal.request,
+      formal.response,
+      { $ref: "RpcFailure" },
+    ])
     const pending = [...needed]
     while (pending.length) {
       const name = pending.shift()
@@ -70,7 +74,10 @@ test("a simple selected operation carries no other definitions or unrelated regi
     virtualSource("virtual:moon-api-docs/providers")
   )
   assert.deepEqual(document.definition, operations.providers)
-  assert.deepEqual(document.schemas, {})
+  assert.deepEqual(Object.keys(document.schemas).sort(), [
+    "OperationIssue",
+    "RpcFailure",
+  ])
   assert.equal(document.operations, undefined)
   assert.notDeepEqual(document.definition, operations.list)
   const list = createOperationDocumentation("list")

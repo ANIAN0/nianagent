@@ -9,6 +9,7 @@ import type {
 } from "@/features/models/model-contract.generated"
 import type { HomeDraft } from "@/features/home/home-types"
 import { LiveConversationView } from "./live-conversation-view"
+import { ConversationPathExample } from "./messages/conversation-path-catalog-example"
 
 type Scenario =
   | "completed"
@@ -225,7 +226,7 @@ function Example({ scenario }: { scenario: Scenario }) {
         : undefined,
     error:
       phase === "queue-not-delivered"
-        ? "待处理消息文件提交失败（EPERM / rename）；消息仍保留，尚未发送。"
+        ? "排队消息尚未发送：本地记录暂时无法保存，消息已保留。"
         : phase === "not-accepted" ||
             phase === "resend-after-history" ||
             phase === "resend-with-paused-queue"
@@ -235,6 +236,24 @@ function Example({ scenario }: { scenario: Scenario }) {
             : phase === "interrupted" || phase === "not-accepted-interrupted"
               ? "请求已停止。"
               : "",
+    issue:
+      phase === "queue-not-delivered"
+        ? {
+            code: "queue_storage",
+            summary: "排队消息尚未发送：本地记录暂时无法保存，消息已保留。",
+            details: "存储错误码：EPERM；操作：rename。",
+            recovery: "retry",
+            severity: "error",
+          }
+        : phase === "failed"
+          ? {
+              code: "model_unavailable",
+              summary: "模型服务暂时不可用，请稍后继续。",
+              details: "提供方状态：服务端错误。",
+              recovery: "retry",
+              severity: "error",
+            }
+          : undefined,
     queue:
       phase === "queue-not-delivered" || phase === "resend-with-paused-queue"
         ? {
@@ -355,13 +374,15 @@ export default {
   description: "正式对话页面，展示后端快照、Pi 工具结果和独立输入草稿。",
   boundary:
     "消息由App/useLiveConversation提供；控制操作通过显式ControlService依赖调用，组件库注入隔离服务，不发起模型或原生请求。",
-  inputs: ["snapshot、error、pending、draft、data、positions、controlService"],
+  inputs: [
+    "snapshot、readIssue、actionIssue、draftError、queueIssues、pending、draft、data、positions、controlService",
+  ],
   events: [
     "onSend、onStop、onContinue、onReload、onChange、onOpenConversation",
   ],
   composition: [
     "ConversationPage",
-    "ConversationMessageView",
+    "ConversationTurnView",
     "ConversationComposer",
     "Alert",
     "Button",
@@ -371,6 +392,20 @@ export default {
   consumers: ["App"],
   viewport: { width: 1120, height: 820 },
   states: [
+    {
+      id: "formal-ten-tools",
+      name: "正式十次工具路径",
+      condition: "真实验收的Pi entryId、返回与diff，按正式DTO回放。",
+      expected: "工具汇总完整、顺序稳定、真实轮尾只有一组操作。",
+      render: () => <ConversationPathExample scenario="ten-tools" />,
+    },
+    {
+      id: "formal-short-window",
+      name: "短窗长稿材料队列",
+      condition: "560px窗口与30行草稿、材料、队列。",
+      expected: "停止独立可达，正文和dock局部滚动。",
+      render: () => <ConversationPathExample scenario="short-window" />,
+    },
     {
       id: "compact-command-after-completed",
       name: "完成后准备新压缩命令",

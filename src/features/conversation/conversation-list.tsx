@@ -1,5 +1,6 @@
 import {
   useLayoutEffect,
+  useCallback,
   useMemo,
   useRef,
   useState,
@@ -44,6 +45,10 @@ function ConversationListContent({
 }: ConversationListProps) {
   const viewport = useRef<HTMLDivElement>(null)
   const [savedPosition] = useState(initialPosition)
+  const restoring = useRef(
+    Boolean(initialPosition && !initialPosition.following)
+  )
+  const captureFrame = useRef<number | undefined>(undefined)
   const { scrollToMessage, scrollToEnd } = useMessageScroller()
   const { currentAnchorId } = useMessageScrollerVisibility()
   const turns = useMemo(
@@ -62,18 +67,32 @@ function ConversationListContent({
   // remain owned by the official MessageScroller provider.
   useLayoutEffect(() => {
     if (!savedPosition || savedPosition.following) return
-    const frame = requestAnimationFrame(() => {
+    let settleFrame = 0
+    const restore = () => {
       const restored = scrollToMessage(savedPosition.anchorId, {
         align: "start",
         behavior: "auto",
         scrollMargin: savedPosition.offset - 16,
       })
       if (!restored) scrollToEnd({ behavior: "auto" })
+    }
+    const frame = requestAnimationFrame(() => {
+      restore()
+      // content-visibility may replace an estimated height after the first
+      // jump. Reapply the same official anchor before publishing a position.
+      settleFrame = requestAnimationFrame(() => {
+        restore()
+        restoring.current = false
+      })
     })
-    return () => cancelAnimationFrame(frame)
+    return () => {
+      cancelAnimationFrame(frame)
+      cancelAnimationFrame(settleFrame)
+    }
   }, [savedPosition, scrollToMessage, scrollToEnd])
 
-  function capture() {
+  const captureNow = useCallback(() => {
+    if (restoring.current) return
     const element = viewport.current
     if (!element) return
     const top = element.getBoundingClientRect().top
@@ -87,7 +106,24 @@ function ConversationListContent({
       following:
         element.scrollHeight - element.scrollTop - element.clientHeight <= 8,
     })
+  }, [onPositionChange])
+  function capture() {
+    if (restoring.current || captureFrame.current !== undefined) return
+    captureFrame.current = requestAnimationFrame(() => {
+      captureFrame.current = undefined
+      captureNow()
+    })
   }
+  useLayoutEffect(
+    () => () => {
+      if (captureFrame.current !== undefined) {
+        cancelAnimationFrame(captureFrame.current)
+        captureFrame.current = undefined
+        captureNow()
+      }
+    },
+    [captureNow]
+  )
 
   return (
     <div className="conversation-list">

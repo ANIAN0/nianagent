@@ -5,6 +5,10 @@ import type {
   ConversationFilter,
 } from "@/features/models/model-contract.generated"
 import type { Conversation } from "@/features/home/home-types"
+import {
+  feedbackFromError,
+  type FeedbackDescription,
+} from "@/lib/operation-issue"
 
 export type ConversationCatalogService = {
   list: (
@@ -40,6 +44,7 @@ export function useConversationCatalog(service = defaultService) {
     conversations: ConversationSummary[]
     historyState: HistoryState
     historyError: string
+    historyIssue?: FeedbackDescription
   }>({ conversations: [], historyState: "loading", historyError: "" })
   const readRequest = useRef<AbortController | null>(null)
   const sequence = useRef(0)
@@ -55,6 +60,7 @@ export function useConversationCatalog(service = defaultService) {
           ...previous,
           historyState: "loading",
           historyError: "",
+          historyIssue: undefined,
         }))
       try {
         const conversations = await service.list({}, controller.signal)
@@ -70,16 +76,22 @@ export function useConversationCatalog(service = defaultService) {
           }),
           historyState: "ready",
           historyError: "",
+          historyIssue: undefined,
         }))
       } catch (error) {
         if (controller.signal.aborted || version !== sequence.current) return
+        const feedback = feedbackFromError(
+          error,
+          "会话列表暂时无法读取，请重新读取。"
+        )
         setSnapshot((previous) => ({
           ...previous,
           historyState: "error",
-          historyError:
-            error instanceof Error
-              ? error.message
-              : "无法读取会话列表，请重试。",
+          historyError: feedback.message,
+          historyIssue:
+            feedback.code === "cancelled"
+              ? { ...feedback, recovery: "reload" }
+              : feedback,
         }))
       }
     },

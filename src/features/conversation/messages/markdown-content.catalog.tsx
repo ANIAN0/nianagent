@@ -7,13 +7,34 @@ export default {
   group: "对话消息",
   source: "src/features/conversation/messages/markdown-content.tsx",
   description: "Agent 正文的标题、列表、引用、表格与代码。",
-  boundary: "仅解析 Markdown；不执行原始 HTML。用户原文不使用此组件。",
+  boundary:
+    "仅解析 Markdown；不执行原始 HTML。用户原文不使用此组件。本地图片提供受控预览入口，远程图片不自动请求；Pi和附件缩略图由材料组件承担。",
   inputs: ["text: Markdown 字符串"],
-  events: ["复制代码", "在新标签页打开链接"],
+  events: ["复制完整代码", "外链在新标签页打开", "本地路径按cwd由材料服务预览"],
   composition: ["CopyButton"],
-  consumers: ["AssistantMessage", "ThinkingBlock"],
+  consumers: ["AssistantMessage", "ThinkingBlock", "ConversationTurnView"],
   viewport: { width: 780, height: 580 },
   states: [
+    {
+      id: "hundred-lines",
+      name: "百行代码与固定复制栏",
+      condition: "100行代码随页面滚动，代码行仍保留原始全文",
+      expected: "代码内部不截断；阅读中复制栏保持可见，复制不包含行号。",
+      render: () => (
+        <div className="p-6">
+          <MarkdownContent
+            text={
+              "## 百行代码阅读\n\n```ts\n" +
+              Array.from(
+                { length: 100 },
+                (_, index) => `const item${index + 1} = 'line-${index + 1}'`
+              ).join("\n") +
+              "\n```\n\n代码结束。"
+            }
+          />
+        </div>
+      ),
+    },
     {
       id: "nested-checklist",
       name: "嵌套任务与长代码",

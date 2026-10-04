@@ -1,5 +1,6 @@
 import type { CatalogEntry } from "../../../../ui-catalog/catalog"
-import { ContextUsage, type ContextUsageProps } from "./context-usage"
+import type { ContextUsageProps } from "./context-usage"
+import { ComposerAuxiliaryBar } from "./composer-auxiliary-bar"
 
 function Example({
   reading,
@@ -10,7 +11,7 @@ function Example({
 }) {
   return (
     <div className="flex h-dvh items-end justify-center p-6">
-      <ContextUsage {...reading} defaultOpen={!closed} />
+      <ComposerAuxiliaryBar context={{ ...reading, defaultOpen: !closed }} />
     </div>
   )
 }
@@ -38,7 +39,7 @@ export default {
   ],
   events: ["点击入口或Esc展开/关闭；可选onCompact仅发送父级事件"],
   composition: ["Button、Popover、Badge、Separator、Lucide CircleGauge"],
-  consumers: ["ConversationComposer"],
+  consumers: ["ComposerAuxiliaryBar"],
   viewport: { width: 600, height: 480 },
   states: [
     {

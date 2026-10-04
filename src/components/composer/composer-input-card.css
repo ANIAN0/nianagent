@@ -1,0 +1,119 @@
+.moon-composer-input {
+  position: relative;
+  min-height: 0;
+  border-radius: 16px;
+  background: var(--card);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 4%);
+}
+.moon-composer-input:has([data-slot="input-group-control"]:focus-visible) {
+  border-color: color-mix(in oklab, var(--primary) 60%, transparent);
+  box-shadow:
+    0 0 0 3px color-mix(in oklab, var(--primary) 20%, transparent),
+    0 1px 3px rgb(0 0 0 / 4%);
+}
+.moon-composer-input:has(:disabled) {
+  opacity: 1;
+  background: var(--card);
+}
+.moon-composer-input > [data-slot="input-group-control"] {
+  flex-shrink: 1;
+  min-height: 52px;
+  max-height: min(288px, 25dvh);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.moon-composer-input > .moon-composer-prompt[data-slot="input-group-control"] {
+  padding: 8px 14px 0;
+  font-size: 14px;
+  line-height: 24px;
+  min-height: 52px;
+}
+.moon-composer-input > .moon-composer-prompt[data-composer-variant="docked"] {
+  padding-top: 4px;
+  min-height: 36px;
+}
+.moon-composer-toolbar[data-slot="input-group-addon"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  min-width: 0;
+  padding: 2px 8px 8px;
+  container-type: inline-size;
+}
+.moon-composer-toolbar-leading,
+.moon-composer-toolbar-trailing {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 12px;
+}
+.moon-composer-toolbar-leading {
+  flex: none;
+}
+.moon-composer-toolbar-trailing {
+  flex: 0 1 auto;
+  margin-left: auto;
+  max-width: 100%;
+}
+.moon-composer-model-trigger[data-slot="button"] {
+  height: 28px;
+  max-width: min(240px, 45cqw);
+  min-width: 0;
+  flex: 0 1 auto;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 0 8px;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 400;
+  color: var(--muted-foreground);
+}
+.moon-composer-model-name {
+  min-width: 40px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.moon-composer-thinking {
+  min-width: 0;
+  flex: 0 1 auto;
+  color: var(--caption);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@container (max-width: 560px) {
+  .moon-composer-toolbar-leading,
+  .moon-composer-toolbar-trailing {
+    gap: 8px;
+  }
+}
+@container (max-width: 360px) {
+  .moon-composer-model-trigger[data-slot="button"] {
+    max-width: 40cqw;
+  }
+  .moon-composer-thinking {
+    display: none;
+  }
+}
+.moon-composer-input > [data-align="block-start"],
+.moon-composer-input > [data-align="block-end"] {
+  flex-shrink: 0;
+}
+.moon-composer-drop {
+  position: absolute;
+  inset: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px dashed var(--primary);
+  border-radius: 12px;
+  background: color-mix(in oklab, var(--card) 94%, var(--primary));
+  color: var(--primary);
+  font-size: 13px;
+  pointer-events: none;
+}

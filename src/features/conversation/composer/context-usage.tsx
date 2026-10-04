@@ -8,6 +8,10 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { Separator } from "@/components/ui/separator"
+import {
+  useComposerPanel,
+  useComposerPanelCloseAutoFocus,
+} from "@/features/home/composer-panel-context"
 export type ContextUsageProps = {
   usedTokens?: number
   contextWindow?: number
@@ -69,6 +73,8 @@ export function ContextUsage({
   compactActive,
   compactDisabledReason,
 }: ContextUsageProps) {
+  const [open, setOpen] = useComposerPanel("context", defaultOpen)
+  const closeAutoFocus = useComposerPanelCloseAutoFocus("context")
   const known =
     usedTokens !== undefined &&
     Number.isFinite(usedTokens) &&
@@ -94,7 +100,7 @@ export function ContextUsage({
       ]
     : []
   return (
-    <Popover defaultOpen={defaultOpen}>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
           variant="ghost"
@@ -111,6 +117,7 @@ export function ContextUsage({
         </Button>
       </PopoverTrigger>
       <PopoverContent
+        onCloseAutoFocus={closeAutoFocus}
         side="top"
         align="center"
         sideOffset={8}

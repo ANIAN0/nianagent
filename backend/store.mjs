@@ -3,6 +3,8 @@ import { mkdir, readFile, writeFile, rename, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { randomUUID } from "node:crypto"
 import lockfile from "proper-lockfile"
+import { validateWriteReceipts } from "./write-receipts.mjs"
+import { validateAuthorizationRequests } from "./authorization-identity.mjs"
 
 // One atomic document owns connection metadata and Pi CredentialStore values.
 export class ModelStore {
@@ -99,6 +101,8 @@ export class ModelStore {
       throw new Error("模型配置文件结构损坏；原文件未覆盖。")
     }
     data.authorizations ??= {}
+    validateWriteReceipts(data.writeReceipts)
+    validateAuthorizationRequests(data.authorizationRequests)
     return data
   }
   async update(change, signal) {

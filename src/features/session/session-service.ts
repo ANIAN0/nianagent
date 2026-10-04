@@ -1,4 +1,3 @@
-import type { Workspace } from "@/features/home/home-types"
 import { createContext } from "react"
 import { modelCall } from "@/features/models/model-service"
 import type {
@@ -62,48 +61,5 @@ export function consumeHomeSession(
   } catch (error) {
     if (strict) throw error
     /* Storage can be disabled; active draft identity remains in memory. */
-  }
-}
-
-const workspaceKey = "moon.workspaces.v1"
-export function readHomeWorkspaces(): Workspace[] {
-  try {
-    const value: unknown = JSON.parse(
-      localStorage.getItem(workspaceKey) || "[]"
-    )
-    return Array.isArray(value)
-      ? value.filter(
-          (item): item is Workspace =>
-            !!item &&
-            typeof item.id === "string" &&
-            typeof item.name === "string" &&
-            typeof item.path === "string" &&
-            !!item.path
-        )
-      : []
-  } catch {
-    return []
-  }
-}
-export function lastHomeWorkspace(): string | undefined {
-  try {
-    return localStorage.getItem("moon.workspace.selected.v1") ?? undefined
-  } catch {
-    return undefined
-  }
-}
-export function rememberHomeWorkspace(workspace: Workspace): void {
-  if (!workspace.path) return
-  try {
-    localStorage.setItem(
-      workspaceKey,
-      JSON.stringify([
-        ...readHomeWorkspaces().filter((item) => item.id !== workspace.id),
-        workspace,
-      ])
-    )
-    localStorage.setItem("moon.workspace.selected.v1", workspace.id)
-  } catch {
-    /* Session continues when local storage is disabled. */
   }
 }

@@ -4,7 +4,9 @@
   "version": "0.0.1",
   "type": "module",
   "files": [
-    "*.mjs"
+    "*.mjs",
+    "extensions/**/*.mjs",
+    "extensions/**/*.md"
   ],
   "dependencies": {
     "@earendil-works/pi-ai": "1.0.0",

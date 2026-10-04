@@ -31,8 +31,12 @@ export const operations: Record<
     errors: string
     method: string
     args: string[]
+    transportRecovery: "reload" | "retry" | "check" | "none"
+    writeReceipt?: true
+    queueReceipt?: true
   }
 >
+export const transportRecoveryByOperation: Record<ModelOperation, "reload" | "retry" | "check" | "none">
 export function validateRequest(
   operation: string,
   input: unknown

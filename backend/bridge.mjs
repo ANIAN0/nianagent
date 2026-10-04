@@ -4,6 +4,24 @@ import { homedir } from "node:os"
 import { request as httpRequest } from "node:http"
 import { runtimeVersion } from "./runtime.mjs"
 import { readJsonBody } from "./http-body.mjs"
+import { operationError, publicFailure } from "./operation-issue.mjs"
+
+function unconfirmed(error) {
+  const failure = new Error("未能确认此次操作的结果，请先核对状态。", {
+    cause: error,
+  })
+  failure.name = "MoonOperationError"
+  failure.issue = {
+    code: "result_unknown",
+    summary: failure.message,
+    recovery: "check",
+    severity: "warning",
+    ...(error?.code === "MOON_RESPONSE_TIMEOUT"
+      ? { details: "传输响应等待已超时；无法据此判断操作是否提交。" }
+      : {}),
+  }
+  return failure
+}
 
 // Match the native command deadline. The directory host owns its shorter
 // 600s user-selection wait; this margin lets its specific error reach the UI.
@@ -49,21 +67,32 @@ function requestRuntime(runtime, operation, input, signal) {
               )
                 throw new Error("Invalid response envelope")
             } catch {
-              reject(new Error("模型服务返回了无效响应，请重启 Moon 后重试。"))
+              reject(unconfirmed(new Error("Invalid response envelope")))
               return
             }
             if (
               incoming.statusCode < 200 ||
               incoming.statusCode >= 300 ||
               payload.error
-            )
-              reject(new Error(payload.error || "模型服务请求失败。"))
-            else resolve(payload.result)
+            ) {
+              const failure = new Error(payload.error || "本次操作未完成。")
+              if (payload.issue) {
+                failure.name = "MoonOperationError"
+                failure.issue = payload.issue
+              }
+              reject(failure)
+            } else resolve(payload.result)
           })
         }
       )
     } catch {
-      reject(new Error("模型服务连接信息无效，请重启 Moon。"))
+      reject(
+        operationError(
+          "host_connection",
+          "Moon 服务连接信息无效，请重新启动 Moon。",
+          "restart"
+        )
+      )
       return
     }
     const timer = setTimeout(() => {
@@ -83,8 +112,8 @@ function requestRuntime(runtime, operation, input, signal) {
     function fail(error) {
       cleanup()
       if (signal?.aborted || error.code === "MOON_RESPONSE_TIMEOUT")
-        reject(error)
-      else reject(new Error("无法连接 Moon 模型服务，请启动或重启桌面应用。"))
+        reject(signal?.aborted ? error : unconfirmed(error))
+      else reject(unconfirmed(error))
     }
     request.once("error", fail)
     request.end(JSON.stringify(input))
@@ -107,17 +136,29 @@ export function modelBackendPlugin() {
         try {
           runtime = JSON.parse(await readFile(file, "utf8"))
         } catch {
-          throw new Error("请先启动 Moon 桌面应用，浏览器将共用它的模型服务。")
+          throw operationError(
+            "host_unavailable",
+            "Moon 服务尚未就绪，请启动或重新启动桌面应用。",
+            "restart"
+          )
         }
         if (runtime.version !== (await runtimeVersion()))
-          throw new Error("模型服务代码已更新，请重启 Moon 后重新读取。")
+          throw operationError(
+            "host_version",
+            "Moon 服务代码已更新，请重新启动 Moon。",
+            "restart"
+          )
         if (
           !Number.isInteger(runtime.port) ||
           runtime.port < 1 ||
           runtime.port > 65535 ||
           typeof runtime.token !== "string"
         )
-          throw new Error("模型服务连接信息无效，请重启 Moon。")
+          throw operationError(
+            "host_connection",
+            "Moon 服务连接信息无效，请重新启动 Moon。",
+            "restart"
+          )
         // Built-in fetch has an implicit 300s Undici response-header deadline,
         // shorter than the user's native directory selection. Use node:http
         // with one explicit cancellable total deadline for both transports.
@@ -151,14 +192,13 @@ export function modelBackendPlugin() {
       res.on("close", () => {
         if (!res.writableEnded) controller.abort()
       })
+      const operation = req.url.split("?")[0].replace(/^\//, "")
       try {
-        const operation = req.url.split("?")[0].replace(/^\//, "")
-        const input = await readJsonBody(req, operation === "materialUpload" ? 16 * 1024 * 1024 : 1024 * 1024)
-        const result = await bridge.call(
-          operation,
-          input,
-          controller.signal
+        const input = await readJsonBody(
+          req,
+          operation === "materialUpload" ? 16 * 1024 * 1024 : 1024 * 1024
         )
+        const result = await bridge.call(operation, input, controller.signal)
         res.setHeader("content-type", "application/json")
         res.setHeader("cache-control", "no-store")
         res.end(JSON.stringify({ result }))
@@ -166,7 +206,11 @@ export function modelBackendPlugin() {
         if (!res.destroyed) {
           res.statusCode = 400
           res.setHeader("content-type", "application/json")
-          res.end(JSON.stringify({ error: error.message }))
+          res.end(
+            JSON.stringify(
+              publicFailure(error, operation, controller.signal.aborted)
+            )
+          )
         }
       }
     })

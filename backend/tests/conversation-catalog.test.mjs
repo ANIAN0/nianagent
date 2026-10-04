@@ -1,6 +1,8 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises"
+import filesystem from "node:fs/promises"
+import { syncBuiltinESMExports } from "node:module"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import lockfile from "proper-lockfile"
@@ -106,6 +108,55 @@ test("cancelled write waiting for the metadata lock never commits", async (t) =>
     await unlock()
   }
   assert.deepEqual(await store.get(record.id), original)
+})
+
+test("committed metadata does not clean the temporary path consumed by rename", async (t) => {
+  const { store, record } = await fixture(t)
+  await store.create(record)
+  const originalRemove = filesystem.rm
+  let committedCleanupAttempts = 0
+  const mocked = t.mock.method(filesystem, "rm", async (...args) => {
+    if (String(args[0]).startsWith(join(store.directory, ".index-"))) {
+      committedCleanupAttempts++
+      throw Object.assign(new Error("EPERM cleanup"), { code: "EPERM" })
+    }
+    return originalRemove(...args)
+  })
+  syncBuiltinESMExports()
+  t.after(() => {
+    mocked.mock.restore()
+    syncBuiltinESMExports()
+  })
+  const saved = await store.update(record.id, { title: "已经保存的标题" })
+  assert.equal(committedCleanupAttempts, 0)
+  assert.equal(saved.title, "已经保存的标题")
+  const disk = JSON.parse(await readFile(store.file, "utf8"))
+  assert.equal(disk.conversations[0].title, saved.title)
+})
+
+test("unlock failure after metadata commit is unknown and preserves the durable result", async (t) => {
+  const { store, record } = await fixture(t)
+  await store.create(record)
+  const acquire = store.acquire.bind(store)
+  const mocked = t.mock.method(store, "acquire", async (signal) => {
+    const unlock = await acquire(signal)
+    return async () => {
+      await unlock()
+      throw Object.assign(new Error("EBUSY unlock"), { code: "EBUSY" })
+    }
+  })
+  await assert.rejects(
+    store.update(record.id, { title: "回执未知但已经保存" }),
+    (error) =>
+      error.issue?.code === "result_unknown" &&
+      error.issue.recovery === "check" &&
+      error.issue.severity === "warning"
+  )
+  mocked.mock.restore()
+  const durable = await store.get(record.id)
+  assert.equal(durable.title, "回执未知但已经保存")
+  const disk = JSON.parse(await readFile(store.file, "utf8"))
+  assert.equal(disk.conversations[0].revision, durable.revision)
 })
 
 test("only explicit startup recovery marks interrupted runs; duplicate create is idempotent", async (t) => {

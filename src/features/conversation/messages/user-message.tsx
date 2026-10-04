@@ -12,10 +12,12 @@ export function UserMessage({
   message,
   onOpenAttachment,
   workspacePath,
+  showActions = true,
 }: {
   message: ConversationMessage
   onOpenAttachment?: (attachment: MessageAttachment) => void
   workspacePath?: string
+  showActions?: boolean
 }) {
   return (
     <Message align="end" aria-label="用户消息" className="conversation-message">
@@ -39,7 +41,14 @@ export function UserMessage({
             正在确认发送
           </span>
         )}
-        <MessageActions text={message.text} time={message.time} align="end" />
+        {showActions && (
+          <MessageActions
+            text={message.text}
+            time={message.time}
+            align="end"
+            status={message.status}
+          />
+        )}
       </MessageContent>
     </Message>
   )

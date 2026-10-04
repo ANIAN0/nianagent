@@ -42,7 +42,7 @@ export default {
   description:
     "在正式列表数据中搜索名称、完整路径或最近消息，显示计数、时间、未读状态和匹配高亮。",
   boundary: "开关由页面控制，每次打开重置查询；选择后关闭并回调。",
-  inputs: ["data、open、historyState、historyError。"],
+  inputs: ["data、open、historyState、historyIssue；historyError 兼容旧调用。"],
   events: ["onOpenChange、onSelect、onHistoryRetry。"],
   composition: [
     "Dialog",
@@ -59,7 +59,8 @@ export default {
       id: "search",
       name: "搜索与选择",
       condition: "多组会话。",
-      expected: "输入过滤、清空恢复；方向键定位、Enter选择，重新打开重置。",
+      expected:
+        "输入过滤、清空恢复；方向键定位、Enter选择；中文候选确认及尾窗、Alt/AltGraph 和重复 Enter 不选中；重新打开重置。",
       render: () => <Example />,
     },
     {

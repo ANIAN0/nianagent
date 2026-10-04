@@ -1,7 +1,7 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 import { createServer, request } from "node:http"
-import { mkdtemp, mkdir, rm } from "node:fs/promises"
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { setTimeout as delay } from "node:timers/promises"
@@ -99,8 +99,39 @@ async function fixture(t, dispatchOverride) {
       req.end("{}")
     })
   }
-  return { runtime, service, other, call, proxyPort: proxy.address().port }
+  return {
+    runtime,
+    service,
+    other,
+    file,
+    call,
+    proxyPort: proxy.address().port,
+  }
 }
+
+test("stale browser runtime metadata is a typed restart failure before any business call", async (t) => {
+  let dispatched = 0
+  const f = await fixture(t, () => {
+    dispatched++
+    throw new Error("stale metadata must not reach a business operation")
+  })
+  const metadata = JSON.parse(await readFile(f.file, "utf8"))
+  await writeFile(
+    f.file,
+    JSON.stringify({ ...metadata, version: "stale-fixture-version" })
+  )
+  for (const operation of ["workspaceList", "list", "sessionRead"]) {
+    const response = await f.call(operation)
+    assert.equal(response.status, 400)
+    assert.equal(response.issue.code, "host_version")
+    assert.equal(response.issue.recovery, "restart")
+    assert.equal(response.issue.severity, "error")
+    assert.match(response.issue.summary, /重新启动 Moon/)
+    assert.equal(JSON.stringify(response).includes(metadata.token), false)
+    assert.equal(JSON.stringify(response).includes(f.file), false)
+  }
+  assert.equal(dispatched, 0)
+})
 
 test("browser proxy keeps native directory choice pending beyond 300s and registers its real result", async (t) => {
   const f = await fixture(t)
@@ -200,7 +231,10 @@ test("explicit proxy response deadline cancels a stalled host request without ca
   const response = await pending
   await cancelled.promise
   assert.equal(response.status, 400)
-  assert.match(response.error, /响应超时/)
+  assert.equal(response.issue.code, "result_unknown")
+  assert.equal(response.issue.recovery, "check")
+  assert.equal(response.issue.severity, "warning")
+  assert.match(response.issue.details, /响应等待已超时/)
   assert.doesNotMatch(response.error, /无法连接|重启/)
 })
 

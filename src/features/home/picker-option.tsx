@@ -20,7 +20,9 @@ export function navigatePicker(event: KeyboardEvent<HTMLElement>) {
         ? items.length - 1
         : event.key === "ArrowDown"
           ? (index + 1) % items.length
-          : (index - 1 + items.length) % items.length
+          : index < 0
+            ? items.length - 1
+            : (index - 1 + items.length) % items.length
   items[next]?.focus()
 }
 export function PickerOption({
@@ -28,21 +30,30 @@ export function PickerOption({
   children,
   description,
   onSelect,
+  active = false,
+  id,
+  onPointerMove,
 }: {
   selected: boolean
   children: ReactNode
   description?: string
   onSelect: () => void
+  active?: boolean
+  id?: string
+  onPointerMove?: () => void
 }) {
   return (
     <Button
+      id={id}
       type="button"
       variant="ghost"
       role="menuitemradio"
       aria-checked={selected}
       data-picker-item
-      className="h-auto min-h-10 w-full min-w-0 justify-start gap-3 px-3 py-2 text-left font-normal whitespace-normal"
+      data-active={active || undefined}
+      className="h-auto min-h-10 w-full min-w-0 justify-start gap-3 px-3 py-2 text-left font-normal whitespace-normal data-active:bg-accent"
       onClick={onSelect}
+      onPointerMove={onPointerMove}
     >
       <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
         <span className="block">{children}</span>

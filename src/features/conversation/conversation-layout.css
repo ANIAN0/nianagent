@@ -91,8 +91,9 @@
   flex: 0 1 auto;
   min-height: 0;
   --conversation-question-height: min(520px, calc(55cqh - 16px));
-  max-height: 55cqh;
-  overflow: auto;
+  --conversation-seat-max: 62cqh;
+  max-height: var(--conversation-seat-max);
+  overflow: hidden;
   overscroll-behavior: contain;
   position: relative;
   scrollbar-width: thin;
@@ -102,9 +103,19 @@
   max-width: 812px;
   margin: 0 auto;
   padding: 12px 16px 16px;
+  max-height: inherit;
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
 }
 .conversation-input-seat[data-question] .conversation-input-inner {
   padding: 6px 32px 10px;
+}
+.conversation-input-inner > div:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: inherit;
 }
 .conversation-body[data-empty] {
   justify-content: center;
@@ -170,7 +181,7 @@
 }
 .conversation-turn-rail {
   position: absolute;
-  right: max(16px, calc((100% - 936px) / 2 + 40px));
+  right: 14px;
   top: 50%;
   transform: translateY(-50%);
   width: 28px;
@@ -275,7 +286,7 @@
 @container conversation-body (max-height:360px) {
   .conversation-input-seat {
     --conversation-question-height: calc(100cqh - 48px);
-    max-height: calc(100cqh - 32px);
+    --conversation-seat-max: calc(100cqh - 32px);
   }
   .conversation-input-inner {
     padding-top: 4px;
@@ -290,7 +301,7 @@
     padding-top: 4px;
     padding-bottom: 4px;
   }
-  .conversation-prompt[data-slot="input-group-control"] {
+  .moon-composer-prompt[data-composer-variant="docked"] {
     max-height: 24dvh;
   }
   .conversation-queue-list {

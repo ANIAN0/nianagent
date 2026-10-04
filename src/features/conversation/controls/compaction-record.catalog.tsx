@@ -8,7 +8,11 @@ export default {
   source: "src/features/conversation/controls/compaction-record.tsx",
   description: "Pi实际历史中的只读摘要与保留边界。",
   boundary: "不改写摘要、不删除历史、不将估算差值当释放量。",
-  inputs: ["record: ConversationCompaction", "onLocate(entryId)"],
+  inputs: [
+    "record: ConversationCompaction",
+    "onLocate(entryId)",
+    "locateFeedback/locateDisabledReason",
+  ],
   events: ["展开/收起、定位保留起点"],
   composition: ["Marker、Collapsible、Button"],
   consumers: ["ConversationCompactionRecord、LiveConversationView"],
@@ -18,7 +22,8 @@ export default {
       id: "manual",
       name: "手动压缩记录",
       condition: "Pi摘要已保存",
-      expected: "展开真实摘要、时间、压缩前估算与保留起点，压缩后占用待更新。",
+      expected:
+        "展开真实摘要、时间、压缩前估算，隐藏内部记录ID；压缩后占用待更新。",
       render: () => (
         <div className="p-6">
           <CompactionRecord
@@ -33,6 +38,30 @@ export default {
               firstKeptHistoryIndex: 16,
               tokensBefore: 53760,
             }}
+          />
+        </div>
+      ),
+    },
+    {
+      id: "missing-boundary",
+      name: "保留历史不可定位",
+      condition: "当前已读取消息中没有保留起点",
+      expected: "在记录内说明原因，仍可阅读摘要；不显示内部ID，不发送请求。",
+      render: () => (
+        <div className="p-6">
+          <CompactionRecord
+            record={{
+              id: "missing",
+              time: "2026-10-03T09:20:00Z",
+              source: "automatic",
+              summary: "已保留任务目标与已验证结论。",
+              firstKeptEntryId: "missing-boundary",
+              historyIndex: 20,
+              firstKeptHistoryIndex: -1,
+              tokensBefore: 32000,
+            }}
+            onLocate={() => {}}
+            locateDisabledReason="保留起点不在当前已读取的历史中，摘要仍可查看。"
           />
         </div>
       ),

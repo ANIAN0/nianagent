@@ -1,11 +1,17 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
-import { Alert, AlertDescription } from "@/components/ui/alert"
+import { OperationFeedback } from "@/components/feedback/operation-feedback"
+import {
+  feedbackFromError,
+  type FeedbackDescription,
+} from "@/lib/operation-issue"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { AppShell } from "@/features/home/app-shell"
-import { HomeComposer } from "@/features/home/home-composer"
+import {
+  HomeComposer,
+  type HomeComposerProps,
+} from "@/features/home/home-composer"
 import { HomeSubmissionFeedback } from "@/features/home/home-submission-feedback"
-import { useHomeSubmissionNavigation } from "@/features/home/use-home-submission-navigation"
 import {
   NavigationBoundaryContext,
   useNavigationBoundaryState,
@@ -18,7 +24,6 @@ import type { LeaveGuard } from "@/features/models/connection-editor"
 import {
   createSessionService,
   SessionServiceContext,
-  consumeHomeSession,
 } from "@/features/session/session-service"
 import { useWorkspaces } from "@/features/workspaces/use-workspaces"
 import {
@@ -26,30 +31,28 @@ import {
   toHomeConversation,
 } from "@/features/conversation/conversation-catalog-service"
 import { useLiveConversation } from "@/features/conversation/use-live-conversation"
-import { LiveConversationView } from "@/features/conversation/live-conversation-view"
+import { queueOperationIssueKey } from "@/features/conversation/queue-operation-recovery"
 import type { ConversationReadingPosition } from "@/features/conversation/conversation-list"
-import {
-  acceptHomeDraftCache,
-  createHomeSubmission,
-  finishHomeSubmission,
-  matchesHomeSubmission,
-  removeHomeSubmission,
-  restoreHomeDraft,
-  restoreHomeSubmissions,
-  saveHomeDraft as persistHomeDraft,
-  saveHomeSubmission,
-  persistentHomeDraftStore,
-  type HomeSubmission,
-} from "@/features/conversation/conversation-draft-store"
-import { reconcileHomeRequest } from "@/features/home/home-submission-recovery"
+import { persistentHomeDraftStore } from "@/features/conversation/conversation-draft-store"
+import { useHomeSubmissionController } from "@/features/home/use-home-submission-controller"
 import {
   createMaterialService,
   MaterialServiceContext,
 } from "@/features/materials/material-service"
 
+import {
+  createExtensionService,
+  ExtensionServiceContext,
+} from "@/features/extensions/extension-service"
+
 const ModelSettingsPage = lazy(() =>
   import("@/features/models/model-settings-page").then((module) => ({
     default: module.ModelSettingsPage,
+  }))
+)
+const LiveConversationView = lazy(() =>
+  import("@/features/conversation/live-conversation-view").then((module) => ({
+    default: module.LiveConversationView,
   }))
 )
 const selectedKey = "moon.conversation.selected.v1"
@@ -60,29 +63,45 @@ function restoreSelection() {
     return undefined
   }
 }
+/** A stable callback keeps one Home/material owner alive across navigation. */
+function OwnedHomeComposer({
+  viewKey,
+  onOwnedDraftChange,
+  onOwnedSelectionActivity,
+  ...props
+}: Omit<HomeComposerProps, "onDraftChange" | "onMaterialSelectionActivity"> & {
+  viewKey: number
+  onOwnedDraftChange: (draft: HomeDraft, viewKey: number) => void
+  onOwnedSelectionActivity: (
+    sessionId: string,
+    active: boolean,
+    viewKey: number
+  ) => void
+}) {
+  const onDraftChange = useCallback(
+    (draft: HomeDraft) => onOwnedDraftChange(draft, viewKey),
+    [onOwnedDraftChange, viewKey]
+  )
+  const onSelectionActivity = useCallback(
+    (id: string, active: boolean) =>
+      onOwnedSelectionActivity(id, active, viewKey),
+    [onOwnedSelectionActivity, viewKey]
+  )
+  return (
+    <HomeComposer
+      {...props}
+      onDraftChange={onDraftChange}
+      onMaterialSelectionActivity={onSelectionActivity}
+    />
+  )
+}
 export default function App() {
   const navigation = useNavigationBoundaryState()
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [selected, setSelected] = useState<string | undefined>(restoreSelection)
   const [sessionService] = useState(createSessionService)
   const [materialService] = useState(createMaterialService)
-  const [homeDraft, setHomeDraft] = useState<{
-    key: number
-    workspaceId?: string
-    draft?: HomeDraft
-  }>({ key: 0 })
-  const homeNavigation = useHomeSubmissionNavigation(homeDraft.key)
-  const [homeSubmissions, setHomeSubmissions] = useState(restoreHomeSubmissions)
-  const [homeCleanupErrors, setHomeCleanupErrors] = useState<
-    Record<string, { message: string; accepted: boolean }>
-  >({})
-  const [homeReconcileErrors, setHomeReconcileErrors] = useState<
-    Record<string, string>
-  >({})
-  const saveHomeDraft = useCallback(
-    (draft: HomeDraft) => setHomeDraft((previous) => ({ ...previous, draft })),
-    []
-  )
+  const [extensionService] = useState(createExtensionService)
   const [positions] = useState(
     () => new Map<string, ConversationReadingPosition>()
   )
@@ -90,11 +109,41 @@ export default function App() {
   const workspaces = useWorkspaces()
   const catalog = useConversationCatalog()
   const chat = useLiveConversation(selected)
+  const home = useHomeSubmissionController({
+    chat,
+    connections: models.connections,
+    workspaces,
+    sessionService,
+    selected,
+    selectConversation,
+    refreshCatalog: catalog.refresh,
+  })
+  const {
+    homeDraft,
+    homeSubmissions,
+    homeRestorations,
+    homeCleanupErrors,
+    visibleHomeSubmission,
+    homeViews,
+    homeNavigation,
+    notice,
+    saveHomeDraft,
+    saveHomeSelectionActivity,
+    acknowledgeHomeRestoration,
+    prepareHomeSubmission,
+    submitHome,
+    checkHomeSubmission,
+  } = home
   const settingsGuard = useRef<LeaveGuard | null>(null)
   const registerSettingsLeave = useCallback((guard: LeaveGuard | null) => {
     settingsGuard.current = guard
   }, [])
-  const [notice, setNotice] = useState("")
+  const [readReceiptIssues, setReadReceiptIssues] = useState<
+    Record<string, FeedbackDescription | undefined>
+  >({})
+  const [readReceiptRetry, setReadReceiptRetry] = useState(0)
+  const readReceiptAttempts = useRef(new Set<string>())
+  const readReceiptLatest = useRef(new Map<string, string>())
   function openSettings() {
     homeNavigation.leave()
     setSettingsOpen(true)
@@ -113,7 +162,7 @@ export default function App() {
   function selectConversation(id?: string) {
     homeNavigation.leave()
     setSelected(id)
-    setNotice("")
+    home.clearNotice()
     try {
       if (id) localStorage.setItem(selectedKey, id)
       else localStorage.removeItem(selectedKey)
@@ -124,25 +173,62 @@ export default function App() {
   const current = selected ? chat.snapshots[selected] : undefined
   const metadata = catalog.conversations.find((item) => item.id === selected)
   const markRead = catalog.markRead
+  const currentRunId = current?.runId
+  const currentPhase = current?.phase
+  const metadataUnread = metadata?.unread
+  const metadataRunId = metadata?.runId
+  const metadataStatus = metadata?.status
+  const metadataRevision = metadata?.revision
   useEffect(() => {
     if (
       !selected ||
-      !current ||
-      !metadata?.unread ||
+      !currentRunId ||
+      !metadataUnread ||
+      metadataRevision === undefined ||
       settingsOpen ||
       document.visibilityState === "hidden"
     )
       return
     if (
-      metadata.runId !== current.runId ||
-      metadata.status !==
-        (current.phase === "interrupted" ? "idle" : current.phase)
+      metadataRunId !== currentRunId ||
+      metadataStatus !==
+        (currentPhase === "interrupted" ? "idle" : currentPhase)
     )
       return
-    void markRead(selected, metadata.revision).catch((error) =>
-      setNotice(error instanceof Error ? error.message : String(error))
-    )
-  }, [selected, current, metadata, markRead, settingsOpen])
+    const identity = `${selected}:${currentRunId}:${metadataRevision}:${readReceiptRetry}`
+    if (readReceiptAttempts.current.has(identity)) return
+    readReceiptAttempts.current.add(identity)
+    readReceiptLatest.current.set(selected, identity)
+    void markRead(selected, metadataRevision)
+      .then(() => {
+        if (readReceiptLatest.current.get(selected) === identity)
+          setReadReceiptIssues((all) => ({ ...all, [selected]: undefined }))
+      })
+      .catch((error) => {
+        if (
+          readReceiptLatest.current.get(selected) === identity &&
+          !(error instanceof Error && error.name === "AbortError")
+        )
+          setReadReceiptIssues((all) => ({
+            ...all,
+            [selected]: feedbackFromError(
+              error,
+              "本次阅读状态未能保存，会话内容仍可使用。"
+            ),
+          }))
+      })
+  }, [
+    selected,
+    currentRunId,
+    currentPhase,
+    metadataUnread,
+    metadataRunId,
+    metadataStatus,
+    metadataRevision,
+    markRead,
+    settingsOpen,
+    readReceiptRetry,
+  ])
   const data: HomeData = {
     workspaces: workspaces.items,
     conversations: catalog.conversations.map(toHomeConversation),
@@ -169,105 +255,6 @@ export default function App() {
     materials: [],
     session: { toolIds: [], instructionScope: "all" },
   }
-  function forgetHomeSubmission(id: string, remove = true) {
-    if (remove) removeHomeSubmission(id)
-    setHomeSubmissions((previous) => {
-      const next = { ...previous }
-      delete next[id]
-      return next
-    })
-    setHomeCleanupErrors((previous) => {
-      const next = { ...previous }
-      delete next[id]
-      return next
-    })
-  }
-  function acceptHomeSubmission(submission: HomeSubmission, cwd: string) {
-    try {
-      finishHomeSubmission(submission, () =>
-        consumeHomeSession(cwd, true, submission.sessionId)
-      )
-      forgetHomeSubmission(submission.sessionId, false)
-      setHomeDraft((previous) => acceptHomeDraftCache(previous, submission))
-      return true
-    } catch {
-      setHomeCleanupErrors((previous) => ({
-        ...previous,
-        [submission.sessionId]: {
-          accepted: true,
-          message:
-            "消息已接受，但首页草稿清理失败。原提交身份保留，请重试清理后再从首页发送。",
-        },
-      }))
-      return false
-    }
-  }
-  async function submitHome(
-    draft: HomeDraft,
-    signal?: AbortSignal,
-    original = draft
-  ) {
-    const ownsPage = homeNavigation.capture()
-    const id = draft.sessionId ?? crypto.randomUUID()
-    const workspace = workspaces.items.find(
-      (item) => item.id === draft.workspaceId
-    )
-    if (!workspace || workspace.available === false)
-      throw new Error("工作目录不可用，请重新选择工作区。")
-    const submission = {
-      ...createHomeSubmission({ ...draft, sessionId: id }, original),
-      cwd: workspace.path,
-    }
-    // Both records must be durable before any request can commit remotely.
-    persistHomeDraft(submission.draft)
-    saveHomeSubmission(submission)
-    setHomeSubmissions((previous) => ({ ...previous, [id]: submission }))
-    let started = false
-    try {
-      const saved = await sessionService.read(id, signal)
-      const configuration =
-        saved ??
-        (await sessionService.apply(
-          { sessionId: id, cwd: workspace.path, ...draft.session },
-          signal
-        ))
-      signal?.throwIfAborted()
-      if (configuration.unavailableToolIds.length)
-        throw new Error("请在会话配置中取消不可用工具后再发送。")
-      started = true
-      const accepted = await chat.send(
-        id,
-        submission.draft,
-        models.connections,
-        signal
-      )
-      if (!accepted.inputAccepted)
-        throw new Error(
-          accepted.error || "消息未能开始，请检查模型配置后重试。"
-        )
-      // Acceptance is irreversible even if the originating view was cancelled.
-      acceptHomeSubmission(submission, workspace.path)
-    } catch (error) {
-      if (!started || !chat.submissionDraft(id)) {
-        try {
-          forgetHomeSubmission(id)
-        } catch {
-          setHomeCleanupErrors((previous) => ({
-            ...previous,
-            [id]: {
-              accepted: false,
-              message:
-                "消息未接受，但首页提交标记清理失败。原草稿保留，请重试清理。",
-            },
-          }))
-        }
-      }
-      throw error
-    }
-    if (!signal?.aborted && ownsPage()) selectConversation(id)
-    void catalog.refresh(true)
-    return ""
-  }
   function action(operation: Promise<unknown>) {
     void operation
       .then(() => catalog.refresh(true))
@@ -275,252 +262,315 @@ export default function App() {
         /* Per-session hook retains the error next to its composer. */
       })
   }
-  async function checkHomeSubmission(id: string, navigate = true) {
-    const ownsPage = homeNavigation.capture()
-    const submitted = chat.submissionDraft(id)
-    let submission = homeSubmissions[id]
-    if (!submission && submitted) {
-      // Legacy requests did not record the pre-normalization draft. Preserve
-      // differing legacy text/settings rather than inventing a raw signature.
-      submission = createHomeSubmission({ ...submitted, sessionId: id })
-      saveHomeSubmission(submission)
-      setHomeSubmissions((previous) => ({ ...previous, [id]: submission }))
-    }
-    const accepted = await reconcileHomeRequest(
-      () => chat.reconcile(id),
-      () => forgetHomeSubmission(id),
-      () =>
-        setHomeCleanupErrors((previous) => ({
-          ...previous,
-          [id]: {
-            accepted: false,
-            message:
-              "消息未接受，但首页提交标记清理失败。原草稿保留，请重试清理。",
-          },
-        })),
-      !!submitted
-    )
-    if (!accepted.inputAccepted) {
-      throw new Error(accepted.error || "消息尚未接受，原草稿保留。")
-    }
-    const candidate =
-      submission && restoreHomeDraft(submission.draft.workspaceId)
-    const preserved =
-      candidate &&
-      !!(candidate.text?.trim() || candidate.materials?.length) &&
-      !matchesHomeSubmission(candidate, submission!)
-    if (submission && !acceptHomeSubmission(submission, accepted.cwd))
-      throw new Error("消息已接受，首页草稿尚未清理。请使用“重试清理”。")
-    if (navigate && ownsPage()) {
-      selectConversation(id)
-      if (preserved)
-        setNotice(
-          "原消息已接受。首页草稿与原提交记录不同，已保留；再次发送会作为新任务。"
-        )
-    }
-    void catalog.refresh(true)
-  }
   return (
     <NavigationBoundaryContext.Provider value={navigation}>
       <SessionServiceContext.Provider value={sessionService}>
         <MaterialServiceContext.Provider value={materialService}>
-          <AppShell
-            data={data}
-            activeConversationId={selected}
-            historyState={catalog.historyState}
-            historyError={catalog.historyError}
-            onHistoryRetry={() => void catalog.refresh()}
-            onSettings={() => navigation.run(openSettings)}
-            onSelectConversation={(item) =>
-              leaveSettings(() => selectConversation(item.id))
-            }
-            onNew={(workspaceId) =>
-              leaveSettings(() => {
-                selectConversation()
-                setHomeDraft((value) => ({ key: value.key + 1, workspaceId }))
-              })
-            }
-          >
-            {(models.error || notice) && (
-              <Alert
-                variant="destructive"
-                className="shrink-0 rounded-none border-x-0 border-t-0"
-              >
-                <AlertDescription>{notice || models.error}</AlertDescription>
-              </Alert>
-            )}
-            {Object.entries(homeCleanupErrors).map(([id, cleanup]) => (
-              <HomeSubmissionFeedback
-                key={id}
-                message={cleanup.message}
-                onRetry={() => {
-                  const submission = homeSubmissions[id]
-                  if (!submission) return
-                  if (cleanup.accepted) {
-                    const workspace = workspaces.items.find(
-                      (item) => item.id === submission.draft.workspaceId
-                    )
-                    const cwd = submission.cwd ?? workspace?.path
-                    if (cwd) acceptHomeSubmission(submission, cwd)
-                  } else {
-                    try {
-                      forgetHomeSubmission(id)
-                    } catch {
-                      /* Keep the explicit retry state. */
-                    }
-                  }
-                }}
-              />
-            ))}
-            {Object.values(homeSubmissions)
-              .filter(
-                (submission) =>
-                  submission.sessionId !== homeDraft.draft?.sessionId &&
-                  !homeCleanupErrors[submission.sessionId]
-              )
-              .map((submission) => (
-                <HomeSubmissionFeedback
-                  key={`reconcile-${submission.sessionId}`}
-                  variant="default"
-                  message={
-                    homeReconcileErrors[submission.sessionId] ??
-                    `首页提交记录待核对 · ${workspaces.items.find((item) => item.id === submission.draft.workspaceId)?.name ?? submission.draft.workspaceId}`
-                  }
-                  actionLabel="核对记录"
-                  pending={chat.pending[submission.sessionId]}
-                  onRetry={() => {
-                    void checkHomeSubmission(submission.sessionId, false).catch(
-                      (error: unknown) =>
-                        setHomeReconcileErrors((previous) => ({
-                          ...previous,
-                          [submission.sessionId]:
-                            error instanceof Error
-                              ? error.message
-                              : String(error),
-                        }))
-                    )
-                  }}
-                />
-              ))}
-            {settingsOpen && (
-              <Suspense
-                fallback={
-                  <div role="status" className="p-8">
-                    正在打开设置…
-                  </div>
-                }
-              >
-                <ModelSettingsPage
-                  service={models.service}
-                  onReturn={() => navigation.run(() => setSettingsOpen(false))}
-                  onConnectionsChange={models.update}
-                  registerLeave={registerSettingsLeave}
-                />
-              </Suspense>
-            )}
-            <div
-              className={
-                settingsOpen ? "hidden" : "flex min-h-0 flex-1 flex-col"
+          <ExtensionServiceContext.Provider value={extensionService}>
+            <AppShell
+              data={data}
+              activeConversationId={selected}
+              historyState={catalog.historyState}
+              historyError={catalog.historyError}
+              historyIssue={catalog.historyIssue}
+              onHistoryRetry={() => void catalog.refresh()}
+              onSettings={() => navigation.run(openSettings)}
+              onSelectConversation={(item) =>
+                leaveSettings(() => selectConversation(item.id))
+              }
+              onNew={(workspaceId) =>
+                leaveSettings(() => {
+                  selectConversation()
+                  home.openHome(workspaceId)
+                })
               }
             >
-              {selected ? (
-                <LiveConversationView
-                  key={selected}
-                  id={selected}
-                  title={metadata?.title ?? "正在读取会话"}
-                  workspacePath={metadata?.cwd}
-                  snapshot={current}
-                  error={chat.errors[selected]}
-                  pending={chat.pending[selected]}
-                  data={data}
-                  draft={currentDraft}
-                  positions={positions}
-                  onChange={(draft) => chat.change(selected, draft)}
-                  onSend={(draft) =>
-                    action(chat.send(selected, draft, models.connections))
-                  }
-                  onStop={() => action(chat.stop(selected))}
-                  onContinue={() =>
-                    action(
-                      chat.retry(selected, currentDraft, models.connections)
-                    )
-                  }
-                  onReload={chat.reload}
-                  onQueueEdit={(itemId, text) =>
-                    chat.queueEdit(selected, itemId, text)
-                  }
-                  onQueueRemove={(itemId) =>
-                    action(chat.queueRemove(selected, itemId))
-                  }
-                  onQueueDeliver={(itemId) =>
-                    action(chat.queueDeliver(selected, itemId))
-                  }
-                  onQueueMode={(mode) => chat.queueMode(selected, mode)}
-                  onSaveDraft={() => chat.saveDraft(selected)}
-                  unconfirmed={chat.unconfirmed[selected]}
-                  onReconcile={() => action(chat.reconcile(selected))}
-                  onOpenConversation={(id) => {
-                    leaveSettings(() => selectConversation(id))
-                    void catalog.refresh(true)
-                  }}
-                />
-              ) : workspaces.loading ? (
-                <div
-                  role="status"
-                  aria-label="正在读取工作区"
-                  className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-8 pt-24"
-                >
-                  <Skeleton className="mx-auto h-8 w-44" />
-                  <Skeleton className="h-28 w-full rounded-2xl" />
-                </div>
-              ) : (
-                <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-                  {workspaces.error && (
-                    <Alert
-                      variant="destructive"
-                      className="mx-auto mt-6 max-w-3xl"
-                    >
-                      <AlertDescription>
-                        {workspaces.error}
-                        <Button
-                          variant="link"
-                          size="sm"
-                          onClick={workspaces.refresh}
-                        >
-                          重新读取
-                        </Button>
-                      </AlertDescription>
-                    </Alert>
-                  )}
-                  <HomeComposer
-                    draftStore={persistentHomeDraftStore}
-                    unconfirmedSessionIds={[
-                      ...new Set([
-                        ...Object.keys(chat.unconfirmed),
-                        ...Object.keys(homeSubmissions),
-                      ]),
-                    ]}
-                    onCheckSubmission={checkHomeSubmission}
-                    key={homeDraft.key}
-                    data={data}
-                    initialDraft={
-                      homeDraft.draft ?? {
-                        workspaceId:
-                          homeDraft.workspaceId ?? workspaces.selectedId,
-                      }
-                    }
-                    onDraftChange={saveHomeDraft}
-                    onSubmit={submitHome}
-                    onChooseWorkspace={workspaces.choose}
-                    onWorkspaceSelect={workspaces.select}
-                    workspaceLoading={workspaces.loading}
-                    workspaceError={workspaces.error}
-                    onWorkspaceRetry={workspaces.refresh}
+              {notice && (
+                <div className="shrink-0 px-4 py-2">
+                  <OperationFeedback
+                    title="首页提交已确认"
+                    message={notice}
+                    severity="info"
                   />
                 </div>
               )}
-            </div>
-          </AppShell>
+              {Object.values(homeSubmissions).some(
+                (submission) =>
+                  submission.sessionId !== selected &&
+                  (selected ||
+                    settingsOpen ||
+                    submission.sessionId !== visibleHomeSubmission?.sessionId)
+              ) && (
+                <div className="shrink-0 px-4 py-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      const submission = Object.values(homeSubmissions).find(
+                        (item) =>
+                          item.sessionId !== selected &&
+                          (selected ||
+                            settingsOpen ||
+                            item.sessionId !== visibleHomeSubmission?.sessionId)
+                      )
+                      if (!submission) return
+                      leaveSettings(() => {
+                        selectConversation()
+                        home.openHome(submission.draft.workspaceId)
+                      })
+                    }}
+                  >
+                    有首页提交待处理 · 返回原输入
+                  </Button>
+                </div>
+              )}
+              {settingsOpen && (
+                <Suspense
+                  fallback={
+                    <div role="status" className="p-8">
+                      正在打开设置…
+                    </div>
+                  }
+                >
+                  <ModelSettingsPage
+                    service={models.service}
+                    onReturn={() =>
+                      navigation.run(() => setSettingsOpen(false))
+                    }
+                    onConnectionsChange={models.update}
+                    registerLeave={registerSettingsLeave}
+                  />
+                </Suspense>
+              )}
+              <div
+                className={
+                  settingsOpen ? "hidden" : "flex min-h-0 flex-1 flex-col"
+                }
+              >
+                {selected ? (
+                  <Suspense
+                    fallback={
+                      <div
+                        role="status"
+                        className="p-8 text-sm text-muted-foreground"
+                      >
+                        正在打开会话…
+                      </div>
+                    }
+                  >
+                    <LiveConversationView
+                      key={selected}
+                      id={selected}
+                      title={metadata?.title ?? "正在读取会话"}
+                      workspacePath={metadata?.cwd}
+                      snapshot={current}
+                      readIssue={chat.readIssues[selected]}
+                      readPending={chat.readPending[selected]}
+                      actionIssue={chat.actionIssues[selected]}
+                      draftError={chat.draftErrors[selected]}
+                      receiptIssue={chat.receiptIssues[selected]}
+                      onCleanReceipt={() => chat.cleanReceipt(selected)}
+                      queueIssues={chat.queueIssues[selected]}
+                      queueRecoveryReason={chat.queueRecoveryReason[selected]}
+                      queueRecoveryRecords={chat.queueRecoveryRecords}
+                      queueOperationPendingByRequest={
+                        chat.queueOperationPendingByRequest
+                      }
+                      queueRecoveryIssuesByRequest={
+                        chat.queueRecoveryIssuesByRequest[selected]
+                      }
+                      queueStorageIssue={chat.queueStorageIssue}
+                      queueOriginalRetryAllowed={
+                        chat.queueOriginalRetryAllowedByRequest[selected]
+                      }
+                      onRetryQueueOriginal={(record) =>
+                        action(
+                          chat.retryQueueOriginal(
+                            selected,
+                            queueOperationIssueKey(record),
+                            record.operationRequestId
+                          )
+                        )
+                      }
+                      readReceiptIssue={
+                        metadataUnread ? readReceiptIssues[selected] : undefined
+                      }
+                      onRetryReadReceipt={() =>
+                        setReadReceiptRetry((value) => value + 1)
+                      }
+                      pending={chat.pending[selected]}
+                      data={data}
+                      draft={currentDraft}
+                      positions={positions}
+                      onChange={(draft) => chat.change(selected, draft)}
+                      onSend={(draft) =>
+                        action(chat.send(selected, draft, models.connections))
+                      }
+                      onStop={() => action(chat.stop(selected))}
+                      onContinue={() =>
+                        action(
+                          chat.retry(selected, currentDraft, models.connections)
+                        )
+                      }
+                      onReload={chat.reload}
+                      onOpenSettings={openSettings}
+                      onRecoverDraft={(draft) =>
+                        chat.adoptRecoveredDraft(selected, draft)
+                      }
+                      onQueueEdit={(
+                        itemId,
+                        text,
+                        materials,
+                        revision,
+                        clientEditId
+                      ) =>
+                        chat.queueEdit(
+                          selected,
+                          itemId,
+                          text,
+                          materials,
+                          revision,
+                          clientEditId
+                        )
+                      }
+                      onQueueRemove={(itemId) =>
+                        action(chat.queueRemove(selected, itemId))
+                      }
+                      onQueueDeliver={(itemId) =>
+                        action(chat.queueDeliver(selected, itemId))
+                      }
+                      onQueueMode={async (mode) => {
+                        try {
+                          await chat.queueMode(selected, mode)
+                        } catch {
+                          /* The composer auxiliary bar owns this issue. */
+                        }
+                      }}
+                      onSaveDraft={() => chat.saveDraft(selected)}
+                      unconfirmed={chat.unconfirmed[selected]}
+                      pendingSubmission={chat.submissionEcho(selected)}
+                      onReconcile={() => action(chat.reconcile(selected))}
+                      onOpenConversation={(id) => {
+                        leaveSettings(() => selectConversation(id))
+                        void catalog.refresh(true)
+                      }}
+                      captureNavigation={homeNavigation.capture}
+                    />
+                  </Suspense>
+                ) : null}
+                {!selected && workspaces.initialLoading && (
+                  <div
+                    role="status"
+                    aria-label="正在读取工作区"
+                    className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-8 pt-24"
+                  >
+                    <Skeleton className="mx-auto h-8 w-44" />
+                    <Skeleton className="h-28 w-full rounded-2xl" />
+                  </div>
+                )}
+                {homeViews.map((view) => {
+                  const inactive =
+                    settingsOpen || !!selected || view.key !== homeDraft.key
+                  const ownedSubmission = view.draft?.sessionId
+                    ? homeSubmissions[view.draft.sessionId]
+                    : visibleHomeSubmission
+                  return (
+                    <div
+                      key={view.key}
+                      hidden={inactive}
+                      className={
+                        inactive
+                          ? "hidden"
+                          : "flex min-h-0 flex-1 flex-col overflow-y-auto"
+                      }
+                    >
+                      <OwnedHomeComposer
+                        viewKey={view.key}
+                        inactive={inactive}
+                        pendingSubmission={ownedSubmission}
+                        onRestorationPersisted={acknowledgeHomeRestoration}
+                        restoredSubmission={
+                          view.draft?.sessionId
+                            ? homeRestorations[view.draft.sessionId]
+                            : undefined
+                        }
+                        submissionFeedback={
+                          ownedSubmission &&
+                          homeCleanupErrors[ownedSubmission.sessionId] ? (
+                            <HomeSubmissionFeedback
+                              message={
+                                homeCleanupErrors[ownedSubmission.sessionId]
+                                  .message
+                              }
+                              pending={
+                                homeCleanupErrors[ownedSubmission.sessionId]
+                                  .waitingMaterials
+                              }
+                              variant={
+                                homeCleanupErrors[ownedSubmission.sessionId]
+                                  .waitingMaterials
+                                  ? "default"
+                                  : "destructive"
+                              }
+                              actionLabel={
+                                homeCleanupErrors[ownedSubmission.sessionId]
+                                  .accepted
+                                  ? "完成草稿交接"
+                                  : "恢复原输入"
+                              }
+                              onRetry={() =>
+                                home.retryCleanup(ownedSubmission.sessionId)
+                              }
+                            />
+                          ) : undefined
+                        }
+                        submissionIssue={
+                          view.key === homeDraft.key
+                            ? homeDraft.issue
+                            : undefined
+                        }
+                        onSubmissionPrepare={prepareHomeSubmission}
+                        recoverySubmissionIds={Object.entries(homeCleanupErrors)
+                          .filter(([, cleanup]) => !cleanup.accepted)
+                          .map(([id]) => id)}
+                        acceptedSubmissionIds={Object.entries(homeCleanupErrors)
+                          .filter(([, cleanup]) => cleanup.accepted)
+                          .map(([id]) => id)}
+                        draftStore={persistentHomeDraftStore}
+                        unconfirmedSessionIds={[
+                          ...new Set([
+                            ...Object.keys(chat.unconfirmed),
+                            ...Object.keys(homeSubmissions).filter(
+                              (id) => !homeCleanupErrors[id]?.accepted
+                            ),
+                          ]),
+                        ]}
+                        onCheckSubmission={(id, signal) =>
+                          checkHomeSubmission(id, true, signal)
+                        }
+                        data={data}
+                        initialDraft={
+                          view.draft ?? {
+                            workspaceId: view.workspaceId,
+                          }
+                        }
+                        onOwnedDraftChange={saveHomeDraft}
+                        onOwnedSelectionActivity={saveHomeSelectionActivity}
+                        onSubmit={submitHome}
+                        onChooseWorkspace={workspaces.choose}
+                        onWorkspaceSelect={workspaces.select}
+                        workspaceLoading={workspaces.loading}
+                        workspaceError={workspaces.error}
+                        workspaceIssue={workspaces.issue}
+                        onWorkspaceRetry={workspaces.refresh}
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+            </AppShell>
+          </ExtensionServiceContext.Provider>
         </MaterialServiceContext.Provider>
       </SessionServiceContext.Provider>
     </NavigationBoundaryContext.Provider>

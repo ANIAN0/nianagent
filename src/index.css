@@ -12,6 +12,7 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  --color-status-warning: var(--status-warning);
   --font-heading: var(--font-sans);
   --font-mono: var(--font-sans);
   --font-sans: "Source Han Sans SC", sans-serif;
@@ -41,6 +42,12 @@
   --color-primary-foreground: var(--primary-foreground);
   --color-primary: var(--primary);
   --color-primary-strong: var(--primary-strong);
+  --color-send-fill: var(--send-fill);
+  --color-send-hover: var(--send-hover);
+  --color-send-ink: var(--send-ink);
+  --color-composer-selector: var(--composer-selector);
+  --color-composer-selector-hover: var(--composer-selector-hover);
+  --color-caption: var(--caption);
   --color-popover-foreground: var(--popover-foreground);
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
@@ -67,6 +74,12 @@
   --primary: #4176e6;
   --primary-strong: #3568d4;
   --primary-foreground: #ffffff;
+  --send-fill: #4176e6;
+  --send-hover: #3568d4;
+  --send-ink: #ffffff;
+  --composer-selector: #f5f6f7;
+  --composer-selector-hover: #e7e9ed;
+  --caption: #858991;
   --secondary: #e9edf4;
   --secondary-foreground: #2a3343;
   --muted: #e9edf4;
@@ -106,6 +119,12 @@
   --primary: #6c9aef;
   --primary-strong: #6c9aef;
   --primary-foreground: #0b1220;
+  --send-fill: #4176e6;
+  --send-hover: #3568d4;
+  --send-ink: #ffffff;
+  --composer-selector: #292e3a;
+  --composer-selector-hover: #363d4b;
+  --caption: #8b93a3;
   --secondary: #232935;
   --secondary-foreground: #edf0f5;
   --muted: #232935;

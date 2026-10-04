@@ -48,7 +48,7 @@ export function createOperationDocumentation(operation: string) {
   return {
     definition,
     schemas: collectReferencedSchemas(
-      [definition.request, definition.response],
+      [definition.request, definition.response, { $ref: "RpcFailure" }],
       schemas,
       operation
     ),

@@ -1,4 +1,6 @@
 import { Button } from "@/components/ui/button"
+import type { ReactNode } from "react"
+import { OperationFeedback } from "@/components/feedback/operation-feedback"
 import {
   Dialog,
   DialogContent,
@@ -18,6 +20,12 @@ export function SettingsConfirmDialog({
   value,
   busy,
   error,
+  errorTitle = "操作未完成",
+  errorDetails,
+  errorSeverity = "error",
+  errorActions,
+  confirmDisabled = false,
+  busyMessage = "正在处理…",
   onCancel,
   onConfirm,
   onCancelRequest,
@@ -25,6 +33,12 @@ export function SettingsConfirmDialog({
   value?: SettingsConfirmation
   busy?: boolean
   error?: string
+  errorTitle?: string
+  errorDetails?: string
+  errorSeverity?: "error" | "warning" | "info"
+  errorActions?: ReactNode
+  confirmDisabled?: boolean
+  busyMessage?: string
   onCancel: () => void
   onCancelRequest?: () => void
   onConfirm: () => void
@@ -51,9 +65,13 @@ export function SettingsConfirmDialog({
           <DialogDescription>{value?.description}</DialogDescription>
         </DialogHeader>
         {error && (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
+          <OperationFeedback
+            title={errorTitle}
+            message={error}
+            details={errorDetails}
+            severity={errorSeverity}
+            actions={errorActions}
+          />
         )}
         <DialogFooter>
           {busy && onCancelRequest && (
@@ -66,10 +84,10 @@ export function SettingsConfirmDialog({
           </Button>
           <Button
             variant={value?.destructive ? "destructive" : "default"}
-            disabled={busy}
+            disabled={busy || confirmDisabled}
             onClick={onConfirm}
           >
-            {busy ? "正在处理…" : value?.label}
+            {busy ? busyMessage : value?.label}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -13,7 +13,7 @@ const messages = [
     status: "settled" as const,
   },
 ]
-function Example() {
+function Example({ missing = false }: { missing?: boolean }) {
   return (
     <div className="h-dvh">
       <ConversationList
@@ -25,8 +25,8 @@ function Example() {
                 record={{
                   id: "entry-summary",
                   historyIndex: 8,
-                  firstKeptHistoryIndex: 2,
-                  firstKeptEntryId: "entry-kept",
+                  firstKeptHistoryIndex: missing ? -1 : 2,
+                  firstKeptEntryId: missing ? "entry-not-loaded" : "entry-kept",
                   time: "2026-10-03T09:21:00Z",
                   tokensBefore: 24000,
                   summary: "已完成基础准备，保留任务目标与后续工作。",
@@ -67,6 +67,14 @@ export default {
       condition: "存在可定位消息",
       expected: "定位动作滚动到正式消息，不发送请求。",
       render: () => <Example />,
+    },
+    {
+      id: "missing",
+      name: "原消息尚未读取",
+      condition: "摘要存在，但保留边界不在当前已读取消息中",
+      expected:
+        "在摘要记录内部解释不可定位原因，保留原消息与摘要，不重复报警。",
+      render: () => <Example missing />,
     },
   ],
 } satisfies CatalogEntry

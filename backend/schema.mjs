@@ -5,6 +5,9 @@ import { materialSchemas } from "./material-contract.mjs"
 import { queueSchemas } from "./queue-contract.mjs"
 import { controlSchemas } from "./conversation-control-contract.mjs"
 import { mcpSchemas } from "./mcp-contract.mjs"
+import { issueSchemas } from "./issue-contract.mjs"
+import { extensionSchemas } from "./extension-contract.mjs"
+import { writeReceiptSchemas } from "./write-receipt-contract.mjs"
 // JSON Schema subset used by runtime validation, generated TypeScript and docs.
 const string = (description, extra = {}) => ({
   type: "string",
@@ -30,6 +33,9 @@ export const object = (
 export const ref = (name) => ({ $ref: name })
 const levels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
 export const schemas = {
+  ...extensionSchemas,
+  ...writeReceiptSchemas,
+  ...issueSchemas,
   ...queueSchemas,
   ...materialSchemas,
   ...workspaceSchemas,
@@ -181,6 +187,7 @@ export const schemas = {
         plan: string("账号类型"),
         loggedIn: boolean("是否存在订阅凭据；实际权限需检查模型调用。"),
       }),
+      accountOperationBusy: boolean("只读；正式订阅连接始终为true/false。true表示此提供者的完整退出登录操作仍运行，凭据不存在不能证明SDK清理结束。明确false才允许结束未知等待，缺省代表旧宿主须重启。"),
       models: {
         ...array(
           ref("ModelDefinition"),
@@ -250,6 +257,8 @@ export const schemas = {
       error: string("安全错误说明"),
       events: array(ref("AuthEvent"), "Pi 实际通知，不含凭据"),
       prompt: ref("AuthPrompt"),
+      stage: enumeration(["preparing", "authorizing", "settling"], "授权准备、Pi登录或清理阶段；settling仍pending，原lease清理结束才公开终态，保留原任务ID供取消/失败恢复"),
+      issue: ref("OperationIssue"),
     },
     ["id", "status", "connection", "events"]
   ),

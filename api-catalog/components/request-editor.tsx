@@ -33,6 +33,7 @@ export function RequestEditor({
   onCancel,
   environment,
   effect,
+  blockedReason,
 }: {
   operation: ModelOperation
   title: string
@@ -47,11 +48,12 @@ export function RequestEditor({
   onCancel: () => void
   environment: string
   effect: string
+  blockedReason?: string
 }) {
   const inputId = useId()
   const errorId = `${inputId}-error`
   const hintId = `${inputId}-hint`
-  const canRun = !busy && !validationError
+  const canRun = !busy && !validationError && !blockedReason
   return (
     <section className="api-request-panel" aria-label={`${title}调用面板`}>
       <div className="api-panel-heading">
@@ -134,6 +136,11 @@ export function RequestEditor({
             </FieldDescription>
           </Field>
         </FieldGroup>
+        {blockedReason && (
+          <p role="status" className="text-sm text-muted-foreground">
+            {blockedReason}
+          </p>
+        )}
         <div className="api-run-actions">
           <Button type="submit" disabled={!canRun}>
             {busy ? (
@@ -152,7 +159,7 @@ export function RequestEditor({
           <span className="api-run-shortcut">Ctrl / ⌘ + Enter</span>
         </div>
         <p className="api-cancel-note">
-          取消会中止当前请求；已提交的数据变化不会回滚，必要时重新读取确认。
+          取消只结束当前等待；请核对原操作，已提交的数据变化不会回滚。
         </p>
       </form>
     </section>

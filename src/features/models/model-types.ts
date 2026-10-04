@@ -2,6 +2,7 @@ import type {
   ModelDefinition,
   ModelConnection,
   AuthState,
+  WriteReceipt,
 } from "./model-contract.generated"
 export type {
   ModelApi,
@@ -28,6 +29,13 @@ export function thinkingLevels(model: ModelDefinition) {
   )
 }
 export type ModelService = {
+  /** The catalog adapter labels evidence separately from the actual Pi service. */
+  evidence?: "demo"
+  readWriteReceipt?: (
+    operation: WriteReceipt["operation"],
+    operationRequestId: string,
+    signal?: AbortSignal
+  ) => Promise<WriteReceipt>
   revealKey?: (
     id: string,
     revision: number,
@@ -35,7 +43,11 @@ export type ModelService = {
   ) => Promise<{ apiKey: string }>
   providers?: (signal: AbortSignal) => Promise<{ id: string; name: string }[]>
   auth?: {
-    start(connection: ModelConnection, signal: AbortSignal): Promise<AuthState>
+    start(
+      connection: ModelConnection,
+      signal: AbortSignal,
+      operationRequestId?: string
+    ): Promise<AuthState>
     poll(id: string, signal: AbortSignal): Promise<AuthState>
     reply(
       id: string,
@@ -49,9 +61,15 @@ export type ModelService = {
   list(signal: AbortSignal): Promise<ModelConnection[]>
   save(
     connection: ModelConnection,
-    signal: AbortSignal
+    signal: AbortSignal,
+    operationRequestId?: string
   ): Promise<ModelConnection>
-  remove(id: string, signal: AbortSignal, revision?: number): Promise<void>
+  remove(
+    id: string,
+    signal: AbortSignal,
+    revision?: number,
+    operationRequestId?: string
+  ): Promise<void>
   discover(
     connection: ModelConnection,
     signal: AbortSignal

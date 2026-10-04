@@ -7,16 +7,21 @@ export default {
   group: "对话过程",
   source: "src/features/conversation/messages/tool-call.tsx",
   description:
-    "工具摘要、独立折叠的输入与结果，以及正式结构化退出码和耗时；区分已停止与尚未执行的调用。",
+    "工具语义图标、目标和状态；命令执行目录与输出分层，一次展开即可查看结果，实际diff独立呈现，原始参数次级折叠。",
   boundary:
     "只查看已记录数据，不执行真实命令。not-run表示调用已经生成但从未开始执行，不能展示成功或失败，不补退出码与耗时。",
   inputs: [
     "tool: ConversationToolCall（exitCode/durationMs仅按记录展示）",
     "defaultOpen",
   ],
-  events: ["展开工具、输入、结果", "展开超过20行的结果"],
-  composition: ["Collapsible", "Button", "Separator"],
-  consumers: ["ExecutionProcess", "AssistantMessage"],
+  events: [
+    "展开工具与原始参数",
+    "展开超过20行的结果",
+    "复制结果",
+    "通过正式材料服务预览目标",
+  ],
+  composition: ["Collapsible", "Button", "CopyButton", "MessageAttachments"],
+  consumers: ["ExecutionProcess", "AssistantMessage", "ConversationTurnView"],
   viewport: { width: 760, height: 500 },
   states: [
     {
@@ -45,7 +50,8 @@ export default {
       id: "command-success",
       name: "命令退出码0",
       condition: "Pi结构化返回退出码0与耗时840ms",
-      expected: "显示成功；展开结果显示0与840毫秒，不把0当缺失。",
+      expected:
+        "显示成功；展开结果独立显示真实执行目录，随后显示命令输出、0与840毫秒，不把0当缺失。",
       render: () => (
         <div className="p-6">
           <ToolCall
@@ -59,6 +65,11 @@ export default {
               result: "True",
               exitCode: 0,
               durationMs: 840,
+              target: {
+                kind: "command",
+                command: "Test-Path README.md",
+                cwd: "H:/工作区/moon/用户提供的较长目录名称/设计方案与交付验收/会话消息/真实命令运行目录",
+              },
             }}
           />
         </div>
@@ -68,7 +79,8 @@ export default {
       id: "command-code-unknown",
       name: "命令退出码未知",
       condition: "历史工具结果缺少退出码",
-      expected: "摘要已返回，结果退出码未提供；不补0或宣称命令成功。",
+      expected:
+        "摘要已返回，执行目录未记录、退出码未提供；不以当前会话目录补历史，不补0或宣称命令成功。",
       render: () => (
         <div className="p-6">
           <ToolCall
@@ -183,7 +195,7 @@ export default {
               status: "success",
               result: Array.from(
                 { length: 30 },
-                (_, i) => `第 ${i + 1} 行记录`
+                (_, i) => `第 ${i + 1} 行记录`,
               ).join("\n"),
             }}
           />

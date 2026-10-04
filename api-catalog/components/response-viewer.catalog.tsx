@@ -24,7 +24,12 @@ export default {
   source: "api-catalog/components/response-viewer.tsx",
   description: "区分调用阶段和真实返回，提供局部滚动、复制反馈及独立结果清除。",
   boundary: "响应由外部按当前接口管理；不猜测统计或执行状态，不记录敏感凭据。",
-  inputs: ["response.status", "response.text", "response.elapsedMs"],
+  inputs: [
+    "response.status",
+    "response.text",
+    "response.elapsedMs",
+    "response.queueReceiptInput",
+  ],
   events: ["复制结果", "onClear"],
   composition: ["Badge", "Empty", "Button", "CopyButton"],
   consumers: ["DebugPanel"],
@@ -80,6 +85,50 @@ export default {
             status: "error",
             elapsedMs: 42,
             text: "配置已被更新，请重新读取后再提交。",
+          }}
+        />
+      ),
+    },
+    {
+      id: "unknown",
+      name: "结果待确认",
+      condition: "请求回执丢失，未能判断写入结果",
+      expected: "静态中性状态，明确先读取核对，不将未知当作失败并盲目重提。",
+      render: () => (
+        <ResponsePreview
+          initial={{
+            status: "unknown",
+            text: JSON.stringify(
+              {
+                error: "未能确认操作结果。",
+                issue: {
+                  code: "result_unknown",
+                  recovery: "check",
+                  severity: "warning",
+                },
+              },
+              null,
+              2
+            ),
+          }}
+        />
+      ),
+    },
+    {
+      id: "queue-original-unknown",
+      name: "队列原操作待核对",
+      condition: "删除或交付操作响应丢失，保留原会话与原请求编号",
+      expected:
+        "提供专用只读队列回执接口和原参数复制；不能清除原身份或用新编号重复执行。",
+      render: () => (
+        <ResponsePreview
+          initial={{
+            status: "unknown",
+            text: "原队列操作是否采用尚未确认。",
+            queueReceiptInput: {
+              sessionId: "sample-session",
+              operationRequestId: "original-queue-operation",
+            },
           }}
         />
       ),

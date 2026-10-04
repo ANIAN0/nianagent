@@ -24,7 +24,7 @@ test.before(async () => {
     cacheDir: cache,
     plugins: [react()],
     resolve: { alias: { "@": resolve("src") } },
-    server: { middlewareMode: true, watch: null },
+    server: { middlewareMode: true, watch: null, hmr: false },
     optimizeDeps: { noDiscovery: true, include: [] },
     ssr: { external: ["react", "react-dom/server"] },
   })
@@ -259,8 +259,8 @@ test("the official homepage restores the persisted session ID and blocks new sen
       },
     })
   )
-  assert.match(html, /上一条发送结果待核对/)
-  assert.match(html, /核对发送/)
+  assert.match(html, /原消息的接收结果暂未确认/)
+  assert.match(html, /检查发送状态/)
   assert.match(
     html,
     /disabled=""[^>]*aria-label="发送"|aria-label="发送"[^>]*disabled=""/
@@ -289,7 +289,7 @@ test("the official homepage gives a nonempty legacy draft a fresh identity inste
     })
   )
   assert.match(html, /读取参考文件并解释结果/)
-  assert.equal(html.includes("上一条发送结果待核对"), false)
+  assert.equal(html.includes("检查发送状态"), false)
 })
 test("the official navigation hook prevents a delayed home receipt from navigating after another page was opened", async () => {
   let navigation
@@ -419,60 +419,40 @@ test("a definitively unaccepted terminal receipt removes the home marker while r
   assert.deepEqual(store.restoreHomeSubmissions(), {})
   assert.deepEqual(store.restoreHomeDraft(draft.workspaceId), draft)
 })
-test("the official hook's RpcRequestRejected is definitive even after it has removed the pending request", async (t) => {
+test("the official hook checks the original send by readonly receipt lookup and retains it when lookup fails", async (t) => {
   fixture(t)
-  savedSubmission()
+  const submission = savedSubmission()
   store.saveConversationRequest(draft.sessionId, {
-    kind: "send",
-    id: "original-client-request",
-    signature: "stored-original",
-    draft,
-    input: {
-      sessionId: draft.sessionId,
-      workspaceId: draft.workspaceId,
-      text: draft.text,
-      materials: [],
-      connectionId: "connection",
-      modelId: "model",
-      thinking: "high",
-    },
+    kind: "send", stage: "sending", id: "original-client-request",
+    signature: "stored-original", draft,
+    input: { sessionId: draft.sessionId, workspaceId: draft.workspaceId, text: draft.text,
+      materials: [], connectionId: "connection", modelId: "model", thinking: "high" },
   })
   const previousFetch = globalThis.fetch
-  t.after(() => {
-    globalThis.fetch = previousFetch
-  })
+  t.after(() => { globalThis.fetch = previousFetch })
   let calls = 0
   globalThis.fetch = async (url, options) => {
     calls++
-    assert.equal(url, "/api/models/conversationSend")
-    assert.equal(
-      JSON.parse(options.body).clientRequestId,
-      "original-client-request"
-    )
-    return Response.json({ error: "模型配置已删除" })
+    assert.equal(url, "/api/models/conversationReceiptRead")
+    assert.deepEqual(JSON.parse(options.body), {
+      sessionId: draft.sessionId, clientRequestId: "original-client-request",
+    })
+    return Response.json({ error: "发送回执读取失败" })
   }
   let chat
-  function Probe() {
-    chat = useLiveConversation(undefined)
-    return null
-  }
+  function Probe() { chat = useLiveConversation(undefined); return null }
   renderToString(createElement(Probe))
-  const replaying = !!chat.submissionDraft(draft.sessionId)
-  assert.equal(replaying, true)
-  await assert.rejects(
-    reconcileHomeRequest(
-      () => chat.reconcile(draft.sessionId),
-      () => store.removeHomeSubmission(draft.sessionId),
-      () => assert.fail("cleanup should succeed"),
-      replaying
-    ),
-    RpcRequestRejected
-  )
+  await assert.rejects(reconcileHomeRequest(
+    () => chat.reconcile(draft.sessionId),
+    () => assert.fail("read rejection must not forget a send"),
+    () => assert.fail("must not attempt cleanup"), true,
+  ), RpcRequestRejected)
   assert.equal(calls, 1)
-  assert.equal(chat.submissionDraft(draft.sessionId), undefined)
-  assert.deepEqual(store.restoreHomeSubmissions(), {})
-  assert.deepEqual(store.restoreHomeDraft(draft.workspaceId), draft)
+  assert.equal(chat.submissionRequestId(draft.sessionId), "original-client-request")
+  assert.equal(store.restoreConversationDrafts().requests.get(draft.sessionId).id, "original-client-request")
+  assert.deepEqual(store.restoreHomeSubmissions()[draft.sessionId], submission)
 })
+
 test("the official hook's rejected history read preserves the original home identity instead of permitting a duplicate send", async (t) => {
   fixture(t)
   const submission = savedSubmission()

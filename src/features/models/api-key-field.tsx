@@ -1,4 +1,10 @@
 import { useEffect, useRef, useState } from "react"
+import { OperationFeedback } from "@/components/feedback/operation-feedback"
+import { RecoveryAction } from "@/components/feedback/recovery-action"
+import {
+  feedbackFromError,
+  type FeedbackDescription,
+} from "@/lib/operation-issue"
 import { Eye, EyeOff, Copy, Check, LoaderCircle } from "lucide-react"
 import {
   InputGroup,
@@ -20,6 +26,7 @@ export function ApiKeyField({
   error,
   onChange,
   onReveal,
+  onReloadConnection,
 }: {
   value: string
   saved: boolean
@@ -27,14 +34,22 @@ export function ApiKeyField({
   error?: string
   onChange: (value: string) => void
   onReveal?: (signal: AbortSignal) => Promise<string>
+  onReloadConnection?: () => void
 }) {
   const [visible, setVisible] = useState(false)
   const [revealed, setRevealed] = useState("")
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState("")
-  const [failure, setFailure] = useState("")
+  const [failure, setFailure] = useState<FeedbackDescription>()
+  const [copyAction, setCopyAction] = useState(false)
   const active = useRef<AbortController | null>(null)
-  useEffect(() => () => active.current?.abort(), [])
+  useEffect(
+    () => () => {
+      active.current?.abort()
+      active.current = null
+    },
+    []
+  )
   async function act(copy: boolean) {
     if (!copy && visible) {
       setVisible(false)
@@ -42,10 +57,11 @@ export function ApiKeyField({
       return
     }
     const controller = new AbortController()
+    setCopyAction(copy)
     active.current?.abort()
     active.current = controller
     setBusy(true)
-    setFailure("")
+    setFailure(undefined)
     setNotice("")
     try {
       let secret = value || revealed
@@ -64,12 +80,20 @@ export function ApiKeyField({
         setVisible(true)
       }
     } catch (cause) {
-      if (!controller.signal.aborted)
+      if (!controller.signal.aborted && active.current === controller)
         setFailure(
-          cause instanceof Error ? cause.message : "操作失败，请重试。"
+          feedbackFromError(
+            cause,
+            copy
+              ? "未能复制密钥，请检查剪贴板权限后重试。"
+              : "未能读取密钥，请重新打开连接后查看。"
+          )
         )
     } finally {
-      if (!controller.signal.aborted) setBusy(false)
+      if (!controller.signal.aborted && active.current === controller) {
+        active.current = null
+        setBusy(false)
+      }
     }
   }
   return (
@@ -88,6 +112,7 @@ export function ApiKeyField({
           onChange={(e) => {
             setRevealed("")
             setNotice("")
+            setFailure(undefined)
             onChange(e.target.value)
           }}
         />
@@ -121,8 +146,25 @@ export function ApiKeyField({
           </InputGroupButton>
         </InputGroupAddon>
       </InputGroup>
-      {error || failure ? (
-        <FieldError>{error || failure}</FieldError>
+      {error ? (
+        <FieldError>{error}</FieldError>
+      ) : failure ? (
+        <OperationFeedback
+          title={copyAction ? "未能复制密钥" : "未能读取密钥"}
+          {...failure}
+          actions={
+            <RecoveryAction
+              issue={failure}
+              onRetry={() => void act(copyAction)}
+              onReload={onReloadConnection}
+              disabled={busy || disabled}
+              labels={{
+                retry: copyAction ? "重新复制" : "重新读取密钥",
+                reload: "返回连接目录",
+              }}
+            />
+          }
+        />
       ) : (
         <FieldDescription role="status">
           {notice ||

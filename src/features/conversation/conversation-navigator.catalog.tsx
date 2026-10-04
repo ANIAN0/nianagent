@@ -1,12 +1,24 @@
 import { useState } from "react"
 import type { CatalogEntry } from "../../../ui-catalog/catalog"
 import { ConversationNavigator } from "./conversation-navigator"
+import { Button } from "@/components/ui/button"
 
 function Example({ count = 8 }: { count?: number }) {
   const [active, setActive] = useState("turn-1")
   return (
-    <div style={{ height: 360, position: "relative", margin: 32 }}>
+    <div
+      className="conversation-body"
+      style={{ height: 360, position: "relative", margin: 32 }}
+    >
       <p>当前轮次：{active.replace("turn-", "")}</p>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => setActive(`turn-${count}`)}
+      >
+        读取最后一轮
+      </Button>
       <ConversationNavigator
         activeId={active}
         onNavigate={setActive}
@@ -33,7 +45,7 @@ export default {
   events: ["onNavigate(id)；上下键/Home/End 移动焦点，Enter 定位。"],
   composition: ["Button"],
   consumers: ["ConversationList"],
-  viewport: { width: 640, height: 440 },
+  viewport: { width: 1280, height: 440 },
   states: [
     {
       id: "default",
@@ -45,9 +57,10 @@ export default {
     {
       id: "long",
       name: "长会话",
-      condition: "60轮消息。",
-      expected: "刻度保持间距、导航轨内部滚动。",
-      render: () => <Example count={60} />,
+      condition: "200轮消息。",
+      expected:
+        "刻度保持间距；当前项自动保持可见，导航轨内部滚动不抢正文阅读。",
+      render: () => <Example count={200} />,
     },
     {
       id: "single",

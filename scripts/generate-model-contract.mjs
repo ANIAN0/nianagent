@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url"
 import { readFile, writeFile } from "node:fs/promises"
-import { schemas, operations } from "../backend/contract.mjs"
+import { schemas, operations, transportRecoveryByOperation } from "../backend/contract.mjs"
 import { format, resolveConfig } from "prettier"
 function type(schema) {
   if (schema.$ref) return schema.$ref
@@ -19,7 +19,7 @@ function type(schema) {
       .join("\n")}\n}`
   return schema.type === "integer" ? "number" : schema.type
 }
-const output = `// Generated from backend/schema.mjs and backend/contract.mjs. Do not edit.\n${Object.entries(
+const output = `// Generated from backend/schema.mjs and backend/contract.mjs. Do not edit.\nexport const transportRecoveryByOperation = ${JSON.stringify(transportRecoveryByOperation)} as const\nexport const receiptOperationNames = ${JSON.stringify(Object.keys(operations).filter((name) => operations[name].writeReceipt))} as const\nexport const queueReceiptOperationNames = ${JSON.stringify(Object.keys(operations).filter((name) => operations[name].queueReceipt))} as const\n${Object.entries(
   schemas
 )
   .map(([name, schema]) => `export type ${name} = ${type(schema)}`)

@@ -29,7 +29,7 @@ export default {
   boundary:
     "内容由children传入，导航事件由应用处理，不保存会话消息。正式App通过NavigationBoundaryContext与配置保存共用导航边界；保存期间鼠标入口和快捷键均等待，独立展示默认不阻断。",
   inputs: [
-    "data、activeConversationId、children；historyState、historyError 同时传入侧栏和搜索。",
+    "data、activeConversationId、children；historyState、historyIssue（正式错误与恢复语义）、historyError兼容文字同时传入侧栏和搜索。",
   ],
   events: [
     "onNew、onSelectConversation、onSettings、onHistoryRetry；Ctrl+B切换导航，Ctrl+K搜索；持有保存租约时不打开第二个浮层、不卸载正在保存的页面。联动状态见会话配置/保存期间的应用导航边界。",

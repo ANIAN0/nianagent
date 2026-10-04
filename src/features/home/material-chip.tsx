@@ -1,31 +1,42 @@
-import { Sparkles, FileText, Image, LoaderCircle, X } from "lucide-react"
+import { FileText, Image, LoaderCircle, RotateCcw, X } from "lucide-react"
+import { useId } from "react"
 import {
   Attachment,
+  AttachmentActions,
+  AttachmentAction,
   AttachmentContent,
   AttachmentDescription,
   AttachmentMedia,
   AttachmentTitle,
   AttachmentTrigger,
 } from "@/components/ui/attachment"
-import { Button } from "@/components/ui/button"
 import { useMaterialThumbnail } from "@/features/materials/use-material-thumbnail"
 import type { Material } from "./home-types"
+
+export type MaterialChipProps = {
+  material: Material
+  onRemove: (id: string) => void
+  onPreview?: (material: Material) => void
+  onRetry?: (id: string) => void
+  retryLabel?: string
+  cwd?: string
+}
 
 export function MaterialChip({
   material,
   onRemove,
   onPreview,
+  onRetry,
+  retryLabel = "重新检查",
   cwd = "",
-}: {
-  material: Material
-  onRemove: (id: string) => void
-  onPreview?: (material: Material) => void
-  cwd?: string
-}) {
+}: MaterialChipProps) {
+  const descriptionId = useId()
+  const image = material.type === "image"
+  const skill = material.kind === "Skill"
   const { target, thumbnail } = useMaterialThumbnail(
     material.id,
     cwd,
-    material.type === "image" && material.status === "ready"
+    image && material.status === "ready"
   )
   const state =
     material.status === "preparing"
@@ -33,61 +44,125 @@ export function MaterialChip({
       : material.status === "failed"
         ? "error"
         : "done"
+  const retry = state === "error" && material.retryable !== false && onRetry
+  const open = state === "done" && onPreview
+  const sourceDescription = material.description || material.source
+  const fileSourceDescription =
+    material.type === "file"
+      ? sourceDescription?.replaceAll("\\", "/")
+      : sourceDescription
+  const fileDescription =
+    material.type === "file" && fileSourceDescription === material.name
+      ? "文件引用"
+      : material.type === "file" &&
+          fileSourceDescription?.endsWith(`/${material.name}`) &&
+          !/^[a-zA-Z]:\//.test(fileSourceDescription) &&
+          !fileSourceDescription.startsWith("/")
+        ? fileSourceDescription.slice(0, -material.name.length - 1) ||
+          "文件引用"
+        : sourceDescription
+  const description =
+    state === "processing"
+      ? "正在准备…"
+      : state === "error"
+        ? retry
+          ? `准备失败 · ${retryLabel}`
+          : material.error || "准备失败，请重新选择或移除。"
+        : fileDescription || (skill ? "Skill 指令" : "文件引用")
+  const label = retry
+    ? `${retryLabel} ${material.name}`
+    : `预览 ${material.name}`
   return (
     <Attachment
       ref={target}
-      size="xs"
+      size={skill ? "xs" : "default"}
+      orientation={image ? "vertical" : "horizontal"}
       state={state}
-      className="max-w-[280px] min-w-0 pr-7"
-      title={`${material.name}\n${material.source ?? ""}`}
+      className={
+        image
+          ? "size-16 max-w-16 min-w-16 gap-0 p-0!"
+          : skill
+            ? "max-w-[240px] min-w-0 rounded-md border-primary/15 bg-primary/10 py-1 pr-7! pl-2! text-primary has-[>a,>button]:hover:bg-primary/15"
+            : "max-w-[240px] min-w-40 pr-7!"
+      }
+      title={`${material.name}\n${material.error || material.source || description}`}
     >
-      <AttachmentMedia
-        variant={thumbnail || material.thumbnail ? "image" : "icon"}
-      >
-        {state === "processing" ? (
-          <LoaderCircle className="animate-spin motion-reduce:animate-none" />
-        ) : thumbnail || material.thumbnail ? (
-          <img src={thumbnail || material.thumbnail} alt={material.name} />
-        ) : material.kind === "Skill" ? (
-          <Sparkles />
-        ) : material.type === "image" ? (
-          <Image />
-        ) : (
-          <FileText />
-        )}
-      </AttachmentMedia>
-      <AttachmentContent>
-        <AttachmentTitle>{material.name}</AttachmentTitle>
+      {!skill && (
+        <AttachmentMedia
+          variant={image ? "image" : "icon"}
+          className={image ? "size-full rounded-[inherit]" : undefined}
+        >
+          {state === "processing" ? (
+            <LoaderCircle className="animate-spin motion-reduce:animate-none" />
+          ) : image && (thumbnail || material.thumbnail) && state === "done" ? (
+            <img src={thumbnail || material.thumbnail} alt={material.name} />
+          ) : image && retry ? (
+            <div className="flex flex-col items-center gap-1">
+              <RotateCcw />
+              <span className="text-[10px] leading-3">{retryLabel}</span>
+            </div>
+          ) : image ? (
+            <Image />
+          ) : (
+            <FileText />
+          )}
+        </AttachmentMedia>
+      )}
+      {skill && state === "processing" && (
+        <LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" />
+      )}
+      {skill && retry && <RotateCcw className="size-3.5" />}
+      <AttachmentContent className={image ? "sr-only" : undefined}>
+        <AttachmentTitle>
+          {skill ? `/${material.name.replace(/^\//, "")}` : material.name}
+        </AttachmentTitle>
         <AttachmentDescription
+          id={descriptionId}
           title={material.error}
           className={
-            material.error ? "break-words whitespace-normal" : undefined
+            skill && state === "done"
+              ? "sr-only"
+              : state === "done"
+                ? "text-muted-foreground"
+                : undefined
           }
         >
-          {material.error ||
-            (state === "processing"
-              ? "正在准备…"
-              : material.description ||
-                material.source ||
-                (material.kind === "Skill" ? "Skill 指令" : "文件引用"))}
+          {description}
+          {retry && material.error && (
+            <span className="sr-only">。{material.error}</span>
+          )}
         </AttachmentDescription>
       </AttachmentContent>
-      {onPreview && state !== "processing" && (
+      {(retry || open) && (
         <AttachmentTrigger
-          aria-label={`预览 ${material.name}`}
-          onClick={() => onPreview(material)}
+          aria-label={label}
+          aria-describedby={descriptionId}
+          title={material.error || label}
+          onClick={() => {
+            if (retry) onRetry?.(material.id)
+            else onPreview?.(material)
+          }}
         />
       )}
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-xs"
-        aria-label={`移除${material.name}`}
-        className="absolute top-1.5 right-1 z-10"
-        onClick={() => onRemove(material.id)}
+      <AttachmentActions
+        className={
+          image
+            ? "top-1! right-1!"
+            : "absolute top-1/2 right-1 -translate-y-1/2"
+        }
       >
-        <X />
-      </Button>
+        <AttachmentAction
+          aria-label={`移除${material.name}`}
+          className={
+            image
+              ? "size-5 bg-background/90 text-caption hover:text-foreground"
+              : "size-5 text-caption hover:text-foreground"
+          }
+          onClick={() => onRemove(material.id)}
+        >
+          <X className="size-3" />
+        </AttachmentAction>
+      </AttachmentActions>
     </Attachment>
   )
 }

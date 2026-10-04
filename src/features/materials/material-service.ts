@@ -23,6 +23,9 @@ export function materialReference(value: Material): MaterialReference {
     ...(value.mimeType ? { mimeType: value.mimeType } : {}),
     ...(value.bytes !== undefined ? { bytes: value.bytes } : {}),
     ...(value.error ? { error: value.error } : {}),
+    ...(typeof value.retryable === "boolean"
+      ? { retryable: value.retryable }
+      : {}),
   }
 }
 export function createMaterialService() {
@@ -33,8 +36,14 @@ export function createMaterialService() {
       sessionId: string,
       cwd: string,
       paths: string[],
-      signal?: AbortSignal
-    ) => modelCall("materialPrepare", { sessionId, cwd, paths }, signal),
+      signal?: AbortSignal,
+      options?: { scope?: "selected" | "workspace" }
+    ) =>
+      modelCall(
+        "materialPrepare",
+        { sessionId, cwd, paths, ...options },
+        signal
+      ),
     upload: (
       sessionId: string,
       cwd: string,
@@ -68,6 +77,9 @@ export function createMaterialService() {
             status: item.status ?? "failed",
             source: item.source ?? "",
             ...(item.description ? { description: item.description } : {}),
+            ...(typeof item.retryable === "boolean"
+              ? { retryable: item.retryable }
+              : {}),
           })),
         },
         signal
@@ -93,4 +105,23 @@ export function sameMaterial(left: Material, right: Material) {
       left.source === right.source &&
       left.type === right.type)
   )
+}
+
+/** A deliberate re-selection can repair a failed fixed record in its place. */
+export function appendPreparedMaterials(
+  current: Material[],
+  items: Material[]
+) {
+  const output = [...current]
+  for (const item of items) {
+    const index = output.findIndex((value) => sameMaterial(value, item))
+    if (index < 0) output.push(item)
+    else if (
+      output[index].id === item.id &&
+      output[index].status === "failed" &&
+      item.status === "ready"
+    )
+      output[index] = item
+  }
+  return output
 }

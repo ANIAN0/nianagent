@@ -14,7 +14,7 @@ test.before(async () => {
     configFile: false,
     cacheDir: cache,
     resolve: { alias: { "@": resolve("src") } },
-    server: { middlewareMode: true, watch: null },
+    server: { middlewareMode: true, watch: null, hmr: false },
     optimizeDeps: { noDiscovery: true, include: [] },
     ssr: { external: ["react", "react-dom/server"] },
   })
@@ -75,23 +75,33 @@ function fixture(t, initial, service) {
     stored: () => JSON.parse(storage.get("moon.control.pending.ui-session")),
   }
 }
-test("a late manual read for A cannot replace B's actual hook receipt or persisted identity", async (t) => {
+test("checking A blocks a new command until its receipt resolves, then B owns the persisted identity", async (t) => {
   let releaseRead
+  let compactRequests = 0
   const f = fixture(t, operation("a"), {
-    read: () =>
+    read: (sessionId, id) =>
       new Promise((resolve) => {
+        assert.equal(sessionId, "ui-session")
+        assert.equal(id, "a")
         releaseRead = resolve
       }),
-    compact: async (sessionId, id) => ({
-      ...operation(id, "running", new Date().toISOString()),
-      sessionId,
-    }),
+    compact: async (sessionId, id) => {
+      compactRequests += 1
+      return {
+        ...operation(id, "running", new Date().toISOString()),
+        sessionId,
+      }
+    },
   })
   const oldRead = f.controls.read()
-  const b = await f.controls.compact("new focus")
-  assert.equal(f.stored().id, b.id)
+  assert.equal(await f.controls.compact("new focus"), undefined)
+  assert.equal(compactRequests, 0)
+  assert.equal(f.stored().id, "a")
   releaseRead(operation("a"))
-  assert.equal(await oldRead, undefined)
+  assert.equal((await oldRead).id, "a")
+  const b = await f.controls.compact("new focus")
+  assert.equal(compactRequests, 1)
+  assert.notEqual(b.id, "a")
   assert.equal(f.stored().id, b.id)
   assert.equal(f.stored().status, "running")
 })

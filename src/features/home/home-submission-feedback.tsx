@@ -1,4 +1,4 @@
-import { Alert, AlertDescription } from "@/components/ui/alert"
+import { OperationFeedback } from "@/components/feedback/operation-feedback"
 import { Button } from "@/components/ui/button"
 
 export function HomeSubmissionFeedback({
@@ -15,16 +15,17 @@ export function HomeSubmissionFeedback({
   variant?: "default" | "destructive"
 }) {
   return (
-    <Alert
-      variant={variant}
-      className="shrink-0 rounded-none border-x-0 border-t-0"
-    >
-      <AlertDescription className="flex flex-wrap items-center gap-2">
-        <span>{message}</span>
-        <Button variant="link" size="sm" disabled={pending} onClick={onRetry}>
-          {actionLabel}
-        </Button>
-      </AlertDescription>
-    </Alert>
+    <OperationFeedback
+      title={pending ? "正在完成草稿交接" : "首页提交需要处理"}
+      message={message}
+      severity={variant === "default" ? "info" : "warning"}
+      actions={
+        !pending && (
+          <Button variant="outline" size="sm" onClick={onRetry}>
+            {actionLabel}
+          </Button>
+        )
+      }
+    />
   )
 }

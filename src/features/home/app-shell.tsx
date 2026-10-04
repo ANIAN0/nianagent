@@ -1,4 +1,5 @@
-import { useEffect, useState, type ReactNode } from "react"
+import type { FeedbackDescription } from "@/lib/operation-issue"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import { PanelLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -22,6 +23,7 @@ export function AppShell({
   onSettings,
   historyState,
   historyError,
+  historyIssue,
   onHistoryRetry,
   children,
 }: {
@@ -32,6 +34,7 @@ export function AppShell({
   onSettings?: () => void
   historyState?: HistoryState
   historyError?: string
+  historyIssue?: FeedbackDescription
   onHistoryRetry?: () => void
   children: ReactNode
 }) {
@@ -42,6 +45,8 @@ export function AppShell({
   const [mobileOpen, setMobileOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [notice, setNotice] = useState("")
+  const main = useRef<HTMLElement>(null)
+  const focusNewHomeAfterClose = useRef(false)
   useEffect(() => {
     function handleKey(event: KeyboardEvent) {
       if (
@@ -76,6 +81,7 @@ export function AppShell({
     activeConversationId,
     historyState,
     historyError,
+    historyIssue,
     onHistoryRetry,
     onSelectConversation: (item: Conversation) => {
       runNavigation(() => {
@@ -86,6 +92,7 @@ export function AppShell({
     onClose: () => runNavigation(() => setSidebarOpen((open) => !open)),
     onNew: (id?: string) => {
       runNavigation(() => {
+        focusNewHomeAfterClose.current = mobileOpen
         onNew(id)
         setMobileOpen(false)
         setNotice("")
@@ -116,7 +123,10 @@ export function AppShell({
     setSidebarWidth(Math.max(240, Math.min(360, width)))
   }
   return (
-    <div className="flex h-dvh overflow-hidden bg-background text-foreground">
+    <div
+      data-sidebar={sidebarOpen ? "expanded" : "collapsed"}
+      className="flex h-dvh overflow-hidden bg-background text-foreground"
+    >
       <aside
         className="relative hidden shrink-0 border-r border-sidebar-border md:block"
         style={{ width: sidebarOpen ? sidebarWidth : 56 }}
@@ -160,7 +170,7 @@ export function AppShell({
           />
         )}
       </aside>
-      <main className="relative flex min-w-0 flex-1 flex-col">
+      <main ref={main} className="relative flex min-w-0 flex-1 flex-col">
         <Button
           variant="ghost"
           size="icon"
@@ -178,6 +188,18 @@ export function AppShell({
         onOpenChange={(open) => runNavigation(() => setMobileOpen(open))}
       >
         <DialogContent
+          onCloseAutoFocus={(event) => {
+            if (!focusNewHomeAfterClose.current) return
+            focusNewHomeAfterClose.current = false
+            event.preventDefault()
+            requestAnimationFrame(() =>
+              main.current
+                ?.querySelector<HTMLTextAreaElement>(
+                  'textarea[aria-label="描述你要做的事"]'
+                )
+                ?.focus({ preventScroll: true })
+            )
+          }}
           className="inset-y-0 left-0 h-dvh w-80 max-w-[calc(100vw-48px)] translate-x-0 translate-y-0 gap-0 rounded-none p-0"
           showCloseButton={false}
         >
@@ -195,6 +217,7 @@ export function AppShell({
         data={data}
         historyState={historyState}
         historyError={historyError}
+        historyIssue={historyIssue}
         onHistoryRetry={onHistoryRetry}
         open={searchOpen && !navigationBlocked}
         onOpenChange={(open) => runNavigation(() => setSearchOpen(open))}

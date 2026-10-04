@@ -5,10 +5,14 @@ import { materialOperations } from "./material-contract.mjs"
 import { queueOperations } from "./queue-contract.mjs"
 import { controlOperations } from "./conversation-control-contract.mjs"
 import { mcpOperations } from "./mcp-contract.mjs"
+import { extensionOperations } from "./extension-contract.mjs"
+import { writeReceiptOperations, writeRequestId, writeOperations } from "./write-receipt-contract.mjs"
 import { schemas, object, ref, assertSchema } from "./schema.mjs"
 export { schemas, assertSchema } from "./schema.mjs"
 // Authority for RPC names, required input fields, documentation and dispatch.
 export const operations = {
+  ...extensionOperations,
+  ...writeReceiptOperations,
   ...queueOperations,
   ...materialOperations,
   ...mcpOperations,
@@ -150,8 +154,8 @@ export const operations = {
   },
   save: {
     method: "save",
-    args: ["connection", "$signal"],
-    request: object({ connection: ref("ModelConnection") }),
+    args: ["connection", "$signal", "operationRequestId"],
+    request: object({ connection: ref("ModelConnection"), operationRequestId: writeRequestId }, ["connection"]),
     response: ref("ModelConnection"),
     condition:
       "提交前取消不写入；rename 为提交边界，提交后取消不回滚。新建不传 revision；编辑必须携带原版本。",
@@ -178,11 +182,12 @@ export const operations = {
   },
   remove: {
     method: "remove",
-    args: ["id", "revision", "$signal"],
+    args: ["id", "revision", "$signal", "operationRequestId"],
     request: object({
       id: { type: "string", minLength: 1 },
       revision: { type: "integer", minimum: 1 },
-    }),
+      operationRequestId: writeRequestId,
+    }, ["id", "revision"]),
     response: { type: "null" },
     condition:
       "必须带当前 revision；锁等待和提交前取消都保留连接、模型和凭据；提交后不可回滚。",
@@ -262,11 +267,11 @@ export const operations = {
   },
   authStart: {
     method: "jobs.start",
-    args: ["connection", "$signal"],
-    request: object({ connection: ref("ModelConnection") }),
+    args: ["connection", "$signal", "operationRequestId"],
+    request: object({ connection: ref("ModelConnection"), operationRequestId: writeRequestId }, ["connection"]),
     response: ref("AuthState"),
     condition:
-      "先保存连接再开始授权；取消不会删除已保存连接。启动请求取消后，不保留尚未启动的任务；任务开始后使用 authCancel。",
+      "先保存连接再开始授权；取消不删除已保存连接。客户端提供operationRequestId作为已知任务ID，准备也可authPoll/authCancel；同ID同输入只返回原任务，不再保存/登录。响应丢失只核对/取消原任务，不新建授权。启动取消覆盖准备；Pi登录接受后使用authCancel。同提供者退出登录或授权清理尚未结束时拒绝新授权，不按凭据存在与否推断闲置。",
     errors:
       "非订阅连接、不支持的提供者、版本冲突、重复授权、保存或授权初始化失败。",
     title: "开始订阅授权",
@@ -294,7 +299,7 @@ export const operations = {
     args: ["id"],
     request: object({ id: { type: "string", minLength: 1 } }),
     response: ref("AuthState"),
-    condition: "只读；任务最长10分钟，结束后状态保留5分钟。",
+    condition: "只读；任务最长10分钟，结束后状态保留5分钟。内部登录结束但原lease清理未settle时仍返回pending/stage=settling，客户端保留原ID；清理结束才公开complete/error/cancelled。清理失败附authorization_cleanup警告，原authCancel可核对并释放，不丢失恢复身份。",
     errors: "任务不存在或已过期。",
     title: "读取授权状态",
     input: ["id"],
@@ -327,7 +332,7 @@ export const operations = {
     response: { type: "null" },
     condition:
       "显式取消授权任务并等待结束；重复取消无副作用；已完成授权凭据不会自动退出。",
-    errors: "存储清理失败；不存在任务视作已结束。",
+    errors: "存储清理失败；原任务不可确认时返回authorization_unknown，不假称已取消。",
     title: "取消授权",
     input: ["id"],
     result: "null",
@@ -340,14 +345,35 @@ export const operations = {
     request: object({ id: { type: "string", minLength: 1 } }),
     response: ref("ModelConnection"),
     condition:
-      "取消提交前可中止；Pi 删除凭据，连接和模型保留。已提交删除不回滚。",
-    errors: "订阅连接不存在、任务尚未取消、凭据写入/删除失败。",
+      "取消提交前可中止；Pi 删除凭据，连接和模型保留。已提交删除不回滚。宿主按provider独占完整SDK退出操作，finally结束才释放；此期间同provider新授权、再次退出、保存/删除拒绝，其他provider和只读目录可用。传输丢失只读list核对ModelConnection.accountOperationBusy：明确false仅证明原退出执行已结束，不证明退出成功；true继续等待，缺省旧宿主需重启。",
+    errors: "订阅连接不存在、授权执行或清理尚未结束、同提供者退出尚未结束、凭据写入/删除失败。",
     title: "退出订阅",
     input: ["id"],
     result: "ModelConnection",
-    effect: "Pi 删除凭据，模型保留但不可用",
+    effect: "Pi删除凭据并完成provider同步；正式订阅响应明确accountOperationBusy=true/false，返回退出结果时已释放原provider执行占用。",
     example: { id: "连接ID" },
   },
+}
+// Transport loss is distinct from a declared business rejection. This table is
+// the authority for what callers may do after losing the response, not a regex
+// over operation names or translated error strings.
+export const transportRecoveryByOperation = {
+  list: "reload", revealKey: "reload", providers: "reload", discover: "reload", check: "none",
+  sessionCatalog: "reload", sessionRead: "reload", sessionApply: "check",
+  save: "check", remove: "check", authStart: "check", authPoll: "reload", authReply: "check", authCancel: "check", logout: "check",
+  workspaceList: "reload", workspaceGet: "reload", workspaceAdd: "check", workspaceSelect: "check", workspaceChoose: "check",
+  conversationList: "reload", conversationInfo: "reload", conversationMarkRead: "check",
+  conversationRead: "reload", conversationReceiptRead: "reload", conversationSend: "check", conversationRetry: "check", conversationStop: "check",
+  conversationQueueEdit: "check", conversationQueueRemove: "check", conversationQueueMode: "check", conversationQueueDeliver: "check", conversationQueueReceiptRead: "reload",
+  conversationFork: "check", conversationCompact: "check", conversationControlRead: "reload", conversationCompactCancel: "check",
+  materialChoose: "check", materialPrepare: "check", materialUpload: "check", materialCatalog: "reload", materialPreview: "reload", materialRestore: "reload",
+  mcpList: "reload", mcpSave: "check", mcpRemove: "check", mcpTest: "reload",
+  extensionList: "reload", extensionConfigure: "check", writeReceiptRead: "reload",
+}
+for (const [name, definition] of Object.entries(operations)) {
+  if (!Object.hasOwn(transportRecoveryByOperation, name)) throw new Error(`Missing transport recovery contract: ${name}`)
+  definition.transportRecovery = transportRecoveryByOperation[name]
+  if (writeOperations.includes(name)) definition.writeReceipt = true
 }
 export function validateRequest(operation, input) {
   if (!Object.hasOwn(operations, operation)) throw new Error("未知接口。")

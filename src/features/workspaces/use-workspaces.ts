@@ -1,51 +1,85 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { Workspace } from "@/features/home/home-types"
 import { createWorkspaceService } from "./workspace-service"
+import { createWorkspaceReadController } from "./workspace-read-controller"
+import {
+  feedbackFromError,
+  type FeedbackDescription,
+} from "@/lib/operation-issue"
 
 export function useWorkspaces() {
   const [service] = useState(createWorkspaceService)
   const [items, setItems] = useState<Workspace[]>([])
   const [selectedId, setSelectedId] = useState<string>()
   const [loading, setLoading] = useState(true)
+  const [initialized, setInitialized] = useState(false)
   const [error, setError] = useState("")
-  const [version, setVersion] = useState(0)
-  const sequence = useRef(0)
-  useEffect(() => {
-    const request = ++sequence.current
-    const controller = new AbortController()
-    service
-      .list(controller.signal)
-      .then((result) => {
-        if (controller.signal.aborted || request !== sequence.current) return
+  const [issue, setIssue] = useState<FeedbackDescription>()
+  const mounted = useRef(true)
+  const [reader] = useState(() =>
+    createWorkspaceReadController((signal) => service.list(signal), {
+      onPending: setLoading,
+      onSuccess: (result) => {
+        setInitialized(true)
         setItems(result.items)
         setSelectedId(result.selectedId ?? undefined)
-        setLoading(false)
         setError("")
-      })
-      .catch((failure) => {
-        if (!controller.signal.aborted && request === sequence.current) {
-          setError(failure instanceof Error ? failure.message : String(failure))
-          setLoading(false)
-        }
-      })
-    return () => controller.abort()
-  }, [service, version])
-  const refresh = useCallback(() => setVersion((value) => value + 1), [])
+        setIssue(undefined)
+      },
+      onError: (failure) => {
+        setInitialized(true)
+        const feedback = feedbackFromError(
+          failure,
+          "工作目录列表未能读取，请重新读取。"
+        )
+        setError(feedback.message)
+        setIssue(
+          feedback.code === "cancelled"
+            ? { ...feedback, recovery: "reload" }
+            : feedback
+        )
+      },
+    })
+  )
+  const refresh = useCallback(
+    (signal?: AbortSignal): Promise<void> => {
+      if (!mounted.current)
+        return Promise.reject(new DOMException("页面已关闭。", "AbortError"))
+      return reader.read(signal)
+    },
+    [reader]
+  )
+  useEffect(() => {
+    mounted.current = true
+    // Initial reads report through issue; imperative recovery callers receive
+    // the same failure instead of resolving before a request even starts.
+    void refresh().catch(() => {})
+    return () => {
+      mounted.current = false
+      reader.cancel()
+    }
+  }, [reader, refresh])
   const adopt = (workspace: Workspace) => {
-    ++sequence.current
+    if (!mounted.current) return
+    reader.cancel()
     setLoading(false)
+    setInitialized(true)
     setItems((previous) => [
       ...previous.filter((item) => item.id !== workspace.id),
       workspace,
     ])
     setSelectedId(workspace.id)
     setError("")
+    setIssue(undefined)
   }
   return {
     items,
     selectedId,
     loading,
+    initialized,
+    initialLoading: !initialized,
     error,
+    issue,
     refresh,
     select: async (id: string, signal?: AbortSignal) => {
       const workspace = await service.select(id, signal)

@@ -18,6 +18,16 @@ export default function DebugPanel({
   focusOnMount = false,
 }: DebugPanelProps) {
   const heading = useRef<HTMLHeadingElement>(null)
+  let draftSessionId: unknown
+  try {
+    draftSessionId = JSON.parse(request.value).sessionId
+  } catch {
+    /* Parameter validation remains the request editor's responsibility. */
+  }
+  const queueBlocked =
+    !!response.response.queueReceiptInput &&
+    (!response.response.queueBlockedSessionId ||
+      draftSessionId === response.response.queueBlockedSessionId)
   useEffect(() => {
     if (focusOnMount) heading.current?.focus({ preventScroll: true })
   }, [focusOnMount, request.operation])
@@ -35,7 +45,18 @@ export default function DebugPanel({
           收起调试
         </Button>
       </div>
-      <RequestEditor {...request} />
+      <RequestEditor
+        {...request}
+        blockedReason={
+          queueBlocked
+            ? "原队列操作结果尚未确认。请先使用下方原会话和原请求编号核对队列回执，勿用新编号重复执行。"
+            : response.response.receiptInput
+              ? "原写入结果尚未确认。请先查询下方的写入回执，再执行新写入。"
+              : response.response.authorizationInput
+                ? "原授权任务尚未确认。请先使用下方原ID查询或取消原任务，不要启动另一授权。"
+                : undefined
+        }
+      />
       <ResponseViewer {...response} />
     </div>
   )

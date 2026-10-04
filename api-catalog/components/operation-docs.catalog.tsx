@@ -9,11 +9,11 @@ export default {
   layer: "复合组件",
   group: "接口目录",
   source: "api-catalog/components/operation-docs.tsx",
-  description: "将行为、调用约束、错误恢复和请求/响应字段按任务顺序展示。",
+  description: "将行为、调用约束、错误恢复和请求/响应/错误字段按任务顺序展示。",
   boundary:
     "OperationDefinition 与 Schema 均来自正式 contract.mjs；浏览文档不会发起业务请求。",
   inputs: ["operation", "definition", "schemas"],
-  events: ["切换请求/返回字段", "字段搜索", "复制接口标识"],
+  events: ["切换请求/返回/错误字段", "字段搜索", "复制接口标识"],
   composition: ["Badge", "Button", "SchemaFieldTable", "CopyButton"],
   consumers: ["ApiCatalogApp"],
   viewport: { width: 680, height: 800 },
@@ -37,7 +37,8 @@ export default {
       id: "write",
       name: "保存约束",
       condition: "sessionApply 正式契约",
-      expected: "版本/原子提交/取消边界在字段之前可见，必填与可选显示。",
+      expected:
+        "版本/原子提交/取消边界在字段之前可见；错误字段来自RpcFailure，结果待确认必须先核对。",
       render: () => (
         <CatalogPreview>
           <OperationDocs

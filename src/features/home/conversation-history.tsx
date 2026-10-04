@@ -1,3 +1,4 @@
+import type { FeedbackDescription } from "@/lib/operation-issue"
 import { useState } from "react"
 import {
   Empty,
@@ -16,6 +17,7 @@ export type ConversationHistoryProps = {
   onSelect: (conversation: Conversation) => void
   historyState?: HistoryState
   historyError?: string
+  historyIssue?: FeedbackDescription
   onHistoryRetry?: () => void
 }
 export function ConversationHistory({
@@ -25,6 +27,7 @@ export function ConversationHistory({
   onNew,
   historyState = "ready",
   historyError,
+  historyIssue,
   onHistoryRetry,
 }: ConversationHistoryProps) {
   const [collapsed, setCollapsed] = useState<string[]>([])
@@ -46,6 +49,7 @@ export function ConversationHistory({
       <ConversationListFeedback
         state={historyState}
         error={historyError}
+        issue={historyIssue}
         hasItems={visible.length > 0}
         onRetry={onHistoryRetry}
       />

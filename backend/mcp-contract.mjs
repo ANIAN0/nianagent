@@ -1,3 +1,4 @@
+import { writeRequestId } from "./write-receipt-contract.mjs"
 const string = (description, extra = {}) => ({
   type: "string",
   description,
@@ -97,11 +98,12 @@ export const mcpOperations = {
   mcpSave: {
     ...base,
     method: "mcp.save",
-    args: ["configuration", "revision", "$signal"],
+    args: ["configuration", "revision", "$signal", "operationRequestId"],
     request: object(
       {
         configuration: ref("McpConfiguration"),
         revision: { type: "integer", minimum: 1 },
+        operationRequestId: writeRequestId,
       },
       ["configuration"]
     ),
@@ -132,11 +134,12 @@ export const mcpOperations = {
   mcpRemove: {
     ...base,
     method: "mcp.remove",
-    args: ["name", "revision", "$signal"],
+    args: ["name", "revision", "$signal", "operationRequestId"],
     request: object({
       name: string("服务名", { minLength: 1 }),
       revision: { type: "integer", minimum: 1 },
-    }),
+      operationRequestId: writeRequestId,
+    }, ["name", "revision"]),
     response: { type: "null" },
     title: "删除 MCP 服务",
     input: ["name", "revision"],

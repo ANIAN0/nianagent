@@ -8,6 +8,7 @@ import { createServer } from "node:http"
 import { SessionManager } from "@earendil-works/pi-coding-agent"
 import { McpService, nestedMcpTools, mcpResultsIndex } from "../mcp.mjs"
 import { ModelService } from "../models.mjs"
+import lockfile from "proper-lockfile"
 const protocolServer = fileURLToPath(
   new URL("./fixtures/mcp-protocol-server.mjs", import.meta.url)
 )
@@ -102,7 +103,11 @@ test("MCP CRUD is revisioned, Pi-compatible and does not connect while browsing"
     { ...configuration, enabled: false },
     saved.revision
   )
-  await assert.rejects(mcp.remove("files", saved.revision), /版本已变化/)
+  await assert.rejects(mcp.remove("files", saved.revision), (error) => {
+    assert.equal(error.issue.code, "mcp_revision_conflict")
+    assert.equal(error.issue.recovery, "reload")
+    return true
+  })
   const controller = new AbortController()
   controller.abort()
   await assert.rejects(mcp.remove("files", updated.revision, controller.signal))
@@ -443,4 +448,32 @@ test("official extension binding persists safe host diagnostics and restarts onc
   assert.ok(diagnostics[1].data.occurredAt)
   assert.ok(!JSON.stringify(diagnostics).includes("should-never-appear"))
   assert.ok(!JSON.stringify(diagnostics).includes("Bearer"))
+})
+
+test("MCP unlock failure after atomic commit requires checking and never claims an uncommitted write", async (t) => {
+  const { mcp, configuration } = await fixture(t)
+  const acquire = lockfile.lock
+  t.mock.method(lockfile, "lock", async (...args) => {
+    const release = await acquire(...args)
+    return async () => {
+      await release()
+      throw Object.assign(new Error("PRIVATE_FIXTURE_UNLOCK_PATH"), {
+        code: "EPERM",
+      })
+    }
+  })
+  await assert.rejects(mcp.save(configuration), (error) => {
+    assert.equal(error.issue.code, "result_unknown")
+    assert.equal(error.issue.recovery, "check")
+    assert.equal(error.issue.severity, "warning")
+    assert.doesNotMatch(
+      JSON.stringify(error.issue),
+      /PRIVATE_FIXTURE_UNLOCK_PATH/
+    )
+    return true
+  })
+  const records = await mcp.list()
+  assert.equal(records.length, 1)
+  assert.equal(records[0].configuration.name, configuration.name)
+  assert.equal(records[0].revision, 1)
 })

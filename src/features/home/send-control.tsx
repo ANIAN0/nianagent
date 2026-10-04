@@ -7,11 +7,12 @@ export function SendControl({ disabled }: { disabled: boolean }) {
       type="submit"
       size="icon-sm"
       variant="send"
-      className="rounded-full"
+      className="size-[34px] rounded-full"
       aria-label="发送"
+      title="发送"
       disabled={disabled}
     >
-      <ArrowUp />
+      <ArrowUp className="size-4" />
     </InputGroupButton>
   )
 }

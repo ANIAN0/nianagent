@@ -33,12 +33,26 @@ export default {
   layer: "复合组件",
   group: "模型设置",
   source: "src/features/models/settings-confirmation.tsx",
-  description: "删除与弃改确认，等待时禁用关闭，失败保留可重试。",
+  description:
+    "删除与弃改确认；等待、取消等待、失败与原结果核对由正式宿主控制。",
   boundary: "通过参数与事件传递数据；服务由宿主注入，展示与正式数据隔离。",
-  inputs: ["value", "busy", "error"],
-  events: ["onConfirm", "onCancel"],
-  composition: ["Dialog", "Button"],
-  consumers: ["ConnectionEditor", "ModelEditor", "ModelSettingsPage"],
+  inputs: [
+    "value",
+    "busy",
+    "busyMessage",
+    "error/errorDetails/errorSeverity",
+    "errorActions",
+    "confirmDisabled",
+  ],
+  events: ["onConfirm", "onCancel", "onCancelRequest"],
+  composition: ["Dialog", "Button", "OperationFeedback"],
+  consumers: [
+    "ConnectionEditor",
+    "ModelEditor",
+    "ModelSettingsPage",
+    "McpSettings",
+    "ExtensionConfig",
+  ],
   viewport: { width: 700, height: 400 },
   states: [
     {

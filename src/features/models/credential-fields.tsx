@@ -18,8 +18,10 @@ export function CredentialFields({
   onChange,
   onClearKey,
   onRevealKey,
+  onReloadConnection,
 }: {
   onRevealKey?: (signal: AbortSignal) => Promise<string>
+  onReloadConnection?: () => void
   value: ModelConnection
   errors: Record<string, string>
   disabled?: boolean
@@ -69,6 +71,7 @@ export function CredentialFields({
           disabled={disabled}
           error={errors.credential}
           onReveal={onRevealKey}
+          onReloadConnection={onReloadConnection}
           onChange={(apiKey) => onChange({ apiKey, keySaved: false })}
         />
       ) : value.credential === "environment" ? (

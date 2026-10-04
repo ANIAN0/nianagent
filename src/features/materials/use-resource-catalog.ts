@@ -1,6 +1,10 @@
 import { useContext, useEffect, useState } from "react"
 import type { Material } from "@/features/home/home-types"
 import { MaterialServiceContext } from "./material-service"
+import {
+  feedbackFromError,
+  type FeedbackDescription,
+} from "@/lib/operation-issue"
 
 export function useResourceCatalog({
   sessionId = "",
@@ -23,6 +27,7 @@ export function useResourceCatalog({
     skills: Material[]
     diagnostics: string[]
     error?: string
+    issue?: FeedbackDescription
   }>()
   const key = `${sessionId}:${cwd}:${query}:${revision}`
   useEffect(() => {
@@ -35,14 +40,29 @@ export function useResourceCatalog({
           if (!controller.signal.aborted) setResult({ key, ...data })
         })
         .catch((error: unknown) => {
-          if (!controller.signal.aborted)
-            setResult({
-              key,
-              files: [],
-              skills: [],
-              diagnostics: [],
-              error: error instanceof Error ? error.message : String(error),
-            })
+          // Closing candidates or changing their owner cancels silently. A
+          // cancelled current read remains recoverable without becoming red.
+          if (controller.signal.aborted) return
+          const feedback = feedbackFromError(
+            error,
+            "材料列表未能读取，请重新读取。"
+          )
+          const issue =
+            feedback.code === "cancelled"
+              ? {
+                  ...feedback,
+                  message: "资源读取已取消，可重新读取。",
+                  recovery: "retry" as const,
+                }
+              : feedback
+          setResult({
+            key,
+            files: [],
+            skills: [],
+            diagnostics: [],
+            error: issue.code === "cancelled" ? undefined : issue.message,
+            issue,
+          })
         })
     }, 160)
     return () => {
@@ -56,6 +76,7 @@ export function useResourceCatalog({
       skills: fallback.filter((item) => item.kind === "Skill"),
       diagnostics: [],
       error: undefined,
+      issue: undefined,
       loading: false,
       retry: () => {},
     }
@@ -65,6 +86,7 @@ export function useResourceCatalog({
     skills: current?.skills ?? [],
     diagnostics: current?.diagnostics ?? [],
     error: current?.error,
+    issue: current?.issue,
     loading: enabled && !current,
     retry: () => setRevision((value) => value + 1),
   }

@@ -1,6 +1,7 @@
 import {
   Field,
   FieldDescription,
+  FieldError,
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field"
@@ -11,29 +12,35 @@ import type { McpConfiguration } from "./mcp-service"
 export type McpTransportFieldsProps = {
   value: McpConfiguration
   disabled?: boolean
+  validate?: boolean
   onChange(patch: Partial<McpConfiguration>): void
 }
 export function McpTransportFields({
   value,
   disabled,
+  validate,
   onChange,
 }: McpTransportFieldsProps) {
   return (
     <FieldGroup>
       {value.transport === "stdio" ? (
         <>
-          <Field>
+          <Field data-invalid={!!validate && !value.command.trim()}>
             <FieldLabel htmlFor="mcp-command">可执行文件</FieldLabel>
             <Input
               id="mcp-command"
               placeholder="node / npx / 可执行文件的完整路径"
               value={value.command}
               disabled={disabled}
+              aria-invalid={!!validate && !value.command.trim()}
               onChange={(event) => onChange({ command: event.target.value })}
             />
             <FieldDescription>
               只填写程序，参数在下一栏逐行填写；带空格的文件路径无需再加引号。
             </FieldDescription>
+            {validate && !value.command.trim() && (
+              <FieldError>请填写用于启动服务的可执行文件。</FieldError>
+            )}
           </Field>
           <Field>
             <FieldLabel htmlFor="mcp-args">参数</FieldLabel>
@@ -76,16 +83,20 @@ export function McpTransportFields({
         </>
       ) : (
         <>
-          <Field>
+          <Field data-invalid={!!validate && !value.url.trim()}>
             <FieldLabel htmlFor="mcp-url">服务地址</FieldLabel>
             <Input
               id="mcp-url"
               placeholder="https://example.com/mcp"
               value={value.url}
               disabled={disabled}
+              aria-invalid={!!validate && !value.url.trim()}
               onChange={(event) => onChange({ url: event.target.value })}
             />
             <FieldDescription>使用 Streamable HTTP 服务端点。</FieldDescription>
+            {validate && !value.url.trim() && (
+              <FieldError>请填写 Streamable HTTP 服务地址。</FieldError>
+            )}
           </Field>
           <McpVariableFields
             label="请求头"

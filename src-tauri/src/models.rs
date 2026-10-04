@@ -103,7 +103,9 @@ impl ModelBackend {
         if bridge.is_none() {
             let mut command = Command::new("node");
             command
-                .arg(&self.script)
+                // Tauri's release resource_dir is canonical on Windows. Node
+                // cannot use its verbatim drive prefix as the entry script.
+                .arg(dunce::simplified(&self.script))
                 .env("MOON_DATA_DIR", &self.directory)
                 .env("MOON_RUNTIME_FILE", self.directory.join("runtime.json"))
                 .stdin(Stdio::piped())
@@ -161,7 +163,12 @@ impl ModelBackend {
                             if let Ok(mut map) = readers.lock() {
                                 if let Some(sender) = map.remove(id) {
                                     let result = if let Some(error) = value["error"].as_str() {
-                                        Err(format!("MOON_RPC_REJECTED:{error}"))
+                                        let failure = if value["issue"].is_object() {
+                                            json!({"error": error, "issue": value["issue"]}).to_string()
+                                        } else {
+                                            error.to_string()
+                                        };
+                                        Err(format!("MOON_RPC_REJECTED:{failure}"))
                                     } else {
                                         Ok(value["result"].clone())
                                     };
@@ -279,6 +286,47 @@ pub fn open_authorization_url(url: String) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    struct TestDirectory(PathBuf);
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn native_bridge_accepts_canonical_release_resource_path() {
+        let directory = std::env::temp_dir().join(format!(
+            "moon-canonical-runtime-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _cleanup = TestDirectory(directory.clone());
+        let backend = ModelBackend {
+            app: None,
+            directory_picker_busy: Arc::new(AtomicBool::new(false)),
+            stopping: AtomicBool::new(false),
+            bridge: Mutex::new(None),
+            script: std::fs::canonicalize(
+                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../backend/rpc.mjs"),
+            )
+            .unwrap(),
+            directory: directory.clone(),
+        };
+        let ready = backend
+            .send("release-path", "$runtime", json!({}))
+            .unwrap()
+            .recv_timeout(Duration::from_secs(30))
+            .unwrap()
+            .unwrap();
+        assert_eq!(ready["version"].as_str().unwrap().len(), 64);
+        drop(backend);
+        std::fs::remove_dir_all(&directory).unwrap();
+        assert!(!directory.try_exists().unwrap());
+    }
+
     #[test]
     fn shutdown_is_terminal_and_idempotent() {
         let backend = ModelBackend {

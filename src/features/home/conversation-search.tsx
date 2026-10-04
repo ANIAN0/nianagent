@@ -24,6 +24,8 @@ import { ConversationListFeedback } from "./conversation-list-feedback"
 import { ConversationStatusMark } from "./conversation-status-mark"
 import type { HistoryState } from "@/features/conversation/conversation-catalog-service"
 import { cn } from "@/lib/utils"
+import { useComposerKeyboard } from "@/components/composer/composer-keymap"
+import type { FeedbackDescription } from "@/lib/operation-issue"
 
 export type ConversationSearchProps = {
   data: Pick<HomeData, "conversations" | "workspaces">
@@ -32,6 +34,7 @@ export type ConversationSearchProps = {
   onSelect: (item: Conversation) => void
   historyState?: HistoryState
   historyError?: string
+  historyIssue?: FeedbackDescription
   onHistoryRetry?: () => void
 }
 function Match({ text, query }: { text: string; query: string }) {
@@ -54,6 +57,7 @@ export function ConversationSearch({
   onSelect,
   historyState = "ready",
   historyError,
+  historyIssue,
   onHistoryRetry,
 }: ConversationSearchProps) {
   const [query, setQuery] = useState("")
@@ -77,6 +81,9 @@ export function ConversationSearch({
     onOpenChange(false)
     onSelect(item)
   }
+  const keyboard = useComposerKeyboard<HTMLInputElement>(() => {
+    if (matches[activeIndex]) select(matches[activeIndex])
+  })
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -114,7 +121,8 @@ export function ConversationSearch({
                 setActive(0)
               }}
               onKeyDown={(event) => {
-                if (event.nativeEvent.isComposing) return
+                const intent = keyboard.onKeyDown(event)
+                if (intent === "composing" || event.defaultPrevented) return
                 if (
                   (event.key === "ArrowDown" || event.key === "ArrowUp") &&
                   matches.length
@@ -129,11 +137,10 @@ export function ConversationSearch({
                   results.current?.children[next]?.scrollIntoView({
                     block: "nearest",
                   })
-                } else if (event.key === "Enter" && matches[activeIndex]) {
-                  event.preventDefault()
-                  select(matches[activeIndex])
                 }
               }}
+              onCompositionStart={keyboard.onCompositionStart}
+              onCompositionEnd={keyboard.onCompositionEnd}
             />
             {query && (
               <InputGroupAddon align="inline-end">
@@ -165,6 +172,7 @@ export function ConversationSearch({
             <ConversationListFeedback
               state={historyState}
               error={historyError}
+              issue={historyIssue}
               hasItems={data.conversations.length > 0}
               onRetry={onHistoryRetry}
             />

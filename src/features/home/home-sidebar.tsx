@@ -1,3 +1,4 @@
+import type { FeedbackDescription } from "@/lib/operation-issue"
 import { PanelLeft, Search, FolderOpen, Settings } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -19,6 +20,7 @@ export type HomeSidebarProps = {
   onNotice: (message: string) => void
   historyState?: HistoryState
   historyError?: string
+  historyIssue?: FeedbackDescription
   onHistoryRetry?: () => void
 }
 export function HomeSidebar({
@@ -33,6 +35,7 @@ export function HomeSidebar({
   onSettings,
   historyState,
   historyError,
+  historyIssue,
   onHistoryRetry,
 }: HomeSidebarProps) {
   return (
@@ -126,6 +129,7 @@ export function HomeSidebar({
             data={data}
             historyState={historyState}
             historyError={historyError}
+            historyIssue={historyIssue}
             onHistoryRetry={onHistoryRetry}
             activeConversationId={activeConversationId}
             onNew={onNew}

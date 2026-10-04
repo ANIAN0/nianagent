@@ -68,7 +68,9 @@ export function OperationDocs({
   definition: OperationDefinition
   schemas: SchemaRegistry
 }) {
-  const [fieldType, setFieldType] = useState<"request" | "response">("request")
+  const [fieldType, setFieldType] = useState<
+    "request" | "response" | "failure"
+  >("request")
   const fieldId = useId()
   const response = definition.response.$ref
     ? schemas[definition.response.$ref]
@@ -109,6 +111,9 @@ export function OperationDocs({
           <div>
             <h3>错误与恢复</h3>
             <p>{definition.errors}</p>
+            <p>
+              明确拒绝返回安全原因与恢复动作。响应丢失表示结果待确认，不能当作操作未执行；写入先核对原请求，读取可重新读取。主动取消不以错误提示。
+            </p>
           </div>
         </div>
       </div>
@@ -123,7 +128,7 @@ export function OperationDocs({
           role="group"
           aria-label="接口字段类型"
         >
-          {(["request", "response"] as const).map((type) => (
+          {(["request", "response", "failure"] as const).map((type) => (
             <Button
               key={type}
               id={`${fieldId}-${type}`}
@@ -133,7 +138,11 @@ export function OperationDocs({
               aria-controls={`${fieldId}-fields`}
               onClick={() => setFieldType(type)}
             >
-              {type === "request" ? "请求字段" : "返回字段"}
+              {type === "request"
+                ? "请求字段"
+                : type === "response"
+                  ? "返回字段"
+                  : "错误字段"}
             </Button>
           ))}
         </div>
@@ -149,6 +158,23 @@ export function OperationDocs({
               schemas={schemas}
               label="请求"
             />
+          ) : fieldType === "failure" ? (
+            <>
+              <p className="api-return-summary">
+                <code>RpcFailure</code>
+                <span>
+                  error 兼容摘要；issue
+                  是稳定的错误类别、安全说明、可展开诊断和恢复动作。传输层结果待确认使用
+                  result_unknown；重试不应创建重复写入。
+                </span>
+              </p>
+              <ContractFields
+                key="failure"
+                schema={{ $ref: "RpcFailure" }}
+                schemas={schemas}
+                label="错误"
+              />
+            </>
           ) : (
             <>
               <p className="api-return-summary">

@@ -1,18 +1,24 @@
-import { CircleAlert, RefreshCw, LoaderCircle } from "lucide-react"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Button } from "@/components/ui/button"
+import { LoaderCircle } from "lucide-react"
+import { OperationFeedback } from "@/components/feedback/operation-feedback"
+import { RecoveryAction } from "@/components/feedback/recovery-action"
+import {
+  feedbackFromError,
+  type FeedbackDescription,
+} from "@/lib/operation-issue"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { HistoryState } from "@/features/conversation/conversation-catalog-service"
 
 export type ConversationListFeedbackProps = {
   state?: HistoryState
   error?: string
+  issue?: FeedbackDescription
   hasItems?: boolean
   onRetry?: () => void
 }
 export function ConversationListFeedback({
   state = "ready",
   error,
+  issue,
   hasItems = false,
   onRetry,
 }: ConversationListFeedbackProps) {
@@ -41,21 +47,33 @@ export function ConversationListFeedback({
         )}
       </div>
     )
+  const failure =
+    issue ?? feedbackFromError(error, "会话列表暂时无法读取，请重新读取。")
   return (
-    <Alert variant="destructive" className="mb-2 p-3">
-      <CircleAlert />
-      <AlertTitle className="text-xs">
-        {hasItems ? "会话列表未能更新" : "无法读取会话列表"}
-      </AlertTitle>
-      <AlertDescription className="flex flex-col items-start gap-2 text-xs">
-        <span className="break-words">{error || "请检查本地服务后重试。"}</span>
-        {onRetry && (
-          <Button variant="outline" size="xs" onClick={onRetry}>
-            <RefreshCw data-icon="inline-start" />
-            重新读取
-          </Button>
-        )}
-      </AlertDescription>
-    </Alert>
+    <div className="mb-2 px-2 py-1">
+      <OperationFeedback
+        title={
+          failure.code === "cancelled"
+            ? "会话列表读取已取消"
+            : hasItems
+              ? "会话列表未能更新"
+              : "无法读取会话列表"
+        }
+        {...failure}
+        actions={
+          <RecoveryAction
+            issue={failure}
+            onRetry={onRetry}
+            onReload={onRetry}
+            onCheck={onRetry}
+            labels={{
+              retry: "重新读取会话列表",
+              reload: "重新读取会话列表",
+              check: "核对会话列表",
+            }}
+          />
+        }
+      />
+    </div>
   )
 }

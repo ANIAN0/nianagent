@@ -1,36 +1,78 @@
 import { useContext, useEffect, useRef, useState } from "react"
 import { MaterialServiceContext } from "./material-service"
+import { readMaterialThumbnail } from "./material-thumbnail-reader"
 
-/** Full image bytes are fetched only when this thumbnail becomes visible. */
-export function useMaterialThumbnail(id: string, cwd: string, enabled: boolean) {
+export type MaterialThumbnailStatus = "idle" | "loading" | "ready" | "failed"
+
+/** Full image bytes are fetched once when this owned thumbnail becomes visible. */
+export function useMaterialThumbnail(
+  id: string,
+  cwd: string,
+  enabled: boolean,
+) {
   const service = useContext(MaterialServiceContext)
   const target = useRef<HTMLDivElement>(null)
-  const [thumbnail, setThumbnail] = useState<{ key: string; url: string }>()
-  const key = `${cwd}:${id}`
+  const key = JSON.stringify([cwd, id])
+  const [state, setState] = useState<{
+    key: string
+    service: typeof service
+    enabled: boolean
+    status: MaterialThumbnailStatus
+    url?: string
+  }>({ key, service, enabled, status: "idle" })
+  if (
+    state.key !== key ||
+    state.service !== service ||
+    state.enabled !== enabled
+  )
+    setState({ key, service, enabled, status: "idle" })
   useEffect(() => {
     if (!service || !enabled || !cwd || !target.current) return
     const controller = new AbortController()
+    let started = false
     const observer = new IntersectionObserver((entries) => {
-      if (!entries.some((entry) => entry.isIntersecting)) return
+      if (
+        controller.signal.aborted ||
+        started ||
+        !entries.some((entry) => entry.isIntersecting)
+      )
+        return
+      started = true
       observer.disconnect()
-      void service.preview(cwd, id, controller.signal).then((preview) => {
-        if (controller.signal.aborted || !preview.data) return
-        const image = new Image()
-        image.onload = () => {
-          if (controller.signal.aborted) return
-          const ratio = Math.min(1, 128 / Math.max(image.width, image.height))
-          const canvas = document.createElement("canvas")
-          canvas.width = Math.max(1, Math.round(image.width * ratio))
-          canvas.height = Math.max(1, Math.round(image.height * ratio))
-          canvas.getContext("2d")?.drawImage(image, 0, 0, canvas.width, canvas.height)
-          setThumbnail({ key, url: canvas.toDataURL("image/webp", 0.75) })
-          image.src = ""
-        }
-        image.src = `data:${preview.mimeType};base64,${preview.data}`
-      }).catch(() => { /* Clicking preview exposes a retryable actual error. */ })
+      setState({ key, service, enabled, status: "loading" })
+      void service
+        .preview(cwd, id, controller.signal)
+        .then((preview) => readMaterialThumbnail(preview, controller.signal))
+        .then((url) => {
+          if (!controller.signal.aborted)
+            setState({ key, service, enabled, status: "ready", url })
+        })
+        .catch(() => {
+          if (!controller.signal.aborted)
+            setState({ key, service, enabled, status: "failed" })
+        })
     })
     observer.observe(target.current)
-    return () => { controller.abort(); observer.disconnect() }
+    return () => {
+      controller.abort()
+      observer.disconnect()
+    }
   }, [service, key, id, cwd, enabled])
-  return { target, thumbnail: thumbnail?.key === key ? thumbnail.url : "" }
+  const current =
+    state.key === key && state.service === service && state.enabled === enabled
+      ? state
+      : undefined
+  return {
+    target,
+    thumbnail: current?.url ?? "",
+    status: current?.status ?? "idle",
+    fail: () =>
+      setState((previous) =>
+        previous.key === key &&
+        previous.service === service &&
+        previous.enabled === enabled
+          ? { key, service, enabled, status: "failed" }
+          : previous,
+      ),
+  }
 }

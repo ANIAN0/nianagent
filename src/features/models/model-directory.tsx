@@ -1,4 +1,7 @@
 import { useState } from "react"
+import { OperationFeedback } from "@/components/feedback/operation-feedback"
+import { RecoveryAction } from "@/components/feedback/recovery-action"
+import type { ModelCheckState } from "./use-connection-editor"
 import { Ellipsis, Pencil, Search, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -33,10 +36,11 @@ export type ModelDirectoryProps = {
   readOnly?: boolean
   models: ModelDefinition[]
   busy?: boolean
-  checks?: Record<string, { error?: boolean; text: string }>
+  checks?: Record<string, ModelCheckState>
   onEdit: (model: ModelDefinition) => void
   onRemove: (model: ModelDefinition) => void
   onCheck: (model: ModelDefinition) => void
+  onConfigureConnection?: () => void
 }
 export function ModelDirectory({
   readOnly,
@@ -46,6 +50,7 @@ export function ModelDirectory({
   onEdit,
   onRemove,
   onCheck,
+  onConfigureConnection,
 }: ModelDirectoryProps) {
   return (
     <ModelTable
@@ -54,17 +59,33 @@ export function ModelDirectory({
       empty="此连接还没有模型"
       description="先测试连接发现模型，或手工添加。空连接也可保存。"
       status={(model) =>
-        checks[model.id] && (
-          <span
-            role={checks[model.id].error ? "alert" : "status"}
-            className={
-              checks[model.id].error
-                ? "model-secondary text-destructive"
-                : "model-secondary"
+        checks[model.id]?.issue ? (
+          <OperationFeedback
+            title="模型检查未完成"
+            {...checks[model.id].issue!}
+            actions={
+              <RecoveryAction
+                issue={checks[model.id].issue!}
+                onRetry={() => onCheck(model)}
+                onSettings={onConfigureConnection}
+                disabled={busy}
+                labels={{ retry: "重新检查", settings: "检查连接配置" }}
+              />
             }
-          >
-            {checks[model.id].text}
-          </span>
+          />
+        ) : (
+          checks[model.id] && (
+            <span
+              role={checks[model.id].error ? "alert" : "status"}
+              className={
+                checks[model.id].error
+                  ? "model-secondary text-destructive"
+                  : "model-secondary"
+              }
+            >
+              {checks[model.id].text}
+            </span>
+          )
         )
       }
       actions={(model) => (
@@ -91,7 +112,9 @@ export function ModelDirectory({
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => onCheck(model)}>
                 <Search />
-                检查可用性
+                {checks[model.id]?.issue?.code === "result_unknown"
+                  ? "发起新检查"
+                  : "检查可用性"}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem

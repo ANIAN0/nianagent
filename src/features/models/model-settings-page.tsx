@@ -1,16 +1,29 @@
+import { ConfigurationRecoveryPanel } from "./configuration-recovery-panel"
+import {
+  retainConfigurationAttempt,
+  finishConfigurationAttempt,
+  useConfigurationRecoveries,
+} from "./configuration-recovery-store"
 import "./model-settings.css"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { ArrowLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { RecoveryAction } from "@/components/feedback/recovery-action"
+import {
+  feedbackFromError,
+  type FeedbackDescription,
+} from "@/lib/operation-issue"
 import { ConnectionList } from "./connection-list"
 import { ConnectionEditor, type LeaveGuard } from "./connection-editor"
 import { McpSettings } from "@/features/mcp/mcp-settings"
 import type { McpService } from "@/features/mcp/mcp-service"
 import { AddConnectionDialog } from "./add-connection-dialog"
+import { SettingsConfirmDialog } from "./settings-confirmation"
 import {
-  SettingsConfirmDialog,
-  type SettingsConfirmation,
-} from "./settings-confirmation"
+  readSettingsWriteReceipt,
+  unknownWrite,
+  writeIsUnknown,
+} from "./settings-write-recovery"
 import {
   blankConnection,
   credentialLabel,
@@ -18,6 +31,20 @@ import {
   type ModelService,
 } from "./model-types"
 
+type DeleteAttempt = {
+  operation: "remove"
+  operationRequestId: string
+  targetId: string
+  connection: ModelConnection
+}
+type Deletion = {
+  service: ModelService
+  item: ModelConnection
+  attempt?: DeleteAttempt
+  issue?: FeedbackDescription
+  open: boolean
+}
+const unresolvedDeletions = new WeakMap<ModelService, Map<string, Deletion>>()
 export type ModelSettingsPageProps = {
   service: ModelService
   mcpService?: McpService
@@ -32,59 +59,119 @@ export function ModelSettingsPage({
   onConnectionsChange,
   registerLeave,
 }: ModelSettingsPageProps) {
-  const [connections, setConnections] = useState<ModelConnection[]>([])
+  const [listing, setListing] = useState<{
+    service?: ModelService
+    items: ModelConnection[]
+    loading: boolean
+    failure?: FeedbackDescription
+  }>({ items: [], loading: true })
+  const recovery = useConfigurationRecoveries(service.evidence === "demo")
+  const restoredIds = recovery.records
+    .filter((record) =>
+      ["save", "remove", "authStart"].includes(record.operation)
+    )
+    .map((record) => record.targetId)
   const [section, setSection] = useState<"models" | "mcp">("models")
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState("")
-  const [revision, setRevision] = useState(0)
-  const [editor, setEditor] = useState<ModelConnection>()
+  const [editor, setEditor] = useState<{
+    service: ModelService
+    item: ModelConnection
+  }>()
   const [adding, setAdding] = useState(false)
-  const [confirm, setConfirm] = useState<SettingsConfirmation>()
-  const [confirmError, setConfirmError] = useState("")
-  const [busy, setBusy] = useState(false)
+  const [deletion, setDeletion] = useState<Deletion | undefined>(
+    () => [...(unresolvedDeletions.get(service)?.values() ?? [])][0]
+  )
+  const [pending, setPending] = useState<{
+    service: ModelService
+    cancelling: boolean
+  }>()
   const [notice, setNotice] = useState("")
   const [listView, setListView] = useState({ query: "", page: 1, size: 10 })
   const publishRef = useRef(onConnectionsChange)
   useEffect(() => {
     publishRef.current = onConnectionsChange
   }, [onConnectionsChange])
+  const listRequest = useRef<AbortController | null>(null)
   const request = useRef<AbortController | null>(null)
   const guard = useRef<LeaveGuard | null>(null)
   const root = useRef<HTMLDivElement>(null)
   const storeGuard = useCallback((value: LeaveGuard | null) => {
     guard.current = value
   }, [])
-  const leave = useCallback<LeaveGuard>((action) => {
-    if (guard.current) guard.current(action)
-    else action()
-  }, [])
+  const leave = useCallback<LeaveGuard>(
+    (action) => {
+      if (request.current) {
+        setDeletion((old) => (old ? { ...old, open: true } : old))
+        return
+      }
+      if (guard.current) guard.current(action)
+      else action()
+    },
+    [setDeletion]
+  )
   useEffect(() => {
     registerLeave?.(leave)
     return () => registerLeave?.(null)
   }, [leave, registerLeave])
-  useEffect(() => {
+  const readList = useCallback(() => {
+    listRequest.current?.abort()
     const controller = new AbortController()
-    service
+    listRequest.current = controller
+    void service
       .list(controller.signal)
       .then((items) => {
-        setConnections(items)
+        if (controller.signal.aborted || listRequest.current !== controller)
+          return
+        setListing({ service, items, loading: false })
         publishRef.current?.(items)
-        setLoading(false)
       })
-      .catch((reason: unknown) => {
-        if (!controller.signal.aborted) {
-          setError(reason instanceof Error ? reason.message : "读取失败。")
-          setLoading(false)
-        }
+      .catch((reason) => {
+        if (controller.signal.aborted || listRequest.current !== controller)
+          return
+        setListing((old) => ({
+          service,
+          items: old.service === service ? old.items : [],
+          loading: false,
+          failure: feedbackFromError(reason, "无法读取模型连接。"),
+        }))
       })
-    return () => controller.abort()
-  }, [service, revision])
-  useEffect(() => () => request.current?.abort(), [])
+    return () => {
+      controller.abort()
+      if (listRequest.current === controller) listRequest.current = null
+    }
+  }, [service])
+  const load = useCallback(() => {
+    setListing((old) => ({
+      service,
+      items: old.service === service ? old.items : [],
+      loading: true,
+    }))
+    return readList()
+  }, [readList, service])
+  // Mount/service changes start an external read; event handlers own loading.
+  // Owner-tagged results keep a previous service's data out of the new view.
+  useEffect(readList, [readList])
+  useEffect(
+    () => () => {
+      request.current?.abort()
+      request.current = null
+      guard.current = null
+    },
+    [service]
+  )
+  const connections = listing.service === service ? listing.items : []
+  const activeEditor = editor?.service === service ? editor.item : undefined
+  const retainedDeletions = [
+    ...(unresolvedDeletions.get(service)?.values() ?? []),
+  ]
+  const activeDeletion =
+    deletion?.service === service ? deletion : retainedDeletions[0]
+  const busy = pending?.service === service
+  const deletionUnknown = !!activeDeletion?.attempt
   function publish(items: ModelConnection[]) {
-    setConnections(items)
-    onConnectionsChange?.(items)
+    setListing({ service, items, loading: false })
+    publishRef.current?.(items)
   }
-  function closeEditor(id = editor?.id) {
+  function closeEditor(id = activeEditor?.id) {
     setEditor(undefined)
     requestAnimationFrame(() => {
       const target = id
@@ -98,13 +185,164 @@ export function ModelSettingsPage({
   }
   function edit(item: ModelConnection) {
     setNotice("")
-    setEditor(item)
+    setEditor({ service, item })
     requestAnimationFrame(() =>
       root.current
         ?.querySelector<HTMLElement>(".model-editor-head h2")
         ?.focus({ preventScroll: true })
     )
   }
+  function retain(value: Deletion) {
+    let records = unresolvedDeletions.get(service)
+    if (!records) {
+      records = new Map()
+      unresolvedDeletions.set(service, records)
+    }
+    if (value.attempt)
+      retainConfigurationAttempt(
+        {
+          operation: value.attempt.operation,
+          operationRequestId: value.attempt.operationRequestId,
+          targetId: value.attempt.targetId,
+          revision: value.attempt.connection.revision,
+        },
+        service.evidence === "demo"
+      )
+    records.set(value.item.id, value)
+    setDeletion(value)
+  }
+  async function remove() {
+    if (request.current || !activeDeletion) return
+    const original = activeDeletion.item
+    const attempt: DeleteAttempt = {
+      operation: "remove",
+      targetId: original.id,
+      operationRequestId: crypto.randomUUID(),
+      connection: structuredClone(original),
+    }
+    const controller = new AbortController()
+    request.current = controller
+    setPending({ service, cancelling: false })
+    try {
+      retain({ ...activeDeletion, attempt, issue: undefined })
+      await service.remove(
+        original.id,
+        controller.signal,
+        original.revision,
+        attempt.operationRequestId
+      )
+      controller.signal.throwIfAborted()
+      if (request.current !== controller) return
+      finishConfigurationAttempt(
+        attempt.operation,
+        attempt.operationRequestId,
+        service.evidence === "demo"
+      )
+      unresolvedDeletions.get(service)?.delete(original.id)
+      setDeletion(undefined)
+      publish(connections.filter((value) => value.id !== original.id))
+      setNotice(`已删除“${original.name}”。`)
+    } catch (reason) {
+      if (request.current !== controller) return
+      const issue = controller.signal.aborted
+        ? unknownWrite(
+            "删除等待已取消，最终结果仍待核对；已提交的删除不会回滚。"
+          )
+        : feedbackFromError(reason, "未能删除连接，目录未提前移除。")
+      const next = {
+        ...activeDeletion,
+        attempt: writeIsUnknown(issue) ? attempt : undefined,
+        issue,
+        open: true,
+      }
+      if (next.attempt) retain(next)
+      else {
+        finishConfigurationAttempt(
+          attempt.operation,
+          attempt.operationRequestId,
+          service.evidence === "demo"
+        )
+        unresolvedDeletions.get(service)?.delete(original.id)
+        setDeletion(next)
+      }
+    } finally {
+      if (request.current === controller) {
+        request.current = null
+        setPending(undefined)
+      }
+    }
+  }
+  async function checkRemoval() {
+    const attempt = activeDeletion?.attempt
+    if (request.current || !attempt || !activeDeletion) return
+    const controller = new AbortController()
+    request.current = controller
+    setPending({ service, cancelling: false })
+    try {
+      const receipt = await readSettingsWriteReceipt(
+        service.readWriteReceipt,
+        attempt,
+        controller.signal
+      )
+      if (request.current !== controller) return
+      if (receipt.state === "unknown") {
+        retain({
+          ...activeDeletion,
+          issue: unknownWrite("服务仍未确认原删除请求，请稍后再次核对。"),
+        })
+        return
+      }
+      if (receipt.state === "rejected") {
+        finishConfigurationAttempt(
+          attempt.operation,
+          attempt.operationRequestId,
+          service.evidence === "demo"
+        )
+        unresolvedDeletions.get(service)?.delete(attempt.targetId)
+        setDeletion({
+          ...activeDeletion,
+          attempt: undefined,
+          issue: receipt.issue
+            ? feedbackFromError({ issue: receipt.issue })
+            : {
+                code: "write_rejected",
+                recovery: "retry",
+                message: "原删除请求未提交，可再次删除。",
+              },
+        })
+        return
+      }
+      const items = await service.list(controller.signal)
+      controller.signal.throwIfAborted()
+      if (request.current !== controller) return
+      publish(items)
+      finishConfigurationAttempt(
+        attempt.operation,
+        attempt.operationRequestId,
+        service.evidence === "demo"
+      )
+      unresolvedDeletions.get(service)?.delete(attempt.targetId)
+      setDeletion(undefined)
+      setNotice("原删除请求已确认完成，目录已重新读取。")
+    } catch (reason) {
+      if (request.current === controller && !controller.signal.aborted)
+        retain({
+          ...activeDeletion,
+          issue: feedbackFromError(reason, "暂时无法核对原删除请求。"),
+        })
+    } finally {
+      if (request.current === controller) {
+        request.current = null
+        setPending(undefined)
+      }
+    }
+  }
+  const deletionIssue = activeDeletion?.issue
+  const confirmDisabled =
+    deletionIssue?.recovery === "restart" ||
+    deletionIssue?.recovery === "none" ||
+    deletionIssue?.recovery === "settings" ||
+    deletionIssue?.recovery === "reload"
   return (
     <section
       ref={root}
@@ -114,7 +352,7 @@ export function ModelSettingsPage({
       <header className="model-settings-topbar">
         <h1>设置</h1>
         <Button variant="ghost" onClick={() => leave(onReturn)}>
-          <ArrowLeft />
+          <ArrowLeft data-icon="inline-start" />
           返回工作台
         </Button>
       </header>
@@ -124,12 +362,13 @@ export function ModelSettingsPage({
           variant="ghost"
           aria-current={section === "models" ? "page" : undefined}
           className="w-full justify-start"
-          onClick={() =>
-            leave(() => {
-              setSection("models")
-              closeEditor()
-            })
-          }
+          onClick={() => {
+            if (section !== "models")
+              leave(() => {
+                setSection("models")
+                closeEditor()
+              })
+          }}
         >
           模型连接
         </Button>
@@ -149,20 +388,24 @@ export function ModelSettingsPage({
         </Button>
       </nav>
       <div className="model-settings-content">
-        {section === "mcp" ? (
+        {section === "mcp" && (
           <McpSettings service={mcpService} registerLeave={storeGuard} />
-        ) : null}
-        {section === "models" && editor ? (
+        )}
+        {section === "models" && activeEditor && (
           <ConnectionEditor
-            key={editor.id}
-            initial={editor}
+            key={activeEditor.id}
+            initial={activeEditor}
             connections={connections}
             service={service}
             registerLeave={storeGuard}
             onClose={() => closeEditor()}
             onAccountSaved={(saved) =>
               publish(
-                connections.map((item) => (item.id === saved.id ? saved : item))
+                connections.some((item) => item.id === saved.id)
+                  ? connections.map((item) =>
+                      item.id === saved.id ? saved : item
+                    )
+                  : [...connections, saved]
               )
             }
             onSaved={(saved) => {
@@ -191,53 +434,66 @@ export function ModelSettingsPage({
               closeEditor(saved.id)
             }}
           />
-        ) : null}
-        <div
-          className={editor || section !== "models" ? "hidden" : "model-scroll"}
-        >
-          {notice && (
-            <p className="model-page-notice" role="status">
-              {notice}
-            </p>
-          )}
-          <ConnectionList
-            view={listView}
-            onViewChange={(patch) =>
-              setListView((previous) => ({ ...previous, ...patch }))
-            }
-            connections={connections}
-            loading={loading}
-            error={error}
-            busy={busy}
-            onRetry={() => {
-              setError("")
-              setLoading(true)
-              setRevision((value) => value + 1)
-            }}
-            onAdd={() => setAdding(true)}
-            onEdit={edit}
-            onRemove={(item) => {
-              setConfirmError("")
-              setConfirm({
-                title: "删除连接？",
-                description: `“${item.name}”及其 ${item.models.length} 个模型将从目录移除。已有会话保留原模型选择，不会自动切换。`,
-                label: "删除连接",
-                destructive: true,
-                action: async () => {
-                  const controller = new AbortController()
-                  request.current = controller
-                  await service.remove(
-                    item.id,
-                    controller.signal,
-                    item.revision
+        )}
+        {!activeEditor && section === "models" && (
+          <div className="model-scroll">
+            {notice && (
+              <p className="model-page-notice" role="status">
+                {notice}
+              </p>
+            )}
+            <div className="model-page pb-0 empty:hidden">
+              <ConfigurationRecoveryPanel
+                service={service}
+                operations={["save", "remove", "authStart"]}
+                onResolved={load}
+              />
+            </div>
+            <ConnectionList
+              view={listView}
+              onViewChange={(patch) =>
+                setListView((old) => ({ ...old, ...patch }))
+              }
+              connections={connections}
+              loading={listing.service !== service || listing.loading}
+              failure={listing.failure}
+              busy={busy}
+              blockedIds={[
+                ...retainedDeletions.map((record) => record.item.id),
+                ...restoredIds,
+              ]}
+              onRetry={load}
+              onAdd={() => setAdding(true)}
+              onEdit={edit}
+              onRemove={(item) => {
+                const retained = unresolvedDeletions.get(service)?.get(item.id)
+                setDeletion(
+                  retained
+                    ? { ...retained, open: true }
+                    : { service, item, open: true }
+                )
+              }}
+            />
+            {retainedDeletions
+              .filter(
+                (record) =>
+                  !(
+                    activeDeletion?.open &&
+                    activeDeletion.item.id === record.item.id
                   )
-                  publish(connections.filter((value) => value.id !== item.id))
-                  setNotice(`已删除“${item.name}”。`)
-                },
-              })
-            }}
-          />
-        </div>
+              )
+              .map((record) => (
+                <div key={record.item.id} className="model-page">
+                  <Button
+                    variant="outline"
+                    onClick={() => setDeletion({ ...record, open: true })}
+                  >
+                    核对“{record.item.name}”的删除结果
+                  </Button>
+                </div>
+              ))}
+          </div>
+        )}
       </div>
       <AddConnectionDialog
         open={adding}
@@ -248,43 +504,53 @@ export function ModelSettingsPage({
         }}
       />
       <SettingsConfirmDialog
-        value={confirm}
+        value={
+          activeDeletion?.open
+            ? {
+                title: deletionUnknown ? "删除结果待核对" : "删除连接？",
+                description: `“${activeDeletion.item.name}”及其 ${activeDeletion.item.models.length} 个模型将移除。已有会话保留原模型选择，不会自动切换。`,
+                label: deletionUnknown ? "核对删除结果" : "删除连接",
+                destructive: !deletionUnknown,
+                action: () => {},
+              }
+            : undefined
+        }
         busy={busy}
-        error={confirmError}
+        confirmDisabled={confirmDisabled}
+        error={deletionIssue?.message}
+        errorDetails={deletionIssue?.details}
+        errorSeverity={deletionUnknown ? "warning" : deletionIssue?.severity}
+        errorTitle={deletionUnknown ? "原删除尚待确认" : "删除未完成"}
+        errorActions={
+          deletionIssue ? (
+            <RecoveryAction
+              issue={deletionIssue}
+              onReload={() => {
+                load()
+                setDeletion(undefined)
+              }}
+              labels={{ reload: "重新读取目录" }}
+            />
+          ) : undefined
+        }
         onCancelRequest={() => {
           request.current?.abort()
-          setConfirmError("已请求取消；正在确认结果，已提交的删除不会回滚。")
+          setPending({ service, cancelling: true })
         }}
-        onCancel={() => setConfirm(undefined)}
-        onConfirm={() => {
-          setBusy(true)
-          setConfirmError("")
-          Promise.resolve()
-            .then(() => confirm?.action())
-            .then(() => setConfirm(undefined))
-            .catch(async (reason: unknown) => {
-              if (request.current?.signal.aborted) {
-                try {
-                  publish(await service.list(new AbortController().signal))
-                  setConfirm(undefined)
-                  setNotice(
-                    "删除请求已取消，已重新读取目录；已提交的删除不会回滚。"
-                  )
-                } catch {
-                  setConfirmError(
-                    "请求已取消，但无法确认最终状态。请关闭对话框后重新读取目录。"
-                  )
-                  setError("无法确认取消后的状态，请重新读取。")
-                }
-              } else
-                setConfirmError(
-                  reason instanceof Error
-                    ? reason.message
-                    : "删除失败，请重试。"
-                )
-            })
-            .finally(() => setBusy(false))
+        busyMessage={
+          pending?.cancelling
+            ? "正在取消等待并确认结果…"
+            : deletionUnknown
+              ? "正在核对原删除…"
+              : "正在删除…"
+        }
+        onCancel={() => {
+          if (activeDeletion) {
+            if (deletionUnknown) retain({ ...activeDeletion, open: false })
+            else setDeletion(undefined)
+          }
         }}
+        onConfirm={() => void (deletionUnknown ? checkRemoval() : remove())}
       />
     </section>
   )

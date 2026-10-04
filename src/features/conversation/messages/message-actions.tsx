@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/tooltip"
 import { CopyButton } from "./copy-button"
 import { ForkAction } from "../controls/fork-action"
+import type { ConversationMessage } from "../conversation-types"
 import "./messages.css"
 
 export function MessageActions({
@@ -20,6 +21,9 @@ export function MessageActions({
   model,
   align = "start",
   running = false,
+  status,
+  stopReason,
+  continued,
   onRetry,
   onFork,
   forkDisabledReason,
@@ -30,15 +34,36 @@ export function MessageActions({
   model?: string
   align?: "start" | "end"
   running?: boolean
+  status?: ConversationMessage["status"]
+  stopReason?: ConversationMessage["stopReason"]
+  continued?: boolean
   onRetry?: () => void
   onFork?: () => void
   forkDisabledReason?: string
   forkPending?: boolean
 }) {
   const date = time === undefined ? undefined : new Date(time)
+  const today = new Date()
+  const sameDay = date?.toDateString() === today.toDateString()
+  const statusLabel =
+    stopReason === "length"
+      ? "达到输出上限"
+      : status === "interrupted" || stopReason === "aborted"
+        ? "已停止"
+        : status === "failed" || stopReason === "error"
+          ? "回复失败"
+          : status === "sending"
+            ? "正在提交"
+            : running || status === "streaming"
+              ? "正在输出"
+              : align === "end"
+                ? "已接收"
+                : "回复完成"
   const clock =
     date && !Number.isNaN(date.getTime()) ? (
       <time dateTime={date.toISOString()} title={date.toLocaleString("zh-CN")}>
+        {!sameDay &&
+          `${date.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit", ...(date.getFullYear() !== today.getFullYear() ? { year: "numeric" as const } : {}) })} `}
         {date.toLocaleTimeString("zh-CN", {
           hour: "2-digit",
           minute: "2-digit",
@@ -48,11 +73,10 @@ export function MessageActions({
     ) : null
   return (
     <div className="conversation-message-actions" data-align={align}>
-      {align === "end" && clock}
       {text.trim() && (
         <CopyButton text={text} label={running ? "复制当前内容" : "复制消息"} />
       )}
-      {model && (
+      {(model || clock || status) && (
         <Popover>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -90,7 +114,10 @@ export function MessageActions({
                 </>
               )}
               <dt>状态</dt>
-              <dd>{running ? "正在输出" : "已记录"}</dd>
+              <dd>
+                {statusLabel}
+                {continued && " · 后续已继续回复"}
+              </dd>
             </dl>
           </PopoverContent>
         </Popover>
@@ -114,7 +141,6 @@ export function MessageActions({
           </TooltipContent>
         </Tooltip>
       )}
-      {align === "start" && clock}
       {onFork && (
         <ForkAction
           pending={forkPending}
@@ -124,6 +150,7 @@ export function MessageActions({
           onFork={onFork}
         />
       )}
+      {clock}
     </div>
   )
 }

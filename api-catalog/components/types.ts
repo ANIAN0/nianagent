@@ -10,9 +10,4 @@ export type NavigationItem = {
   module: string
   effect?: string
 }
-export type CatalogResponse = {
-  status: "idle" | "running" | "success" | "error" | "cancelled"
-  text: string
-  elapsedMs?: number
-  startedAt?: string
-}
+export type { ResponseState as CatalogResponse } from "../request-controller"

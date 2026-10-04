@@ -10,13 +10,15 @@ export default {
   description: "模型名称与ID、接口能力、token限制以及行操作。",
   boundary: "通过参数与事件传递数据；服务由宿主注入，展示与正式数据隔离。",
   inputs: ["models", "checks", "busy"],
-  events: ["onEdit", "onCheck", "onRemove"],
+  events: ["onEdit", "onCheck", "onRemove", "onConfigureConnection"],
   composition: [
     "Table",
     "Input",
     "DropdownMenu",
     "SettingsPagination",
     "Empty",
+    "OperationFeedback",
+    "RecoveryAction",
   ],
   consumers: ["ConnectionEditor"],
   viewport: { width: 1000, height: 720 },
@@ -41,6 +43,14 @@ export default {
       condition: "模拟检查错误",
       expected: "失败不移除模型",
       render: () => <ModelDirectoryExample failed />,
+    },
+    {
+      id: "unknown",
+      name: "推理结果未确认",
+      condition: "检查结果未知且recovery为none",
+      expected:
+        "保留模型，说明可能已完成；不自动重发。显式菜单“发起新检查”表示另一次请求。",
+      render: () => <ModelDirectoryExample unknown />,
     },
   ],
 } satisfies CatalogEntry

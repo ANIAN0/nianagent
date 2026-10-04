@@ -26,8 +26,10 @@ export function ConnectionFields({
   onClearKey,
   providers,
   onRevealKey,
+  onReloadConnection,
 }: {
   onRevealKey?: (signal: AbortSignal) => Promise<string>
+  onReloadConnection?: () => void
   providers?: { id: string; name: string }[]
   value: ModelConnection
   errors: Record<string, string>
@@ -127,7 +129,15 @@ export function ConnectionFields({
       {value.kind === "api" && (
         <>
           <CredentialFields
-            {...{ value, errors, disabled, onChange, onClearKey, onRevealKey }}
+            {...{
+              value,
+              errors,
+              disabled,
+              onChange,
+              onClearKey,
+              onRevealKey,
+              onReloadConnection,
+            }}
           />
           <Field data-invalid={!!errors.headers}>
             <FieldLabel htmlFor="connection-headers">自定义请求头</FieldLabel>

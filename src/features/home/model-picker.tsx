@@ -1,6 +1,22 @@
-import { useEffect, useRef, useState } from "react"
-import { ArrowLeft, ChevronDown, ChevronRight, Settings } from "lucide-react"
+import { useCallback, useEffect, useId, useRef, useState } from "react"
+import {
+  ArrowLeft,
+  ChevronDown,
+  ChevronRight,
+  Search,
+  Settings,
+  X,
+} from "lucide-react"
+import {
+  InputGroup,
+  InputGroupInput,
+  InputGroupAddon,
+  InputGroupButton,
+} from "@/components/ui/input-group"
+import { useComposerKeyboard } from "@/components/composer/composer-keymap"
 import { Button } from "@/components/ui/button"
+import { DisabledControlReason } from "@/components/composer/disabled-control-reason"
+import "@/components/composer/composer-input-card.css"
 import { Separator } from "@/components/ui/separator"
 import {
   Popover,
@@ -9,16 +25,28 @@ import {
 } from "@/components/ui/popover"
 import { ThinkingPicker } from "./thinking-picker"
 import { navigatePicker, PickerOption } from "./picker-option"
+import { OperationFeedback } from "@/components/feedback/operation-feedback"
+import { RecoveryAction } from "@/components/feedback/recovery-action"
+import {
+  feedbackFromError,
+  type FeedbackDescription,
+} from "@/lib/operation-issue"
+import {
+  useComposerPanel,
+  useComposerPanelCloseAutoFocus,
+} from "./composer-panel-context"
 
 export type ModelPickerCatalog = {
   items: { value: string; name: string; connection: string; modelId: string }[]
   status: "loading" | "ready" | "error"
   error?: string
+  issue?: FeedbackDescription
   onRetry: () => void
   onOpenSettings: () => void
 }
 export type ModelPickerProps = {
   disabled?: boolean
+  disabledReason?: string
   models: string[]
   labels?: Record<string, string>
   catalog?: ModelPickerCatalog
@@ -30,6 +58,7 @@ export type ModelPickerProps = {
 }
 export function ModelPicker({
   disabled = false,
+  disabledReason,
   models,
   labels,
   catalog,
@@ -39,8 +68,19 @@ export function ModelPicker({
   onChange,
   onThinkingChange,
 }: ModelPickerProps) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useComposerPanel("model")
+  const closeAutoFocus = useComposerPanelCloseAutoFocus("model")
   const [pane, setPane] = useState<"root" | "model" | "thinking">("root")
+  const [query, setQuery] = useState("")
+  const searchRef = useRef<HTMLInputElement>(null)
+  const listId = useId()
+  const searchKeyboard = useComposerKeyboard<HTMLInputElement>(() => {
+    content.current
+      ?.querySelector<HTMLButtonElement>(
+        `#${CSS.escape(listId)} button[data-picker-item]`
+      )
+      ?.click()
+  })
   const [bounds, setBounds] = useState<{
     side: "top" | "bottom"
     height: number
@@ -48,23 +88,54 @@ export function ModelPicker({
   const trigger = useRef<HTMLButtonElement>(null)
   const content = useRef<HTMLDivElement>(null)
   const returnPane = useRef<"model" | "thinking">("model")
-  function measure() {
+  useEffect(() => {
+    if (disabled && open) setOpen(false)
+  }, [disabled, open, setOpen])
+  const measure = useCallback(() => {
     const rect = trigger.current?.getBoundingClientRect()
     if (!rect) return
-    const above = Math.max(0, rect.top - 20)
-    const below = Math.max(0, window.innerHeight - rect.bottom - 20)
+    const viewport = window.visualViewport
+    const above = Math.max(0, rect.top - (viewport?.offsetTop ?? 0) - 20)
+    const bottom = viewport
+      ? viewport.offsetTop + viewport.height
+      : window.innerHeight
+    const below = Math.max(0, bottom - rect.bottom - 20)
     const side = above >= 360 || above >= below ? "top" : "bottom"
-    setBounds({ side, height: Math.min(360, side === "top" ? above : below) })
-  }
+    const height = Math.min(360, side === "top" ? above : below)
+    setBounds((current) =>
+      current.side === side && current.height === height
+        ? current
+        : { side, height }
+    )
+  }, [])
   useEffect(() => {
     if (!open) return
+    measure()
     window.addEventListener("resize", measure)
-    return () => window.removeEventListener("resize", measure)
-  }, [open])
+    window.addEventListener("scroll", measure, true)
+    window.visualViewport?.addEventListener("resize", measure)
+    window.visualViewport?.addEventListener("scroll", measure)
+    const observer = new ResizeObserver(measure)
+    if (trigger.current) observer.observe(trigger.current)
+    if (trigger.current?.parentElement)
+      observer.observe(trigger.current.parentElement)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener("resize", measure)
+      window.removeEventListener("scroll", measure, true)
+      window.visualViewport?.removeEventListener("resize", measure)
+      window.visualViewport?.removeEventListener("scroll", measure)
+    }
+  }, [open, measure])
   function show(next: typeof pane) {
     if (next !== "root") returnPane.current = next
+    if (next !== "model") setQuery("")
     setPane(next)
     requestAnimationFrame(() => {
+      if (next === "model" && models.length > 4) {
+        searchRef.current?.focus()
+        return
+      }
       const selector =
         next === "root"
           ? `[data-root-item="${returnPane.current}"]`
@@ -81,6 +152,11 @@ export function ModelPicker({
     })
   }
   const selected = catalog?.items.find((item) => item.value === value)
+  const failure =
+    catalog?.issue ??
+    (catalog?.status === "error"
+      ? feedbackFromError(catalog.error, "模型目录未能读取，请重新读取。")
+      : undefined)
   const displayName = selected?.name ?? labels?.[value] ?? value
   const unavailable = !!value && !models.includes(value)
   const currentThinking = value && !unavailable ? thinking : ""
@@ -97,17 +173,50 @@ export function ModelPicker({
     string,
     { value: string; name: string; modelId?: string }[]
   >()
+  const lookup = new Map(catalog?.items.map((item) => [item.value, item]))
+  const needle = query.trim().toLocaleLowerCase()
   for (const model of models) {
-    const item = catalog?.items.find((item) => item.value === model)
+    const item = lookup.get(model)
     const connection = item?.connection ?? "可用模型"
+    const name = item?.name ?? labels?.[model] ?? model
+    if (
+      needle &&
+      ![name, item?.modelId ?? model, connection].some((entry) =>
+        entry.toLocaleLowerCase().includes(needle)
+      )
+    )
+      continue
     const entries = groups.get(connection) ?? []
     entries.push({
       value: model,
-      name: item?.name ?? labels?.[model] ?? model,
+      name,
       modelId: item?.modelId,
     })
     groups.set(connection, entries)
   }
+  const triggerButton = (
+    <PopoverTrigger asChild>
+      <Button
+        ref={trigger}
+        disabled={disabled}
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="moon-composer-model-trigger"
+        aria-label={`选择模型，当前为 ${title}`}
+        title={title}
+      >
+        <span className="moon-composer-model-name">
+          {displayName || placeholder}
+          {unavailable ? " · 不可用" : ""}
+        </span>
+        {currentThinking && (
+          <span className="moon-composer-thinking">{currentThinking}</span>
+        )}
+        <ChevronDown className="shrink-0 text-caption" data-icon="inline-end" />
+      </Button>
+    </PopoverTrigger>
+  )
   return (
     <Popover
       open={open}
@@ -115,38 +224,26 @@ export function ModelPicker({
         if (next) measure()
         setOpen(next)
         setPane("root")
+        setQuery("")
       }}
     >
-      <PopoverTrigger asChild>
-        <Button
-          ref={trigger}
-          disabled={disabled}
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="max-w-[min(220px,45cqw)] min-w-0 gap-1 rounded-full font-normal"
-          aria-label={`选择模型，当前为 ${title}`}
-          title={title}
-        >
-          <span className="truncate">
-            {displayName || placeholder}
-            {unavailable ? " · 不可用" : ""}
-          </span>
-          {currentThinking && (
-            <span className="shrink-0 text-muted-foreground">
-              {currentThinking}
-            </span>
-          )}
-          <ChevronDown data-icon="inline-end" />
-        </Button>
-      </PopoverTrigger>
+      {disabled && disabledReason ? (
+        <DisabledControlReason label="选择模型暂不可用" reason={disabledReason}>
+          {triggerButton}
+        </DisabledControlReason>
+      ) : (
+        triggerButton
+      )}
       <PopoverContent
+        onCloseAutoFocus={closeAutoFocus}
         ref={content}
         side={bounds.side}
         align="end"
         sideOffset={8}
         collisionPadding={12}
-        style={{ maxHeight: bounds.height }}
+        style={{
+          maxHeight: `min(${bounds.height}px, var(--radix-popover-content-available-height))`,
+        }}
         className="w-72 max-w-[calc(100vw-24px)] gap-1 overflow-hidden rounded-xl p-1.5"
         aria-label="模型与思考"
         onOpenAutoFocus={(event) => {
@@ -174,6 +271,59 @@ export function ModelPicker({
             {pane === "model" ? "选择模型" : "思考强度"}
           </Button>
         )}
+        {pane === "model" && models.length > 4 && (
+          <InputGroup className="h-8 shrink-0">
+            <InputGroupInput
+              ref={searchRef}
+              type="search"
+              aria-label="搜索模型名称、ID或连接"
+              aria-controls={listId}
+              placeholder="搜索模型…"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onCompositionStart={searchKeyboard.onCompositionStart}
+              onCompositionEnd={searchKeyboard.onCompositionEnd}
+              onKeyDown={(event) => {
+                const intent = searchKeyboard.onKeyDown(event)
+                if (intent === "composing" || event.defaultPrevented) return
+                if (
+                  event.nativeEvent.isComposing ||
+                  event.nativeEvent.keyCode === 229
+                )
+                  return
+                if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                  event.preventDefault()
+                  const buttons =
+                    content.current?.querySelectorAll<HTMLButtonElement>(
+                      `#${CSS.escape(listId)} button[data-picker-item]`
+                    )
+                  const option =
+                    event.key === "ArrowUp"
+                      ? buttons?.[buttons.length - 1]
+                      : buttons?.[0]
+                  option?.focus()
+                }
+              }}
+            />
+            <InputGroupAddon>
+              <Search />
+            </InputGroupAddon>
+            {query && (
+              <InputGroupAddon align="inline-end">
+                <InputGroupButton
+                  size="icon-xs"
+                  aria-label="清空模型搜索"
+                  onClick={() => {
+                    setQuery("")
+                    searchRef.current?.focus()
+                  }}
+                >
+                  <X />
+                </InputGroupButton>
+              </InputGroupAddon>
+            )}
+          </InputGroup>
+        )}
         <div className="min-h-0 min-w-0 overflow-x-hidden overflow-y-auto">
           {catalog?.status === "loading" && (
             <p
@@ -183,23 +333,29 @@ export function ModelPicker({
               正在读取模型目录…
             </p>
           )}
-          {catalog?.status === "error" && (
-            <div className="px-3 py-2">
-              <p
-                role="alert"
-                className="text-sm [overflow-wrap:anywhere] text-destructive"
-              >
-                {catalog.error || "模型读取失败，请重试。"}
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="mt-2"
-                onClick={catalog.onRetry}
-              >
-                重新读取
-              </Button>
+          {catalog?.status === "error" && failure && (
+            <div className="p-1.5">
+              <OperationFeedback
+                title={
+                  failure.code === "cancelled"
+                    ? "模型读取已取消"
+                    : "模型目录未能读取"
+                }
+                {...failure}
+                actions={
+                  <RecoveryAction
+                    issue={failure}
+                    onRetry={catalog.onRetry}
+                    onReload={catalog.onRetry}
+                    onCheck={catalog.onRetry}
+                    onSettings={() => {
+                      setOpen(false)
+                      catalog.onOpenSettings()
+                    }}
+                    labels={{ retry: "重新读取" }}
+                  />
+                }
+              />
             </div>
           )}
           {unavailable && (
@@ -260,11 +416,20 @@ export function ModelPicker({
             </div>
           ) : pane === "model" ? (
             <div
+              id={listId}
               role="menu"
               aria-label="可用模型"
               onKeyDown={navigatePicker}
               className="flex min-w-0 flex-col gap-2"
             >
+              {!groups.size && (
+                <p
+                  role="status"
+                  className="px-3 py-3 text-xs text-muted-foreground"
+                >
+                  没有匹配的模型。请修改搜索条件。
+                </p>
+              )}
               {[...groups].map(([connection, items]) => (
                 <section
                   key={connection}

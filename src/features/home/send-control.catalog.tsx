@@ -22,7 +22,7 @@ export default {
   layer: "复合组件",
   group: "工作输入",
   source: "src/features/home/send-control.tsx",
-  description: "工作输入区的唯一主动作。",
+  description: "34px蓝色圆形主动作、16px白色箭头，两主题保持一致。",
   boundary:
     "由父级决定是否允许发送；通过所属 form 提交，不自行校验或调用服务。",
   props: [

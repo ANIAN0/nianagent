@@ -23,7 +23,7 @@ export default {
   source: "src/features/conversation/messages/message-actions.tsx",
   description: "28px图标操作、复制反馈、消息信息、可选重新生成与独立会话分支。",
   boundary:
-    "仅有模型记录时显示消息信息；重试只发出事件，运行及消息替换由会话状态负责。",
+    "信息显示实际角色、状态、模型和完整日期；尾部只有真实回复边界的可用动作，重试仅发出事件。",
   inputs: [
     "text",
     "time",
@@ -48,13 +48,14 @@ export default {
       id: "user",
       name: "用户操作",
       condition: "右对齐",
-      expected: "时间在前，不显示无内容的信息入口或重试。",
+      expected: "复制、用户信息与时间按顺序显示，不提供用户重试或分支。",
       render: () => (
         <div className="p-6">
           <MessageActions
             text="请检查首页。"
             time="2026-10-02T09:30:00+08:00"
             align="end"
+            status="settled"
           />
         </div>
       ),

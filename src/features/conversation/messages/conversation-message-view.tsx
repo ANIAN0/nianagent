@@ -1,3 +1,4 @@
+import type { ReactNode } from "react"
 import type {
   ConversationMessage,
   MessageAttachment,
@@ -13,6 +14,7 @@ export function ConversationMessageView({
   onFork,
   forkDisabledReason,
   forkPending,
+  forkFeedback,
 }: {
   message: ConversationMessage
   onRetry?: () => void
@@ -21,17 +23,25 @@ export function ConversationMessageView({
   onFork?: () => void
   forkDisabledReason?: string
   forkPending?: boolean
+  forkFeedback?: ReactNode
 }) {
   return message.role === "user" ? (
-    <UserMessage message={message} onOpenAttachment={onOpenAttachment} workspacePath={workspacePath} />
-  ) : (
-    <AssistantMessage
+    <UserMessage
       message={message}
-      onRetry={onRetry}
       onOpenAttachment={onOpenAttachment}
-      onFork={onFork}
-      forkDisabledReason={forkDisabledReason}
-      forkPending={forkPending}
+      workspacePath={workspacePath}
     />
+  ) : (
+    <div className="flex min-w-0 flex-col gap-3">
+      <AssistantMessage
+        message={message}
+        onRetry={onRetry}
+        onOpenAttachment={onOpenAttachment}
+        onFork={onFork}
+        forkDisabledReason={forkDisabledReason}
+        forkPending={forkPending}
+      />
+      {forkFeedback}
+    </div>
   )
 }

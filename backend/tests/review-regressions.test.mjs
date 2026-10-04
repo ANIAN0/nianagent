@@ -12,6 +12,7 @@ import { ModelService } from "../models.mjs"
 import { SessionService } from "../sessions.mjs"
 import { MaterialService } from "../materials.mjs"
 import { McpService } from "../mcp.mjs"
+import { ExtensionService } from "../extensions.mjs"
 import { AuthorizationJobs } from "../oauth.mjs"
 import { createBridge } from "./stdio-client.mjs"
 import { matchModel } from "../model-metadata.mjs"
@@ -121,6 +122,7 @@ test("every operation example is validated, dispatch registered and malformed ne
             sessions: SessionService.prototype,
             materials: MaterialService.prototype,
             mcp: McpService.prototype,
+            extensions: ExtensionService.prototype,
             workspaces: WorkspaceService.prototype,
             conversationCatalog: ConversationCatalogService.prototype,
             conversations: ConversationService.prototype,

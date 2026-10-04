@@ -3,6 +3,10 @@ import { thinkingLabels } from "@/features/home/model-thinking"
 import type { HomeData } from "@/features/home/home-types"
 import { createModelService } from "./model-service"
 import {
+  feedbackFromError,
+  type FeedbackDescription,
+} from "@/lib/operation-issue"
+import {
   connectionIssue,
   modelSelectionId,
   type ModelConnection,
@@ -14,6 +18,7 @@ export function useModelCatalog(onOpenSettings: () => void) {
   const [connections, setConnections] = useState<ModelConnection[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
+  const [issue, setIssue] = useState<FeedbackDescription>()
   const [version, setVersion] = useState(0)
   const [labels, setLabels] = useState<Record<string, string>>({})
   const sequence = useRef(0)
@@ -31,7 +36,17 @@ export function useModelCatalog(onOpenSettings: () => void) {
             )
           )
         )
-          throw new Error("模型服务版本不匹配，请重新启动 Moon 后重试。")
+          throw Object.assign(
+            new Error("模型服务版本不匹配，请重新启动 Moon。"),
+            {
+              issue: {
+                code: "host_version",
+                summary: "模型服务版本不匹配，请重新启动 Moon。",
+                recovery: "restart",
+                severity: "error",
+              },
+            }
+          )
         setConnections(items)
         setLabels((previous) => ({
           ...previous,
@@ -45,11 +60,21 @@ export function useModelCatalog(onOpenSettings: () => void) {
           ),
         }))
         setError("")
+        setIssue(undefined)
         setLoading(false)
       })
       .catch((failure) => {
         if (!controller.signal.aborted && request === sequence.current) {
-          setError(failure instanceof Error ? failure.message : String(failure))
+          const feedback = feedbackFromError(
+            failure,
+            "模型目录未能读取，请重新读取。"
+          )
+          setError(feedback.message)
+          setIssue(
+            feedback.code === "cancelled"
+              ? { ...feedback, recovery: "reload" }
+              : feedback
+          )
           setLoading(false)
         }
       })
@@ -71,7 +96,14 @@ export function useModelCatalog(onOpenSettings: () => void) {
       connection.models.map((model) => modelSelectionId(connection, model))
     ),
     modelLabels: labels,
-    modelInputs: Object.fromEntries(connections.flatMap((connection) => connection.models.map((model) => [modelSelectionId(connection, model), model.input]))),
+    modelInputs: Object.fromEntries(
+      connections.flatMap((connection) =>
+        connection.models.map((model) => [
+          modelSelectionId(connection, model),
+          model.input,
+        ])
+      )
+    ),
     modelThinking: Object.fromEntries(
       connections.flatMap((connection) =>
         connection.models.map((model) => [
@@ -93,6 +125,7 @@ export function useModelCatalog(onOpenSettings: () => void) {
       ),
       status: loading ? "loading" : error ? "error" : "ready",
       error,
+      issue,
       onRetry: () => {
         setLoading(true)
         setVersion((value) => value + 1)
@@ -105,6 +138,7 @@ export function useModelCatalog(onOpenSettings: () => void) {
     connections,
     data,
     error,
+    issue,
     update: (items: ModelConnection[]) => {
       ++sequence.current
       setConnections(items)
@@ -121,6 +155,7 @@ export function useModelCatalog(onOpenSettings: () => void) {
         ),
       }))
       setError("")
+      setIssue(undefined)
       setVersion((value) => value + 1)
     },
   }

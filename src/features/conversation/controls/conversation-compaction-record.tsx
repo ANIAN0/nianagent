@@ -13,16 +13,19 @@ export function ConversationCompactionRecord({
   messages: ConversationChatMessage[]
 }) {
   const { scrollToMessage } = useMessageScroller()
-  const [error, setError] = useState("")
+  const [location, setLocation] = useState<{
+    recordId: string
+    message: string
+  }>()
+  const target =
+    messages.find((message) => message.entryId === record.firstKeptEntryId) ??
+    (record.firstKeptHistoryIndex >= 0
+      ? messages.find(
+          (message) =>
+            (message.historyIndex ?? -1) >= record.firstKeptHistoryIndex
+        )
+      : undefined)
   function locate() {
-    const target =
-      messages.find((message) => message.entryId === record.firstKeptEntryId) ??
-      (record.firstKeptHistoryIndex >= 0
-        ? messages.find(
-            (message) =>
-              (message.historyIndex ?? -1) >= record.firstKeptHistoryIndex
-          )
-        : undefined)
     if (
       !target ||
       !scrollToMessage(target.id, {
@@ -31,17 +34,22 @@ export function ConversationCompactionRecord({
         scrollMargin: 0,
       })
     )
-      setError("保留起点的原消息当前不可定位；摘要与历史保持不变。")
-    else setError("")
+      setLocation({
+        recordId: record.id,
+        message: "暂时无法定位这条历史，请在会话中向上查看。摘要与历史保留。",
+      })
+    else setLocation(undefined)
   }
   return (
-    <>
-      <CompactionRecord record={record} onLocate={locate} />
-      {error && (
-        <p role="status" className="text-xs text-muted-foreground">
-          {error}
-        </p>
-      )}
-    </>
+    <CompactionRecord
+      record={record}
+      onLocate={locate}
+      locateDisabledReason={
+        !target ? "保留起点不在当前已读取的历史中，摘要仍可查看。" : undefined
+      }
+      locateFeedback={
+        location?.recordId === record.id ? location.message : undefined
+      }
+    />
   )
 }

@@ -1,3 +1,4 @@
+import type { ModelCheckState } from "@/features/models/use-connection-editor"
 import { PiAuthorization } from "@/features/models/pi-authorization"
 import { CredentialFields } from "@/features/models/credential-fields"
 import { useState } from "react"
@@ -77,33 +78,68 @@ export function ConnectionEditorExample({
   kind = "saved",
   failure,
 }: {
-  kind?: "saved" | "new" | "environment" | "subscription"
+  kind?:
+    "saved" | "new" | "environment" | "subscription" | "subscription-active"
   failure?: MockModelOptions["failure"]
 }) {
+  const subscription = kind === "subscription" || kind === "subscription-active"
+  const fixtures = connectionFixtures.map((item) =>
+    item.kind === "subscription" && kind === "subscription-active"
+      ? {
+          ...item,
+          providerId: "example",
+          account: { ...item.account!, loggedIn: true },
+        }
+      : item
+  )
   const [service] = useState(() =>
-    createMockModelService(connectionFixtures, { failure })
+    createMockModelService(fixtures, { failure })
   )
   const [initial, setInitial] = useState<ModelConnection>(() =>
     kind === "new"
       ? blankConnection("api")
-      : connectionFixtures[
-          kind === "subscription" ? 4 : kind === "environment" ? 5 : 0
-        ]
+      : {
+          ...fixtures[subscription ? 4 : kind === "environment" ? 5 : 0],
+          revision: 1,
+          ...(subscription ? { providerId: "example" } : {}),
+        }
   )
   const [notice, setNotice] = useState("")
+  const [open, setOpen] = useState(true)
   return (
     <div className="model-settings-content h-dvh bg-card">
-      <ConnectionEditor
-        key={JSON.stringify(initial)}
-        initial={initial}
-        connections={connectionFixtures}
-        service={service}
-        onSaved={(value) => {
-          setInitial(value)
-          setNotice("已保存连接，密钥原文已清除。")
-        }}
-        onClose={() => setNotice("已返回连接目录。")}
-      />
+      {open ? (
+        <ConnectionEditor
+          key={initial.id}
+          initial={initial}
+          connections={fixtures.map((item) => ({
+            ...item,
+            revision: item.revision ?? 1,
+          }))}
+          service={service}
+          onSaved={(value) => {
+            setInitial(value)
+            setNotice("已保存连接，密钥原文已清除。")
+            setOpen(false)
+          }}
+          onAccountSaved={setInitial}
+          onClose={() => {
+            setNotice("已返回连接目录。")
+            setOpen(false)
+          }}
+        />
+      ) : (
+        <div className="model-page">
+          <Button
+            onClick={() => {
+              setNotice("")
+              setOpen(true)
+            }}
+          >
+            重新打开连接配置
+          </Button>
+        </div>
+      )}
       {notice && (
         <div
           role="status"
@@ -186,16 +222,17 @@ export function ModelDirectoryExample({
   empty = false,
   candidates = false,
   failed = false,
+  unknown = false,
 }: {
   empty?: boolean
   candidates?: boolean
   failed?: boolean
+  unknown?: boolean
 }) {
   const [models, setModels] = useState(empty ? [] : modelFixtures)
   const [selected, setSelected] = useState<(typeof modelFixtures)[number]>()
-  const [checks, setChecks] = useState<
-    Record<string, { error?: boolean; text: string }>
-  >({})
+  const [checks, setChecks] = useState<Record<string, ModelCheckState>>({})
+  const [notice, setNotice] = useState("")
   return (
     <div className="model-page flex flex-col gap-4">
       {candidates ? (
@@ -219,6 +256,11 @@ export function ModelDirectoryExample({
         <ModelDirectory
           models={models}
           checks={checks}
+          onConfigureConnection={() =>
+            setNotice(
+              "已请求编辑连接凭据；本示例只记录该受控事件，不读取真实配置。"
+            )
+          }
           onEdit={setSelected}
           onRemove={(model) =>
             setModels((values) =>
@@ -229,15 +271,37 @@ export function ModelDirectoryExample({
             setChecks((values) => ({
               ...values,
               [model.id]: {
-                error: failed,
-                text: failed
-                  ? "不可用 · 模拟服务超时，模型已保留。"
-                  : "可用 · 模拟检查通过",
+                error: failed || unknown,
+                text:
+                  failed || unknown
+                    ? "示例模型检查未完成"
+                    : "示例检查通过 · 未调用真实模型",
+                issue: unknown
+                  ? {
+                      code: "result_unknown",
+                      severity: "warning",
+                      recovery: "none",
+                      message:
+                        "示例：未收到推理结果，请求可能已完成。发起新检查会创建另一次推理请求。",
+                    }
+                  : failed
+                    ? {
+                        code: "check_failed",
+                        severity: "error",
+                        recovery: "settings",
+                        message: "示例：连接凭据失效，请检查连接配置。",
+                      }
+                    : undefined,
               },
             }))
           }
         />
-      )}{" "}
+      )}
+      {notice && (
+        <p role="status" className="text-sm text-muted-foreground">
+          {notice}
+        </p>
+      )}
       {selected && (
         <ModelEditor
           initial={selected}
@@ -291,60 +355,52 @@ export function AuthorizationExample({
   )
 }
 
-export function PiAuthorizationExample() {
-  const [done, setDone] = useState(false)
-  const [service] = useState(() => {
-    const connection = {
-      ...connectionFixtures[4],
-      providerId: "example",
-      revision: 1,
-    }
-    let current: import("@/features/models/model-types").AuthState = {
-      id: "catalog-only",
-      status: "pending",
-      connection,
-      events: [
-        {
-          type: "device_code",
-          userCode: "DEMO-1234",
-          verificationUri: "https://example.invalid",
-        },
-      ],
-      prompt: {
-        id: "prompt",
-        type: "manual_code",
-        message: "填写服务返回的授权码",
-      },
-    }
-    return {
-      ...createMockModelService([connection]),
-      auth: {
-        start: async () => current,
-        poll: async () => current,
-        reply: async () => {
-          current = {
-            ...current,
-            status: "complete",
-            connection: {
-              ...connection,
-              account: { name: "示例账号", plan: "演示", loggedIn: true },
-            },
-          }
-          return current
-        },
-        cancel: async () => {},
-        logout: async () => connection,
-      },
-    }
+export function PiAuthorizationExample({
+  failure,
+  slow = false,
+}: {
+  failure?: MockModelOptions["failure"]
+  slow?: boolean
+}) {
+  const [connection, setConnection] = useState<ModelConnection>({
+    ...connectionFixtures[4],
+    providerId: "example",
+    revision: 1,
   })
-  return done ? (
-    <Button onClick={() => setDone(false)}>重新打开授权演示</Button>
-  ) : (
-    <PiAuthorization
-      connection={connectionFixtures[4]}
-      service={service}
-      onComplete={() => setDone(true)}
-      onClose={() => setDone(true)}
-    />
+  const [service] = useState(() =>
+    createMockModelService([connection], {
+      failure,
+      oauthDelay: slow ? 2400 : 450,
+    })
+  )
+  const [open, setOpen] = useState(true)
+  const [notice, setNotice] = useState("")
+  return (
+    <div className="p-6">
+      <Button onClick={() => setOpen(true)}>重新打开授权演示</Button>
+      <p role="status" className="mt-3 text-sm text-muted-foreground">
+        {notice}
+      </p>
+      {open && (
+        <PiAuthorization
+          connection={connection}
+          service={service}
+          onComplete={(saved) => {
+            setConnection(saved)
+            setNotice("示例账号授权完成；未连接真实账号。")
+            setOpen(false)
+          }}
+          onCancelled={(saved) => {
+            setConnection(saved)
+            setNotice("原示例授权已结束，连接以服务的保存状态为准。")
+            setOpen(false)
+          }}
+          onClose={() => {
+            setNotice("原示例授权已结束。")
+            setOpen(false)
+          }}
+        />
+      )}
+    </div>
   )
 }

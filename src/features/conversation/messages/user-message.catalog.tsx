@@ -8,12 +8,35 @@ export default {
   source: "src/features/conversation/messages/user-message.tsx",
   description: "右侧浅色气泡，保持原始文本，附件置于正文上方。",
   boundary: "用户输入不会解释成 Markdown。",
-  inputs: ["message: ConversationMessage"],
+  inputs: [
+    "message: ConversationMessage",
+    "showActions?: boolean，默认 true；首页本地提交副本设为 false，不展示历史动作。",
+  ],
   events: ["onOpenAttachment"],
   composition: ["Message", "Bubble", "MessageAttachments", "MessageActions"],
-  consumers: ["ConversationMessageView"],
+  consumers: ["ConversationMessageView", "HomeSubmissionEcho"],
   viewport: { width: 780, height: 340 },
   states: [
+    {
+      id: "local-submission",
+      name: "首页提交副本",
+      condition: "原请求等待回执，下一条输入独立编辑。",
+      expected:
+        "复用正式气泡，保留可访问的确认中状态，无历史时间和复制、详情动作。",
+      render: () => (
+        <div className="p-6">
+          <UserMessage
+            showActions={false}
+            message={{
+              id: "local-submission",
+              role: "user",
+              status: "sending",
+              text: "请按确认后的原型修正首页输入区。",
+            }}
+          />
+        </div>
+      ),
+    },
     {
       id: "default",
       name: "普通文本",

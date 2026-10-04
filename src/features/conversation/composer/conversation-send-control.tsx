@@ -1,5 +1,6 @@
-import { ArrowUp, LoaderCircle, Square } from "lucide-react"
+import { ArrowUp, ListCollapse, LoaderCircle, Square } from "lucide-react"
 import { InputGroupButton } from "@/components/ui/input-group"
+import { composerPrimaryAction } from "@/components/composer/composer-policy"
 
 export type ConversationSendControlProps = {
   allowQueue?: boolean
@@ -7,6 +8,7 @@ export type ConversationSendControlProps = {
   stopping?: boolean
   hasDraft: boolean
   disabled?: boolean
+  command?: "compact"
   onStop: () => void
 }
 export function ConversationSendControl({
@@ -15,41 +17,75 @@ export function ConversationSendControl({
   stopping = false,
   hasDraft,
   disabled = false,
+  command,
   onStop,
 }: ConversationSendControlProps) {
-  const stop = stopping || (running && (!allowQueue || !hasDraft || disabled))
-  const label = stopping
-    ? "正在停止"
-    : stop
-      ? "停止执行"
-      : running
-        ? "排队发送"
-        : "发送"
+  const action = composerPrimaryAction({
+    running,
+    stopping,
+    hasDraft,
+    canSubmit: !disabled && (!running || allowQueue),
+    command: command === "compact",
+  })
+  const label =
+    action === "stopping"
+      ? "正在停止"
+      : action === "stop"
+        ? "停止执行"
+        : action === "compact"
+          ? "打开压缩面板"
+          : action === "queue"
+            ? "排队发送"
+            : "发送"
+  const primaryStops = action === "stop" || action === "stopping"
   return (
-    <InputGroupButton
-      type={stop ? "button" : "submit"}
-      variant="send"
-      size="icon-sm"
-      className="conversation-send-control"
-      aria-label={label}
-      title={label}
-      disabled={stopping || (!stop && (disabled || !hasDraft))}
-      onClick={
-        stop
-          ? (event) => {
-              event.preventDefault()
-              onStop()
-            }
-          : undefined
-      }
-    >
-      {stopping ? (
-        <LoaderCircle className="animate-spin" />
-      ) : stop ? (
-        <Square />
-      ) : (
-        <ArrowUp />
+    <div className="conversation-send-controls">
+      {action === "queue" && (
+        <InputGroupButton
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="conversation-send-control text-muted-foreground"
+          aria-label="停止执行"
+          title="停止执行"
+          onClick={(event) => {
+            event.preventDefault()
+            onStop()
+          }}
+        >
+          <Square />
+        </InputGroupButton>
       )}
-    </InputGroupButton>
+      <InputGroupButton
+        type={primaryStops ? "button" : "submit"}
+        variant="send"
+        size="icon-sm"
+        className="conversation-send-control"
+        aria-label={label}
+        title={label}
+        disabled={
+          action === "stopping" ||
+          (!primaryStops && (disabled || !hasDraft || (running && !allowQueue)))
+        }
+        onClick={
+          primaryStops
+            ? (event) => {
+                event.preventDefault()
+                onStop()
+              }
+            : undefined
+        }
+      >
+        {action === "stopping" ? (
+          <LoaderCircle className="motion-safe:animate-spin" />
+        ) : primaryStops ? (
+          <Square />
+        ) : action === "compact" ? (
+          <ListCollapse />
+        ) : (
+          <ArrowUp />
+        )}
+      </InputGroupButton>
+    </div>
   )
 }

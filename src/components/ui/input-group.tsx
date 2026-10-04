@@ -55,10 +55,21 @@ function InputGroupAddon({
       data-align={align}
       className={cn(inputGroupAddonVariants({ align }), className)}
       onClick={(e) => {
-        if ((e.target as HTMLElement).closest("button")) {
+        // React portal events bubble through the composer even though the
+        // floating content is not part of this addon's editable surface.
+        if (!e.currentTarget.contains(e.target as Node)) return
+        if (
+          (e.target as HTMLElement).closest(
+            "button, a, input, textarea, select, [role=button], [role=option]"
+          )
+        ) {
           return
         }
-        e.currentTarget.parentElement?.querySelector("input")?.focus()
+        e.currentTarget.parentElement
+          ?.querySelector<HTMLInputElement | HTMLTextAreaElement>(
+            '[data-slot="input-group-control"]:not([disabled]):not([type="hidden"]):not([type="file"])'
+          )
+          ?.focus()
       }}
       {...props}
     />

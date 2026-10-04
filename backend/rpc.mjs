@@ -2,6 +2,7 @@ import { createInterface } from "node:readline"
 import { join } from "node:path"
 import { homedir } from "node:os"
 import { startRuntime, runtimeVersion } from "./runtime.mjs"
+import { operationError, publicFailure } from "./operation-issue.mjs"
 import {
   connectDirectoryHost,
   acceptDirectoryReply,
@@ -50,7 +51,11 @@ let closing = false
 async function execute(operation, input, signal) {
   if (operation === "$runtime") return runtime?.info ?? { version }
   if ((await runtimeVersion()) !== version)
-    throw new Error("模型服务代码已更新，请重启 Moon 后重新读取。")
+    throw operationError(
+      "host_version",
+      "Moon 服务代码已更新，请重启 Moon 后重新读取。",
+      "restart"
+    )
   const ready = await ensureInitialized()
   signal?.throwIfAborted()
   if (closing) throw new Error("Moon 正在退出。")
@@ -67,7 +72,7 @@ async function dispatch(operation, input, signal) {
   }
 }
 const runtime = process.env.MOON_RUNTIME_FILE
-  ? await startRuntime(process.env.MOON_RUNTIME_FILE, dispatch, publicError)
+  ? await startRuntime(process.env.MOON_RUNTIME_FILE, dispatch, publicFailure)
   : undefined
 const input = createInterface({ input: process.stdin, crlfDelay: Infinity })
 function send(value) {
@@ -99,20 +104,11 @@ input.on("line", (line) => {
     .catch((error) =>
       send({
         id: request.id,
-        error: controller.signal.aborted ? "请求已取消。" : publicError(error),
+        ...publicFailure(error, request.operation, controller.signal.aborted),
       })
     )
     .finally(() => pending.delete(request.id))
 })
-function publicError(error) {
-  if (error?.name === "ContractError") return error.message
-  // Never forward provider response bodies, URLs, headers or raw SDK errors.
-  return error instanceof Error &&
-    /[\u4e00-\u9fff]/u.test(error.message) &&
-    !/https?:|Bearer|api[_-]?key/i.test(error.message)
-    ? error.message
-    : "模型服务操作失败，请检查配置和服务状态。"
-}
 input.on("close", async () => {
   closing = true
   closeDirectoryHost()

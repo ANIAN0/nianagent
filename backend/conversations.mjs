@@ -8,11 +8,12 @@ import {
   SessionManager,
 } from "@earendil-works/pi-coding-agent"
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai"
-import {
-  ConversationQueue,
-  QueueDispatchPersistenceError,
-} from "./conversation-queue.mjs"
+import { ConversationQueue } from "./conversation-queue.mjs"
 import { ConversationControls } from "./conversation-controls.mjs"
+import { modelFailureIssue, publicFailure, operationError } from "./operation-issue.mjs"
+import { issueSchemas } from "./issue-contract.mjs"
+import { assertSchema } from "./schema.mjs"
+import { projectedResult, projectedDetails, toolTarget, fileArtifact } from "./conversation-projection.mjs"
 
 const requireValue = (value, message) => {
   if (!value) throw new Error(message)
@@ -40,37 +41,76 @@ const identity = (value) =>
   )
 // Provider bodies can echo credentials and request headers. Persist/display
 // only fixed diagnostics; Pi classifies recovery using its untouched originals.
-const errorText = (error) => {
-  if (error instanceof QueueDispatchPersistenceError) return error.message
-  const message = error instanceof Error ? error.message : String(error)
-  if (/401|unauthoriz|invalid.{0,12}(api.?key|credential)/i.test(message))
-    return "模型认证失败（401），请检查连接凭据。"
-  if (/403|forbidden|permission.denied/i.test(message))
-    return "模型访问被拒绝（403），请检查账号权限。"
-  if (/429|rate.?limit|too.many.requests/i.test(message))
-    return "模型服务请求过于频繁（429），请稍后重试。"
-  if (/\b50[0-9]\b|overload|service.unavailable/i.test(message))
-    return "模型服务暂时不可用（503 overloaded），请稍后重试。"
-  if (
-    /context.{0,20}(length|window|exceed|overflow)|token.{0,15}limit/i.test(
-      message
+const errorText = (error) => runFailureIssue(error).summary
+// Run metadata is optional. Invalid or unsafe metadata must not become public
+// diagnostics or prevent reading the authoritative Pi messages.
+const restoredIssue = (value) => {
+  if (!value) return undefined
+  try {
+    assertSchema(issueSchemas.OperationIssue, value, "运行反馈")
+    if (
+      /https?:|Bearer|api[_-]?key|[A-Z]:[\\/]|\bat\s+\S+\(/i.test(
+        JSON.stringify(value)
+      )
     )
+      return undefined
+    return structuredClone(value)
+  } catch {
+    return undefined
+  }
+}
+const storageIssue = (error, operation, summary, code) => {
+  const source =
+    error?.name === "QueueDispatchPersistenceError" && !error.issue
+      ? error.cause || new Error("本地存储操作失败。")
+      : error
+  const safe = publicFailure(source, operation).issue
+  return {
+    ...safe,
+    code:
+      code ||
+      (safe.code.startsWith("storage_") ? safe.code : "history_save_failed"),
+    summary,
+    recovery: "reload",
+  }
+}
+const runFailureIssue = (error) =>
+  error?.name === "QueueDispatchPersistenceError" && !error.issue
+    ? storageIssue(
+        error,
+        "conversationSend",
+        "待处理消息未能保存，消息保留且尚未发送。",
+        "queue_storage"
+      )
+    : modelFailureIssue(error)
+const queueFailure = (state, error, summary) => {
+  state.queueIssue = storageIssue(
+    error,
+    "conversationRead",
+    summary,
+    "queue_storage"
   )
-    return "模型上下文超过限制（context overflow），请调整模型或新建会话。"
-  if (/timeout|timed.out|ETIMEDOUT/i.test(message))
-    return "模型连接超时（timeout），请检查网络后继续。"
-  if (/ENOSPC|disk.{0,10}full/i.test(message))
-    return "本地磁盘空间不足，无法保存会话。"
-  if (/EACCES|EPERM/i.test(message)) return "本地会话文件权限不足，无法保存。"
-  if (/abort|请求已停止/i.test(message)) return "请求已停止。"
-  if (/400|invalid.request/i.test(message))
-    return "模型服务拒绝请求（400），请检查模型、协议与能力配置。"
-  if (/fetch.failed|ECONN|ENOTFOUND|network/i.test(message))
-    return "无法连接模型服务，请检查端点与网络。"
-  return "模型请求失败，请检查模型配置和服务状态后继续。"
+  state.queueError = state.queueIssue.summary
 }
 const continuation =
   "请继续完成上一条用户请求；保留已经完成的工作和工具结果，不要重复执行已经成功的操作。"
+export const acceptedRequestIds = (manager) => {
+  const accepted = new Set()
+  let precedingRequest
+  // Acceptance belongs to the whole append-only Pi history, even after the
+  // active leaf changes. A request marker alone is never input acceptance.
+  for (const entry of manager.getEntries()) {
+    if (entry.type === "custom" && entry.customType === "moon-request")
+      precedingRequest = entry.data?.clientRequestId
+    if ((entry.type === "message" && entry.message.role === "user") ||
+        (entry.type === "custom_message" && entry.customType === "moon-continuation")) {
+      if (precedingRequest) accepted.add(precedingRequest)
+      precedingRequest = undefined
+    }
+  }
+  return accepted
+}
+const acceptedInput = (manager, clientRequestId) => acceptedRequestIds(manager).has(clientRequestId)
 const shellResult = (result, name) => {
   if (!["bash", "powershell"].includes(name)) return {}
   const content = result?.structuredContent
@@ -158,6 +198,7 @@ export class ConversationService {
       onInput: undefined,
       stableEntryIds: true,
       migrationRequired: false,
+      assistantIssues: new Map(),
       ...history,
     }
     this.persistence.set(manager, persistence)
@@ -172,15 +213,18 @@ export class ConversationService {
         // Pi updates its in-memory tree before attempting the disk write. Once
         // a write fails, do not let a later append flush that uncertain tree.
         if (persistence.error) throw persistence.error
+        let savedIssue
         if (
           method === "appendMessage" &&
           args[0].role === "assistant" &&
           args[0].errorMessage
-        )
+        ) {
+          savedIssue = runFailureIssue(args[0].errorMessage)
           args[0] = {
             ...args[0],
-            errorMessage: errorText(args[0].errorMessage),
+            errorMessage: savedIssue.summary,
           }
+        }
         let id
         const input =
           method === "appendMessage" && args[0].role === "user"
@@ -192,6 +236,8 @@ export class ConversationService {
           persistence.error = error
           throw error
         }
+        if (savedIssue && typeof id === "string")
+          persistence.assistantIssues.set(id, savedIssue)
         if (
           (method === "appendMessage" && args[0].role === "user") ||
           (method === "appendCustomMessageEntry" &&
@@ -300,15 +346,36 @@ export class ConversationService {
   async restore(record, selected, signal) {
     const existing = this.active.get(record.id)
     if (existing) {
-      if (existing.historyError) {
+      if (
+        existing.historyError ||
+        (!existing.entry.busy && this.persistence.get(existing.manager)?.error)
+      ) {
+        existing.unsubscribe?.()
+        existing.session?.dispose()
+        existing.session = undefined
+        this.sessions.active.delete(existing.record.id)
         existing.manager = await this.fileManager(record)
         try {
           await this.queue.reconcile(existing)
-        } catch {
-          existing.queueError =
-            "历史已核对，但队列状态保存失败；请检查磁盘与权限后重试。"
+        } catch (error) {
+          queueFailure(
+            existing,
+            error,
+            "历史已读取，但待处理消息状态未能保存。请检查文件占用后重新读取。"
+          )
         }
         existing.historyError = undefined
+      }
+      if (!existing.entry.busy && this.queue.hasStorageFailure(existing)) {
+        try {
+          await this.queue.reconcile(existing)
+        } catch (error) {
+          queueFailure(
+            existing,
+            error,
+            "历史已读取，但待处理消息状态未能保存。请检查文件占用后重新读取。"
+          )
+        }
       }
       if (selected && !existing.session)
         await this.activate(existing, selected, signal)
@@ -331,6 +398,10 @@ export class ConversationService {
       stoppedToolCalls: new Set(),
       phase: record.status,
       error: record.lastError || "",
+      issue: record.lastError
+        ? publicFailure(new Error(record.lastError), "conversationRead").issue
+        : undefined,
+      queueIssue: undefined,
       requests: new Map(),
       inputAccepted: false,
       runtime: undefined,
@@ -339,16 +410,8 @@ export class ConversationService {
       notice: undefined,
     }
     await this.queue.load(state)
-    let requestBeforeMessage
+    state.inputAccepted = acceptedInput(manager, record.lastRequestId)
     for (const item of manager.getEntries()) {
-      if (item.type === "custom" && item.customType === "moon-request")
-        requestBeforeMessage = item.data?.clientRequestId
-      if (
-        requestBeforeMessage === record.lastRequestId &&
-        ((item.type === "message" && item.message.role === "user") ||
-          item.type === "custom_message")
-      )
-        state.inputAccepted = true
       if (
         item.type === "custom" &&
         item.customType === "moon-run-result" &&
@@ -364,6 +427,19 @@ export class ConversationService {
         item.data.notice
       )
         state.notice = item.data.notice
+      if (
+        item.type === "custom" &&
+        item.customType === "moon-run-result" &&
+        item.data?.runId === record.runId &&
+        item.data.error === record.lastError
+      ) {
+        const issue = restoredIssue(item.data.issue)
+        if (issue) {
+          state.issue = issue
+          if (typeof item.data.issueEntryId === "string")
+            state.issueEntryId = item.data.issueEntryId
+        }
+      }
       if (
         item.type === "custom" &&
         item.customType === "moon-request" &&
@@ -552,10 +628,22 @@ export class ConversationService {
     if (
       ["message_start", "message_update"].includes(event.type) &&
       event.message?.role === "assistant"
-    )
+    ) {
       state.pending = event.message
+      const update = event.assistantMessageEvent
+      if (event.type === "message_start") state.pendingContentIndex = undefined
+      if (Number.isInteger(update?.contentIndex)) {
+        if (update.type.endsWith("_end")) {
+          if (state.pendingContentIndex === update.contentIndex)
+            state.pendingContentIndex = undefined
+        } else state.pendingContentIndex = update.contentIndex
+      }
+    }
     if (event.type === "message_end") {
-      if (event.message.role === "assistant") state.pending = undefined
+      if (event.message.role === "assistant") {
+        state.pending = undefined
+        state.pendingContentIndex = undefined
+      }
       // message_end precedes persistence. Only the successful append adapter
       // may acknowledge input; a microtask runs even if the disk write failed.
       queueMicrotask(() => this.touch(state))
@@ -815,17 +903,39 @@ export class ConversationService {
     const nestedResults = mcpResultsIndex(branch)
     const cancellation = this.cancellations(state, branch, history)
     const entriesByMessage = new Map()
-    const stableEntryIds = this.persistence.get(state.manager)?.stableEntryIds !== false
+    const issuesByEntry = new Map(
+      this.persistence.get(state.manager)?.assistantIssues || []
+    )
+    const stableEntryIds =
+      this.persistence.get(state.manager)?.stableEntryIds !== false
+    let sourceRunId
     branch.forEach((entry, historyIndex) => {
+      if (entry.type === "custom" && entry.customType === "moon-request")
+        sourceRunId = entry.data?.runId
       if (entry.type === "message")
         entriesByMessage.set(entry.message, {
           ...(stableEntryIds ? { entryId: entry.id } : {}),
           historyIndex,
+          ...(sourceRunId ? { runId: sourceRunId } : {}),
         })
     })
     for (const entry of branch) {
+      if (
+        entry.type !== "custom" ||
+        entry.customType !== "moon-run-result" ||
+        typeof entry.data?.issueEntryId !== "string"
+      )
+        continue
+      const issue = restoredIssue(entry.data.issue)
+      if (issue) issuesByEntry.set(entry.data.issueEntryId, issue)
+    }
+    sourceRunId = undefined
+    for (const [historyIndex, entry] of branch.entries()) {
       if (entry.type === "custom" && entry.customType === "moon-request")
-        nextMaterials = undefined
+        {
+          nextMaterials = undefined
+          sourceRunId = entry.data?.runId
+        }
       else if (entry.type === "custom" && entry.customType === "moon-materials")
         nextMaterials = entry.data
       else if (entry.type === "message") {
@@ -834,25 +944,45 @@ export class ConversationService {
           nextMaterials = undefined
         }
         source.push(entry.message)
-      } else if (entry.type === "custom_message" && entry.display)
-        source.push({
+      } else if (entry.type === "custom_message" && entry.display) {
+        const message = {
           role: "user",
           content: entry.content,
           timestamp: Date.parse(entry.timestamp),
+        }
+        entriesByMessage.set(message, {
+          ...(stableEntryIds ? { entryId: entry.id } : {}),
+          historyIndex,
+          ...(sourceRunId ? { runId: sourceRunId } : {}),
+          ...(entry.customType === "moon-continuation" ? { inputKind: "continuation" } : {}),
         })
+        source.push(message)
+      }
     }
-    if (state.pending) source.push(state.pending)
+    if (state.pending) {
+      entriesByMessage.set(state.pending, {
+        historyIndex: branch.length,
+        ...(state.record.runId ? { runId: state.record.runId } : {}),
+      })
+      source.push(state.pending)
+    }
     const seen = new Map()
+    let userTurnId
     for (const message of source) {
       if (!["user", "assistant"].includes(message.role)) continue
       const base = `${message.role}-${message.timestamp}`
       const count = seen.get(base) || 0
       seen.set(base, count + 1)
       const id = `${base}-${count}`
+      const previousUserTurnId = userTurnId
+      if (message.role === "user") userTurnId = id
       const live = message === state.pending
       const item = {
         id,
         ...entriesByMessage.get(message),
+        ...(userTurnId ? { userTurnId } : {}),
+        ...(entriesByMessage.get(message)?.inputKind === "continuation" && previousUserTurnId
+          ? { continuationOf: previousUserTurnId } : {}),
         role: message.role,
         text: textOf(message.content),
         time: new Date(message.timestamp).toISOString(),
@@ -879,6 +1009,10 @@ export class ConversationService {
       }
       if (message.role === "assistant") {
         item.model = message.model || state.record.modelId
+        if (!live && ["stop", "length", "toolUse", "error", "aborted"].includes(message.stopReason))
+          item.stopReason = message.stopReason
+        if (live && Number.isInteger(state.pendingContentIndex))
+          item.activeBlockId = `${id}-${state.pendingContentIndex}`
         item.forkable =
           !!item.entryId &&
           !this.historyNotice(state.manager) &&
@@ -894,8 +1028,14 @@ export class ConversationService {
         const blocks = []
         const tools = []
         for (const [index, part] of content.entries()) {
+          const blockId = `${id}-${index}`
+          const phase = item.activeBlockId === blockId ? "running" : "settled"
           if (part.type === "text")
-            blocks.push({ id: `${id}-${index}`, type: "text", text: part.text })
+            blocks.push({ id: blockId, type: "text", text: part.text, phase })
+          if (part.type === "thinking")
+            blocks.push({ id: blockId, type: "thinking", text: part.thinking, phase })
+          if (part.type === "image" && state.mediaReferences?.has(part))
+            blocks.push({ id: blockId, type: "image", image: state.mediaReferences.get(part) })
           if (part.type === "toolCall") {
             const call = history.byPart.get(part)
             const result = history.results.get(call?.key)
@@ -927,15 +1067,26 @@ export class ConversationService {
                   : "success"
               : progress?.status ||
                 (cancellation.stoppedCalls.has(part) ? "stopped" : "not-run")
+            const target = toolTarget(part, state.record.cwd)
+            const details = projectedDetails(result)
+            const artifact = fileArtifact(part, target, status)
+            const presentation = this.models.extensions?.presentation(result, part.name)
+            const images = (Array.isArray(result?.content) ? result.content : [])
+              .filter((content) => content.type === "image" && state.mediaReferences?.has(content))
+              .map((content) => state.mediaReferences.get(content))
             const tool = {
               id: part.id,
               name: part.name,
-              source: this.models.mcp?.toolSource(part.name) || "Pi",
+              source: this.models.mcp?.toolSource(part.name) || this.models.extensions?.toolSource(part.name, result) || "Pi",
               status,
               input: JSON.stringify(part.arguments, null, 2) || "{}",
-              result: result
-                ? excerpt(textOf(result.content))
-                : progress?.result || "",
+              ...(result ? projectedResult(result) : { result: progress?.result || "" }),
+              occurrenceId: stableEntryIds && call?.key ? call.key : toolOccurrenceKey(id, index),
+              ...(target ? { target } : {}),
+              ...(details ? { details } : {}),
+              ...(artifact ? { artifact } : {}),
+              ...(presentation ? { presentation } : {}),
+              ...(images.length ? { images } : {}),
               ...metadata,
             }
             tools.push(tool)
@@ -957,8 +1108,10 @@ export class ConversationService {
         }
         if (tools.length) item.tools = tools
         if (blocks.length) item.blocks = blocks
-        if (message.stopReason === "error" && !item.text)
-          item.text = errorText(message.errorMessage || "模型请求失败。")
+        if (item.status === "failed")
+          item.issue =
+            issuesByEntry.get(item.entryId) ||
+            runFailureIssue(message.errorMessage || "模型请求失败。")
       }
       messages.push(item)
     }
@@ -977,15 +1130,30 @@ export class ConversationService {
       clientRequestId: record.lastRequestId || "",
       inputAccepted: state.inputAccepted,
       runId: record.runId || "",
+      canContinue: this.canContinue(state),
       phase: state.phase,
       modelId: record.modelId,
       connectionId: slash < 0 ? "" : record.modelId.slice(0, slash),
       providerModelId: slash < 0 ? "" : record.modelId.slice(slash + 1),
       thinking: record.thinking || "off",
       error: state.error || "",
+      ...(state.issue ? { issue: state.issue } : {}),
+      ...(state.issueEntryId ? { issueEntryId: state.issueEntryId } : {}),
       messages: this.transcript(state),
       queue: this.queue.snapshot(state),
-      ...(state.queueError ? { queueError: state.queueError } : {}),
+      ...(state.queueError
+        ? {
+            queueError: state.queueError,
+            queueIssue:
+              state.queueIssue ||
+              storageIssue(
+                new Error(state.queueError),
+                "conversationRead",
+                state.queueError,
+                "queue_storage"
+              ),
+          }
+        : {}),
       ...this.controls.projection(state),
       ...(record.lineage ? { lineage: record.lineage } : {}),
       ...(state.phase === "running" && state.runtime
@@ -999,6 +1167,50 @@ export class ConversationService {
     }
     return snapshot
   }
+  canContinue(state) {
+    if (!state.inputAccepted || state.entry.busy) return false
+    if (["failed", "interrupted"].includes(state.phase)) return true
+    return state.phase === "completed" && this.lastStopReason(state) === "length"
+  }
+  lastStopReason(state) {
+    return [...state.manager.getBranch()].reverse().find(
+      (entry) => entry.type === "message" && entry.message.role === "assistant"
+    )?.message.stopReason
+  }
+  async prepareMedia(state, signal, retryFailed = false) {
+    if (!this.models.materials?.captureImage) return
+    state.mediaReferences ||= new WeakMap()
+    state.mediaTasks ||= new WeakMap()
+    const pending = []
+    const entries = state.manager.getBranch()
+    const source = entries.filter((entry) => entry.type === "message" && ["assistant", "toolResult"].includes(entry.message.role)).map((entry) => entry.message)
+    if (state.pending) source.push(state.pending)
+    for (const message of source) {
+      for (const [index, part] of (Array.isArray(message.content) ? message.content : []).entries()) {
+        if (part.type !== "image") continue
+        const reference = state.mediaReferences.get(part)
+        if (reference && !(retryFailed && reference.status === "failed" && reference.retryable)) continue
+        let task = state.mediaTasks.get(part)
+        if (!task) {
+          task = this.models.materials.captureImage(
+            state.record.cwd,
+            `Pi-${message.role}-${message.timestamp}-${index}`,
+            part.mimeType,
+            part.data,
+            signal
+          ).then((result) => {
+            const previous = state.mediaReferences.get(part)
+            state.mediaReferences.set(part, result)
+            if (JSON.stringify(previous) !== JSON.stringify(result)) this.touch(state)
+          })
+          state.mediaTasks.set(part, task)
+          task.finally(() => state.mediaTasks.delete(part)).catch(() => {})
+        }
+        pending.push(task)
+      }
+    }
+    await Promise.all(pending)
+  }
   async read(sessionId, _afterVersion, signal) {
     identity(sessionId)
     return this.sessions.exclusive(sessionId, async () => {
@@ -1007,7 +1219,52 @@ export class ConversationService {
       const record = await this.store.get(sessionId, signal)
       requireValue(record, "会话不存在。")
       const state = await this.restore(record, undefined, signal)
+      await this.prepareMedia(state, signal, _afterVersion === undefined)
       return this.snapshot(state)
+    })
+  }
+  async readReceipt(sessionId, clientRequestId, signal) {
+    identity(sessionId)
+    identity(clientRequestId)
+    return this.sessions.exclusive(sessionId, async () => {
+      this.ensureOpen()
+      signal?.throwIfAborted()
+      const receipt = await this.store.request(sessionId, clientRequestId, signal)
+      const record = await this.store.get(sessionId, signal)
+      const result = (state, issue) => ({ sessionId, clientRequestId, state,
+        ...(issue ? { issue } : {}) })
+      let state
+      if (record) {
+        state = await this.restore(record, undefined, signal)
+        if (state.queue.items.some((item) => item.clientRequestId === clientRequestId))
+          return result("accepted")
+        // Pi may have appended to its in-memory tree before a failing write.
+        // Read disk rather than that uncertain tree when persistence failed.
+        const manager = this.persistence.get(state.manager)?.error
+          ? await this.fileManager(record) : state.manager
+        if (acceptedInput(manager, clientRequestId)) return result("accepted")
+      }
+      if (receipt?.status === "rejected")
+        return result("rejected", restoredIssue(receipt.issue))
+      const interrupted = {
+        code: "request_not_accepted",
+        summary: "原请求尚未接受，准备过程已中断；原输入保留，可以使用新请求重新发送。",
+        recovery: "none", severity: "warning",
+      }
+      // A previous host's preparation cannot later execute. A current-host
+      // preparing receipt whose rejection write failed remains unknown.
+      if (receipt?.status === "preparing" && receipt.ownerEpoch !== this.epoch)
+        return result("rejected", interrupted)
+      if (receipt?.status === "started" && record &&
+        !(state?.entry.busy && state.record.runId === receipt.runId)) {
+        // Missing history can mean either no first append or loss of accepted
+        // data. It is not proof of rejection, even if the index says failed.
+        if (!record.sessionFile) return result("unknown")
+        try { await readFile(record.sessionFile, "utf8") }
+        catch (error) { if (error.code === "ENOENT") return result("unknown"); throw error }
+        return result("rejected", interrupted)
+      }
+      return result("unknown")
     })
   }
   async send(
@@ -1090,6 +1347,18 @@ export class ConversationService {
           ])
         )
         .digest("hex")
+      let tracked = false
+      const begin = async () => {
+        if (input.mode === "queue") return
+        const { receipt, created } = await this.store.beginRequest(
+          input.sessionId, input.clientRequestId, fingerprint, this.epoch, signal)
+        if (!created && receipt.status === "started")
+          throw operationError("result_unknown", "原请求已进入启动阶段，请先核对原回执；不会重新执行。", "check")
+        tracked = true
+        if (!created)
+          throw operationError("request_not_accepted", "原请求尚未接受，请保留输入并使用新请求重新发送。", "none")
+      }
+      try {
       if (record) {
         requireValue(
           !input.workspaceId || record.workspaceId === input.workspaceId,
@@ -1109,8 +1378,16 @@ export class ConversationService {
             accepted.fingerprint === fingerprint,
             "请求标识已经用于不同内容，请重新发送。"
           )
-          return restored
+          const manager = this.persistence.get(restored.manager)?.error
+            ? await this.fileManager(record) : restored.manager
+          if (acceptedInput(manager, input.clientRequestId)) return restored
+          const receipt = await this.store.request(record.id, input.clientRequestId, signal)
+          if (receipt?.status === "rejected" && receipt.fingerprint === fingerprint &&
+              record.lastRequestId === input.clientRequestId &&
+              ["failed", "interrupted"].includes(restored.phase))
+            return restored
         }
+        await begin()
         requireValue(!restored.controlBusy, "会话控制操作尚未完成，请稍候。")
         const unresolvedControl = this.controls.unresolvedReason(restored)
         requireValue(!unresolvedControl, unresolvedControl)
@@ -1135,8 +1412,9 @@ export class ConversationService {
           )
         if (input.mode === "retry") {
           requireValue(
-            ["failed", "interrupted"].includes(restored.phase),
-            "只有失败或中断的回复可以继续。"
+            ["failed", "interrupted"].includes(restored.phase) ||
+              (restored.phase === "completed" && this.lastStopReason(restored) === "length"),
+            "只有失败、中断或输出达到上限的回复可以继续。"
           )
           requireValue(
             restored.inputAccepted &&
@@ -1146,7 +1424,10 @@ export class ConversationService {
             "上一请求尚未写入对话，请在输入框重新发送。"
           )
         }
-      } else requireValue(input.mode === "send", "会话不存在。")
+      } else {
+        requireValue(input.mode === "send", "会话不存在。")
+        await begin()
+      }
       const workspace = await this.workspaces.get(
         record?.workspaceId || input.workspaceId,
         signal
@@ -1230,8 +1511,9 @@ export class ConversationService {
       signal?.throwIfAborted()
       this.ensureOpen()
       const runId = randomUUID()
-      // Atomic index commit is the acceptance boundary. Closing the RPC caller
-      // after this point must not cancel work; Stop identifies a specific run.
+      // Atomic index commit authorizes the run, but does not yet prove Pi input
+      // acceptance. After this boundary, caller cancellation cannot stop work;
+      // Stop identifies the committed run while receipt reads inspect Pi input.
       state.record = await this.store.update(
         record.id,
         {
@@ -1245,7 +1527,10 @@ export class ConversationService {
           lastRequestId: input.clientRequestId,
           lastRequestFingerprint: fingerprint,
         },
-        signal
+        signal,
+        input.mode === "queue" ? undefined : {
+          clientRequestId: input.clientRequestId, fingerprint,
+        }
       )
       const request = {
         clientRequestId: input.clientRequestId,
@@ -1254,17 +1539,32 @@ export class ConversationService {
       }
       state.requests.set(input.clientRequestId, request)
       state.inputAccepted = false
+      state.issue = undefined
+      state.issueEntryId = undefined
       if (this.closed) {
         state.record = await this.store.update(record.id, {
           status: "idle",
           lastError: "应用关闭前请求尚未开始，请重新发送。",
+        }, undefined, input.mode === "queue" ? undefined : {
+          clientRequestId: input.clientRequestId, fingerprint, runId,
+          outcome: "rejected", issue: {
+            code: "request_not_accepted", summary: "应用关闭前原请求尚未接受，输入已保留。",
+            recovery: "none", severity: "info",
+          },
         })
         state.phase = "interrupted"
         state.error = state.record.lastError
+        state.issue = {
+          code: "run_not_started",
+          summary: state.error,
+          recovery: "retry",
+          severity: "info",
+        }
         return state
       }
       state.phase = "running"
       state.error = ""
+      state.issue = undefined
       state.stopRequested = false
       state.stoppedToolIds.clear()
       state.stoppedToolCalls.clear()
@@ -1283,9 +1583,23 @@ export class ConversationService {
       })
       state.run = this.run(state, input)
       return state
+      } catch (error) {
+        if (tracked) {
+          try {
+            await this.store.rejectRequest(input.sessionId, input.clientRequestId,
+              fingerprint, publicFailure(error, "conversationSend").issue)
+          } catch (storageError) {
+            throw operationError("result_unknown", "请求尚未确认：准备结果未能保存，请先核对原回执，输入副本保留。", "check",
+              publicFailure(storageError, "conversationReceiptRead").issue.details)
+          }
+        }
+        throw error
+      }
     })
-    // A successful send response never precedes Pi saving the user input. It
-    // waits only for prompt preflight, not model generation or tool execution.
+    // Wait for Pi's public input-append boundary, not generation/tool completion.
+    // Installed Pi 1.0.0 flushes the first user entry before append returns.
+    // A startup commit alone is earlier; a missing file still cannot distinguish
+    // a crash before input append from loss of previously accepted history.
     if (
       state.queue.items.some(
         (item) => item.clientRequestId === input.clientRequestId
@@ -1297,8 +1611,10 @@ export class ConversationService {
   }
   async run(state, input) {
     let failure
+    let failureEntryId
     const manager = state.manager
     const before = [manager.getHeader(), ...manager.getEntries()]
+    const beforeEntryIds = new Set(before.map((entry) => entry.id))
     try {
       state.manager.appendCustomEntry(
         "moon-request",
@@ -1334,22 +1650,36 @@ export class ConversationService {
             },
           }
         )
-      const last = [...state.manager.getBranch()]
+      const lastEntry = [...state.manager.getBranch()]
         .reverse()
         .find(
           (entry) =>
-            entry.type === "message" && entry.message.role === "assistant"
-        )?.message
-      if (last?.stopReason === "error")
-        failure = errorText(last.errorMessage || "模型请求失败。")
+            entry.type === "message" &&
+            entry.message.role === "assistant" &&
+            !beforeEntryIds.has(entry.id)
+        )
+      const last = lastEntry?.message
+      if (last?.stopReason === "error") {
+        failure =
+          this.persistence
+            .get(state.manager)
+            ?.assistantIssues.get(lastEntry.id) ||
+          runFailureIssue(last.errorMessage || "模型请求失败。")
+        failureEntryId = lastEntry.id
+      }
       if (last?.stopReason === "aborted") state.stopRequested = true
     } catch (error) {
-      failure = errorText(error)
+      failure = runFailureIssue(error)
     } finally {
       await this.sessions.exclusive(state.record.id, async () => {
         const writeError = this.persistence.get(manager)?.error
         if (writeError) {
-          failure = `会话历史保存失败：${errorText(writeError)}`
+          failure = storageIssue(
+            writeError,
+            "conversationRead",
+            `会话历史未能保存。${publicFailure(writeError, "conversationRead").issue.summary}`
+          )
+          failureEntryId = undefined
           state.unsubscribe?.()
           state.session?.dispose()
           state.session = undefined
@@ -1359,9 +1689,12 @@ export class ConversationService {
             state.manager = await this.fileManager(state.record)
             try {
               await this.queue.reconcile(state)
-            } catch {
-              state.queueError =
-                "历史已核对，但待处理状态保存失败；请检查磁盘与权限后重试。"
+            } catch (error) {
+              queueFailure(
+                state,
+                error,
+                "历史已读取，但待处理消息状态未能保存。请检查文件占用后重新读取。"
+              )
             }
           } catch (error) {
             // Preserve the file, including any partial write. A later read/send
@@ -1372,7 +1705,11 @@ export class ConversationService {
               before
             )
             state.historyError = error
-            failure += ` ${error.message}`
+            failure = {
+              ...failure,
+              code: "history_unreadable",
+              summary: `${failure.summary} 当前历史无法读取，原文件保留。`,
+            }
           }
         }
         state.pending = undefined
@@ -1383,7 +1720,9 @@ export class ConversationService {
           : failure
             ? "failed"
             : "completed"
-        state.error = failure || ""
+        state.issue = failure
+        state.issueEntryId = failure ? failureEntryId : undefined
+        state.error = failure?.summary || ""
         for (const progress of state.toolProgress.values())
           if (progress.status === "running")
             progress.status = state.stopRequested ? "stopped" : "failed"
@@ -1401,6 +1740,10 @@ export class ConversationService {
               runId: state.record.runId,
               phase: state.phase,
               error: state.error,
+              ...(state.issue ? { issue: state.issue } : {}),
+              ...(state.issue && failureEntryId
+                ? { issueEntryId: failureEntryId }
+                : {}),
               ...(state.notice ? { notice: state.notice } : {}),
               ...(state.stoppedToolIds.size
                 ? { stoppedToolIds: [...state.stoppedToolIds] }
@@ -1423,19 +1766,40 @@ export class ConversationService {
             sessionFile: writeError
               ? state.record.sessionFile
               : state.manager.getSessionFile() || "",
-          })
+          }, undefined,
+          input.mode !== "queue" && !state.inputAccepted && !writeError &&
+              !acceptedInput(manager, input.clientRequestId)
+            ? {
+                clientRequestId: input.clientRequestId,
+                fingerprint: state.requests.get(input.clientRequestId)?.fingerprint,
+                runId: state.record.runId,
+                outcome: "rejected",
+                issue: state.issue ?? {
+                  code: "request_not_accepted", summary: "原请求尚未接受，输入已保留。",
+                  recovery: "none", severity: "info",
+                },
+              }
+            : undefined)
         } catch (error) {
           state.phase = "failed"
-          state.error = `回复已结束，但会话记录保存失败：${errorText(error)}`
+          state.issue = storageIssue(
+            error,
+            "conversationRead",
+            `回复已结束，但会话记录未能保存。${publicFailure(error, "conversationRead").issue.summary}`
+          )
+          state.error = state.issue.summary
         }
         state.entry.busy = false
         if (state.phase !== "completed") {
           try {
             await this.queue.pause(state)
-          } catch {
+          } catch (error) {
             state.queue.paused = true
-            state.queueError =
-              "执行已停止，但队列状态保存失败；请检查磁盘与权限。"
+            queueFailure(
+              state,
+              error,
+              "执行已停止，但待处理消息状态未能保存。消息保留，请检查文件占用后重新读取。"
+            )
           }
         } else if (
           this.queuePending(state) &&
@@ -1443,9 +1807,15 @@ export class ConversationService {
           !this.closed
         )
           queueMicrotask(() => {
-            void this.queue.resume(state).catch(() => {
+            void this.queue.resume(state).catch((error) => {
               state.queue.paused = true
-              state.queueError = "队列启动失败，请重新读取后继续。"
+              state.queueIssue = {
+                ...publicFailure(error, "conversationRead").issue,
+                code: "queue_resume_failed",
+                summary: "待处理消息暂时无法发送，请重新读取后继续。",
+                recovery: "reload",
+              }
+              state.queueError = state.queueIssue.summary
               this.touch(state)
             })
           })
@@ -1470,9 +1840,13 @@ export class ConversationService {
       signal?.throwIfAborted()
       try {
         await this.queue.pause(state)
-      } catch {
+      } catch (error) {
         state.queue.paused = true
-        state.queueError = "队列状态保存失败，消息保留；正在停止当前执行。"
+        queueFailure(
+          state,
+          error,
+          "待处理消息状态未能保存，消息保留；正在停止当前执行。"
+        )
       }
       state.record = await this.store.update(
         sessionId,
@@ -1496,7 +1870,13 @@ export class ConversationService {
       this.touch(state)
       // abort() waits for Pi settlement; keep the transport request short.
       void state.session.abort().catch((error) => {
-        state.error = errorText(error)
+        state.issue = {
+          ...publicFailure(error, "conversationStop").issue,
+          code: "run_stop_failed",
+          summary: "暂时无法确认执行已停止，请检查会话状态。",
+          recovery: "reload",
+        }
+        state.error = state.issue.summary
         this.touch(state)
       })
       return this.snapshot(state)
@@ -1537,8 +1917,8 @@ export class ConversationService {
   queuePending(state) {
     return this.queue.pending(state)
   }
-  queueEdit(...args) {
-    return this.queue.edit(...args)
+  queueEdit(sessionId, itemId, text, revision, materials, signal, clientEditId) {
+    return this.queue.edit(sessionId, itemId, text, revision, materials, signal, clientEditId)
   }
   queueRemove(...args) {
     return this.queue.remove(...args)
@@ -1548,5 +1928,8 @@ export class ConversationService {
   }
   queueDeliver(...args) {
     return this.queue.deliver(...args)
+  }
+  queueReceiptRead(...args) {
+    return this.queue.readReceipt(...args)
   }
 }

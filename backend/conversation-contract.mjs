@@ -40,10 +40,55 @@ const tool = obj(
       minimum: 0,
       description: "Pi shell 实际 wall_time_seconds 换算为毫秒；未返回时省略",
     },
+    occurrenceId: str("Pi assistant entryId与内容位置组成的调用身份；旧格式未持久迁移时使用稳定展示id，不冒充正式entryId；不以可重复的提供者toolCallId作为唯一键"),
+    target: ref("ConversationToolTarget"),
+    resultLength: num("Pi工具文本结果在Moon展示截断前的字符数；不是源文件总长度"),
+    resultTruncated: { type: "boolean", description: "Pi结果本身或Moon展示结果发生截断；不能将展示文本当完整文件" },
+    details: ref("ConversationToolDetails"),
+    images: arr(ref("MaterialReference")),
+    artifact: ref("ConversationFileArtifact"),
+    presentation: ref("ExtensionPresentation"),
   },
   ["id", "name", "source", "status", "input", "result"]
 )
+// Internal index metadata shares this contract source, but is not a public DTO.
+export const conversationRequestReceiptStorageSchema = obj({
+  sessionId: id,
+  clientRequestId: id,
+  fingerprint: str("内部：冻结请求SHA-256；不保存正文或凭据", { pattern: "^[a-f0-9]{64}$" }),
+  status: str("preparing尚未提交启动；started与启动摘要原子提交；rejected未接受", { enum: ["preparing", "started", "rejected"] }),
+  ownerEpoch: str("登记准备的宿主身份；冷恢复不继续未完成准备", { minLength: 1 }),
+  updatedAt: str("回执更新时点"),
+  runId: id,
+  issue: ref("OperationIssue"),
+}, ["sessionId", "clientRequestId", "fingerprint", "status", "ownerEpoch", "updatedAt"])
 export const conversationSchemas = {
+  ConversationRequestReceipt: obj({
+    sessionId: id,
+    clientRequestId: id,
+    state: str("仅原请求的接受结论；accepted由正式Pi输入或已存队列证明，未知不重发", { enum: ["accepted", "rejected", "unknown"] }),
+    issue: ref("OperationIssue"),
+  }, ["sessionId", "clientRequestId", "state"]),
+  ConversationToolTarget: obj({
+    kind: str("工具目标类型", { enum: ["file", "command"] }),
+    path: str("按Pi参数和会话cwd解析的请求路径；预览另经realpath及目录边界核验"),
+    displayPath: str("工作区内相对路径或完整外部路径"),
+    requestedPath: str("Pi工具原始路径参数"),
+    line: num("read请求的起始行，从1开始"),
+    lineCount: num("read请求的行数"),
+    command: str("Pi实际接收的命令参数"),
+    cwd: str("命令所属会话工作目录"),
+  }, ["kind"]),
+  ConversationToolDetails: obj({
+    diff: str("Pi edit实际成功结果的差异，不由模型正文或预计参数构造"),
+    patch: str("Pi edit实际成功结果的unified patch"),
+    firstChangedLine: num("Pi实际结果的首个改动行，从1开始"),
+  }, []),
+  ConversationFileArtifact: obj({
+    path: str("成功的Pi文件操作目标路径，打开时仍须核对当前磁盘及权限边界"),
+    displayPath: str("可读的文件目标"),
+    operation: str("成功文件工具的实际操作；Pi无前像时只称write，不猜创建/覆盖", { enum: ["write", "edit"] }),
+  }),
   ConversationChatTool: tool,
   ConversationRuntime: obj(
     {
@@ -68,12 +113,20 @@ export const conversationSchemas = {
   ConversationChatMessage: obj(
     {
       id: str("由 Pi 消息时间和顺序生成的稳定展示标识"),
-      entryId: str("原Pi历史已保存的权威条目标识；运行中消息或v1只读恢复的临时迁移标识不返回"),
+      entryId: str(
+        "原Pi历史已保存的权威条目标识；运行中消息或v1只读恢复的临时迁移标识不返回"
+      ),
       historyIndex: {
         type: "integer",
         minimum: 0,
-        description: "在当前Pi分支中的位置",
+        description: "在完整Pi分支中的位置，包含custom条目；pending位于branch.length，继续指令使用原custom_message位置",
       },
+      userTurnId: str("对应可见用户输入的稳定展示标识，用于聚合该输入之后的正式阶段；不是Pi fork锚点"),
+      inputKind: str("可见用户输入的正式类型；不按正文文案猜继续请求", { enum: ["continuation"] }),
+      continuationOf: str("可见继续指令所恢复的前一用户轮次；独立输入身份保留，便于标注历史attempt恢复关系"),
+      runId: str("Moon正式请求标记提供的运行归属；旧记录缺失时省略，不推测"),
+      stopReason: str("Pi正式assistant停止原因；length表示输出上限，不当作完整答案", { enum: ["stop", "length", "toolUse", "error", "aborted"] }),
+      activeBlockId: str("Pi当前仍在生成的内容块；结束的thinking不随整条消息继续显示运行态"),
       forkable: {
         type: "boolean",
         description:
@@ -86,14 +139,20 @@ export const conversationSchemas = {
       status: str("消息状态", {
         enum: ["sending", "streaming", "settled", "interrupted", "failed"],
       }),
+      issue: ref("OperationIssue"),
       thinking: obj({ text: str("Pi 实际返回的思考内容") }),
       materials: arr(ref("MaterialReference")),
-      attachments: arr(obj({
-        id: str("准备材料标识"), name: str("原始材料名称"),
-        kind: str("展示类型", { enum: ["file", "image"] }),
-        source: str("原始来源路径或固定图片说明"),
-        materialType: str("材料真实类别", { enum: ["file", "image", "skill"] }),
-      })),
+      attachments: arr(
+        obj({
+          id: str("准备材料标识"),
+          name: str("原始材料名称"),
+          kind: str("展示类型", { enum: ["file", "image"] }),
+          source: str("原始来源路径或固定图片说明"),
+          materialType: str("材料真实类别", {
+            enum: ["file", "image", "skill"],
+          }),
+        })
+      ),
       tools: arr(ref("ConversationChatTool")),
       blocks: arr({
         anyOf: [
@@ -101,6 +160,18 @@ export const conversationSchemas = {
             id: str("内容标识"),
             type: { type: "string", enum: ["text"] },
             text: str("文本"),
+            phase: str("此块是否仍在生成", { enum: ["running", "settled"] }),
+          }, ["id", "type", "text"]),
+          obj({
+            id: str("原始Pi内容位置生成的标识"),
+            type: { type: "string", enum: ["thinking"] },
+            text: str("该位置的Pi思考正文"),
+            phase: str("此思考块的真实生成阶段", { enum: ["running", "settled"] }),
+          }),
+          obj({
+            id: str("原始Pi内容位置生成的标识"),
+            type: { type: "string", enum: ["image"] },
+            image: ref("MaterialReference"),
           }),
           obj({
             id: str("内容标识"),
@@ -128,6 +199,7 @@ export const conversationSchemas = {
             "仅在 Pi 持久化方法成功返回后确认用户消息（或继续指令）已接受；消息事件本身不代表保存成功。该输入写入失败时返回 false、保留草稿，明确重发使用新请求标识；相同标识不重复执行。",
         },
         runId: str("本次或最后一次运行标识"),
+        canContinue: { type: "boolean", description: "输入已接受且末次回复失败/停止或Pi length截断；继续是新的幂等可见指令，不重发原请求或自动执行旧工具" },
         phase: str(
           "真实回复运行状态；completed 仅表示本轮运行结束，不代表用户任务验收成功",
           {
@@ -146,10 +218,17 @@ export const conversationSchemas = {
         providerModelId: str("服务端模型 ID"),
         thinking,
         error: str("错误说明，成功为空"),
+        issue: ref("OperationIssue"),
+        issueEntryId: str(
+          "本次运行失败对应的正式 Pi 回复条目 ID；无对应回复时省略"
+        ),
         messages: arr(ref("ConversationChatMessage")),
-        historyNotice: str("旧格式历史的非阻断说明；只读恢复不持久化迁移标识，显式发送交由Pi迁移后恢复派生能力"),
+        historyNotice: str(
+          "旧格式历史的非阻断说明；只读恢复不持久化迁移标识，显式发送交由Pi迁移后恢复派生能力"
+        ),
         queue: ref("ConversationQueue"),
         queueError: str("待处理消息保存或恢复错误；不会自动重发"),
+        queueIssue: ref("OperationIssue"),
         control: ref("ConversationControl"),
         compactions: arr(ref("ConversationCompaction")),
         lineage: obj({
@@ -232,6 +311,20 @@ const common = {
     "会话或工作区不存在、目录不可用、配置损坏、模型不可用、同一会话正在运行、请求标识冲突、存储失败。",
 }
 export const conversationOperations = {
+  conversationReceiptRead: {
+    module: common.module,
+    method: "conversations.readReceipt",
+    args: ["sessionId", "clientRequestId", "$signal"],
+    request: obj({ sessionId: id, clientRequestId: id }),
+    response: ref("ConversationRequestReceipt"),
+    title: "只读核对原发送回执",
+    input: ["sessionId", "clientRequestId"],
+    result: "ConversationRequestReceipt",
+    condition: "按原sessionId/clientRequestId核对，不要求会话摘要已创建；同会话锁等待准备结束，不激活Pi或重发输入。没有登记的请求、未能保存明确拒绝的当前preparing、损坏/缺失的权威历史保持unknown；started摘要本身不表示accepted或rejected。",
+    effect: "index的preparing先于昂贵准备，started与启动摘要原子提交；明确拒绝按本request单独保存，不覆盖上一已接受run。实际本run未接受且无Pi写入错误的终态拒绝与摘要原子保存。旧宿主的preparing证明未启动；accepted须有正式Pi用户输入/可见继续指令或持久队列证明，已接受的历史身份不随当前分支变化而消失。Pi1.0.0在首user时flush；启动commit仍早于该append，冷恢复缺首文件不能区分append前崩溃与历史丢失，保持unknown。只返回身份与安全结论，不返回输入、材料或fingerprint，不改写历史或回执。",
+    errors: "回执索引或正式历史损坏、存储不可访问、请求已取消；错误不确认拒绝，不自动重复外部效果。",
+    example: { sessionId: "sample-session", clientRequestId: "sample-request" },
+  },
   conversationSend: {
     ...common,
     method: "conversations.send",
@@ -256,18 +349,29 @@ export const conversationOperations = {
       "modelId",
       "thinking",
     ],
-    request: obj({
-      sessionId: id,
-      workspaceId: id,
-      clientRequestId: id,
-      text: str("本轮用户文本；有就绪材料时可以为空", { maxLength: 100000 }),
-      materials: arr(ref("MaterialReference")),
-      ...selection,
-    }, ["sessionId", "workspaceId", "clientRequestId", "text", "connectionId", "modelId", "thinking"]),
+    request: obj(
+      {
+        sessionId: id,
+        workspaceId: id,
+        clientRequestId: id,
+        text: str("本轮用户文本；有就绪材料时可以为空", { maxLength: 100000 }),
+        materials: arr(ref("MaterialReference")),
+        ...selection,
+      },
+      [
+        "sessionId",
+        "workspaceId",
+        "clientRequestId",
+        "text",
+        "connectionId",
+        "modelId",
+        "thinking",
+      ]
+    ),
     condition:
-      "需保存工作区、会话配置与可用模型；空闲时启动，运行中原子保存至本会话待处理队列，不并行推理。clientRequestId 对相同内容幂等；队列acceptedRequestIds表示已保存待处理输入，与Pi历史inputAccepted区分。控制操作运行中、结果未确认或停止中拒绝新提交；已有请求仍按原标识幂等读取。提交前取消不保存，接受后需Stop明确停止，不因断开轮询取消。",
+      "需保存工作区、会话配置与可用模型；空闲时启动，运行中原子保存至本会话待处理队列，不并行推理。clientRequestId冻结内容幂等；已接受请求不再执行，started但未确认输入的重复请求要求只读核对，明确拒绝的原ID不重放。队列acceptedRequestIds表示已保存待处理输入，与Pi inputAccepted区分。控制操作运行中、结果未确认或停止中拒绝新提交。启动提交前取消不开始推理，可能保留准备回执和已建空会话；启动提交后需Stop明确停止，不因断开轮询取消。",
     effect:
-      "Pi 官方 JSONL 保存消息，后台发起真实推理与已启用工具，可能产生费用并修改所选目录；快速返回后轮询 Read。",
+      "Pi 官方SessionManager在首user输入时将正文及此前设置条目写入JSONL；后台发起真实推理与已启用工具，可能产生费用并修改所选目录。正常快速返回等待Pi接受并保存输入，失败且inputAccepted=false需按原ID只读ReceiptRead核对，不能凭终态摘要恢复/重放。之后轮询Read，历史完整性与冷恢复接受结论分开核对。",
     example: {
       sessionId: "sample-session",
       workspaceId: "sample-workspace",
@@ -294,7 +398,7 @@ export const conversationOperations = {
     condition:
       "不触发推理；每 200–300ms 轮询，失败保留旧画面；epoch 改变时接纳新宿主快照。读取不标记已读，不迁移或修复磁盘 JSONL。非空行 JSON 损坏、文件头无效、工作目录不匹配或历史版本过新时明确拒绝，原文件不改写。",
     effect:
-      "通过 Pi 官方内存 SessionManager 恢复合法历史及分支；v1/v2 只在内存迁移，缺少末尾换行不补写；正式发送才交由 Pi 打开持久化历史并迁移。模型配置或工作目录被移除仍可查看已存消息。runtime 仅表示当前执行阶段；context 是 Pi 估算，未知时返回 contextState，重启统计标记 restored。shell 结果可含实际 exitCode/durationMs，缺失不推断。",
+      "通过 Pi 官方内存 SessionManager 恢复合法历史及分支；v1/v2 只在内存迁移，缺少末尾换行不补写；正式发送才交由 Pi 打开持久化历史并迁移。模型配置或工作目录被移除仍可查看已存消息。完整historyIndex与有序thinking/text/tool/image块来自Pi；工具差异来自正式details，图片进入既有材料缓存并只传材料引用，不反复传base64。runtime仅表示当前执行阶段；context是Pi估算，重启统计标记restored。shell可含实际exitCode/durationMs，缺失不推断。",
     errors:
       "会话不存在、历史不存在或无法读取、历史 JSON 或文件头损坏、工作目录元数据不匹配、历史版本高于当前 Pi 支持版本；失败不会覆盖原历史。",
     example: { sessionId: "sample-session" },
@@ -332,7 +436,7 @@ export const conversationOperations = {
     ],
     request: obj({ sessionId: id, clientRequestId: id, ...selection }),
     condition:
-      "仅失败或中断会话且没有运行中或结果未确认的控制操作；本轮 inputAccepted 必须为 true 且需要已有用户历史，clientRequestId 幂等。预检未接受输入时须保留草稿重新发送，旧用户历史不能代替本轮接受边界。不重发原始用户请求。",
+      "仅失败、中断或最后Pi回复stopReason=length的空闲会话，且没有运行中或结果未确认的控制操作；本轮inputAccepted必须为true且需要已有用户历史，clientRequestId幂等。预检未接受输入时须保留草稿重新发送，旧用户历史不能代替本轮接受边界。不重发原始用户请求，不自动重放已成功工具。",
     effect:
       "通过 Pi sendCustomMessage 添加可见的继续指令后发起下一轮，保留先前回复与工具结果。",
     example: {

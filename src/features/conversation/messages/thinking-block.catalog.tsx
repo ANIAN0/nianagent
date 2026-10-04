@@ -20,7 +20,7 @@ export default {
       id: "collapsed",
       name: "已收起",
       condition: "已完成",
-      expected: "摘要取第一非空行。",
+      expected: "摘要取最近有效行；已结束块不显示正在思考。",
       render: () => (
         <div className="p-6">
           <ThinkingBlock text={text} />
@@ -42,7 +42,8 @@ export default {
       id: "running",
       name: "思考中",
       condition: "运行状态",
-      expected: "摘要取最近非空行，有辅助状态说明。",
+      expected:
+        "摘要仅取最近完整换行行；没有完整行时稳定显示正在分析，不随半行输出跳动。",
       render: () => (
         <div className="p-6">
           <ThinkingBlock text={text} running />

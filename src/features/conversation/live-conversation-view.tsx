@@ -1,21 +1,47 @@
-import { Alert, AlertDescription } from "@/components/ui/alert"
+import { OperationFeedback } from "@/components/feedback/operation-feedback"
+import {
+  feedbackFromError,
+  type FeedbackDescription,
+} from "@/lib/operation-issue"
+import { ConversationOperationFeedback } from "./conversation-operation-feedback"
+import type { ConversationActionIssue } from "./use-live-conversation"
 import { Button } from "@/components/ui/button"
 import type { HomeData, HomeDraft } from "@/features/home/home-types"
 import type { ConversationSnapshot } from "@/features/models/model-contract.generated"
 import { ConversationPage } from "./conversation-page"
 import type { ConversationReadingPosition } from "./conversation-list"
 import { ConversationComposer } from "./composer/conversation-composer"
-import { ConversationMessageView } from "./messages/conversation-message-view"
+import { ConversationTurnView } from "./messages/conversation-turn-view"
+import { projectConversationTurns } from "./conversation-turns"
+import { MessageEnvironmentProvider } from "./messages/message-environment"
+import { ConversationSubmissionEcho } from "./conversation-submission-echo"
+import type { ConversationSubmissionEchoValue } from "./conversation-submission"
+import { MaterialServiceContext } from "@/features/materials/material-service"
 import { ExecutionFeedback } from "./execution-feedback"
 import { QueueDock } from "./composer/queue-dock"
+import { QueueOperationRecovery } from "./composer/queue-operation-recovery"
+import {
+  queueOperationIssueKey,
+  type QueueOperationRecord,
+} from "./queue-operation-recovery"
 import type { Material } from "@/features/home/home-types"
 import { MaterialPreviewDialog } from "@/features/materials/material-preview"
-import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import {
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import { CompactDialog } from "./controls/compact-dialog"
 import { ConversationCompactionRecord } from "./controls/conversation-compaction-record"
 import { useConversationControls } from "./controls/use-conversation-controls"
 import { ForkFeedback } from "./controls/fork-feedback"
 import type { ConversationControlService } from "./controls/conversation-control-service"
+
+// Ephemeral disclosure state survives a view switch; it stores no message data.
+const sessionDisclosures = new Map<string, Map<string, boolean>>()
 
 export type LiveConversationViewProps = {
   id: string
@@ -23,16 +49,40 @@ export type LiveConversationViewProps = {
   workspacePath?: string
   snapshot?: ConversationSnapshot
   error?: string
+  readIssue?: FeedbackDescription
+  actionIssue?: ConversationActionIssue
+  draftError?: string
+  receiptIssue?: FeedbackDescription
+  onCleanReceipt?: () => void
+  queueIssues?: Record<string, FeedbackDescription | undefined>
+  queueRecoveryReason?: string
+  queueRecoveryRecords?: readonly QueueOperationRecord[]
+  queueRecoveryIssuesByRequest?: Record<string, FeedbackDescription | undefined>
+  queueStorageIssue?: FeedbackDescription
+  queueOriginalRetryAllowed?: Record<string, boolean | undefined>
+  queueOperationPendingByRequest?: Record<string, boolean | undefined>
+  onRetryQueueOriginal?: (record: QueueOperationRecord) => void
+  readReceiptIssue?: FeedbackDescription
+  onRetryReadReceipt?: () => void
   pending?: boolean
+  pendingSubmission?: ConversationSubmissionEchoValue
   data: HomeData
   draft: HomeDraft
   positions?: Map<string, ConversationReadingPosition>
   onChange: (draft: HomeDraft) => void
+  onRecoverDraft?: (draft: HomeDraft) => void | Promise<unknown>
   onSend: (draft: HomeDraft) => void
   onStop: () => void
   onContinue: () => void
   onReload: () => void
-  onQueueEdit?: (itemId: string, text: string) => Promise<unknown>
+  readPending?: boolean
+  onQueueEdit?: (
+    itemId: string,
+    text: string,
+    materials?: HomeDraft["materials"],
+    revision?: number,
+    clientEditId?: string
+  ) => Promise<unknown>
   onQueueRemove?: (itemId: string) => void
   onQueueDeliver?: (itemId: string) => void
   onQueueMode?: (mode: "single" | "all") => Promise<unknown>
@@ -40,6 +90,8 @@ export type LiveConversationViewProps = {
   unconfirmed?: boolean
   onReconcile?: () => void
   onOpenConversation?: (id: string) => void
+  onOpenSettings?: () => void
+  captureNavigation?: () => () => boolean
   controlService?: ConversationControlService
 }
 export function LiveConversationView({
@@ -48,15 +100,33 @@ export function LiveConversationView({
   workspacePath,
   snapshot,
   error,
+  readIssue: providedReadIssue,
+  actionIssue,
+  draftError,
+  receiptIssue,
+  onCleanReceipt,
+  queueIssues,
+  queueRecoveryReason,
+  queueRecoveryRecords = [],
+  queueRecoveryIssuesByRequest,
+  queueStorageIssue,
+  queueOriginalRetryAllowed,
+  queueOperationPendingByRequest,
+  onRetryQueueOriginal,
+  readReceiptIssue,
+  onRetryReadReceipt,
   pending,
+  pendingSubmission,
   data,
   draft,
   positions,
   onChange,
+  onRecoverDraft,
   onSend,
   onStop,
   onContinue,
   onReload,
+  readPending,
   onQueueEdit,
   onQueueRemove,
   onQueueDeliver,
@@ -65,9 +135,75 @@ export function LiveConversationView({
   unconfirmed,
   onReconcile,
   onOpenConversation,
+  onOpenSettings,
+  captureNavigation,
   controlService,
 }: LiveConversationViewProps) {
   const [activeMaterial, setActiveMaterial] = useState<Material | null>(null)
+  const materialService = useContext(MaterialServiceContext)
+  const previewRequest = useRef<AbortController | undefined>(undefined)
+  const [disclosures] = useState(() => {
+    let value = sessionDisclosures.get(id)
+    if (!value) {
+      value = new Map<string, boolean>()
+      sessionDisclosures.set(id, value)
+    }
+    return value
+  })
+  useEffect(() => () => previewRequest.current?.abort(), [])
+  const cwd = snapshot?.cwd ?? workspacePath ?? ""
+  const messageEnvironment = useMemo(
+    () => ({
+      sessionId: id,
+      cwd,
+      disclosures,
+      onOpenSettings: onOpenSettings ?? data.modelCatalog?.onOpenSettings,
+      onOpenAttachment: (
+        attachment: import("./conversation-types").MessageAttachment
+      ) =>
+        setActiveMaterial({
+          ...attachment,
+          kind: attachment.materialType === "skill" ? "Skill" : "附件",
+          type: attachment.materialType ?? attachment.kind,
+          status: "ready",
+        }),
+      onOpenPath: materialService
+        ? async (path: string) => {
+            previewRequest.current?.abort()
+            const request = new AbortController()
+            previewRequest.current = request
+            const prepared = await materialService.prepare(
+              id,
+              cwd,
+              [path],
+              request.signal,
+              { scope: "workspace" }
+            )
+            if (request.signal.aborted || previewRequest.current !== request)
+              return
+            const material = prepared[0]
+            if (!material || material.status !== "ready")
+              throw Object.assign(new Error("文件无法预览。"), {
+                issue: {
+                  code: "material_preview_failed",
+                  summary: material?.error || "文件无法预览。",
+                  severity: "error",
+                  recovery: material?.retryable === false ? "none" : "retry",
+                },
+              })
+            setActiveMaterial(material)
+          }
+        : undefined,
+    }),
+    [
+      id,
+      cwd,
+      disclosures,
+      materialService,
+      onOpenSettings,
+      data.modelCatalog?.onOpenSettings,
+    ]
+  )
   const running = snapshot?.phase === "running"
   const controls = useConversationControls(id, snapshot, controlService)
   const [compactOpen, setCompactOpen] = useState(false)
@@ -89,17 +225,53 @@ export function LiveConversationView({
       ? controls.operation
       : undefined
   const controlBlocked = !!snapshot?.control?.busy || compactActive
-  const compactDisabledReason = !snapshot
-    ? "正在读取会话。"
-    : !data.models.includes(snapshot.modelId)
-      ? "当前模型不可用，请检查模型设置。"
-      : snapshot.control?.compactDisabledReason
   const forkOperation =
     controls.operation?.kind === "fork" ? controls.operation : undefined
   const forkBusy =
     controls.pending ||
     (!!forkOperation && ["running", "unknown"].includes(forkOperation.status))
-  const openingFork = useRef<string | undefined>(undefined)
+  const submissionBlockedReason = receiptIssue
+    ? "请先完成原请求的本地回执处理，草稿仍保留。"
+    : unconfirmed
+      ? pendingSubmission?.kind === "retry"
+        ? "继续请求的接收结果尚未核对；下一稿和材料可继续编辑，但尚未发送，请先核对原继续请求。"
+        : "原消息的接收结果尚未核对，草稿可继续编辑；请先核对原消息。"
+      : pending
+        ? "正在确认本次操作，草稿可继续编辑。"
+        : undefined
+  const controlPendingReason = controls.pending
+    ? controls.pendingAction === "fork"
+      ? "正在创建分支，请等待本次操作结果。"
+      : controls.pendingAction === "compact"
+        ? "正在提交上下文压缩，请等待本次操作结果。"
+        : controls.pendingAction === "cancel"
+          ? "正在核对取消结果，请等待本次操作结果。"
+          : "正在核对会话操作，草稿仍可编辑。"
+    : undefined
+  const mutationBlockedReason =
+    submissionBlockedReason ??
+    queueRecoveryReason ??
+    (!snapshot
+      ? "会话尚未读取完成，草稿保留；请先重新读取会话。"
+      : undefined) ??
+    controlPendingReason ??
+    (forkBusy
+      ? forkOperation?.status === "unknown"
+        ? "分支结果尚未确认，请先核对原操作。"
+        : "正在创建分支，请等待本次操作结果。"
+      : controlBlocked
+        ? "上下文操作尚未完成，请先查看其状态。"
+        : undefined)
+  const compactDisabledReason =
+    mutationBlockedReason ??
+    (!snapshot
+      ? "正在读取会话。"
+      : !data.models.includes(snapshot.modelId)
+        ? "当前模型不可用，请检查模型设置。"
+        : snapshot.control?.compactDisabledReason)
+  const openingFork = useRef<
+    { id: string; ownsPage: () => boolean } | undefined
+  >(undefined)
   const mounted = useRef(true)
   useEffect(() => {
     mounted.current = true
@@ -111,19 +283,22 @@ export function LiveConversationView({
     if (
       forkOperation?.status === "completed" &&
       forkOperation.targetSessionId &&
-      openingFork.current === forkOperation.id
+      openingFork.current?.id === forkOperation.id
     ) {
+      const ownsPage = openingFork.current.ownsPage()
       openingFork.current = undefined
-      onOpenConversation?.(forkOperation.targetSessionId)
+      if (ownsPage) onOpenConversation?.(forkOperation.targetSessionId)
     }
   }, [forkOperation, onOpenConversation])
   async function fork(entryId: string) {
+    if (mutationBlockedReason) return
+    const ownsPage = captureNavigation?.() ?? (() => true)
     const operation = await controls.fork(entryId)
     if (!operation || !mounted.current) return
-    openingFork.current = operation.id
+    openingFork.current = { id: operation.id, ownsPage }
     if (operation.status === "completed" && operation.targetSessionId) {
       openingFork.current = undefined
-      onOpenConversation?.(operation.targetSessionId)
+      if (ownsPage()) onOpenConversation?.(operation.targetSessionId)
     }
     onReload()
   }
@@ -166,10 +341,13 @@ export function LiveConversationView({
   const stopping = snapshot?.phase === "stopping"
   const canContinue =
     !!snapshot?.inputAccepted &&
+    snapshot.issue?.recovery !== "reload" &&
     snapshot.messages.some((message) => message.role === "user") &&
-    (snapshot.phase === "failed" || snapshot.phase === "interrupted")
+    (snapshot.canContinue ||
+      snapshot.phase === "failed" ||
+      snapshot.phase === "interrupted")
   const needsResend =
-    !error &&
+    !actionIssue &&
     snapshot?.inputAccepted === false &&
     (snapshot.phase === "failed" || snapshot.phase === "interrupted")
   const pendingQueue =
@@ -177,59 +355,249 @@ export function LiveConversationView({
     (snapshot.queue.items.some(
       (item) => item.clientRequestId === snapshot.clientRequestId
     ) ||
-      /^(待处理消息文件|会话目录索引)提交失败（/.test(snapshot.error))
-  const feedback = error || snapshot?.error || snapshot?.queueError
-  const stoppedFeedback = !error && snapshot?.phase === "interrupted"
-  const runtime = running ? snapshot?.runtime : undefined
-  let turn = 0
-  const items = (snapshot?.messages ?? []).map((message, index) => ({
-    id: message.id,
-    historyIndex: message.historyIndex ?? Number.MAX_SAFE_INTEGER,
-    revision: JSON.stringify(message),
-    content: (
-      <ConversationMessageView
-        message={message}
-        workspacePath={snapshot?.cwd ?? workspacePath}
-        onOpenAttachment={(attachment) =>
-          setActiveMaterial({
-            ...attachment,
-            kind: attachment.materialType === "skill" ? "Skill" : "附件",
-            type: attachment.materialType ?? attachment.kind,
-            status: "ready",
-          })
-        }
-        onFork={
-          message.role === "assistant" &&
-          message.entryId &&
-          message.status === "settled"
-            ? () => {
-                void fork(message.entryId!)
-              }
-            : undefined
-        }
-        forkPending={forkBusy && forkOperation?.anchorId === message.entryId}
-        forkDisabledReason={
-          !message.forkable
-            ? snapshot?.historyNotice || "请选择工具执行后的已完成回复。"
-            : pending || forkBusy
-              ? "正在提交会话操作。"
-              : !data.models.includes(snapshot?.modelId ?? "")
-                ? "当前模型不可用，请检查模型设置。"
-                : snapshot?.control?.forkDisabledReason
-        }
-      />
-    ),
-    ...(message.role === "user"
+      snapshot.issue?.code === "queue_storage")
+  const readIssue =
+    providedReadIssue ?? (error ? feedbackFromError(error) : undefined)
+  const queueIssue =
+    snapshot?.queueIssue ??
+    (snapshot?.issue?.code === "queue_storage" ? snapshot.issue : undefined)
+  const originalQueueRecords = queueRecoveryRecords.filter(
+    (record) => record.sessionId === id
+  )
+  const originalQueueKeys = new Set(
+    originalQueueRecords.map(queueOperationIssueKey)
+  )
+  const currentQueueIssues = Object.fromEntries(
+    Object.entries(queueIssues ?? {}).filter(
+      ([key]) => !originalQueueKeys.has(key) && key !== "storage"
+    )
+  )
+  const runIssue =
+    snapshot?.issue ??
+    (snapshot?.error
       ? {
-          turn: ++turn,
-          prompt: message.text,
-          response: snapshot?.messages[index + 1]?.text,
+          code: "execution_failed",
+          summary: feedbackFromError(snapshot.error).message,
+          severity:
+            snapshot.phase === "interrupted"
+              ? ("info" as const)
+              : ("error" as const),
+          recovery: "retry" as const,
         }
-      : {}),
-  }))
+      : snapshot?.phase === "interrupted"
+        ? {
+            code: "cancelled",
+            summary: "本次执行已停止，已完成内容保留。",
+            severity: "info" as const,
+            recovery: "none" as const,
+          }
+        : undefined)
+  const runFailed =
+    !!snapshot?.inputAccepted &&
+    !!runIssue &&
+    !pendingQueue &&
+    ["failed", "interrupted"].includes(snapshot.phase)
+  const currentIssueMessage =
+    runFailed && runIssue?.recovery !== "reload"
+      ? [...(snapshot?.messages ?? [])]
+          .reverse()
+          .find(
+            (message) =>
+              message.entryId === snapshot?.issueEntryId &&
+              snapshot.issueEntryId !== undefined &&
+              message.issue?.code === runIssue.code &&
+              message.issue.summary === runIssue.summary
+          )?.id
+      : undefined
+  const runtime = running ? snapshot?.runtime : undefined
+  const turns = useMemo(
+    () => projectConversationTurns(snapshot?.messages ?? []),
+    [snapshot?.messages]
+  )
+  let turnNumber = 0
+  const unownedCompactions = [...(snapshot?.compactions ?? [])]
+  const items = turns.map((turn, index) => {
+    const tail = turn.tail
+    const nextIndex = turns[index + 1]?.historyIndex ?? Infinity
+    const records = unownedCompactions.filter(
+      (record) =>
+        record.historyIndex >= turn.historyIndex &&
+        record.historyIndex < nextIndex
+    )
+    records.forEach((record) =>
+      unownedCompactions.splice(unownedCompactions.indexOf(record), 1)
+    )
+    const forkableBoundary =
+      tail?.entryId &&
+      tail.status === "settled" &&
+      tail.stopReason !== "toolUse"
+    return {
+      id: turn.id,
+      historyIndex: turn.historyIndex,
+      revision: snapshot?.version,
+      content: (
+        <ConversationTurnView
+          turn={turn}
+          stopFeedbackProvided={
+            runFailed &&
+            snapshot?.phase === "interrupted" &&
+            index === turns.length - 1 &&
+            !!snapshot.runId &&
+            tail?.runId === snapshot.runId &&
+            tail?.userTurnId === turn.id
+          }
+          latest={index === turns.length - 1}
+          records={records.map((record) => ({
+            id: `compaction-${record.id}`,
+            historyIndex: record.historyIndex,
+            content: (
+              <ConversationCompactionRecord
+                record={record}
+                messages={snapshot?.messages ?? []}
+              />
+            ),
+          }))}
+          onFork={
+            forkableBoundary && tail
+              ? () => {
+                  void fork(tail.entryId!)
+                }
+              : undefined
+          }
+          onContinue={
+            canContinue &&
+            index === turns.length - 1 &&
+            tail?.stopReason === "length"
+              ? onContinue
+              : undefined
+          }
+          continueDisabled={
+            !!mutationBlockedReason || !data.models.includes(draft.model)
+          }
+          forkPending={forkBusy && forkOperation?.anchorId === tail?.entryId}
+          forkDisabledReason={
+            !tail?.forkable
+              ? snapshot?.historyNotice || "请选择工具执行后的已完成回复。"
+              : mutationBlockedReason
+                ? mutationBlockedReason
+                : !data.models.includes(snapshot?.modelId ?? "")
+                  ? "当前模型不可用，请检查模型设置。"
+                  : snapshot?.control?.forkDisabledReason
+          }
+          forkFeedback={
+            tail && forkOperation && forkOperation.anchorId === tail.entryId ? (
+              <ForkFeedback
+                operation={forkOperation}
+                issue={controls.forkIssue}
+                pending={controls.pending}
+                pendingAction={controls.pendingAction}
+                onCheck={() => {
+                  void controls.read()
+                }}
+                onRetry={() => {
+                  if (tail.entryId) void fork(tail.entryId)
+                }}
+                onOpen={onOpenConversation}
+              />
+            ) : undefined
+          }
+          issueFeedback={(message, recovered) =>
+            message.issue && message.id !== currentIssueMessage ? (
+              <OperationFeedback
+                title={
+                  recovered ? "先前尝试失败，后续已恢复" : "此条回复未完成"
+                }
+                message={message.issue.summary}
+                details={message.issue.details}
+                severity={recovered ? "info" : message.issue.severity}
+              />
+            ) : undefined
+          }
+        />
+      ),
+      ...(turn.user
+        ? {
+            turn: ++turnNumber,
+            prompt: turn.user.text,
+            response: turn.response,
+          }
+        : {}),
+    }
+  })
   const historyItems = [
     ...items,
-    ...(snapshot?.compactions ?? []).map((record) => ({
+    ...(runFailed
+      ? [
+          {
+            id: `run-feedback-${snapshot!.runId}`,
+            historyIndex:
+              Math.max(
+                -1,
+                ...items.map((item) => item.historyIndex),
+                ...(snapshot?.compactions ?? []).map(
+                  (record) => record.historyIndex
+                )
+              ) + 0.5,
+            revision: JSON.stringify([runIssue, pending, draft.model]),
+            content: (
+              <OperationFeedback
+                title={
+                  runIssue!.recovery === "reload"
+                    ? "会话记录保存未完成"
+                    : snapshot!.phase === "interrupted"
+                      ? "本次执行已停止"
+                      : "本次回复未完成"
+                }
+                message={runIssue!.summary}
+                details={runIssue!.details}
+                severity={runIssue!.severity}
+                actions={
+                  <>
+                    {runIssue!.recovery === "reload" && (
+                      <Button variant="outline" size="sm" onClick={onReload}>
+                        重新读取会话记录
+                      </Button>
+                    )}
+                    {canContinue && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={
+                          !!mutationBlockedReason ||
+                          !data.models.includes(draft.model)
+                        }
+                        title={mutationBlockedReason}
+                        onClick={onContinue}
+                      >
+                        继续上次回复
+                      </Button>
+                    )}
+                    {runIssue!.recovery === "settings" && data.modelCatalog && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={data.modelCatalog.onOpenSettings}
+                      >
+                        检查模型设置
+                      </Button>
+                    )}
+                    {runIssue!.code === "context_limit" && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => openCompact()}
+                      >
+                        压缩上下文
+                      </Button>
+                    )}
+                  </>
+                }
+              />
+            ),
+          },
+        ]
+      : []),
+    ...unownedCompactions.map((record) => ({
       id: `compaction-${record.id}`,
       historyIndex: record.historyIndex,
       revision: record.id,
@@ -240,16 +608,36 @@ export function LiveConversationView({
         />
       ),
     })),
+    ...(pendingSubmission
+      ? [
+          {
+            id: `submission-${pendingSubmission.id}`,
+            historyIndex: Infinity,
+            revision: pendingSubmission.id,
+            content: (
+              <ConversationSubmissionEcho
+                submission={pendingSubmission}
+                workspacePath={cwd}
+                pending={pending}
+                unconfirmed={unconfirmed}
+              />
+            ),
+          },
+        ]
+      : []),
   ].sort((a, b) => a.historyIndex - b.historyIndex)
   return (
-    <>
+    <MessageEnvironmentProvider value={messageEnvironment}>
       <ConversationPage
+        keepComposer
         viewKey={id}
         title={snapshot?.title ?? title}
         workspacePath={snapshot?.cwd ?? workspacePath}
-        state={snapshot ? "ready" : error ? "error" : "loading"}
-        error={error}
+        state={snapshot ? "ready" : readIssue ? "error" : "loading"}
+        error={readIssue?.message}
+        issue={readIssue}
         onRetry={onReload}
+        onOpenSettings={onOpenSettings ?? data.modelCatalog?.onOpenSettings}
         readingPositions={positions}
         connectionMessage={
           snapshot?.lineage
@@ -267,6 +655,26 @@ export function LiveConversationView({
             >
               打开来源会话
             </Button>
+          ) : undefined
+        }
+        notice={
+          readReceiptIssue ? (
+            <OperationFeedback
+              title="阅读状态尚未保存"
+              {...readReceiptIssue}
+              severity="warning"
+              actions={
+                onRetryReadReceipt && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={onRetryReadReceipt}
+                  >
+                    重试保存阅读状态
+                  </Button>
+                )
+              }
+            />
           ) : undefined
         }
         status={
@@ -299,9 +707,28 @@ export function LiveConversationView({
             workspacePath={snapshot?.cwd ?? workspacePath ?? ""}
             running={running}
             stopping={stopping}
-            blocked={pending || controlBlocked || forkBusy}
+            blocked={!!mutationBlockedReason}
+            blockedReason={mutationBlockedReason}
             allowQueue
+            queuedCount={snapshot?.queue?.items.length ?? 0}
             deliveryMode={snapshot?.queue?.mode}
+            modeIssue={currentQueueIssues.mode}
+            queueRecovery={
+              <QueueOperationRecovery
+                records={originalQueueRecords}
+                issues={queueIssues}
+                issuesByRequest={queueRecoveryIssuesByRequest}
+                storageIssue={queueStorageIssue}
+                retryAllowed={queueOriginalRetryAllowed}
+                checking={readPending}
+                restoring={pending}
+                processing={queueOperationPendingByRequest}
+                onCheck={onReload}
+                onRestore={onRetryQueueOriginal}
+              />
+            }
+            onCheckMode={onReload}
+            modeChecking={readPending}
             onDeliveryModeChange={onQueueMode}
             onChange={onChange}
             onSubmit={submit}
@@ -320,6 +747,9 @@ export function LiveConversationView({
                   onQueueRemove &&
                   onQueueDeliver && (
                     <QueueDock
+                      sessionId={id}
+                      retiredItems={snapshot.queue.retiredItems}
+                      revision={snapshot.queue.revision}
                       items={snapshot.queue.items.map((item) => ({
                         ...item,
                         draft: {
@@ -329,17 +759,49 @@ export function LiveConversationView({
                         },
                       }))}
                       running={running}
-                      busy={pending || stopping || controlBlocked || forkBusy}
+                      busy={stopping || !!mutationBlockedReason}
+                      checkPending={readPending}
                       paused={snapshot.queue.paused}
                       cwd={snapshot.cwd}
                       deliveryMode={snapshot.queue.mode}
-                      onRecoverEdit={(text) => {
-                        onChange({
-                          ...latestDraft.current,
-                          text: latestDraft.current.text
-                            ? `${latestDraft.current.text}\n${text}`
-                            : text,
-                        })
+                      issue={
+                        queueIssue &&
+                        !Object.values(queueIssues ?? {}).some(
+                          (issue) => issue?.code === queueIssue.code
+                        )
+                          ? { ...queueIssue, message: queueIssue.summary }
+                          : undefined
+                      }
+                      issues={{ ...currentQueueIssues, mode: undefined }}
+                      onCheck={onReload}
+                      onRecoverEdit={async (
+                        text,
+                        materials = [],
+                        recoveryKey
+                      ) => {
+                        const recoveredDraft: HomeDraft =
+                          recoveryKey &&
+                          latestDraft.current.homeRecoveryKey === recoveryKey
+                            ? latestDraft.current
+                            : {
+                                ...latestDraft.current,
+                                homeRecoveryKey: recoveryKey,
+                                text: latestDraft.current.text
+                                  ? `${latestDraft.current.text}\n${text}`
+                                  : text,
+                                materials: [
+                                  ...latestDraft.current.materials,
+                                  ...materials.filter(
+                                    (material) =>
+                                      !latestDraft.current.materials.some(
+                                        (existing) =>
+                                          existing.id === material.id
+                                      )
+                                  ),
+                                ],
+                              }
+                        await (onRecoverDraft ?? onChange)(recoveredDraft)
+                        if (!mounted.current) return
                         requestAnimationFrame(() => {
                           inputRef.current?.focus()
                           const length = inputRef.current?.value.length ?? 0
@@ -351,118 +813,68 @@ export function LiveConversationView({
                       onSendNow={onQueueDeliver}
                     />
                   )}
-                {runtime ||
-                forkOperation ||
-                stopping ||
-                snapshot?.notice ||
-                snapshot?.historyNotice ||
-                feedback ||
-                needsResend ||
-                canContinue ||
-                unconfirmed ? (
-                  <div className="flex flex-col gap-2 pb-3">
-                    {snapshot?.historyNotice && (
-                      <Alert>
-                        <AlertDescription>
-                          {snapshot.historyNotice}
-                        </AlertDescription>
-                      </Alert>
-                    )}
-                    {(runtime || stopping || snapshot?.notice) && (
-                      <ExecutionFeedback
-                        key={id}
-                        runtime={runtime}
-                        stopping={stopping}
-                        notice={snapshot?.notice}
-                      />
-                    )}
-                    {forkOperation && (
-                      <ForkFeedback
-                        operation={forkOperation}
-                        error={controls.error}
-                        onCheck={() => {
-                          void controls.read()
-                        }}
-                        onOpen={onOpenConversation}
-                      />
-                    )}
-                    {feedback && (
-                      <Alert
-                        variant={stoppedFeedback ? "default" : "destructive"}
-                      >
-                        <AlertDescription>
-                          {feedback}
-                          {needsResend && (
-                            <p>
-                              {pendingQueue
-                                ? "消息保留在排队列表中。解决上面的错误后，点击该消息的发送按钮继续。"
-                                : draft.text.trim()
-                                  ? "消息尚未发送，内容已保留在输入框。解决上面的错误后重新发送。"
-                                  : "消息尚未发送，请解决上面的错误后在输入框重新填写并发送。"}
-                            </p>
-                          )}
-                        </AlertDescription>
-                      </Alert>
-                    )}
-                    {needsResend && !feedback && (
-                      <Alert>
-                        <AlertDescription>
-                          {pendingQueue
-                            ? "消息保留在排队列表中，请点击该消息的发送按钮继续。"
-                            : `消息尚未发送，请在输入框${draft.text.trim() ? "重新" : "填写后"}发送。`}
-                        </AlertDescription>
-                      </Alert>
-                    )}
-                    {(canContinue || error || unconfirmed) && (
-                      <div className="flex items-center gap-2">
-                        {canContinue && (
+                <div className="flex flex-col gap-2 pb-3">
+                  {snapshot?.historyNotice && (
+                    <OperationFeedback
+                      title="历史记录提示"
+                      message={snapshot.historyNotice}
+                      severity="info"
+                    />
+                  )}
+                  {(runtime || stopping || snapshot?.notice) && (
+                    <ExecutionFeedback
+                      key={id}
+                      runtime={runtime}
+                      stopping={stopping}
+                      notice={snapshot?.notice}
+                    />
+                  )}
+                  {needsResend && !pendingQueue && !unconfirmed && (
+                    <OperationFeedback
+                      title="消息尚未发送"
+                      message={
+                        runIssue?.summary ??
+                        "内容已保留，请修正后在输入框发送。"
+                      }
+                      details={runIssue?.details}
+                      severity={
+                        snapshot?.phase === "interrupted" ? "info" : "error"
+                      }
+                      actions={
+                        runIssue?.recovery === "settings" &&
+                        data.modelCatalog && (
                           <Button
-                            type="button"
-                            size="sm"
                             variant="outline"
-                            disabled={
-                              pending || !data.models.includes(draft.model)
-                            }
-                            onClick={onContinue}
-                          >
-                            继续上次回复
-                          </Button>
-                        )}
-                        {error && (
-                          <Button
-                            type="button"
                             size="sm"
-                            variant="ghost"
-                            onClick={onReload}
+                            onClick={data.modelCatalog.onOpenSettings}
                           >
-                            重新读取
+                            检查模型设置
                           </Button>
-                        )}
-                        {error?.includes("草稿未保存") && onSaveDraft && (
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            onClick={onSaveDraft}
-                          >
-                            重试保存草稿
-                          </Button>
-                        )}
-                        {unconfirmed && onReconcile && (
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            disabled={pending}
-                            onClick={onReconcile}
-                          >
-                            核对发送
-                          </Button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ) : undefined}
+                        )
+                      }
+                    />
+                  )}
+                  <ConversationOperationFeedback
+                    submissionKind={pendingSubmission?.kind}
+                    readIssue={snapshot ? readIssue : undefined}
+                    actionIssue={actionIssue}
+                    draftError={draftError}
+                    receiptIssue={receiptIssue}
+                    onCleanReceipt={onCleanReceipt}
+                    unconfirmed={unconfirmed}
+                    pending={pending}
+                    readPending={readPending}
+                    onReload={onReload}
+                    onReconcile={onReconcile}
+                    onSaveDraft={onSaveDraft}
+                    onStop={onStop}
+                    onContinue={onContinue}
+                    continueDisabledReason={mutationBlockedReason}
+                    onOpenSettings={
+                      onOpenSettings ?? data.modelCatalog?.onOpenSettings
+                    }
+                  />
+                </div>
               </>
             }
           />
@@ -486,7 +898,8 @@ export function LiveConversationView({
         messageCount={snapshot?.messages.length ?? 0}
         focus={compactFocus}
         operation={compactOperation}
-        error={compactOperation ? controls.error : undefined}
+        issue={controls.compactIssue}
+        pendingAction={controls.pendingAction}
         pending={controls.pending}
         disabledReason={compactDisabledReason}
         onOpenChange={setCompactOpen}
@@ -507,6 +920,6 @@ export function LiveConversationView({
           void controls.read().then(onReload)
         }}
       />
-    </>
+    </MessageEnvironmentProvider>
   )
 }

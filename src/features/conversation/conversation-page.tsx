@@ -1,5 +1,4 @@
 import { useState, type ReactNode } from "react"
-import { Button } from "@/components/ui/button"
 import { Empty, EmptyHeader, EmptyDescription } from "@/components/ui/empty"
 import { ConversationHeader } from "./conversation-header"
 import {
@@ -8,6 +7,9 @@ import {
   type ConversationReadingPosition,
 } from "./conversation-list"
 import "./conversation-layout.css"
+import { OperationFeedback } from "@/components/feedback/operation-feedback"
+import { RecoveryAction } from "@/components/feedback/recovery-action"
+import type { FeedbackDescription } from "@/lib/operation-issue"
 
 export interface ConversationPageProps {
   viewKey: string
@@ -16,12 +18,17 @@ export interface ConversationPageProps {
   status?: string
   state?: "ready" | "loading" | "error"
   error?: string
+  issue?: FeedbackDescription
+  notice?: ReactNode
   connectionMessage?: string
   onRetry?: () => void
+  onOpenSettings?: () => void
   headerLeading?: ReactNode
   headerActions?: ReactNode
   items: readonly ConversationListItem[]
   composer: ReactNode
+  /** Retain the draft and original recovery controls even before history is readable. */
+  keepComposer?: boolean
   question?: ReactNode
   readingPositions?: Map<string, ConversationReadingPosition>
   onReadingPositionChange?: (
@@ -37,12 +44,16 @@ export function ConversationPage({
   status,
   state = "ready",
   error,
+  issue,
+  notice,
   connectionMessage,
   onRetry,
+  onOpenSettings,
   headerLeading,
   headerActions,
   items,
   composer,
+  keepComposer = false,
   question,
   onReadingPositionChange,
   readingPositions,
@@ -66,6 +77,7 @@ export function ConversationPage({
           {connectionMessage}
         </p>
       )}
+      {notice && <div className="px-4 pb-2">{notice}</div>}
       <div className="conversation-body" data-empty={empty || undefined}>
         {!empty && (
           <div
@@ -82,25 +94,47 @@ export function ConversationPage({
                   onReadingPositionChange?.(viewKey, position)
                 }}
               />
+            ) : state === "error" ? (
+              <div className="mx-auto w-full max-w-3xl px-4 py-8">
+                <OperationFeedback
+                  title="会话无法读取"
+                  message={
+                    issue?.message ?? error ?? "会话暂时无法读取，草稿已保留。"
+                  }
+                  details={issue?.details}
+                  actions={
+                    <RecoveryAction
+                      issue={
+                        issue ?? {
+                          code: "conversation_read_failed",
+                          message: error ?? "会话暂时无法读取。",
+                          recovery: "reload",
+                        }
+                      }
+                      onRetry={onRetry}
+                      onReload={onRetry}
+                      onCheck={onRetry}
+                      onSettings={onOpenSettings}
+                      labels={{
+                        retry: "重新读取会话",
+                        reload: "重新读取会话",
+                        check: "核对会话状态",
+                        settings: "检查模型设置",
+                      }}
+                    />
+                  }
+                />
+              </div>
             ) : (
-              <Empty role={state === "error" ? "alert" : "status"}>
+              <Empty role="status">
                 <EmptyHeader>
-                  <EmptyDescription>
-                    {state === "loading"
-                      ? "正在读取会话…"
-                      : error || "会话读取失败，草稿已保留。"}
-                  </EmptyDescription>
+                  <EmptyDescription>正在读取会话…</EmptyDescription>
                 </EmptyHeader>
-                {state === "error" && onRetry && (
-                  <Button variant="outline" size="sm" onClick={onRetry}>
-                    重新读取
-                  </Button>
-                )}
               </Empty>
             )}
           </div>
         )}
-        {state === "ready" && (
+        {(state === "ready" || keepComposer) && (
           <div
             className="conversation-input-seat"
             data-question={Boolean(question) || undefined}

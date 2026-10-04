@@ -19,6 +19,8 @@ import {
 } from "@earendil-works/pi-mcp"
 import { MemoryOAuthStateStore } from "@earendil-works/pi-mcp/oauth"
 import { assertSchema, schemas } from "./schema.mjs"
+import { operationError, publicFailure } from "./operation-issue.mjs"
+import { recordedWrite, validateWriteReceipts } from "./write-receipts.mjs"
 
 const check = (value, message) => {
   if (!value) throw new Error(message)
@@ -311,6 +313,7 @@ export class McpService {
     )
     document.moonRevisions ??= {}
     document.moonDiscovery ??= {}
+    validateWriteReceipts(document.writeReceipts)
     return document
   }
   record(name, config, document) {
@@ -371,6 +374,7 @@ export class McpService {
       retries: { retries: 30, minTimeout: 30, maxTimeout: 300 },
     })
     const temporary = join(this.directory, `.mcp-${randomUUID()}.tmp`)
+    let committed = false
     try {
       signal?.throwIfAborted()
       const document = await this.document()
@@ -382,26 +386,53 @@ export class McpService {
       signal?.throwIfAborted()
       check(!this.closed, "MCP 服务已关闭。")
       await rename(temporary, this.file)
+      committed = true
       return result
     } finally {
       try {
-        await rm(temporary, { force: true })
-      } finally {
-        await unlock()
+        try {
+          if (!committed) await rm(temporary, { force: true })
+        } finally {
+          await unlock()
+        }
+      } catch (error) {
+        if (committed)
+          throw operationError(
+            "result_unknown",
+            "配置已提交，但本次请求的收尾未完成。请先核对服务目录。",
+            "check",
+            publicFailure(error, "mcpSave").issue.details
+          )
+        throw error
       }
     }
   }
-  async save(configuration, revision, signal) {
+  receiptStore() { return { read: () => this.document(), update: (change, signal) => this.mutate(change, signal) } }
+  async save(configuration, revision, signal, operationRequestId) {
+    return recordedWrite({ store: this.receiptStore(), operation: "mcpSave", targetId: configuration.name, input: { configuration, revision }, requestId: operationRequestId, signal,
+      action: (commit) => this.saveConfiguration(configuration, revision, signal, commit),
+      replay: async () => {
+        const current = (await this.list(signal)).find((record) => record.configuration.name === configuration.name)
+        if (!current) throw operationError("write_already_committed", "原保存已完成，但服务后来已删除，请重新读取目录。", "reload")
+        return current
+      },
+    })
+  }
+  async saveConfiguration(configuration, revision, signal, commit) {
     const config = configurationToPi(configuration)
     const saved = await this.mutate((document) => {
       const old = document.mcpServers[configuration.name]
-      check(
-        !old
+      if (
+        !(!old
           ? revision === undefined
           : revision ===
-              this.record(configuration.name, old, document).revision,
-        "MCP 配置已变化，请重新读取后保存。"
+            this.record(configuration.name, old, document).revision)
       )
+        throw operationError(
+          "mcp_revision_conflict",
+          "MCP 配置已变化，请重新读取后保存。",
+          "reload"
+        )
       check(
         !Object.keys(document.mcpServers).some(
           (name) =>
@@ -423,21 +454,32 @@ export class McpService {
         document.moonDiscovery[configuration.name]?.hash !== fingerprint(config)
       )
         delete document.moonDiscovery[configuration.name]
+      commit?.(document, next)
       return this.record(configuration.name, config, document)
     }, signal)
     return saved
   }
-  async remove(name, revision, signal) {
+  async remove(name, revision, signal, operationRequestId) {
+    return recordedWrite({ store: this.receiptStore(), operation: "mcpRemove", targetId: name, input: { name, revision }, requestId: operationRequestId, signal,
+      action: (commit) => this.removeConfiguration(name, revision, signal, commit), replay: () => null,
+    })
+  }
+  async removeConfiguration(name, revision, signal, commit) {
     await this.mutate((document) => {
-      check(
+      if (!(
         document.mcpServers[name] &&
-          revision ===
-            this.record(name, document.mcpServers[name], document).revision,
-        "MCP 服务不存在或版本已变化，请重新读取。"
-      )
+        revision ===
+          this.record(name, document.mcpServers[name], document).revision
+      ))
+        throw operationError(
+          "mcp_revision_conflict",
+          "MCP 服务不存在或版本已变化，请重新读取。",
+          "reload"
+        )
       delete document.mcpServers[name]
       delete document.moonRevisions[name]
       delete document.moonDiscovery[name]
+      commit?.(document, revision)
     }, signal)
     this.tests.delete(name)
     return null

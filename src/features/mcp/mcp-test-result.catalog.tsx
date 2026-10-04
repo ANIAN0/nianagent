@@ -9,9 +9,9 @@ export default {
   source: "src/features/mcp/mcp-test-result.tsx",
   description: "验证状态、观察时间与工具参数目录。",
   boundary: "展示给定真实结果，不代表持续连接或执行成功。",
-  inputs: ["result、stale"],
-  events: ["展开工具参数"],
-  composition: ["Alert", "Collapsible", "Button"],
+  inputs: ["result、stale、busy、onRetry"],
+  events: ["展开工具参数、请求重新测试"],
+  composition: ["OperationFeedback", "Collapsible", "Button"],
   consumers: ["McpServerEditor"],
   viewport: { width: 740, height: 400 },
   states: [

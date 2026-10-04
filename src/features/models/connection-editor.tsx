@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useState } from "react"
+import { OperationFeedback } from "@/components/feedback/operation-feedback"
+import { RecoveryAction } from "@/components/feedback/recovery-action"
+import { useConnectionEditor } from "./use-connection-editor"
 import { ArrowLeft, Plus, RefreshCw, LogIn } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ConnectionFields } from "./connection-fields"
@@ -6,13 +9,9 @@ import { ModelDirectory, DiscoveredModels } from "./model-directory"
 import { ModelEditor } from "./model-editor"
 import { PiAuthorization } from "./pi-authorization"
 import { SubscriptionAuthorization } from "./subscription-authorization"
-import {
-  SettingsConfirmDialog,
-  type SettingsConfirmation,
-} from "./settings-confirmation"
+import { SettingsConfirmDialog } from "./settings-confirmation"
 import {
   blankModel,
-  connectionErrors,
   type ModelConnection,
   type ModelDefinition,
   type ModelService,
@@ -37,159 +36,62 @@ export function ConnectionEditor({
   onClose,
   registerLeave,
 }: ConnectionEditorProps) {
-  const [baseline, setBaseline] = useState(initial)
-  const [draft, setDraft] = useState(() => structuredClone(initial))
-  const [attempted, setAttempted] = useState(false)
-  const [testing, setTesting] = useState(false)
-  const [busy, setBusy] = useState("")
-  const [error, setError] = useState("")
-  const [result, setResult] = useState("")
-  const [candidates, setCandidates] = useState<ModelDefinition[]>()
-  const [checks, setChecks] = useState<
-    Record<string, { error?: boolean; text: string }>
-  >({})
+  const state = useConnectionEditor({
+    initial,
+    connections,
+    service,
+    onSaved,
+    onAccountSaved,
+    onClose,
+    registerLeave,
+  })
+  const {
+    draft,
+    setDraft,
+    busy,
+    dirty,
+    errors,
+    active,
+    form,
+    checks,
+    setChecks,
+    confirm,
+    setConfirm,
+    oauth,
+    setOauth,
+    providers,
+    providersFailure,
+    reloadProviders,
+    accountFailure,
+    accountUnknown,
+    accountBlocked,
+    accountConflict,
+    readAccountState,
+    startAuthorization,
+    saveFailure,
+    recoverStorage,
+    discoveryFailure,
+    saveUnknown,
+    saveConflict,
+    saveBlocked,
+    discoveryBlocked,
+    waitingToLeave,
+    result,
+    candidates,
+    change,
+    askLeave,
+    cancelRequest,
+    acceptAccount,
+    updateAccount,
+    save,
+    checkSaved,
+    discover,
+    checkModel,
+  } = state
   const [target, setTarget] = useState<{
     draft: ModelDefinition
     originalId?: string
   }>()
-  const [confirm, setConfirm] = useState<SettingsConfirmation>()
-  const [oauth, setOauth] = useState(false)
-  const [providers, setProviders] = useState<{ id: string; name: string }[]>()
-  useEffect(() => {
-    if (!service.providers) return
-    const controller = new AbortController()
-    service
-      .providers(controller.signal)
-      .then(setProviders)
-      .catch((reason) => {
-        if (!controller.signal.aborted)
-          setError(
-            reason instanceof Error ? reason.message : "提供者读取失败。"
-          )
-      })
-    return () => controller.abort()
-  }, [service])
-  const form = useRef<HTMLFormElement>(null)
-  const request = useRef<AbortController | null>(null)
-  const dirty = JSON.stringify(draft) !== JSON.stringify(baseline)
-  const errors = attempted ? connectionErrors(draft, connections, testing) : {}
-  const active = connections.some((value) => value.id === initial.id)
-  const askLeave = useCallback<LeaveGuard>(
-    (action) => {
-      if (busy) {
-        setError("请先取消当前请求，或等待保存完成后离开。")
-        return
-      }
-      if (dirty)
-        setConfirm({
-          title: "放弃未保存更改？",
-          description: "当前连接与模型的修改尚未保存。",
-          label: "放弃更改",
-          destructive: true,
-          action,
-        })
-      else action()
-    },
-    [dirty, busy]
-  )
-  useEffect(() => {
-    registerLeave?.(askLeave)
-    return () => registerLeave?.(null)
-  }, [askLeave, registerLeave])
-  useEffect(() => () => request.current?.abort(), [])
-  useEffect(() => {
-    if (!dirty) return
-    const warn = (event: BeforeUnloadEvent) => {
-      event.preventDefault()
-      event.returnValue = ""
-    }
-    window.addEventListener("beforeunload", warn)
-    return () => window.removeEventListener("beforeunload", warn)
-  }, [dirty])
-  function change(patch: Partial<ModelConnection>) {
-    setDraft((value) => ({ ...value, ...patch }))
-    setError("")
-    setResult("")
-    setCandidates(undefined)
-    setChecks({})
-  }
-  function validate(test = false) {
-    setAttempted(true)
-    setTesting(test)
-    const found = connectionErrors(draft, connections, test)
-    if (Object.keys(found).length) {
-      requestAnimationFrame(() =>
-        form.current
-          ?.querySelector<HTMLElement>('[aria-invalid="true"]')
-          ?.focus()
-      )
-      return false
-    }
-    return true
-  }
-  async function run(
-    kind: string,
-    action: (signal: AbortSignal) => Promise<void>
-  ) {
-    request.current?.abort()
-    const controller = new AbortController()
-    request.current = controller
-    setBusy(kind)
-    setError("")
-    try {
-      await action(controller.signal)
-    } catch (reason) {
-      if (!controller.signal.aborted)
-        setError(
-          reason instanceof Error ? reason.message : "操作失败，请重试。"
-        )
-    } finally {
-      if (request.current === controller) {
-        request.current = null
-        setBusy("")
-      }
-    }
-  }
-  function cancelRequest() {
-    request.current?.abort()
-    setChecks({})
-    setResult("请求已取消，草稿已保留。")
-    setCandidates(undefined)
-  }
-  function acceptAccount(saved: ModelConnection) {
-    setOauth(false)
-    if (active) {
-      setDraft((value) => ({
-        ...value,
-        account: saved.account,
-        issue: saved.issue,
-        revision: saved.revision,
-      }))
-      setBaseline(saved)
-      onAccountSaved?.(saved)
-    } else onSaved(saved)
-  }
-  function updateAccount(account: NonNullable<ModelConnection["account"]>) {
-    setOauth(false)
-    if (service.auth && !account.loggedIn) {
-      void run("account", async (signal) =>
-        acceptAccount(await service.auth!.logout(draft.id, signal))
-      )
-      return
-    }
-    void run("account", async (signal) => {
-      const saved = await service.save(
-        { ...(active ? baseline : draft), account },
-        signal
-      )
-      if (active) {
-        setDraft((value) => ({ ...value, account }))
-        setBaseline(saved)
-        onAccountSaved?.(saved)
-        setResult(account.loggedIn ? "账号已登录。" : "已退出登录。")
-      } else onSaved(saved)
-    })
-  }
   return (
     <div className="model-editor">
       <div className="model-scroll">
@@ -223,10 +125,7 @@ export function ConnectionEditor({
             aria-busy={!!busy}
             onSubmit={(e) => {
               e.preventDefault()
-              if (validate())
-                void run("save", async (signal) => {
-                  onSaved(await service.save(draft, signal))
-                })
+              save()
             }}
             className="model-form"
           >
@@ -241,8 +140,11 @@ export function ConnectionEditor({
                 </div>
               </div>
               <ConnectionFields
+                onReloadConnection={() => askLeave(onClose)}
                 onRevealKey={
-                  service.revealKey && draft.revision !== undefined
+                  service.revealKey &&
+                  draft.revision !== undefined &&
+                  !saveUnknown
                     ? async (signal) =>
                         (
                           await service.revealKey!(
@@ -269,50 +171,32 @@ export function ConnectionEditor({
                   })
                 }
               />
-              <div className="flex items-center gap-3">
+              {providersFailure && (
+                <OperationFeedback
+                  title="无法读取订阅提供者"
+                  {...providersFailure}
+                  actions={
+                    <RecoveryAction
+                      issue={providersFailure}
+                      onRetry={reloadProviders}
+                      onReload={reloadProviders}
+                      labels={{ retry: "重新读取" }}
+                    />
+                  }
+                />
+              )}
+              <div className="flex flex-wrap items-center gap-3">
                 <Button
                   type="button"
                   variant="outline"
                   disabled={
                     !!busy ||
+                    saveUnknown ||
+                    saveConflict ||
+                    discoveryBlocked ||
                     (draft.kind === "subscription" && !draft.account?.loggedIn)
                   }
-                  onClick={() => {
-                    if (validate(draft.kind === "api"))
-                      void run("test", async (signal) => {
-                        setCandidates(undefined)
-                        setResult("")
-                        const found = await service.discover(draft, signal)
-                        signal.throwIfAborted()
-                        setChecks({})
-                        setCandidates(found)
-                        setDraft((current) => ({
-                          ...current,
-                          models: current.models.map((model) => {
-                            const candidate = found.find(
-                              (item) => item.id === model.id
-                            )
-                            if (!candidate) return model
-                            return {
-                              ...model,
-                              reasoning: model.reasoning ?? candidate.reasoning,
-                              contextWindow:
-                                model.contextWindow ?? candidate.contextWindow,
-                              maxTokens: model.maxTokens ?? candidate.maxTokens,
-                              thinkingLevelMap:
-                                model.thinkingLevelMap ??
-                                candidate.thinkingLevelMap,
-                              metadata: candidate.metadata,
-                            }
-                          }),
-                        }))
-                        setResult(
-                          draft.kind === "subscription"
-                            ? `已读取 Pi 目录中的 ${found.length} 个候选模型；请使用“检查模型”验证账号的实际调用权限。`
-                            : `目录请求成功，发现 ${found.length} 个候选模型；请使用“检查模型”验证推理调用。`
-                        )
-                      })
-                  }}
+                  onClick={discover}
                 >
                   <RefreshCw
                     className={
@@ -326,6 +210,25 @@ export function ConnectionEditor({
                       : "测试连接并获取模型"}
                 </Button>
               </div>
+              {discoveryFailure && (
+                <OperationFeedback
+                  title={
+                    discoveryFailure.code === "cancelled"
+                      ? "测试已取消"
+                      : "未能读取模型目录"
+                  }
+                  {...discoveryFailure}
+                  actions={
+                    <RecoveryAction
+                      issue={discoveryFailure}
+                      onRetry={discover}
+                      onReload={discover}
+                      disabled={!!busy || saveUnknown}
+                      labels={{ retry: "重新测试", reload: "重新读取模型" }}
+                    />
+                  }
+                />
+              )}
             </section>
             {draft.kind === "subscription" && (
               <section className="model-section">
@@ -344,11 +247,50 @@ export function ConnectionEditor({
                     ? "已登录"
                     : "尚未登录或登录已失效，此连接的模型暂不可用。"}
                 </p>
+                {accountFailure && (
+                  <OperationFeedback
+                    title={
+                      accountUnknown
+                        ? "账号状态待核对"
+                        : accountFailure.code === "account_state_checked"
+                          ? "当前登录状态"
+                          : "账号操作未完成"
+                    }
+                    {...accountFailure}
+                    actions={
+                      <RecoveryAction
+                        issue={accountFailure}
+                        onCheck={readAccountState}
+                        onRetry={readAccountState}
+                        onReload={
+                          accountConflict
+                            ? () => askLeave(onClose)
+                            : readAccountState
+                        }
+                        disabled={!!busy}
+                        labels={{
+                          check: "核对当前登录状态",
+                          retry: "读取当前登录状态",
+                          reload: accountConflict
+                            ? "返回连接目录"
+                            : "读取当前登录状态",
+                        }}
+                        onSettings={() =>
+                          document
+                            .getElementById("subscription-provider")
+                            ?.focus()
+                        }
+                      />
+                    }
+                  />
+                )}
                 <div>
                   <Button
                     type="button"
                     variant="outline"
-                    disabled={!!busy}
+                    disabled={
+                      !!busy || accountBlocked || saveUnknown || saveConflict
+                    }
                     onClick={() => {
                       if (draft.account?.loggedIn)
                         setConfirm({
@@ -363,7 +305,7 @@ export function ConnectionEditor({
                               loggedIn: false,
                             }),
                         })
-                      else if (validate()) setOauth(true)
+                      else startAuthorization()
                     }}
                   >
                     <LogIn />
@@ -375,6 +317,45 @@ export function ConnectionEditor({
                   </Button>
                 </div>
               </section>
+            )}
+            {saveFailure && (
+              <OperationFeedback
+                title={
+                  saveUnknown
+                    ? "保存结果待核对"
+                    : saveFailure.code === "write_confirmed"
+                      ? "原保存已确认"
+                      : "未能保存连接"
+                }
+                {...saveFailure}
+                severity={saveUnknown ? "warning" : saveFailure.severity}
+                actions={
+                  <>
+                    {saveFailure.code === "recovery_storage_unavailable" ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={recoverStorage}
+                      >
+                        重新读取本机恢复记录
+                      </Button>
+                    ) : (
+                      <RecoveryAction
+                        issue={saveFailure}
+                        onCheck={checkSaved}
+                        onReload={() => askLeave(onClose)}
+                        onRetry={save}
+                        disabled={!!busy}
+                        labels={{
+                          check: "核对保存结果",
+                          reload: "返回连接目录",
+                          retry: "重新保存",
+                        }}
+                      />
+                    )}
+                  </>
+                }
+              />
             )}
             {result && (
               <section
@@ -428,9 +409,15 @@ export function ConnectionEditor({
                 </Button>
               </div>
               <ModelDirectory
+                onConfigureConnection={() =>
+                  (
+                    document.getElementById("connection-key") ??
+                    document.getElementById("connection-endpoint")
+                  )?.focus()
+                }
                 readOnly={draft.kind === "subscription" && !!service.auth}
                 models={draft.models}
-                busy={!!busy}
+                busy={!!busy || saveUnknown || saveConflict}
                 checks={checks}
                 onEdit={(model) =>
                   setTarget({
@@ -455,35 +442,7 @@ export function ConnectionEditor({
                     },
                   })
                 }
-                onCheck={(model) => {
-                  setChecks((values) => ({
-                    ...values,
-                    [model.id]: { text: "正在检查…" },
-                  }))
-                  void run("check", async (signal) => {
-                    try {
-                      await service.check(draft, model, signal)
-                      signal.throwIfAborted()
-                      setChecks((values) => ({
-                        ...values,
-                        [model.id]: {
-                          text: service.auth
-                            ? "可用 · Pi 调用成功"
-                            : "可用 · 模拟检查通过",
-                        },
-                      }))
-                    } catch (reason) {
-                      if (!signal.aborted)
-                        setChecks((values) => ({
-                          ...values,
-                          [model.id]: {
-                            error: true,
-                            text: `不可用 · ${reason instanceof Error ? reason.message : "检查失败"}`,
-                          },
-                        }))
-                    }
-                  })
-                }}
+                onCheck={checkModel}
               />
             </section>
           </form>
@@ -495,16 +454,24 @@ export function ConnectionEditor({
             取消请求
           </Button>
         )}
-        <p
-          role={error ? "alert" : "status"}
-          className={error ? "text-destructive" : ""}
-        >
-          {error ||
-            (Object.keys(errors).length
-              ? "请修正表单中标出的字段。"
-              : dirty
-                ? "有未保存的修改。"
-                : "尚无未保存的修改。")}
+        <p role="status">
+          {busy
+            ? waitingToLeave
+              ? "请等待保存完成；连接测试可取消后离开。"
+              : busy === "save"
+                ? "正在保存连接…"
+                : busy === "receipt"
+                  ? "正在核对原保存，不会重复提交…"
+                  : busy === "account-read"
+                    ? "正在读取当前登录状态…"
+                    : "正在请求服务…"
+            : saveUnknown
+              ? "原保存结果仍待核对，当前草稿已保留。"
+              : Object.keys(errors).length
+                ? "请修正表单中标出的字段。"
+                : dirty
+                  ? "有未保存的修改。"
+                  : "尚无未保存的修改。"}
         </p>
         <div>
           <Button
@@ -517,7 +484,14 @@ export function ConnectionEditor({
           <Button
             form="connection-form"
             type="submit"
-            disabled={!!busy || !dirty}
+            disabled={
+              !!busy ||
+              accountBlocked ||
+              saveUnknown ||
+              saveConflict ||
+              saveBlocked ||
+              !dirty
+            }
           >
             {busy === "save" ? "正在保存…" : "保存连接"}
           </Button>
@@ -558,6 +532,7 @@ export function ConnectionEditor({
           connection={draft}
           service={service}
           onComplete={acceptAccount}
+          onCancelled={acceptAccount}
           onClose={() => {
             setOauth(false)
             onClose()

@@ -62,5 +62,19 @@ export default {
       expected: "确认框保留错误和重试，不提前删除",
       render: () => <SettingsPageExample failure="remove" />,
     },
+    {
+      id: "load-restart",
+      name: "宿主版本不匹配",
+      condition: "读取返回restart",
+      expected: "使用重启指引，不提供伪重试；窄窗仍可进入MCP",
+      render: () => <SettingsPageExample failure="list-restart" />,
+    },
+    {
+      id: "delete-unknown",
+      name: "删除结果待核对",
+      condition: "已提交删除丢失响应",
+      expected: "保留原对象/请求ID，仅回执可确认；关闭后仍可核对",
+      render: () => <SettingsPageExample failure="remove-unknown" />,
+    },
   ],
 } satisfies CatalogEntry
