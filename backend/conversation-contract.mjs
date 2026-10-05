@@ -149,7 +149,7 @@ export const conversationSchemas = {
           kind: str("展示类型", { enum: ["file", "image"] }),
           source: str("原始来源路径或固定图片说明"),
           materialType: str("材料真实类别", {
-            enum: ["file", "image", "skill"],
+            enum: ["file", "directory", "image", "skill"],
           }),
         })
       ),

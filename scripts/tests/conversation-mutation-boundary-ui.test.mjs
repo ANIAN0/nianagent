@@ -414,9 +414,12 @@ test("an unconfirmed original locks all new writes and keeps the next draft and 
   expectButton(html, "上下文已用 25%", false)
   assert.match(html, /尚未核对的原消息/)
   assert.match(html, /这是独立的下一条草稿，必须继续保留。/)
-  const input = html.match(/<textarea\b[^>]*aria-label="对话消息"[^>]*>/)?.[0]
+  const input = html.match(
+    /<div\b[^>]*data-composer-editor[^>]*aria-label="对话消息"[^>]*>/
+  )?.[0]
   assert.ok(input, "The next draft stays editable in the actual input")
-  assert.doesNotMatch(input, /\bdisabled(?:=|\s|>)/)
+  assert.doesNotMatch(input, /\sdisabled(?:=|\s|>)/)
+  assert.match(input, /contenteditable="true"/i)
 })
 
 test("an unknown original still leaves the current run's main Stop available", (t) => {

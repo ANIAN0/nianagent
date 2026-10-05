@@ -7,6 +7,7 @@ import {
   type RefObject,
 } from "react"
 import { isTauri } from "@tauri-apps/api/core"
+import { composerEditor } from "@/components/composer/composer-editor-contract"
 import type { Material } from "@/features/home/home-types"
 import {
   appendPreparedMaterials,
@@ -710,9 +711,10 @@ export function useComposerMaterials({
         .filter((item): item is File => !!item)
       if (images.length) {
         event.preventDefault()
+        event.stopPropagation()
         const text = event.clipboardData?.getData("text/plain") ?? ""
         const input =
-          event.target instanceof HTMLTextAreaElement ? event.target : null
+          event.target instanceof Element ? composerEditor(anchor) : null
         if (text && input && latest.current.onPasteText) {
           const start = input.selectionStart
           latest.current.onPasteText(text, start, input.selectionEnd)
@@ -746,7 +748,7 @@ export function useComposerMaterials({
       )
         showDrop(false)
     }
-    anchor.addEventListener("paste", paste)
+    anchor.addEventListener("paste", paste, true)
     anchor.addEventListener("drop", drop)
     anchor.addEventListener("dragover", over)
     anchor.addEventListener("dragleave", leave)
@@ -813,7 +815,7 @@ export function useComposerMaterials({
     return () => {
       disposed = true
       unlisten?.()
-      anchor.removeEventListener("paste", paste)
+      anchor.removeEventListener("paste", paste, true)
       anchor.removeEventListener("drop", drop)
       anchor.removeEventListener("dragover", over)
       anchor.removeEventListener("dragleave", leave)

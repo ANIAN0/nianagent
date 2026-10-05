@@ -1,3 +1,5 @@
+import { ComposerNotification } from "@/components/composer/composer-notification"
+import { type ComposerEditorElement } from "@/components/composer/composer-editor-contract"
 import {
   homeSessionId,
   SessionServiceContext,
@@ -46,7 +48,6 @@ import {
   composerDraftEligibility,
   composerDisplayMaterials,
 } from "@/components/composer/composer-policy"
-import { OperationFeedback } from "@/components/feedback/operation-feedback"
 import { RecoveryAction } from "@/components/feedback/recovery-action"
 import { ComposerPanelProvider } from "./composer-panel-context"
 import { HomeSubmissionEcho } from "./home-submission-echo"
@@ -166,7 +167,7 @@ export function HomeComposer({
     [sessionService, workspaces]
   )
   const anchorRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const inputRef = useRef<ComposerEditorElement>(null)
   const mounted = useRef(true)
   const inactiveRef = useRef(inactive)
   useLayoutEffect(() => {
@@ -794,6 +795,229 @@ export function HomeComposer({
           if (!signal?.aborted) change({ workspaceId })
         }}
       />
+      <form
+        onSubmit={(event) => {
+          event.preventDefault()
+          submit()
+        }}
+      >
+        <fieldset
+          disabled={acceptedSubmission || inactive}
+          className="min-w-0 border-0 p-0"
+        >
+          <ComposerPanelProvider inactive={inactive || acceptedSubmission}>
+            <FieldGroup>
+              <Field>
+                <ComposerInputCard
+                  ref={anchorRef}
+                  data-workspace-missing={!workspacePath}
+                  tabIndex={!workspacePath ? 0 : undefined}
+                  onKeyDown={(event) => {
+                    if (
+                      !workspacePath &&
+                      event.target === event.currentTarget &&
+                      (event.key === "Enter" || event.key === " ")
+                    ) {
+                      event.preventDefault()
+                      anchorRef.current
+                        ?.closest("section")
+                        ?.querySelector<HTMLButtonElement>(
+                          '[aria-label="选择工作目录"]'
+                        )
+                        ?.click()
+                    }
+                  }}
+                  onClick={(event) => {
+                    if (
+                      !workspacePath &&
+                      !(event.target as Element).closest("button")
+                    )
+                      anchorRef.current
+                        ?.closest("section")
+                        ?.querySelector<HTMLButtonElement>(
+                          '[aria-label="选择工作目录"]'
+                        )
+                        ?.click()
+                  }}
+                  dropActive={materialController.dropActive}
+                  dropDisabledReason={
+                    !workspacePath
+                      ? "请先选择工作目录"
+                      : data.materialsEnabled === false ||
+                          acceptedSubmission ||
+                          inactive
+                        ? "当前暂不能添加附件"
+                        : undefined
+                  }
+                >
+                  {(configFailure || saveError) && (
+                    <div className="moon-composer-blocker" role="alert">
+                      {configFailure && (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span>{configFailure.message}</span>
+                          <RecoveryAction
+                            issue={configFailure}
+                            onReload={() =>
+                              setConfigRevision((value) => value + 1)
+                            }
+                            onRetry={() =>
+                              setConfigRevision((value) => value + 1)
+                            }
+                            onCheck={() =>
+                              setConfigRevision((value) => value + 1)
+                            }
+                            onSettings={data.modelCatalog?.onOpenSettings}
+                            labels={{ reload: "重新读取配置" }}
+                          />
+                        </div>
+                      )}
+                      {saveError && (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span>草稿未保存：{saveError}</span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="xs"
+                            onClick={() => {
+                              try {
+                                draftStore?.write(latestDraft.current)
+                                setSaveError("")
+                                acknowledgeRestoration(latestDraft.current)
+                              } catch {
+                                /* keep original draft */
+                              }
+                            }}
+                          >
+                            重试保存
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <PromptInput
+                    key={`${sessionId}:${workspacePath}`}
+                    inputRef={inputRef}
+                    value={draft.text}
+                    materials={draft.materials}
+                    cwd={workspacePath}
+                    disabled={acceptedSubmission || inactive || !workspacePath}
+                    placeholder={
+                      !workspacePath ? "选择工作目录后开始工作" : undefined
+                    }
+                    onReferencesChanged={(text, ids, restored) =>
+                      change({
+                        text,
+                        materials: [
+                          ...draft.materials.filter(
+                            (item) => !ids.includes(item.id)
+                          ),
+                          ...restored,
+                        ],
+                      })
+                    }
+                    onChange={(text) => change({ text })}
+                    onSubmit={submit}
+                  />
+                  {eligibility.hasDraft && eligibility.reason && (
+                    <div className="moon-composer-blocker" role="status">
+                      {eligibility.reason}
+                      {!eligibility.modelAvailable && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="xs"
+                          onClick={() =>
+                            anchorRef.current
+                              ?.querySelector<HTMLButtonElement>(
+                                '[aria-label^="选择模型"]'
+                              )
+                              ?.click()
+                          }
+                        >
+                          选择模型
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                  {unsupportedCompact && (
+                    <div className="moon-composer-blocker" role="status">
+                      请先打开已有会话，再用 /compact 压缩上下文。
+                    </div>
+                  )}
+                  <SelectedMaterials
+                    inlineReferences
+                    key={`${sessionId}:${workspacePath}:${inactive || acceptedSubmission ? "inactive" : "active"}`}
+                    materials={composerDisplayMaterials(
+                      draft.materials,
+                      draft.model,
+                      data.modelInputs
+                    )}
+                    cwd={workspacePath}
+                    onRetry={(id) => void materialController.retry(id)}
+                    canRetry={(material) =>
+                      !(
+                        material.type === "image" &&
+                        data.modelInputs &&
+                        !data.modelInputs[draft.model]?.includes("image")
+                      ) && materialController.canRetry(material.id)
+                    }
+                    retryLabel={(material) =>
+                      materialController.retryLabel(material.id)
+                    }
+                    onRemove={(id) => change(removeComposerMaterial(draft, id))}
+                  />
+                  <ComposerToolbar
+                    disabled={acceptedSubmission || inactive}
+                    configurationDisabled={
+                      submitting || unknownSubmission || acceptedSubmission
+                    }
+                    configurationDisabledReason={
+                      acceptedSubmission
+                        ? "正在打开已接收的会话，请稍候。"
+                        : inactive
+                          ? "当前输入区已离开。"
+                          : unknownSubmission
+                            ? "先检查原消息的发送状态，再修改会话配置。"
+                            : submitting
+                              ? "正在确认当前发送，确认后可修改会话配置。"
+                              : undefined
+                    }
+                    configurationLoading={configLoading}
+                    sessionId={sessionId}
+                    anchorRef={anchorRef}
+                    data={{
+                      materialsEnabled: data.materialsEnabled,
+                      materials,
+                      models,
+                      tools,
+                      modelLabels: data.modelLabels,
+                      modelThinking: data.modelThinking,
+                      modelCatalog: data.modelCatalog,
+                    }}
+                    workspacePath={
+                      workspaces.find((item) => item.id === draft.workspaceId)
+                        ?.path
+                    }
+                    draft={draft}
+                    canSubmit={canSubmit}
+                    onChange={change}
+                    onAddMaterial={(item) => {
+                      void materialController.prepare(item)
+                      setResult("")
+                    }}
+                    onChooseAttachments={
+                      materialController.service
+                        ? materialController.choose
+                        : undefined
+                    }
+                    choosingMaterials={materialController.choosing}
+                  />
+                </ComposerInputCard>
+              </Field>
+            </FieldGroup>
+          </ComposerPanelProvider>
+        </fieldset>
+      </form>
       {pendingCopy && (
         <HomeSubmissionEcho
           submission={pendingCopy}
@@ -832,66 +1056,6 @@ export function HomeComposer({
           )}
         </div>
       )}
-      {(configFailure || saveError) && (
-        <div className="mb-3 flex flex-col gap-2">
-          {configFailure && (
-            <OperationFeedback
-              title={
-                configFailure.code === "cancelled"
-                  ? "会话配置读取已取消"
-                  : "会话配置未能读取"
-              }
-              message={configFailure.message}
-              details={configFailure.details}
-              severity={configFailure.severity ?? "error"}
-              actions={
-                <RecoveryAction
-                  issue={configFailure}
-                  disabled={submitting}
-                  onReload={() => {
-                    configRequest.current?.abort()
-                    setConfigRevision((value) => value + 1)
-                  }}
-                  onRetry={() => setConfigRevision((value) => value + 1)}
-                  onCheck={() => setConfigRevision((value) => value + 1)}
-                  onSettings={data.modelCatalog?.onOpenSettings}
-                  labels={{ reload: "重新读取配置", check: "核对配置" }}
-                />
-              }
-            />
-          )}
-          {saveError && (
-            <OperationFeedback
-              title="草稿未保存"
-              message={saveError}
-              actions={
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={submitting}
-                  onClick={() => {
-                    try {
-                      draftStore?.write(latestDraft.current)
-                      setSaveError("")
-                      acknowledgeRestoration(latestDraft.current)
-                    } catch {
-                      /* Keep the visible failure and its draft. */
-                    }
-                  }}
-                >
-                  重试保存
-                </Button>
-              }
-            />
-          )}
-        </div>
-      )}
-      {configLoading && (
-        <p role="status" className="mb-3 text-xs text-muted-foreground">
-          正在读取会话配置，草稿可继续编辑…
-        </p>
-      )}
       {submissionFeedback}
       {!submissionFeedback &&
         submissionFailure &&
@@ -914,159 +1078,31 @@ export function HomeComposer({
             }
           />
         )}
-      <form
-        onSubmit={(event) => {
-          event.preventDefault()
-          submit()
-        }}
-      >
-        <fieldset
-          disabled={acceptedSubmission || inactive}
-          className="min-w-0 border-0 p-0"
-        >
-          <ComposerPanelProvider inactive={inactive || acceptedSubmission}>
-            <FieldGroup>
-              <Field>
-                <ComposerInputCard
-                  ref={anchorRef}
-                  dropActive={materialController.dropActive}
-                  dropDisabledReason={
-                    !workspacePath
-                      ? "请先选择工作目录"
-                      : data.materialsEnabled === false ||
-                          acceptedSubmission ||
-                          inactive
-                        ? "当前暂不能添加附件"
-                        : undefined
-                  }
-                >
-                  <PromptInput
-                    inputRef={inputRef}
-                    value={draft.text}
-                    onChange={(text) => change({ text })}
-                    onSubmit={submit}
-                  />
-                  <SelectedMaterials
-                    key={`${sessionId}:${workspacePath}:${inactive || acceptedSubmission ? "inactive" : "active"}`}
-                    materials={composerDisplayMaterials(
-                      draft.materials,
-                      draft.model,
-                      data.modelInputs
-                    )}
-                    cwd={workspacePath}
-                    onRetry={(id) => void materialController.retry(id)}
-                    canRetry={(material) =>
-                      !(
-                        material.type === "image" &&
-                        data.modelInputs &&
-                        !data.modelInputs[draft.model]?.includes("image")
-                      ) && materialController.canRetry(material.id)
-                    }
-                    retryLabel={(material) =>
-                      materialController.retryLabel(material.id)
-                    }
-                    onRemove={(id) => change(removeComposerMaterial(draft, id))}
-                  />
-                  <ComposerToolbar
-                    disabled={acceptedSubmission || inactive}
-                    configurationDisabled={
-                      submitting || unknownSubmission || acceptedSubmission
-                    }
-                    configurationDisabledReason={
-                      acceptedSubmission
-                        ? "正在打开已接收的会话，请稍候。"
-                        : inactive
-                          ? "当前输入区已离开。"
-                          : unknownSubmission
-                            ? "先检查原消息的发送状态，再修改会话配置。"
-                            : submitting
-                              ? "正在确认当前发送，确认后可修改会话配置。"
-                              : undefined
-                    }
-                    sessionId={sessionId}
-                    anchorRef={anchorRef}
-                    data={{
-                      materialsEnabled: data.materialsEnabled,
-                      materials,
-                      models,
-                      tools,
-                      modelLabels: data.modelLabels,
-                      modelThinking: data.modelThinking,
-                      modelCatalog: data.modelCatalog,
-                    }}
-                    workspacePath={
-                      workspaces.find((item) => item.id === draft.workspaceId)
-                        ?.path
-                    }
-                    draft={draft}
-                    canSubmit={canSubmit}
-                    onChange={change}
-                    onAddMaterial={(item) => {
-                      void materialController.prepare(item)
-                      setResult("")
-                    }}
-                    onChooseAttachments={
-                      materialController.service
-                        ? materialController.choose
-                        : undefined
-                    }
-                    choosingMaterials={materialController.choosing}
-                  />
-                </ComposerInputCard>
-              </Field>
-            </FieldGroup>
-          </ComposerPanelProvider>
-        </fieldset>
-      </form>
-      {unsupportedCompact && (
-        <p role="status" className="mt-2 text-xs text-muted-foreground">
-          请先打开已有会话，再使用 /compact
-          压缩其上下文。首页尚未开始对话，这条命令不会发送给模型。
-        </p>
-      )}
+
       {materialController.feedback && (
-        <div className="mt-2">
-          <OperationFeedback
-            title={
-              materialController.feedback.code === "cancelled"
-                ? "材料核对已取消"
-                : "材料未能添加"
-            }
-            message={materialController.feedback.message}
-            details={materialController.feedback.details}
-            severity={materialController.feedback.severity ?? "error"}
-            actions={
-              materialController.feedback.code === "cancelled" ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={materialController.recheck}
-                >
-                  重新检查材料
-                </Button>
-              ) : (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={materialController.clearError}
-                >
-                  知道了
-                </Button>
-              )
-            }
-          />
-        </div>
+        <ComposerNotification
+          message={materialController.feedback.message}
+          persistent={
+            materialController.feedback.recovery === "restart" ||
+            materialController.feedback.code === "cancelled"
+          }
+          actions={
+            materialController.feedback.code === "cancelled" ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={materialController.recheck}
+              >
+                重新检查材料
+              </Button>
+            ) : materialController.feedback.recovery === "restart" ? (
+              <RecoveryAction issue={materialController.feedback} />
+            ) : undefined
+          }
+        />
       )}
-      {result && (
-        <p
-          role="status"
-          className="mt-4 rounded-xl border bg-card px-4 py-3 text-sm leading-6 text-muted-foreground"
-        >
-          {result}
-        </p>
-      )}
+      {result && <ComposerNotification message={result} />}
     </section>
   )
 }

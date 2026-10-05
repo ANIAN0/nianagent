@@ -113,7 +113,7 @@ export default {
   group: "工作输入",
   source: "src/features/home/model-picker.tsx",
   description:
-    "模型与思考共用两级菜单；按连接分组，方向键浏览、Enter或空格确认。",
+    "模型与思考共用两级菜单；按连接分组，方向键浏览、Enter或空格确认。入口复用Button composer变体/尺寸，与会话配置统一外观；名称宽度按工具栏空间收缩。",
   boundary:
     "页面提供目录状态、重试和设置导航；组件不读取后端。窗口移动、尺寸及可用高度变化时重新计算边界，子页内部滚动。",
   inputs: [

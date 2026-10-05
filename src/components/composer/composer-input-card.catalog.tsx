@@ -59,7 +59,8 @@ export default {
   layer: "复合组件",
   group: "工作输入",
   source: "src/components/composer/composer-input-card.tsx",
-  description: "首页、会话和排队编辑复用的输入壳与拖放反馈。",
+  description:
+    "首页、会话和排队编辑复用的20px圆角输入壳与拖放反馈，正文与工具栏独立间隔12px。",
   boundary: "只负责卡片视觉与拖放提示；草稿、材料owner和提交由正式消费者持有。",
   inputs: ["InputGroup属性；dropActive/dropDisabledReason决定拖放提示。"],
   events: [

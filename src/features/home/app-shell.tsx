@@ -194,9 +194,7 @@ export function AppShell({
             event.preventDefault()
             requestAnimationFrame(() =>
               main.current
-                ?.querySelector<HTMLTextAreaElement>(
-                  'textarea[aria-label="描述你要做的事"]'
-                )
+                ?.querySelector<HTMLElement>("[data-composer-editor]")
                 ?.focus({ preventScroll: true })
             )
           }}

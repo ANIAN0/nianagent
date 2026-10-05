@@ -221,7 +221,7 @@ export type MaterialReference = {
   /** 材料类别 */
   kind: "附件" | "Skill"
   /** 实际交付方式 */
-  type: "file" | "image" | "skill"
+  type: "file" | "directory" | "image" | "skill"
   /** 准备状态；非 ready 不可交付 */
   status: "preparing" | "ready" | "failed"
   /** 实际绝对路径或图片来源说明 */
@@ -477,7 +477,7 @@ export type ConversationChatMessage = {
     /** 原始来源路径或固定图片说明 */
     source: string
     /** 材料真实类别 */
-    materialType: "file" | "image" | "skill"
+    materialType: "file" | "directory" | "image" | "skill"
   }[]
   /**  */
   tools?: ConversationChatTool[]
@@ -1063,7 +1063,7 @@ export type RpcRequests = {
     sessionId: string
     /** 当前会话真实工作目录 */
     cwd: string
-    /** 文件相对路径或Skill名称搜索 */
+    /** 文件/目录相对路径或Skill名称搜索；路径以/结尾时列出该目录的直接子项 */
     query: string
   }
   materialPreview: {

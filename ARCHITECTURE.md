@@ -247,3 +247,8 @@ OAuth 使用客户端原授权任务 ID，在初始化前登记。准备阶段�
 ## 正式源码与发布一致性
 
 宿主身份与发布使用同一递归正式源码范围：后端顶层 `.mjs` 与 `extensions/**/*.mjs`；测试、缓存与用户配置不参与。目录外链接拒绝，新增模块也改变宿主指纹。`package-backend.mjs` 检查部署文件集合及内容一致，防止浏览器读取新版前端却连接旧模块宿主。纯 schema/contract 不导入 Node业务、文件系统或存储依赖，接口目录可直接按需加载同一元数据。
+
+
+## 正文引用与目录材料
+`ComposerEditor` 使用Lexical纯文本、历史和原子引用节点。候选、混合粘贴及导航通过统一编辑/选区接口衔接；持久草稿保持正文+权威材料ID，临时DOM与HTML不作为发送契约。每个会话/工作目录创建独立编辑历史，撤销不能将旧工作目录材料恢复到另一稿。
+`MaterialService` 复用既有材料链路支持directory：catalog以相对路径/列直接子项，prepare仅保存工作区内真实目录身份，verify/restore核对来源，preview只列直接目录项，resolveForPrompt只交付路径而不递归读取。file/image/skill旧记录保持兼容，API目录从material-contract及conversation-contract生成。会话设置仍由SessionService拥有保存、revision和未知提交；扩展视图不复制会话候选或调用另一保存链路。

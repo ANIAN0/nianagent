@@ -2,8 +2,16 @@ import { useState } from "react"
 import { ToolPicker } from "./tool-picker"
 import { homeData } from "../../../ui-catalog/fixtures/home"
 import type { CatalogEntry } from "../../../ui-catalog/catalog"
-function Example({ empty = false }: { empty?: boolean }) {
-  const [value, setValue] = useState<string[]>(["read"])
+function Example({
+  empty = false,
+  unavailableSelected = false,
+}: {
+  empty?: boolean
+  unavailableSelected?: boolean
+}) {
+  const [value, setValue] = useState<string[]>(
+    unavailableSelected ? ["read", "missing-shell"] : ["read"]
+  )
   return (
     <div className="flex h-dvh flex-col gap-3 p-6">
       <ToolPicker
@@ -38,20 +46,29 @@ export default {
   layer: "复合组件",
   group: "会话配置",
   source: "src/features/home/tool-picker.tsx",
-  description: "按来源分组工具，提供搜索、单选勾选、整组操作与详情。",
+  description:
+    "单层工具列表，来源筛选、搜索、当前结果批量选择与同层详情。筛选控件统一32px；列表与筛选共用左右轴，滚动条单独占用轴外间隙。",
   boundary:
-    "工具数据及勾选受控，持有搜索词和展开的详情；不执行工具。整组操作作用于来源全组，搜索不改变作用范围。",
+    "工具与勾选受控；查询、来源和详情归组件，返回保留滚动与选择；批量仅当前筛选结果，已选不可用项可取消。",
   inputs: ["tools: HomeTool[]、value: string[]。"],
   events: ["onChange(ids)。"],
-  composition: ["InputGroup", "Checkbox", "Button"],
+  composition: ["InputGroup", "Select", "Badge", "Checkbox", "Button"],
   consumers: ["SessionConfig"],
   viewport: { width: 560, height: 500 },
   states: [
     {
+      id: "unavailable-selected",
+      name: "已选工具不可用",
+      condition: "保存配置包含一个已失效工具。",
+      expected: "保留已选失效工具及原因，可取消；不能新选失效项。",
+      render: () => <Example unavailableSelected />,
+    },
+    {
       id: "groups",
       name: "多来源工具",
       condition: "内置、插件、MCP，部分选中。",
-      expected: "分组数量、全选/全不选、搜索及详情一致；搜索不丢失已有选择。",
+      expected:
+        "来源徽标、当前结果全选/全不选，详情返回保持搜索与滚动；搜索不丢失已有选择。",
       render: () => <Example />,
     },
     {

@@ -42,6 +42,51 @@ async function fixture() {
   }
 }
 
+test("directory catalog, drill, prepare, restart, preview and prompt preserve one bounded reference", async () => {
+  const f = await fixture()
+  try {
+    await mkdir(join(f.cwd, "docs", "nested"), { recursive: true })
+    await writeFile(join(f.cwd, "docs", "guide.md"), "PRIVATE_CONTENT_NOT_IN_PROMPT")
+    await writeFile(join(f.cwd, "docs", "nested", "child.md"), "NESTED_CONTENT")
+    const root = await f.service.catalog("session", f.cwd, "docs")
+    const folder = root.files.find(item => item.type === "directory" && item.name === "docs")
+    assert.ok(folder)
+    const children = await f.service.catalog("session", f.cwd, "docs/")
+    assert.deepEqual(children.files.map(item => item.name).sort(), ["guide.md", "nested"])
+    const [prepared] = await f.service.prepare("session", f.cwd, [folder.source], "workspace")
+    assert.equal(prepared.type, "directory")
+    assert.equal(prepared.id, folder.id)
+    const restarted = new MaterialService(join(f.directory, "data"), f.sessions)
+    assert.deepEqual(await restarted.restore("session", f.cwd, [prepared]), [prepared])
+    const preview = await restarted.preview(f.cwd, prepared.id)
+    assert.equal(preview.label, "当前目录")
+    assert.match(preview.content, /nested\//u)
+    assert.doesNotMatch(preview.content, /PRIVATE_CONTENT/u)
+    const prompt = await restarted.resolveForPrompt({ sessionId: "session", cwd: f.cwd, materials: [prepared], text: "检查 @docs" })
+    assert.match(prompt.textPrefix, /Directory: @/u)
+    assert.doesNotMatch(prompt.textPrefix, /PRIVATE_CONTENT|NESTED_CONTENT/u)
+    await rename(join(f.cwd, "docs"), join(f.cwd, "moved"))
+    const [missing] = await restarted.restore("session", f.cwd, [prepared])
+    assert.equal(missing.status, "failed")
+  } finally { await rm(f.directory, { recursive: true, force: true }) }
+})
+
+test("directory references and drill reject outside workspace and junction targets", async () => {
+  const f = await fixture()
+  try {
+    const outside = join(f.directory, "outside")
+    await mkdir(outside)
+    await symlink(outside, join(f.cwd, "linked"), process.platform === "win32" ? "junction" : "dir")
+    const [selected] = await f.service.prepare("session", f.cwd, [outside])
+    assert.equal(selected.status, "failed")
+    assert.equal(selected.retryable, false)
+    await assert.rejects(f.service.catalog("session", f.cwd, "linked/"), /工作区/u)
+    await assert.rejects(f.service.catalog("session", f.cwd, "../outside/"), /工作区/u)
+    const controller = new AbortController(); controller.abort()
+    await assert.rejects(f.service.prepare("session", f.cwd, [f.cwd], "workspace", controller.signal), { name: "AbortError" })
+  } finally { await rm(f.directory, { recursive: true, force: true }) }
+})
+
 test("workspace previews resolve relative links and reject outside and junction targets while explicit selected files remain usable", async () => {
   const f = await fixture()
   try {

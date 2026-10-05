@@ -1,3 +1,4 @@
+import { type ComposerEditorElement } from "@/components/composer/composer-editor-contract"
 import { OperationFeedback } from "@/components/feedback/operation-feedback"
 import {
   feedbackFromError,
@@ -213,7 +214,7 @@ export function LiveConversationView({
     { text: string; operationId?: string } | undefined
   >(undefined)
   const latestDraft = useRef(draft)
-  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const inputRef = useRef<ComposerEditorElement>(null)
   useLayoutEffect(() => {
     latestDraft.current = draft
   }, [draft])

@@ -10,6 +10,7 @@ import type { HomeData, HomeDraft, Material } from "./home-types"
 export type ComposerToolbarProps = {
   disabled?: boolean
   configurationDisabled?: boolean
+  configurationLoading?: boolean
   configurationDisabledReason?: string
   modelDisabled?: boolean
   modelDisabledReason?: string
@@ -40,6 +41,7 @@ export type ComposerToolbarProps = {
 export function ComposerToolbar({
   disabled = false,
   configurationDisabled = false,
+  configurationLoading = false,
   configurationDisabledReason,
   modelDisabled = false,
   modelDisabledReason,
@@ -112,6 +114,7 @@ export function ComposerToolbar({
           onThinkingChange={(thinking) => onChange({ thinking })}
         />
         <SessionConfig
+          loading={configurationLoading}
           disabled={disabled || configurationDisabled}
           disabledReason={configurationDisabledReason}
           key={`config:${sessionId}:${workspacePath}`}

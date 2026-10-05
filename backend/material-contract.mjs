@@ -23,7 +23,7 @@ export const materialSchemas = {
       id: s("服务准备后返回的稳定材料标识", { minLength: 1, maxLength: 200 }),
       name: s("材料原始名称", { minLength: 1, maxLength: 500 }),
       kind: s("材料类别", { enum: ["附件", "Skill"] }),
-      type: s("实际交付方式", { enum: ["file", "image", "skill"] }),
+      type: s("实际交付方式", { enum: ["file", "directory", "image", "skill"] }),
       status: s("准备状态；非 ready 不可交付", {
         enum: ["preparing", "ready", "failed"],
       }),
@@ -136,7 +136,7 @@ export const materialOperations = {
     request: o({
       sessionId: identity,
       cwd,
-      query: s("文件相对路径或Skill名称搜索", { maxLength: 500 }),
+      query: s("文件/目录相对路径或Skill名称搜索；路径以/结尾时列出该目录的直接子项", { maxLength: 500 }),
     }),
     response: r("MaterialCatalog"),
     title: "发现工作区文件与Skills",

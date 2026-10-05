@@ -1,3 +1,8 @@
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { useCallback, useEffect, useId, useRef, useState } from "react"
 import {
   ArrowLeft,
@@ -5,6 +10,7 @@ import {
   ChevronRight,
   Search,
   Settings,
+  Cpu,
   X,
 } from "lucide-react"
 import {
@@ -195,27 +201,38 @@ export function ModelPicker({
     groups.set(connection, entries)
   }
   const triggerButton = (
-    <PopoverTrigger asChild>
-      <Button
-        ref={trigger}
-        disabled={disabled}
-        type="button"
-        variant="ghost"
-        size="sm"
-        className="moon-composer-model-trigger"
-        aria-label={`选择模型，当前为 ${title}`}
-        title={title}
-      >
-        <span className="moon-composer-model-name">
-          {displayName || placeholder}
-          {unavailable ? " · 不可用" : ""}
-        </span>
-        {currentThinking && (
-          <span className="moon-composer-thinking">{currentThinking}</span>
-        )}
-        <ChevronDown className="shrink-0 text-caption" data-icon="inline-end" />
-      </Button>
-    </PopoverTrigger>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <PopoverTrigger asChild>
+          <Button
+            ref={trigger}
+            disabled={disabled}
+            type="button"
+            variant="composer"
+            size="composer"
+            className="moon-composer-model-trigger"
+            aria-label={`选择模型，当前为 ${title}`}
+          >
+            <Cpu
+              className="moon-composer-model-icon"
+              data-icon="inline-start"
+            />
+            <span className="moon-composer-model-name">
+              {displayName || placeholder}
+              {unavailable ? " · 不可用" : ""}
+            </span>
+            {currentThinking && (
+              <span className="moon-composer-thinking">{currentThinking}</span>
+            )}
+            <ChevronDown
+              className="shrink-0 text-caption"
+              data-icon="inline-end"
+            />
+          </Button>
+        </PopoverTrigger>
+      </TooltipTrigger>
+      <TooltipContent side="top">{title}</TooltipContent>
+    </Tooltip>
   )
   return (
     <Popover
@@ -242,6 +259,7 @@ export function ModelPicker({
         sideOffset={8}
         collisionPadding={12}
         style={{
+          width: `min(420px, max(240px, ${Math.max(240, Math.min(420, Math.max(...models.map((model) => (labels?.[model] ?? model).length * 8), 0) + 72))}px))`,
           maxHeight: `min(${bounds.height}px, var(--radix-popover-content-available-height))`,
         }}
         className="w-72 max-w-[calc(100vw-24px)] gap-1 overflow-hidden rounded-xl p-1.5"

@@ -1,34 +1,35 @@
 .moon-composer-input {
   position: relative;
   min-height: 0;
-  border-radius: 16px;
+  border-radius: 20px;
+  row-gap: 12px;
   background: var(--card);
   box-shadow: 0 1px 3px rgb(0 0 0 / 4%);
 }
-.moon-composer-input:has([data-slot="input-group-control"]:focus-visible) {
+.moon-composer-input:has([data-composer-editor]:focus-visible) {
   border-color: color-mix(in oklab, var(--primary) 60%, transparent);
   box-shadow:
-    0 0 0 3px color-mix(in oklab, var(--primary) 20%, transparent),
+    0 0 0 1px color-mix(in oklab, var(--primary) 20%, transparent),
     0 1px 3px rgb(0 0 0 / 4%);
 }
 .moon-composer-input:has(:disabled) {
   opacity: 1;
   background: var(--card);
 }
-.moon-composer-input > [data-slot="input-group-control"] {
+.moon-composer-input > .moon-composer-editor-body {
   flex-shrink: 1;
   min-height: 52px;
-  max-height: min(288px, 25dvh);
+  max-height: min(336px, max(52px, calc(100dvh - 280px)));
   overflow-y: auto;
   scrollbar-width: thin;
 }
-.moon-composer-input > .moon-composer-prompt[data-slot="input-group-control"] {
+.moon-composer-input .moon-composer-prompt[data-slot="input-group-control"] {
   padding: 8px 14px 0;
   font-size: 14px;
   line-height: 24px;
   min-height: 52px;
 }
-.moon-composer-input > .moon-composer-prompt[data-composer-variant="docked"] {
+.moon-composer-input .moon-composer-prompt[data-composer-variant="docked"] {
   padding-top: 4px;
   min-height: 36px;
 }
@@ -57,20 +58,13 @@
   margin-left: auto;
   max-width: 100%;
 }
-.moon-composer-model-trigger[data-slot="button"] {
-  height: 28px;
-  max-width: min(240px, 45cqw);
+.moon-composer-model-trigger {
+  max-width: min(360px, 45cqw);
   min-width: 0;
   flex: 0 1 auto;
-  gap: 6px;
-  border-radius: 999px;
-  padding: 0 8px;
-  font-size: 13px;
-  line-height: 20px;
-  font-weight: 400;
-  color: var(--muted-foreground);
 }
 .moon-composer-model-name {
+  flex: 0 1 auto;
   min-width: 40px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -78,7 +72,7 @@
 }
 .moon-composer-thinking {
   min-width: 0;
-  flex: 0 1 auto;
+  flex: 0 1000 auto;
   color: var(--caption);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -91,7 +85,7 @@
   }
 }
 @container (max-width: 360px) {
-  .moon-composer-model-trigger[data-slot="button"] {
+  .moon-composer-model-trigger {
     max-width: 40cqw;
   }
   .moon-composer-thinking {
@@ -116,4 +110,72 @@
   color: var(--primary);
   font-size: 13px;
   pointer-events: none;
+}
+.moon-composer-prompt[data-composer-editor] {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  outline: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  cursor: text;
+}
+.moon-composer-prompt[data-empty="true"]::before {
+  content: attr(data-placeholder);
+  color: var(--muted-foreground);
+  pointer-events: none;
+  position: absolute;
+}
+.moon-composer-prompt p {
+  margin: 0;
+}
+.moon-inline-reference {
+  display: inline;
+  border-radius: 5px;
+  padding: 1px 3px;
+  background: color-mix(in oklab, var(--primary) 10%, transparent);
+  color: var(--primary);
+  box-decoration-break: clone;
+}
+.moon-composer-input:has([data-composer-editor]:focus) {
+  --tw-ring-shadow: 0 0 #0000;
+}
+.moon-composer-input > .moon-composer-prompt[data-composer-editor] {
+  flex: 0 1 auto;
+}
+.moon-composer-input[data-workspace-missing="true"] {
+  cursor: pointer;
+}
+.moon-composer-input .moon-composer-blocker {
+  width: 100%;
+  padding: 10px 16px 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 18px;
+}
+.moon-composer-prompt[data-command-hint="skill"]:not([data-composing="true"])
+  > p:last-child::after {
+  content: " 描述需要 Skill 完成的工作";
+  color: var(--muted-foreground);
+  pointer-events: none;
+}
+.moon-composer-model-icon {
+  display: none;
+}
+@container (max-width: 300px) {
+  .moon-composer-model-icon {
+    display: block;
+  }
+  .moon-composer-model-name {
+    display: none;
+  }
+  .moon-composer-model-trigger {
+    flex: none;
+  }
+}
+
+.moon-composer-input {
+  height: auto;
+  flex-direction: column;
+  align-items: stretch;
 }

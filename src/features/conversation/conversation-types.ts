@@ -12,7 +12,7 @@ export type MessageAttachment = {
   content?: string
   bytes?: number
   source?: string
-  materialType?: "file" | "image" | "skill"
+  materialType?: "file" | "directory" | "image" | "skill"
 }
 export type ConversationToolCall = {
   id: string

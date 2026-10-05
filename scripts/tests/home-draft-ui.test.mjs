@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { createElement } from "react"
-import { renderToString } from "react-dom/server"
+import { renderToString as renderMarkup } from "react-dom/server"
 import { createServer } from "vite"
 import react from "@vitejs/plugin-react"
 
@@ -12,6 +12,7 @@ let server,
   cache,
   store,
   HomeComposer,
+  TooltipProvider,
   consumeHomeSession,
   useHomeSubmissionNavigation,
   reconcileHomeRequest,
@@ -34,6 +35,9 @@ test.before(async () => {
   ;({ HomeComposer } = await server.ssrLoadModule(
     "/src/features/home/home-composer.tsx"
   ))
+  ;({ TooltipProvider } = await server.ssrLoadModule(
+    "/src/components/ui/tooltip.tsx"
+  ))
   ;({ consumeHomeSession } = await server.ssrLoadModule(
     "/src/features/session/session-service.ts"
   ))
@@ -50,6 +54,9 @@ test.before(async () => {
     "/src/features/models/model-service.ts"
   ))
 })
+function renderToString(element) {
+  return renderMarkup(createElement(TooltipProvider, null, element))
+}
 test.after(async () => {
   await server?.close()
   await rm(cache, { recursive: true, force: true })
@@ -423,33 +430,59 @@ test("the official hook checks the original send by readonly receipt lookup and 
   fixture(t)
   const submission = savedSubmission()
   store.saveConversationRequest(draft.sessionId, {
-    kind: "send", stage: "sending", id: "original-client-request",
-    signature: "stored-original", draft,
-    input: { sessionId: draft.sessionId, workspaceId: draft.workspaceId, text: draft.text,
-      materials: [], connectionId: "connection", modelId: "model", thinking: "high" },
+    kind: "send",
+    stage: "sending",
+    id: "original-client-request",
+    signature: "stored-original",
+    draft,
+    input: {
+      sessionId: draft.sessionId,
+      workspaceId: draft.workspaceId,
+      text: draft.text,
+      materials: [],
+      connectionId: "connection",
+      modelId: "model",
+      thinking: "high",
+    },
   })
   const previousFetch = globalThis.fetch
-  t.after(() => { globalThis.fetch = previousFetch })
+  t.after(() => {
+    globalThis.fetch = previousFetch
+  })
   let calls = 0
   globalThis.fetch = async (url, options) => {
     calls++
     assert.equal(url, "/api/models/conversationReceiptRead")
     assert.deepEqual(JSON.parse(options.body), {
-      sessionId: draft.sessionId, clientRequestId: "original-client-request",
+      sessionId: draft.sessionId,
+      clientRequestId: "original-client-request",
     })
     return Response.json({ error: "发送回执读取失败" })
   }
   let chat
-  function Probe() { chat = useLiveConversation(undefined); return null }
+  function Probe() {
+    chat = useLiveConversation(undefined)
+    return null
+  }
   renderToString(createElement(Probe))
-  await assert.rejects(reconcileHomeRequest(
-    () => chat.reconcile(draft.sessionId),
-    () => assert.fail("read rejection must not forget a send"),
-    () => assert.fail("must not attempt cleanup"), true,
-  ), RpcRequestRejected)
+  await assert.rejects(
+    reconcileHomeRequest(
+      () => chat.reconcile(draft.sessionId),
+      () => assert.fail("read rejection must not forget a send"),
+      () => assert.fail("must not attempt cleanup"),
+      true
+    ),
+    RpcRequestRejected
+  )
   assert.equal(calls, 1)
-  assert.equal(chat.submissionRequestId(draft.sessionId), "original-client-request")
-  assert.equal(store.restoreConversationDrafts().requests.get(draft.sessionId).id, "original-client-request")
+  assert.equal(
+    chat.submissionRequestId(draft.sessionId),
+    "original-client-request"
+  )
+  assert.equal(
+    store.restoreConversationDrafts().requests.get(draft.sessionId).id,
+    "original-client-request"
+  )
   assert.deepEqual(store.restoreHomeSubmissions()[draft.sessionId], submission)
 })
 

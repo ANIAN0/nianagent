@@ -1,6 +1,17 @@
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { useContext, useEffect, useEffectEvent, useRef, useState } from "react"
-import { ChevronDown, SlidersHorizontal, Puzzle } from "lucide-react"
+import {
+  ChevronDown,
+  SlidersHorizontal,
+  Puzzle,
+  LoaderCircle,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { notifyComposer } from "@/components/composer/composer-notification"
 import { DisabledControlReason } from "@/components/composer/disabled-control-reason"
 import {
   Dialog,
@@ -42,6 +53,7 @@ import {
 } from "./composer-panel-context"
 
 export type SessionConfigProps = {
+  loading?: boolean
   extensionService?: ExtensionService
   disabled?: boolean
   disabledReason?: string
@@ -106,6 +118,7 @@ export function SessionConfig(props: SessionConfigProps) {
   )
 }
 function SessionConfigPanel({
+  loading = false,
   extensionService: suppliedExtensions,
   disabled = false,
   disabledReason = "当前操作完成后可修改会话配置。",
@@ -128,7 +141,14 @@ function SessionConfigPanel({
   const [catalog, setCatalog] = useState<SessionCatalog>()
   const [saved, setSaved] = useState<SessionConfiguration | null>(null)
   const [phase, setPhase] = useState<
-    "ready" | "loading" | "load-error" | "saving" | "checking" | "unknown"
+    | "ready"
+    | "loading"
+    | "load-error"
+    | "refreshing"
+    | "refresh-error"
+    | "saving"
+    | "checking"
+    | "unknown"
   >("ready")
   const [feedback, setFeedback] = useState<FeedbackDescription>()
   const [applied, setApplied] = useState(false)
@@ -207,7 +227,10 @@ function SessionConfigPanel({
         : undefined
     )
     releaseSubmission()
-    if (!editedAfterSubmission) setOpen(false)
+    if (!editedAfterSubmission) {
+      setOpen(false)
+      notifyComposer("会话配置已应用")
+    }
   }
   function acceptNewerConfiguration(snapshot: SessionConfiguration | null) {
     const options = copyOptions(snapshot ?? catalog?.defaults ?? baseline)
@@ -367,7 +390,8 @@ function SessionConfigPanel({
       })
       return
     }
-    setPhase("loading")
+    const retainView = keepCandidate && !!catalog
+    setPhase(retainView ? "refreshing" : "loading")
     try {
       const [nextCatalog, snapshot] = await Promise.all([
         service.catalog(workspacePath, controller.signal),
@@ -385,7 +409,7 @@ function SessionConfigPanel({
       setPhase("ready")
     } catch (cause) {
       if (controller.signal.aborted || request.current !== controller) return
-      setPhase("load-error")
+      setPhase(retainView ? "refresh-error" : "load-error")
       const issue = feedbackFromError(cause, "会话配置暂时无法读取，请重试。")
       setFeedback(
         issue.code === "cancelled" ? { ...issue, recovery: "reload" } : issue
@@ -397,6 +421,7 @@ function SessionConfigPanel({
     if (!service) {
       onChange(copyOptions(pendingRef.current))
       setApplied(true)
+      notifyComposer("会话配置已应用")
       setOpen(false)
       return
     }
@@ -516,20 +541,24 @@ function SessionConfigPanel({
   const trigger = (
     <Button
       type="button"
-      size="sm"
-      variant="ghost"
-      className="h-7 gap-1 rounded-full px-2 text-[13px] leading-5 font-normal text-muted-foreground"
+      size="composer"
+      variant="composer"
       aria-label="打开会话配置"
       disabled={disabled}
-      title={
-        disabled ? disabledReason : applied ? "会话配置已应用" : "会话配置"
-      }
     >
-      <SlidersHorizontal className="size-3.5" />
+      {loading ? (
+        <LoaderCircle
+          className="animate-spin"
+          data-icon="inline-start"
+          aria-label="正在读取会话配置"
+        />
+      ) : (
+        <SlidersHorizontal data-icon="inline-start" />
+      )}
       <span className="hidden @sm:inline" role={applied ? "status" : undefined}>
         {applied ? "配置已应用" : "会话配置"}
       </span>
-      <ChevronDown className="size-3.5 text-caption" />
+      <ChevronDown className="text-caption" data-icon="inline-end" />
     </Button>
   )
   return (
@@ -556,258 +585,269 @@ function SessionConfigPanel({
             {trigger}
           </DisabledControlReason>
         ) : (
-          <DialogTrigger asChild>{trigger}</DialogTrigger>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DialogTrigger asChild>{trigger}</DialogTrigger>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              {loading ? "正在读取会话配置" : "配置本会话的工具与项目指令"}
+            </TooltipContent>
+          </Tooltip>
         )}
         <DialogContent
           onCloseAutoFocus={closeAutoFocus}
-          showCloseButton={!requestBusy}
-          className="flex h-[500px] max-h-[calc(100dvh-32px)] flex-col gap-0 overflow-hidden rounded-3xl p-0 sm:max-w-[600px] [&>[data-slot=dialog-close]]:top-4 [&>[data-slot=dialog-close]]:right-4"
+          showCloseButton={!requestBusy && !extensionOpen}
+          onEscapeKeyDown={(event) => {
+            if (extensionOpen) event.preventDefault()
+          }}
+          onInteractOutside={(event) => {
+            if (extensionOpen) event.preventDefault()
+          }}
+          className="flex h-[560px] max-h-[calc(100dvh-32px)] flex-col gap-0 overflow-hidden rounded-xl p-0 sm:max-w-[640px] [&>[data-slot=dialog-close]]:top-4 [&>[data-slot=dialog-close]]:right-4"
         >
-          <DialogHeader className="px-6 pt-[18px] pb-2">
-            <DialogTitle className="text-base leading-6">会话配置</DialogTitle>
-            <DialogDescription className="sr-only">
-              选择会话可用工具与项目指令范围。应用成功后保存到当前会话。
-            </DialogDescription>
-          </DialogHeader>
-          {phase === "loading" ? (
-            <div
-              className="flex flex-1 flex-col gap-4 px-6 py-4"
-              role="status"
-              aria-label="正在读取会话配置"
-            >
-              <Skeleton className="h-9 w-full" />
-              <Skeleton className="h-14 w-full" />
-              <Skeleton className="h-14 w-full" />
-              <p className="text-xs text-muted-foreground">
-                正在读取工具与项目指令…
-              </p>
-            </div>
-          ) : phase === "load-error" ? (
-            <div className="moon-scrollbar min-h-0 flex-1 overflow-auto px-6 py-4">
-              {feedback && (
-                <OperationFeedback
-                  title={
-                    feedback.code === "cancelled"
-                      ? "读取已取消"
-                      : "无法读取会话配置"
-                  }
-                  {...feedback}
-                  actions={
-                    <RecoveryAction
-                      issue={feedback}
-                      onRetry={() => void load(keepCandidateOnLoad.current)}
-                      onReload={() => void load(keepCandidateOnLoad.current)}
-                      onCheck={() => void load(keepCandidateOnLoad.current)}
-                      labels={{ retry: "重新读取" }}
-                    />
-                  }
-                />
-              )}
-            </div>
-          ) : (
-            <fieldset
-              disabled={phase === "saving"}
-              className="flex min-h-0 flex-1 flex-col border-0 p-0"
-            >
-              {unavailableSelected.length > 0 && (
-                <div className="mx-6 mb-3">
-                  <OperationFeedback
-                    title="所选工具不可用"
-                    message={`请取消选择后应用：${unavailableSelected.join("、")}`}
-                    severity="warning"
+          {extensionOpen && extensionService && (
+            <ExtensionConfig
+              embedded
+              open
+              onOpenChange={setExtensionOpen}
+              service={extensionService}
+              onConfigured={() => void load(true)}
+            />
+          )}
+          <div className={extensionOpen ? "hidden" : "contents"}>
+            <DialogHeader className="px-6 pt-6 pb-4">
+              <DialogTitle className="text-base leading-6">
+                会话配置
+                {phase === "refreshing" && (
+                  <LoaderCircle
+                    className="ml-2 inline size-3.5 animate-spin"
+                    aria-label="正在更新工具目录"
                   />
-                </div>
-              )}
-              <Tabs defaultValue="tools" className="min-h-0 flex-1 gap-0 px-6">
-                <TabsList
-                  variant="line"
-                  aria-label="会话配置分类"
-                  className="mb-4 w-full shrink-0 justify-start gap-6 border-b p-0 group-data-horizontal/tabs:h-9"
-                >
-                  <TabsTrigger
-                    className="flex-none rounded-none px-0.5 text-[13px] font-normal group-data-horizontal/tabs:after:bottom-[-1px]"
-                    value="tools"
-                  >
-                    工具{" "}
-                    {toolsChanged && (
-                      <span
-                        aria-label="已修改"
-                        className="size-[5px] rounded-full bg-primary"
+                )}
+              </DialogTitle>
+              <DialogDescription className="sr-only">
+                选择会话可用工具与项目指令范围。应用成功后保存到当前会话。
+              </DialogDescription>
+            </DialogHeader>
+            {phase === "loading" ? (
+              <div
+                className="flex flex-1 flex-col gap-4 px-6 py-4"
+                role="status"
+                aria-label="正在读取会话配置"
+              >
+                <Skeleton className="h-9 w-full" />
+                <Skeleton className="h-14 w-full" />
+                <Skeleton className="h-14 w-full" />
+                <p className="text-xs text-muted-foreground">
+                  正在读取工具与项目指令…
+                </p>
+              </div>
+            ) : phase === "load-error" ? (
+              <div className="moon-scrollbar min-h-0 flex-1 overflow-auto px-6 py-4">
+                {feedback && (
+                  <OperationFeedback
+                    title={
+                      feedback.code === "cancelled"
+                        ? "读取已取消"
+                        : "无法读取会话配置"
+                    }
+                    {...feedback}
+                    actions={
+                      <RecoveryAction
+                        issue={feedback}
+                        onRetry={() => void load(keepCandidateOnLoad.current)}
+                        onReload={() => void load(keepCandidateOnLoad.current)}
+                        onCheck={() => void load(keepCandidateOnLoad.current)}
+                        labels={{ retry: "重新读取" }}
                       />
-                    )}
-                  </TabsTrigger>
-                  <TabsTrigger
-                    className="flex-none rounded-none px-0.5 text-[13px] font-normal group-data-horizontal/tabs:after:bottom-[-1px]"
-                    value="instructions"
-                  >
-                    项目指令{" "}
-                    {(scopeChanged || instructionsChanged) && (
-                      <span
-                        aria-label="已修改"
-                        className="size-[5px] rounded-full bg-primary"
-                      />
-                    )}
-                  </TabsTrigger>
-                </TabsList>
-                <TabsContent
-                  value="tools"
-                  className="flex min-h-0 flex-col gap-3 pb-4"
+                    }
+                  />
+                )}
+              </div>
+            ) : (
+              <fieldset
+                disabled={phase === "saving" || phase === "refreshing"}
+                className="flex min-h-0 flex-1 flex-col border-0 p-0"
+              >
+                {unavailableSelected.length > 0 && (
+                  <div className="mx-6 mb-3">
+                    <OperationFeedback
+                      title="所选工具不可用"
+                      message={`请取消选择后应用：${unavailableSelected.join("、")}`}
+                      severity="warning"
+                    />
+                  </div>
+                )}
+                <Tabs
+                  defaultValue="tools"
+                  className="min-h-0 flex-1 gap-4 px-6"
                 >
-                  {extensionService && (
-                    <div className="flex shrink-0 items-start gap-3 rounded-lg border px-3 py-2">
-                      <div className="flex min-w-0 flex-1 flex-col gap-1">
-                        <span className="text-xs font-medium">扩展能力</span>
-                        <p className="text-xs leading-5 text-muted-foreground">
-                          应用级设置，保存后在空闲会话下一轮生效。
-                        </p>
-                      </div>
+                  <div className="flex shrink-0 items-center justify-between gap-3">
+                    <TabsList aria-label="会话配置分类" className="shrink-0">
+                      <TabsTrigger value="tools">
+                        工具{" "}
+                        {toolsChanged && (
+                          <span
+                            aria-label="已修改"
+                            className="size-[5px] rounded-full bg-primary"
+                          />
+                        )}
+                      </TabsTrigger>
+                      <TabsTrigger value="instructions">
+                        项目指令{" "}
+                        {(scopeChanged || instructionsChanged) && (
+                          <span
+                            aria-label="已修改"
+                            className="size-[5px] rounded-full bg-primary"
+                          />
+                        )}
+                      </TabsTrigger>
+                    </TabsList>
+                    {extensionService && (
                       <Button
                         type="button"
-                        variant="ghost"
-                        size="sm"
-                        disabled={requestBusy || submissionBlocked}
+                        variant="outline"
+                        className="shrink-0"
                         onClick={() => setExtensionOpen(true)}
                       >
                         <Puzzle data-icon="inline-start" />
-                        配置扩展
+                        管理扩展
                       </Button>
-                    </div>
-                  )}
-                  <ToolPicker
-                    tools={displayTools}
-                    value={pending.toolIds}
-                    onChange={(toolIds) =>
-                      updatePending({ ...pending, toolIds })
-                    }
-                  />
-                </TabsContent>
-                <TabsContent
-                  value="instructions"
-                  className="min-h-0 overflow-y-auto pb-4"
-                >
-                  {saved && (
-                    <p className="mb-3 text-xs leading-5 text-muted-foreground">
-                      已保存 {saved.instructions.length} 个指令文件。
-                      {instructionsChanged
-                        ? "磁盘内容或所选范围已变化；应用后更新会话快照。"
-                        : "本次读取内容与已保存快照一致。"}
-                    </p>
-                  )}
-                  <InstructionScopePicker
-                    workspacePath={catalog?.cwd ?? workspacePath}
-                    instructions={catalog?.instructions}
-                    value={pending.instructionScope}
-                    onChange={(instructionScope) =>
-                      updatePending({ ...pending, instructionScope })
-                    }
-                  />
-                </TabsContent>
-              </Tabs>
-            </fieldset>
-          )}
-          {feedback && phase !== "load-error" && (
-            <div className="moon-scrollbar max-h-[45%] shrink-0 overflow-auto px-6 pb-3">
-              <OperationFeedback
-                title={
-                  submissionBlocked
-                    ? "保存结果待核对"
-                    : feedback.code === "session_revision_conflict"
-                      ? "当前会话配置已更新"
-                      : feedback.code === "configuration_confirmed"
-                        ? "配置已确认保存"
-                        : feedback.code === "cancelled"
-                          ? "应用已取消"
-                          : "配置未能保存"
-                }
-                {...feedback}
-                actions={
-                  feedback.recovery === "restart" ? (
-                    <RecoveryAction issue={feedback} />
-                  ) : submissionBlocked ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={phase === "checking" || phase === "saving"}
-                      onClick={() =>
-                        void (retrySubmissionReady
-                          ? retrySubmission()
-                          : checkSubmission())
+                    )}
+                  </div>
+                  <TabsContent
+                    forceMount
+                    value="tools"
+                    className="flex min-h-0 flex-col gap-3 pb-4 data-[state=inactive]:hidden"
+                  >
+                    <ToolPicker
+                      tools={displayTools}
+                      value={pending.toolIds}
+                      onChange={(toolIds) =>
+                        updatePending({ ...pending, toolIds })
                       }
-                    >
-                      {phase === "checking"
-                        ? "正在核对…"
-                        : retrySubmissionReady
-                          ? "按原版本重试"
-                          : "核对配置"}
-                    </Button>
-                  ) : feedback.code !== "configuration_confirmed" ? (
-                    <RecoveryAction
-                      issue={feedback}
-                      onRetry={() => void load(true)}
-                      onReload={() => void load(true)}
-                      onCheck={() => void load(true)}
-                      labels={{
-                        retry: "读取当前会话已保存配置",
-                        reload: "读取当前会话已保存配置",
-                        check: "核对配置",
-                      }}
                     />
-                  ) : undefined
-                }
-              />
-            </div>
-          )}
-          <div className="flex shrink-0 items-center justify-end gap-2 border-t px-6 py-4">
-            {submissionBlocked && (
-              <p
-                role="status"
-                className="mr-auto text-xs text-muted-foreground"
-              >
-                {phase === "saving"
-                  ? "正在保存，请稍候…"
-                  : retrySubmissionReady
-                    ? "重试仅使用上次提交，后续修改不会一起发送。"
-                    : "关闭不会撤销提交，重开后可继续核对。"}
-              </p>
+                  </TabsContent>
+                  <TabsContent
+                    forceMount
+                    value="instructions"
+                    className="flex min-h-0 flex-col pb-4 data-[state=inactive]:hidden"
+                  >
+                    {saved && (
+                      <p className="mb-3 text-xs leading-5 text-muted-foreground">
+                        已保存 {saved.instructions.length} 个指令文件。
+                        {instructionsChanged
+                          ? "磁盘内容或所选范围已变化；应用后更新会话快照。"
+                          : "本次读取内容与已保存快照一致。"}
+                      </p>
+                    )}
+                    <InstructionScopePicker
+                      workspacePath={catalog?.cwd ?? workspacePath}
+                      instructions={catalog?.instructions}
+                      savedInstructions={saved?.instructions}
+                      value={pending.instructionScope}
+                      onChange={(instructionScope) =>
+                        updatePending({ ...pending, instructionScope })
+                      }
+                    />
+                  </TabsContent>
+                </Tabs>
+              </fieldset>
             )}
-            <DialogClose asChild>
+            {feedback && phase !== "load-error" && (
+              <div className="moon-scrollbar max-h-[45%] shrink-0 overflow-auto px-6 pb-3">
+                <OperationFeedback
+                  title={
+                    submissionBlocked
+                      ? "保存结果待核对"
+                      : feedback.code === "session_revision_conflict"
+                        ? "当前会话配置已更新"
+                        : feedback.code === "configuration_confirmed"
+                          ? "配置已确认保存"
+                          : feedback.code === "cancelled"
+                            ? "应用已取消"
+                            : "配置未能保存"
+                  }
+                  {...feedback}
+                  actions={
+                    feedback.recovery === "restart" ? (
+                      <RecoveryAction issue={feedback} />
+                    ) : submissionBlocked ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={phase === "checking" || phase === "saving"}
+                        onClick={() =>
+                          void (retrySubmissionReady
+                            ? retrySubmission()
+                            : checkSubmission())
+                        }
+                      >
+                        {phase === "checking"
+                          ? "正在核对…"
+                          : retrySubmissionReady
+                            ? "按原版本重试"
+                            : "核对配置"}
+                      </Button>
+                    ) : feedback.code !== "configuration_confirmed" ? (
+                      <RecoveryAction
+                        issue={feedback}
+                        onRetry={() => void load(true)}
+                        onReload={() => void load(true)}
+                        onCheck={() => void load(true)}
+                        labels={{
+                          retry: "读取当前会话已保存配置",
+                          reload: "读取当前会话已保存配置",
+                          check: "核对配置",
+                        }}
+                      />
+                    ) : undefined
+                  }
+                />
+              </div>
+            )}
+            <div className="flex shrink-0 items-center justify-end gap-2 border-t px-6 py-4">
+              {submissionBlocked && (
+                <p
+                  role="status"
+                  className="mr-auto text-xs text-muted-foreground"
+                >
+                  {phase === "saving"
+                    ? "正在保存，请稍候…"
+                    : retrySubmissionReady
+                      ? "重试仅使用上次提交，后续修改不会一起发送。"
+                      : "关闭不会撤销提交，重开后可继续核对。"}
+                </p>
+              )}
+              <DialogClose asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={requestBusy}
+                  className="h-9 w-[72px]"
+                >
+                  {submissionBlocked ? "关闭" : "取消"}
+                </Button>
+              </DialogClose>
               <Button
                 type="button"
-                variant="ghost"
-                disabled={requestBusy}
                 className="h-9 w-[72px]"
+                disabled={
+                  phase !== "ready" ||
+                  feedback?.recovery === "restart" ||
+                  (feedback?.code === "session_revision_conflict" &&
+                    feedback.recovery === "reload") ||
+                  unavailableSelected.length > 0 ||
+                  !changed
+                }
+                onClick={() => void apply()}
               >
-                {submissionBlocked ? "关闭" : "取消"}
+                {phase === "saving" ? "应用中…" : "应用"}
               </Button>
-            </DialogClose>
-            <Button
-              type="button"
-              className="h-9 w-[72px]"
-              disabled={
-                phase !== "ready" ||
-                feedback?.recovery === "restart" ||
-                (feedback?.code === "session_revision_conflict" &&
-                  feedback.recovery === "reload") ||
-                unavailableSelected.length > 0 ||
-                (!changed && (!service || !!saved))
-              }
-              onClick={() => void apply()}
-            >
-              {phase === "saving" ? "应用中…" : "应用"}
-            </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
-      {extensionService && (
-        <ExtensionConfig
-          open={extensionOpen}
-          onOpenChange={setExtensionOpen}
-          service={extensionService}
-          onConfigured={() => {
-            if (open) void load(true)
-          }}
-        />
-      )}
     </>
   )
 }

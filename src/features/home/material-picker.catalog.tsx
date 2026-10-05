@@ -1,3 +1,5 @@
+import { PromptInput } from "./prompt-input"
+import { ComposerInputCard } from "@/components/composer/composer-input-card"
 import { useRef, useState } from "react"
 import type { CatalogEntry } from "../../../ui-catalog/catalog"
 import { MaterialPicker } from "./material-picker"
@@ -7,11 +9,7 @@ import { SessionConfig } from "./session-config"
 import { SelectedMaterials } from "./selected-materials"
 import type { Material, SessionOptions } from "./home-types"
 import { cn } from "@/lib/utils"
-import {
-  InputGroup,
-  InputGroupTextarea,
-  InputGroupAddon,
-} from "@/components/ui/input-group"
+import { InputGroupAddon } from "@/components/ui/input-group"
 import { homeData } from "../../../ui-catalog/fixtures/home"
 import { MaterialServiceContext } from "@/features/materials/material-service"
 import {
@@ -84,13 +82,21 @@ function Example({
         <div
           className={cn("px-6 pb-6", scrollBoundary ? "pt-6" : "pt-[340px]")}
         >
-          <InputGroup ref={anchorRef} className="rounded-2xl">
-            <InputGroupTextarea
-              aria-label="工作需求"
-              placeholder="描述工作需求"
+          <ComposerInputCard ref={anchorRef}>
+            <PromptInput
+              ariaLabel="工作需求"
               value={text}
-              onChange={(event) => setText(event.target.value)}
-              className={cn(scrollBoundary && "min-h-[480px]")}
+              onChange={setText}
+              materials={selected}
+              cwd="H:/工作区/moon"
+              onReferencesChanged={(value, removed, restored) => {
+                setText(value)
+                setSelected((items) => [
+                  ...items.filter((item) => !removed.includes(item.id)),
+                  ...restored,
+                ])
+              }}
+              onSubmit={() => {}}
             />
             <SelectedMaterials
               materials={selected}
@@ -142,7 +148,7 @@ function Example({
                 </>
               )}
             </InputGroupAddon>
-          </InputGroup>
+          </ComposerInputCard>
           <p role="status" className="mt-3 text-xs">
             已选：{selected.map((item) => item.name).join("、")}
           </p>
@@ -158,7 +164,7 @@ export default {
   group: "工作输入",
   source: "src/features/home/material-picker.tsx",
   description:
-    "默认贴输入卡上沿、与卡同宽；上沿离开视口时退避到可见入口。＋添加本条消息材料；@跟随光标引用文件，/分组选择 Skill 与已适配的会话命令。",
+    "贴输入卡可见上沿、与卡同宽；＋平铺附件/文件/Skill入口，@引用文件和目录、右箭头下钻，/仅显示已适配命令。",
   boundary:
     "草稿由父级保存；正式入口经原生多选与材料服务准备，@检索真实工作区，/选择Pi发现的Skill。目录注入独立服务替身，操作不访问用户数据或模型。",
   inputs: [

@@ -1,4 +1,5 @@
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { ComposerToaster } from "@/components/composer/composer-notification"
 import { Button } from "@/components/ui/button"
 import { Component, useEffect, useState, type ReactNode } from "react"
 import { createRoot } from "react-dom/client"
@@ -148,6 +149,7 @@ root.render(
     <PreviewSizeReporter />
     <TooltipProvider>
       <PreviewApplication />
+      <ComposerToaster />
     </TooltipProvider>
   </ThemeProvider>
 )

@@ -43,9 +43,31 @@ export const homeData: HomeData = {
   ],
   models: ["演示模型 A", "演示模型 B"],
   materials: [
-    { id: "readme", name: "演示说明.md", kind: "附件" },
-    { id: "design", name: "演示设计.png", kind: "附件" },
-    { id: "review", name: "演示审查", kind: "Skill" },
+    {
+      id: "readme",
+      name: "演示说明.md",
+      kind: "附件",
+      type: "file",
+      status: "ready",
+      source: "/demo/moon/演示说明.md",
+    },
+    {
+      id: "design",
+      name: "演示设计.png",
+      kind: "附件",
+      type: "image",
+      status: "ready",
+      source: "/demo/moon/演示设计.png",
+      mimeType: "image/png",
+    },
+    {
+      id: "review",
+      name: "演示审查",
+      kind: "Skill",
+      type: "skill",
+      status: "ready",
+      source: "/demo/moon/.agents/skills/review/SKILL.md",
+    },
   ],
 }
 

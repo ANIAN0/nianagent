@@ -326,7 +326,8 @@ export default {
   layer: "复合组件",
   group: "工作输入",
   source: "src/features/home/session-config.tsx",
-  description: "在工具和项目指令两个面板中修改会话候选配置。",
+  description:
+    "在工具和项目指令两个面板中修改会话候选配置。标题、默认Tab与筛选区独立间隔16px；管理扩展为Tab行右侧的标准按钮。入口与模型选择共用Button composer变体/尺寸，保持右侧位置。",
   boundary:
     "弹窗拥有候选值；正式入口使用SessionService读取与保存。结果未知时先只读核对，读旧值后可显式按原revision重试冻结的A，CAS约束每个原版本最多保存一次，不将后续B混入。待核对A/B以Service+sessionId+cwd隔离在内存中保留，确认后删除；目录服务不会访问生产。",
   inputs: [

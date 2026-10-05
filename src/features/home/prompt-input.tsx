@@ -1,38 +1,24 @@
-import { InputGroupTextarea } from "@/components/ui/input-group"
-import type { Ref } from "react"
-import { useComposerKeyboard } from "@/components/composer/composer-keymap"
-export type PromptInputProps = {
-  inputRef?: Ref<HTMLTextAreaElement>
-  value: string
-  onChange: (value: string) => void
-  onSubmit: () => void
-  variant?: "hero" | "docked"
-  placeholder?: string
-  ariaLabel?: string
-}
-/** Must be rendered inside InputGroup; parent owns submission validity. */
+import {
+  ComposerEditor,
+  type ComposerEditorProps,
+} from "@/components/composer/composer-editor"
+export type PromptInputProps = Omit<
+  ComposerEditorProps,
+  "placeholder" | "ariaLabel" | "variant"
+> &
+  Partial<Pick<ComposerEditorProps, "placeholder" | "ariaLabel" | "variant">>
 export function PromptInput({
-  inputRef,
-  value,
-  onChange,
-  onSubmit,
+  placeholder = "描述你想完成的工作，/ 调用 Skill，@ 引用文件",
+  ariaLabel = "描述你想完成的工作",
   variant = "hero",
-  placeholder = "描述你要做的事…",
-  ariaLabel = "描述你要做的事",
+  ...props
 }: PromptInputProps) {
-  const keyboard = useComposerKeyboard(onSubmit)
   return (
-    <InputGroupTextarea
-      ref={inputRef}
-      aria-label={ariaLabel}
+    <ComposerEditor
+      {...props}
       placeholder={placeholder}
-      value={value}
-      data-composer-variant={variant}
-      className="moon-composer-prompt"
-      onChange={(event) => {
-        onChange(event.target.value)
-      }}
-      {...keyboard}
+      ariaLabel={ariaLabel}
+      variant={variant}
     />
   )
 }

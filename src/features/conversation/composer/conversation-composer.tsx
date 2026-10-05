@@ -1,3 +1,4 @@
+import { type ComposerEditorElement } from "@/components/composer/composer-editor-contract"
 import { effectiveThinking } from "@/features/home/model-thinking"
 import "./composer.css"
 import {
@@ -32,7 +33,7 @@ import { OperationFeedback } from "@/components/feedback/operation-feedback"
 import type { FeedbackDescription } from "@/lib/operation-issue"
 
 export type ConversationComposerProps = {
-  inputRef?: Ref<HTMLTextAreaElement>
+  inputRef?: Ref<ComposerEditorElement>
   allowQueue?: boolean
   sessionId?: string
   data: Pick<
@@ -228,6 +229,7 @@ export function ConversationComposer({
                 }
               >
                 <PromptInput
+                  key={`${sessionId}:${workspacePath}`}
                   inputRef={inputRef}
                   variant="docked"
                   ariaLabel="对话消息"
@@ -239,10 +241,24 @@ export function ConversationComposer({
                       : "描述你要做的事"
                   }
                   value={draft.text}
+                  materials={draft.materials}
+                  cwd={workspacePath}
+                  onReferencesChanged={(text, ids, restored) =>
+                    change({
+                      text,
+                      materials: [
+                        ...draft.materials.filter(
+                          (item) => !ids.includes(item.id)
+                        ),
+                        ...restored,
+                      ],
+                    })
+                  }
                   onChange={(text) => change({ text })}
                   onSubmit={submit}
                 />
                 <SelectedMaterials
+                  inlineReferences
                   materials={composerDisplayMaterials(
                     draft.materials,
                     draft.model,

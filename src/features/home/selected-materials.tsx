@@ -8,6 +8,7 @@ import { MaterialChip } from "./material-chip"
 import type { Material } from "./home-types"
 
 export type SelectedMaterialsProps = {
+  inlineReferences?: boolean
   materials: Material[]
   onRemove: (id: string) => void
   onRetry?: (id: string) => void
@@ -16,13 +17,23 @@ export type SelectedMaterialsProps = {
   cwd?: string
 }
 export function SelectedMaterials({
-  materials,
+  materials: allMaterials,
+  inlineReferences = false,
   onRemove,
   onRetry,
   canRetry,
   retryLabel,
   cwd = "",
 }: SelectedMaterialsProps) {
+  const materials = inlineReferences
+    ? allMaterials.filter(
+        (item) =>
+          !(
+            (item.type === "file" || item.type === "directory") &&
+            item.status === "ready"
+          )
+      )
+    : allMaterials
   const [active, setActive] = useState<Material | null>(null)
   const rail = useRef<HTMLDivElement>(null)
   const previousCount = useRef(materials.length)

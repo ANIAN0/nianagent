@@ -2,11 +2,19 @@ import test from "node:test"
 import assert from "node:assert/strict"
 import {
   materialQueryAtSelection,
+  materialCandidateMatches,
   replaceMaterialQuery,
 } from "../../src/features/home/material-query.ts"
 import { materialPanelPlacement } from "../../src/features/home/material-panel-position.ts"
 import { nextComposerPanel } from "../../src/features/home/composer-panel-state.ts"
 import { removeComposerMaterial } from "../../src/features/materials/composer-material-edit.ts"
+
+test("shortened candidate labels keep full relative path and Windows directory search", () => {
+  const identity = "guide.md C:\\工作区\\moon\\docs\\guide.md docs\\guide.md"
+  assert.equal(materialCandidateMatches(identity, "docs/"), true)
+  assert.equal(materialCandidateMatches(identity, "DOCS\\guide"), true)
+  assert.equal(materialCandidateMatches(identity, "other/"), false)
+})
 
 test("moving out of and back into a file query uses the current complete range", () => {
   const text = "检查 @README.md 后继续阅读"

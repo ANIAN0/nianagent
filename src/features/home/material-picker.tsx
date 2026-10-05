@@ -1,4 +1,9 @@
 import {
+  composerEditor,
+  materialMention,
+  type ComposerEditorElement,
+} from "@/components/composer/composer-editor-contract"
+import {
   useEffect,
   useId,
   useLayoutEffect,
@@ -12,6 +17,7 @@ import {
   AtSign,
   ArrowLeft,
   FileText,
+  Folder,
   Paperclip,
   Plus,
   Search,
@@ -19,6 +25,11 @@ import {
   Terminal,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import {
   InputGroupButton,
   InputGroup,
@@ -37,6 +48,7 @@ import {
 } from "./composer-panel-context"
 import {
   materialQueryAtSelection,
+  materialCandidateMatches,
   replaceMaterialQuery,
 } from "./material-query"
 import { materialPanelPlacement } from "./material-panel-position"
@@ -85,6 +97,7 @@ function MaterialPickerContent({
   const [inputMode, setInputMode] = useState<
     "button" | "file" | "slash" | "skill"
   >("button")
+  const [resourceKind, setResourceKind] = useState<"file" | "skill">("file")
   const queryRange = useRef({ start: 0, end: 0 })
   const composing = useRef(false)
   const composingUntil = useRef(0)
@@ -105,11 +118,11 @@ function MaterialPickerContent({
     top?: number
     bottom?: number
   }>({ left: 12, width: 0, bottom: 12 })
-  function selectionKey(textarea: HTMLTextAreaElement) {
+  function selectionKey(textarea: ComposerEditorElement) {
     return `${textarea.selectionStart}:${textarea.selectionEnd}:${textarea.value}`
   }
   function dismiss(restoreFocus = false) {
-    const textarea = anchorRef?.current?.querySelector("textarea")
+    const textarea = composerEditor(anchorRef?.current)
     if (textarea) dismissedQuery.current = selectionKey(textarea)
     setOpen(false)
     if (restoreFocus)
@@ -130,19 +143,21 @@ function MaterialPickerContent({
       : inputMode === "slash" || inputMode === "skill"
         ? resources.skills
         : pane === "resources"
-          ? [...resources.files, ...resources.skills]
+          ? resourceKind === "skill"
+            ? resources.skills
+            : resources.files
           : materials
   useEffect(() => {
     // Switching another operation into this composer closes candidates without
     // stealing that operation's focus or immediately reopening the same token.
     if (previousOpen.current && !open) {
-      const textarea = anchorRef?.current?.querySelector("textarea")
+      const textarea = composerEditor(anchorRef?.current)
       if (textarea) dismissedQuery.current = selectionKey(textarea)
     }
     previousOpen.current = open
   }, [open, anchorRef])
   useEffect(() => {
-    const textarea = anchorRef?.current?.querySelector("textarea")
+    const textarea = composerEditor(anchorRef?.current)
     if (!textarea || !onTextChange || disabled || inactive) return
     let compositionTimer: ReturnType<typeof setTimeout> | undefined
     function inspect(event?: Event) {
@@ -161,6 +176,20 @@ function MaterialPickerContent({
       if (!current) {
         dismissedQuery.current = null
         previousQuery.current = null
+        if (inputMode !== "button") setOpen(false)
+        return
+      }
+      const completed = selected.some(
+        (item) =>
+          item.status === "ready" &&
+          (current.mode === "file"
+            ? materialMention(item, workspacePath) ===
+              textarea!.value.slice(current.start, current.end)
+            : item.type === "skill" &&
+              textarea!.value.slice(current.start, current.end) ===
+                `/skill:${item.name}`)
+      )
+      if (completed) {
         if (inputMode !== "button") setOpen(false)
         return
       }
@@ -205,7 +234,17 @@ function MaterialPickerContent({
       textarea.removeEventListener("compositionend", compositionEnd)
       document.removeEventListener("selectionchange", inspect)
     }
-  }, [anchorRef, onTextChange, disabled, inactive, inputMode, open, setOpen])
+  }, [
+    anchorRef,
+    onTextChange,
+    disabled,
+    inactive,
+    inputMode,
+    open,
+    setOpen,
+    selected,
+    workspacePath,
+  ])
   useLayoutEffect(() => {
     if (!open) return
     const anchor = anchorRef?.current ?? trigger.current
@@ -220,9 +259,7 @@ function MaterialPickerContent({
           width: anchorRef?.current ? rect.width : Math.max(288, rect.width),
         },
         trigger: trigger.current?.getBoundingClientRect() ?? rect,
-        text: anchorRef?.current
-          ?.querySelector("textarea")
-          ?.getBoundingClientRect(),
+        text: composerEditor(anchorRef?.current)?.getBoundingClientRect(),
         mode: inputMode,
         viewportWidth: window.innerWidth,
         viewportHeight: window.innerHeight,
@@ -256,7 +293,7 @@ function MaterialPickerContent({
     setInputMode("button")
     setQuery("")
     setActive(0)
-    const textarea = anchorRef?.current?.querySelector("textarea")
+    const textarea = composerEditor(anchorRef?.current)
     if (textarea) {
       dismissedQuery.current = selectionKey(textarea)
       // focus dispatches synchronously while React still has the previous
@@ -273,13 +310,13 @@ function MaterialPickerContent({
     if (disabled || choosing) return
     onAdd(item)
     if (inputMode !== "button" && onTextChange) {
-      const textarea = anchorRef?.current?.querySelector("textarea")
+      const textarea = composerEditor(anchorRef?.current)
       if (textarea) {
         const { start, end } = queryRange.current
         const replacement =
           inputMode === "slash" || inputMode === "skill"
             ? `/skill:${item.name} `
-            : ""
+            : `${materialMention(item, workspacePath)} `
         const updated = replaceMaterialQuery(
           textarea.value,
           { start, end },
@@ -292,16 +329,16 @@ function MaterialPickerContent({
       }
     }
     setOpen(false)
-    anchorRef?.current?.querySelector("textarea")?.focus()
+    composerEditor(anchorRef?.current)?.focus()
   }
   function insert(text: string) {
     if (disabled || choosing) return
     if ((inputMode === "slash" || inputMode === "skill") && onTextChange) {
-      const textarea = anchorRef?.current?.querySelector("textarea")
+      const textarea = composerEditor(anchorRef?.current)
       onTextChange(text + (textarea?.value.slice(queryRange.current.end) ?? ""))
     } else onInsert?.(text)
     setOpen(false)
-    anchorRef?.current?.querySelector("textarea")?.focus()
+    composerEditor(anchorRef?.current)?.focus()
   }
   const materialRows: Candidate[] = available
     .filter((item) => pane === "resources" || item.kind === "Skill")
@@ -314,11 +351,22 @@ function MaterialPickerContent({
             : "Skills"
           : "工作区文件",
       name: item.name,
+      searchText: `${item.name} ${item.source ?? ""} ${item.description ?? ""}`,
       description:
         item.error ||
-        [item.description, item.source].filter(Boolean).join(" · ") ||
-        (item.kind === "Skill" ? "仅用于本条消息的工作说明" : item.name),
-      icon: item.kind === "Skill" ? Sparkles : FileText,
+        (item.kind === "Skill"
+          ? item.description || "用于本条消息的工作说明"
+          : (item.description ?? item.name)
+              .replace(/[/\\][^/\\]+$/u, "")
+              .replace(item.name, "") ||
+            (item.type === "directory" ? "目录" : "")),
+      icon:
+        item.kind === "Skill"
+          ? Sparkles
+          : item.type === "directory"
+            ? Folder
+            : FileText,
+      drill: item.type === "directory",
       disabled:
         item.status === "failed" ||
         selected.some(
@@ -364,11 +412,18 @@ function MaterialPickerContent({
             icon: Paperclip,
           },
           {
-            id: "resources",
+            id: "files",
             group: "添加",
-            name: "引用资源",
-            description: "搜索工作区文件或 Skills，加入本条消息",
+            name: "引用工作区文件",
+            description: "@ 搜索文件和目录",
             icon: AtSign,
+          },
+          {
+            id: "skills",
+            group: "添加",
+            name: "调用 Skill",
+            description: "/ 搜索指令",
+            icon: Sparkles,
           },
         ]
   const rows = candidates.filter(
@@ -377,9 +432,10 @@ function MaterialPickerContent({
       (pane !== "resources" ||
         !(resources.loading || resources.issue || resources.error) ||
         item.group === "内置命令") &&
-      `${item.name} ${item.description}`
-        .toLowerCase()
-        .includes(query.toLowerCase())
+      materialCandidateMatches(
+        item.searchText ?? `${item.name} ${item.description}`,
+        query
+      )
   )
   const activeIndex =
     rows[active] && !rows[active].disabled
@@ -392,8 +448,9 @@ function MaterialPickerContent({
         setOpen(false)
         void onChooseAttachments()
       } else fileInput.current?.click()
-    } else if (item.id === "resources") {
+    } else if (item.id === "files" || item.id === "skills") {
       setPane("resources")
+      setResourceKind(item.id === "skills" ? "skill" : "file")
       setActive(0)
       setQuery("")
     } else if (item.text) insert(item.text)
@@ -403,6 +460,11 @@ function MaterialPickerContent({
     }
   }
   function handleKey(event: KeyboardEvent) {
+    if (event.key === "ArrowRight" && rows[activeIndex]?.drill) {
+      event.preventDefault()
+      drill(rows[activeIndex]!)
+      return
+    }
     if (disabled || choosing) return
     const intent = composerKeyIntent(event, {
       active: composing.current,
@@ -461,13 +523,38 @@ function MaterialPickerContent({
       event.stopPropagation()
     }
   }
+  function drill(item: Candidate) {
+    const material = available.find((entry) => entry.id === item.id)
+    if (!material) return
+    const path =
+      materialMention(material, workspacePath).replace(/^@"?|"$/gu, "") + "/"
+    setQuery(path)
+    setActive(0)
+    if (inputMode === "file" && onTextChange) {
+      const editor = composerEditor(anchorRef?.current)
+      if (editor) {
+        const updated = replaceMaterialQuery(
+          editor.value,
+          queryRange.current,
+          /\s/u.test(path) ? `@"${path}"` : `@${path}`
+        )
+        onTextChange(updated.text)
+        requestAnimationFrame(() =>
+          editor.setSelectionRange(
+            updated.caret - (/\s/u.test(path) ? 1 : 0),
+            updated.caret - (/\s/u.test(path) ? 1 : 0)
+          )
+        )
+      }
+    }
+  }
   useEffect(() => {
     if (!open) return
     function outside(event: PointerEvent) {
       if (
         event.target instanceof Node &&
         !panel.current?.contains(event.target) &&
-        event.target !== anchorRef?.current?.querySelector("textarea") &&
+        event.target !== composerEditor(anchorRef?.current) &&
         !trigger.current?.contains(event.target)
       )
         dismiss()
@@ -494,7 +581,7 @@ function MaterialPickerContent({
   })
   useEffect(() => {
     if (!open || (pane !== "candidates" && inputMode === "button")) return
-    const textarea = anchorRef?.current?.querySelector("textarea")
+    const textarea = composerEditor(anchorRef?.current)
     if (!textarea) return
     textarea.setAttribute("aria-controls", id)
     textarea.setAttribute("aria-expanded", "true")
@@ -534,19 +621,25 @@ function MaterialPickerContent({
           setOpen(false)
         }}
       />
-      <InputGroupButton
-        ref={trigger}
-        size="icon-xs"
-        className="size-7 rounded-full bg-composer-selector text-foreground hover:bg-composer-selector-hover aria-expanded:bg-composer-selector-hover [&>svg]:size-3.5"
-        aria-label="添加消息材料"
-        disabled={disabled || choosing}
-        title={choosing ? "正在选择附件…" : "添加消息材料"}
-        aria-expanded={open}
-        aria-controls={open ? id : undefined}
-        onClick={toggle}
-      >
-        <Plus className="size-3.5" />
-      </InputGroupButton>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <InputGroupButton
+            ref={trigger}
+            size="icon-xs"
+            className="size-7 rounded-full bg-composer-selector text-foreground hover:bg-composer-selector-hover aria-expanded:bg-composer-selector-hover [&>svg]:size-3.5"
+            aria-label="添加消息材料"
+            disabled={disabled || choosing}
+            aria-expanded={open}
+            aria-controls={open ? id : undefined}
+            onClick={toggle}
+          >
+            <Plus className="size-3.5" />
+          </InputGroupButton>
+        </TooltipTrigger>
+        <TooltipContent side="top">
+          {choosing ? "正在选择附件…" : "添加文件或调用指令"}
+        </TooltipContent>
+      </Tooltip>
       {open &&
         createPortal(
           <div
@@ -585,7 +678,11 @@ function MaterialPickerContent({
                       activeIndex >= 0 ? `${id}-${activeIndex}` : undefined
                     }
                     aria-label="搜索资源"
-                    placeholder="搜索工作区文件或 Skills"
+                    placeholder={
+                      resourceKind === "skill"
+                        ? "搜索 Skill"
+                        : "搜索工作区文件或目录"
+                    }
                     value={query}
                     onChange={(event) => {
                       setQuery(event.target.value)
@@ -635,6 +732,7 @@ function MaterialPickerContent({
               onRetry={resources.retry}
               onActive={setActive}
               onSelect={activate}
+              onDrill={drill}
             />
           </div>,
           document.body

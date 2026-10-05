@@ -57,6 +57,7 @@ export function WorkspacePicker({
   const [busyAction, setBusyAction] = useState<"select" | "read">("select")
   const request = useRef<AbortController | null>(null)
   const [retrySelection, setRetrySelection] = useState<string | null>(null)
+  const [pendingSelection, setPendingSelection] = useState<string | null>(null)
   const errorId = useId()
   const workspace = workspaces.find((item) => item.id === value)
   const unavailable: FeedbackDescription | undefined =
@@ -157,7 +158,8 @@ export function WorkspacePicker({
                 {loading || (busy && busyAction === "read")
                   ? "读取工作目录…"
                   : busy
-                    ? "正在选择工作目录…"
+                    ? (workspaces.find((item) => item.id === pendingSelection)
+                        ?.name ?? "正在选择工作目录…")
                     : (workspace?.name ?? "选择工作目录")}
               </span>
               <ChevronDown
@@ -169,7 +171,7 @@ export function WorkspacePicker({
           <DropdownMenuContent
             align="start"
             sideOffset={8}
-            className="w-[220px] max-w-[calc(100vw-32px)] rounded-3xl p-1.5"
+            className="w-[220px] max-w-[calc(100vw-32px)] rounded-xl p-1.5"
           >
             <DropdownMenuGroup className="max-h-64 overflow-y-auto">
               {workspaces.map((item) => (
@@ -177,6 +179,7 @@ export function WorkspacePicker({
                   key={item.id}
                   disabled={item.available === false || pending}
                   onSelect={() => {
+                    setPendingSelection(item.id)
                     setRetrySelection(item.id)
                     void run((signal) => onChange(item.id, signal))
                   }}

@@ -1,8 +1,8 @@
 import type { RefObject } from "react"
-import { Check, type LucideIcon } from "lucide-react"
+import { Check, ChevronRight, type LucideIcon } from "lucide-react"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { OperationFeedback } from "@/components/feedback/operation-feedback"
 import { RecoveryAction } from "@/components/feedback/recovery-action"
 import {
   feedbackFromError,
@@ -10,6 +10,7 @@ import {
 } from "@/lib/operation-issue"
 
 export type MaterialCandidate = {
+  searchText?: string
   id: string
   group: string
   name: string
@@ -18,6 +19,7 @@ export type MaterialCandidate = {
   disabled?: boolean
   selected?: boolean
   text?: string
+  drill?: boolean
 }
 export function MaterialCandidateList({
   id,
@@ -35,6 +37,7 @@ export function MaterialCandidateList({
   onRetry,
   onActive,
   onSelect,
+  onDrill,
 }: {
   id: string
   rows: MaterialCandidate[]
@@ -51,6 +54,7 @@ export function MaterialCandidateList({
   onRetry?: () => void
   onActive: (index: number) => void
   onSelect: (item: MaterialCandidate) => void
+  onDrill?: (item: MaterialCandidate) => void
 }) {
   // An unavailable resource source does not hide independently supported commands.
   const unavailable = loading || issue || error
@@ -74,7 +78,7 @@ export function MaterialCandidateList({
         {visibleRows.map((item, index) => {
           const rowIndex = rows.indexOf(item)
           return (
-            <div key={item.id}>
+            <div key={item.id} className="relative">
               {(index === 0 ||
                 visibleRows[index - 1]?.group !== item.group) && (
                 <div className="px-3 pt-2 pb-1 text-xs text-muted-foreground">
@@ -91,7 +95,8 @@ export function MaterialCandidateList({
                 tabIndex={-1}
                 variant="ghost"
                 className={cn(
-                  "h-auto min-h-11 w-full justify-start gap-2 rounded-lg px-3 py-2 font-normal",
+                  "h-9 w-full justify-start gap-2 rounded-lg px-3 py-1 font-normal",
+                  item.drill && "pr-10",
                   active === rowIndex && "bg-accent/60"
                 )}
                 onMouseDown={(event) => event.preventDefault()}
@@ -101,12 +106,12 @@ export function MaterialCandidateList({
                 onClick={() => onSelect(item)}
               >
                 <item.icon data-icon="inline-start" />
-                <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
-                  <span className="max-w-full truncate text-left">
+                <span className="flex min-w-0 flex-1 items-center gap-4">
+                  <span className="min-w-0 shrink truncate text-left text-[13px]">
                     {item.name}
                   </span>
                   <span
-                    className="max-w-full truncate text-xs text-muted-foreground"
+                    className="ml-auto max-w-[55%] min-w-0 shrink truncate text-xs text-muted-foreground"
                     title={item.description}
                   >
                     {item.description}
@@ -114,6 +119,19 @@ export function MaterialCandidateList({
                 </span>
                 {item.selected && <Check data-icon="inline-end" />}
               </Button>
+              {item.drill && onDrill && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  className="absolute right-1 bottom-1.5"
+                  aria-label={`进入目录 ${item.name}`}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => onDrill(item)}
+                >
+                  <ChevronRight />
+                </Button>
+              )}
             </div>
           )
         })}
@@ -124,32 +142,32 @@ export function MaterialCandidateList({
         </div>
       )}
       {loading ? (
-        <p
+        <div
           role="status"
-          className="px-3 py-6 text-center text-xs text-muted-foreground"
+          aria-label={`正在读取${statusGroup ?? "资源"}`}
+          className="flex flex-col gap-2 p-3"
         >
-          正在读取{statusGroup ?? "资源"}…
-        </p>
+          <Skeleton className="h-7" />
+          <Skeleton className="h-7" />
+          <Skeleton className="h-7" />
+        </div>
       ) : failure ? (
         <div className="p-2">
-          <OperationFeedback
-            title={`${statusGroup ?? "材料列表"}${failure.code === "cancelled" ? "读取已取消" : "读取失败"}`}
-            message={failure.message}
-            details={failure.details}
-            severity={
-              failure.severity ??
-              (failure.code === "cancelled" ? "info" : "error")
-            }
-            actions={
-              <RecoveryAction
-                issue={failure}
-                onRetry={onRetry}
-                onReload={onRetry}
-                onCheck={onRetry}
-                labels={{ retry: "重新读取" }}
-              />
-            }
-          />
+          <div
+            role={failure.severity === "warning" ? "status" : "alert"}
+            className="flex flex-wrap items-center gap-2 px-1 py-2 text-xs leading-5"
+          >
+            <span className="min-w-0 text-muted-foreground">
+              {failure.message}
+            </span>
+            <RecoveryAction
+              issue={failure}
+              onRetry={onRetry}
+              onReload={onRetry}
+              onCheck={onRetry}
+              labels={{ retry: "重新读取" }}
+            />
+          </div>
         </div>
       ) : null}
       {!unavailable && !rows.length && (

@@ -51,14 +51,14 @@ export function PickerOption({
       aria-checked={selected}
       data-picker-item
       data-active={active || undefined}
-      className="h-auto min-h-10 w-full min-w-0 justify-start gap-3 px-3 py-2 text-left font-normal whitespace-normal data-active:bg-accent"
+      className="h-9 w-full min-w-0 justify-start gap-3 px-3 py-1 text-left text-[13px] font-normal data-active:bg-accent"
       onClick={onSelect}
       onPointerMove={onPointerMove}
     >
-      <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
-        <span className="block">{children}</span>
+      <span className="flex min-w-0 flex-1 items-center gap-4">
+        <span className="min-w-0 flex-1 truncate">{children}</span>
         {description && (
-          <span className="mt-0.5 block text-xs text-muted-foreground">
+          <span className="ml-auto max-w-[45%] truncate text-xs text-muted-foreground">
             {description}
           </span>
         )}

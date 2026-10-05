@@ -1,4 +1,5 @@
 import type { HomeData, HomeDraft, Material } from "@/features/home/home-types"
+import { unresolvedComposerQuery } from "./composer-draft-query.ts"
 
 /** Shared draft admission facts. Page owners add their own durable operation gates. */
 export function composerDraftEligibility(
@@ -18,6 +19,7 @@ export function composerDraftEligibility(
     ready &&
     draft.materials.every((item) => !item.status || item.status === "ready")
   const modelAvailable = data.models.includes(draft.model)
+  const unresolved = unresolvedComposerQuery(draft.text, draft.materials)
   const reason = choosing
     ? "正在选择附件，选择完成后可发送。"
     : !modelAvailable
@@ -26,9 +28,11 @@ export function composerDraftEligibility(
         ? "当前模型不支持图片，请更换模型或移除图片。"
         : !materialReady
           ? "材料尚未准备完成，请重试失败材料或移除后发送。"
-          : !hasDraft
-            ? "输入文字或添加材料后发送。"
-            : undefined
+          : unresolved
+            ? unresolved
+            : !hasDraft
+              ? "输入文字或添加材料后发送。"
+              : undefined
   return {
     hasDraft,
     modelAvailable,

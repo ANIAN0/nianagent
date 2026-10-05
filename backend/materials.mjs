@@ -47,9 +47,18 @@ async function readableSource(path, cwd, scope) {
   try {
     const current = await realpath(path)
     const [opened, resolved] = await Promise.all([file.stat(), stat(current)])
-    if (!same(current, path) || (scope === "workspace" && !within(cwd, current)) ||
-      !opened.isFile() || opened.dev !== resolved.dev || opened.ino !== resolved.ino)
-      throw operationError("material_source_changed", "文件来源已改变，未读取新的目标；请重新选择。", "none")
+    if (
+      !same(current, path) ||
+      (scope === "workspace" && !within(cwd, current)) ||
+      !opened.isFile() ||
+      opened.dev !== resolved.dev ||
+      opened.ino !== resolved.ino
+    )
+      throw operationError(
+        "material_source_changed",
+        "文件来源已改变，未读取新的目标；请重新选择。",
+        "none"
+      )
     return { file, size: opened.size }
   } catch (error) {
     await file.close()
@@ -59,18 +68,34 @@ async function readableSource(path, cwd, scope) {
 async function boundedSource(path, cwd, scope, maximum) {
   const { file, size } = await readableSource(path, cwd, scope)
   try {
-    if (size > maximum) throw operationError("material_invalid", "材料超过允许的读取大小，请选择较小文件。", "none")
+    if (size > maximum)
+      throw operationError(
+        "material_invalid",
+        "材料超过允许的读取大小，请选择较小文件。",
+        "none"
+      )
     const buffer = Buffer.alloc(Math.min(size, maximum) + 1)
     let bytesRead = 0
     while (bytesRead < buffer.length) {
-      const read = await file.read(buffer, bytesRead, buffer.length - bytesRead, bytesRead)
+      const read = await file.read(
+        buffer,
+        bytesRead,
+        buffer.length - bytesRead,
+        bytesRead
+      )
       if (!read.bytesRead) break
       bytesRead += read.bytesRead
     }
     if (bytesRead > maximum || bytesRead > size)
-      throw operationError("material_source_changed", "材料在读取期间变化或超过限制，请重新选择。", "none")
+      throw operationError(
+        "material_source_changed",
+        "材料在读取期间变化或超过限制，请重新选择。",
+        "none"
+      )
     return buffer.subarray(0, bytesRead)
-  } finally { await file.close() }
+  } finally {
+    await file.close()
+  }
 }
 function imageType(data) {
   if (
@@ -156,7 +181,7 @@ export class MaterialService {
       typeof record.source !== "string" ||
       !record.source ||
       !same(record.cwd, cwd) ||
-      !["file", "image", "skill"].includes(record.type)
+      !["file", "directory", "image", "skill"].includes(record.type)
     )
       throw operationError(
         "material_invalid",
@@ -189,11 +214,42 @@ export class MaterialService {
       try {
         if (scope !== "workspace" && !isAbsolute(source))
           throw new Error("请选择文件的实际绝对路径。")
-        const path = await realpath(scope === "workspace" ? resolve(cwd, source) : source)
+        const path = await realpath(
+          scope === "workspace" ? resolve(cwd, source) : source
+        )
         if (scope === "workspace" && !within(cwd, path))
-          throw operationError("material_outside_workspace", "该链接不在当前工作目录内，未读取文件。", "none")
-        if (!(await stat(path)).isFile()) throw new Error("所选路径不是文件。")
+          throw operationError(
+            "material_outside_workspace",
+            "该链接不在当前工作目录内，未读取文件。",
+            "none"
+          )
+        const sourceStat = await stat(path)
+        if (!sourceStat.isFile() && !sourceStat.isDirectory())
+          throw new Error("所选路径不是文件或目录。")
         await access(path, constants.R_OK)
+        if (sourceStat.isDirectory()) {
+          if (!within(cwd, path))
+            throw operationError(
+              "material_outside_workspace",
+              "仅支持引用当前工作区内的目录。",
+              "none"
+            )
+          results.push(
+            await this.save(
+              {
+                id: hash(`${cwd}\0directory\0${path}`),
+                cwd,
+                type: "directory",
+                name: basename(path),
+                source: path,
+                description: relative(cwd, path),
+                scope: "workspace",
+              },
+              signal
+            )
+          )
+          continue
+        }
         const skill = resources.skills.find((item) => same(item.filePath, path))
         if (skill) {
           if (
@@ -202,7 +258,9 @@ export class MaterialService {
             )
           )
             throw new Error("同名Skill存在来源冲突，请先消除冲突后再使用。")
-          const content = bodyOf((await boundedSource(path, cwd, scope, 512 * 1024)).toString("utf8"))
+          const content = bodyOf(
+            (await boundedSource(path, cwd, scope, 512 * 1024)).toString("utf8")
+          )
           if (Buffer.byteLength(content) > 512 * 1024)
             throw new Error("Skill正文超过512KiB，请精简说明后重新选择。")
           results.push(
@@ -318,20 +376,44 @@ export class MaterialService {
   // This is an internal projection capability, not a second upload endpoint.
   async captureImage(cwd, name, mimeType, data, signal) {
     cwd = resolve(cwd)
-    name = name.slice(0, 490) + ({ "image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "image/gif": ".gif" }[mimeType] || "")
+    name =
+      name.slice(0, 490) +
+      ({
+        "image/png": ".png",
+        "image/jpeg": ".jpg",
+        "image/webp": ".webp",
+        "image/gif": ".gif",
+      }[mimeType] || "")
     const source = "Pi 正式消息中的固定图片"
     const failure = (error) => ({
       id: hash(`${cwd}\0failed-image\0${name}`),
-      name, kind: "附件", type: "image", status: "failed", source,
-      error: safe(error), retryable: error.issue?.recovery !== "none",
+      name,
+      kind: "附件",
+      type: "image",
+      status: "failed",
+      source,
+      error: safe(error),
+      retryable: error.issue?.recovery !== "none",
     })
     try {
       signal?.throwIfAborted()
-      if (typeof data !== "string" || data.length > 12 * 1024 * 1024 || !/^[a-zA-Z0-9+/]*={0,2}$/.test(data))
-        throw operationError("material_invalid", "Pi返回的图片内容无效或超过预览限制。", "none")
+      if (
+        typeof data !== "string" ||
+        data.length > 12 * 1024 * 1024 ||
+        !/^[a-zA-Z0-9+/]*={0,2}$/.test(data)
+      )
+        throw operationError(
+          "material_invalid",
+          "Pi返回的图片内容无效或超过预览限制。",
+          "none"
+        )
       const bytes = Buffer.from(data, "base64")
       if (imageType(bytes) !== mimeType)
-        throw operationError("material_invalid", "Pi返回的图片类型无法预览。", "none")
+        throw operationError(
+          "material_invalid",
+          "Pi返回的图片类型无法预览。",
+          "none"
+        )
       const id = hash(`${cwd}\0image\0${name}\0${hash(bytes)}`)
       try {
         const saved = await this.record(cwd, id)
@@ -382,6 +464,16 @@ export class MaterialService {
     const resources = await this.sessions.skillResources(cwd, sessionId, signal)
     const diagnostics = resources.diagnostics.map((item) => item.message)
     const lower = query.replaceAll("\\", "/").toLowerCase()
+    const browsing = lower.endsWith("/")
+    const browsePath = browsing
+      ? await realpath(resolve(cwd, query.replaceAll("\\", "/")))
+      : cwd
+    if (!within(cwd, browsePath))
+      throw operationError(
+        "material_outside_workspace",
+        "该目录不在当前工作区内。",
+        "none"
+      )
     const files = []
     let examined = 0
     let limited = false
@@ -401,6 +493,26 @@ export class MaterialService {
         const path = join(directory, entry.name)
         if (entry.isSymbolicLink()) continue
         if (entry.isDirectory()) {
+          if (
+            browsing ||
+            relative(cwd, path)
+              .replaceAll("\\", "/")
+              .toLowerCase()
+              .includes(lower)
+          ) {
+            const actual = await realpath(path)
+            if (within(cwd, actual) && files.length < 60)
+              files.push({
+                id: hash(`${cwd}\0directory\0${actual}`),
+                name: entry.name,
+                kind: "附件",
+                type: "directory",
+                status: "ready",
+                source: actual,
+                description: relative(cwd, actual),
+              })
+          }
+          if (browsing) continue
           try {
             await walk(path)
           } catch (error) {
@@ -413,7 +525,11 @@ export class MaterialService {
           if (limited) return
         } else if (
           entry.isFile() &&
-          relative(cwd, path).replaceAll("\\", "/").toLowerCase().includes(lower)
+          (browsing ||
+            relative(cwd, path)
+              .replaceAll("\\", "/")
+              .toLowerCase()
+              .includes(lower))
         ) {
           try {
             const actual = await realpath(path)
@@ -435,7 +551,7 @@ export class MaterialService {
         }
       }
     }
-    await walk(cwd)
+    await walk(browsePath)
     if (limited || files.length === 60)
       diagnostics.push("文件结果有数量限制，请输入更具体的相对路径。")
     const skills = resources.skills
@@ -487,9 +603,18 @@ export class MaterialService {
     }
     try {
       const currentPath = await realpath(record.source)
-      if (!same(currentPath, record.source) || (record.scope === "workspace" && !within(record.cwd, currentPath)))
+      if (
+        !same(currentPath, record.source) ||
+        (record.scope === "workspace" && !within(record.cwd, currentPath))
+      )
         throw new Error()
-      if (!(await stat(record.source)).isFile()) throw new Error()
+      const sourceStat = await stat(record.source)
+      if (
+        record.type === "directory"
+          ? !sourceStat.isDirectory()
+          : !sourceStat.isFile()
+      )
+        throw new Error()
       await access(record.source, constants.R_OK)
     } catch {
       throw new Error("引用来源已不存在或不可读，请重新选择或移除。")
@@ -562,11 +687,13 @@ export class MaterialService {
       id,
       name: record.name,
       label:
-        record.type === "file"
-          ? "当前文件"
-          : record.type === "skill"
-            ? "本次 Skill 内容"
-            : "固定图片",
+        record.type === "directory"
+          ? "当前目录"
+          : record.type === "file"
+            ? "当前文件"
+            : record.type === "skill"
+              ? "本次 Skill 内容"
+              : "固定图片",
       source: record.source,
       content: "",
       mimeType: record.mimeType || "",
@@ -574,8 +701,22 @@ export class MaterialService {
       truncated: false,
     }
     if (record.type === "skill") result.content = record.content
+    if (record.type === "directory") {
+      await this.verify(record, "", signal)
+      const entries = await readdir(record.source, { withFileTypes: true })
+      result.content = entries
+        .filter((entry) => !entry.isSymbolicLink())
+        .slice(0, 200)
+        .map((entry) => `${entry.name}${entry.isDirectory() ? "/" : ""}`)
+        .join("\n")
+      result.truncated = entries.length > 200
+    }
     if (record.type === "file") {
-      const { file, size } = await readableSource(record.source, cwd, record.scope)
+      const { file, size } = await readableSource(
+        record.source,
+        cwd,
+        record.scope
+      )
       if (size > 128 * 1024) {
         result.truncated = true
       }
@@ -676,7 +817,7 @@ export class MaterialService {
         })
         const note = formatDimensionNote(prepared)
         if (note) parts.push(`Image ${JSON.stringify(record.name)}: ${note}`)
-      } else if (record.type === "file") {
+      } else if (record.type === "file" || record.type === "directory") {
         // Keep the verified absolute identity, using the DSH @"path" mention
         // seam. Windows forward slashes avoid JSON-escaped backslash ambiguity;
         // a POSIX filename may contain a literal backslash and must keep it.
@@ -684,7 +825,9 @@ export class MaterialService {
           process.platform === "win32"
             ? record.source.replaceAll("\\", "/")
             : record.source
-        referencedFiles.push(`@${JSON.stringify(path)}`)
+        referencedFiles.push(
+          `${record.type === "directory" ? "Directory: " : ""}@${JSON.stringify(path)}`
+        )
       } else
         parts.push(
           `<skill name=${JSON.stringify(record.name)} location=${JSON.stringify(record.source)}>\nReferences are relative to ${record.baseDir}.\n\n${record.content}\n</skill>`
@@ -694,9 +837,11 @@ export class MaterialService {
     if (referencedFiles.length)
       parts.unshift(
         [
-          "Referenced files (not read):",
+          displayMaterials.some((item) => item.type === "directory")
+            ? "Referenced paths (not read):"
+            : "Referenced files (not read):",
           ...referencedFiles,
-          "These @-prefixed absolute paths are files the user explicitly selected. Their contents are not included and have not been read.",
+          "These @-prefixed absolute paths are files or directories the user explicitly selected. Their contents are not included and have not been read.",
           "When the user's task needs their contents, use the enabled read tool with the exact path inside the quotes. Do not guess substitute filenames or claim to have inspected a file before a successful read. If the read tool is unavailable or reading fails, explain the limitation.",
           "A Skill base directory applies only to relative resources inside that Skill. It must not reinterpret the user-referenced absolute file paths above.",
         ].join("\n")

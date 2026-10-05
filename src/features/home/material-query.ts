@@ -5,6 +5,14 @@ export type MaterialQuery = {
   end: number
 }
 
+/** Search resource identity independently of its shortened visible label. */
+export function materialCandidateMatches(searchText: string, query: string) {
+  return searchText
+    .replaceAll("\\", "/")
+    .toLowerCase()
+    .includes(query.replaceAll("\\", "/").toLowerCase())
+}
+
 /** Locate the current complete token; a moved caret must not reuse an old range. */
 export function materialQueryAtSelection(
   text: string,

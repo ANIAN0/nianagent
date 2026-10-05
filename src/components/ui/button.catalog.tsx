@@ -12,6 +12,7 @@ function Buttons() {
           "secondary",
           "outline",
           "ghost",
+          "composer",
           "section",
           "destructive",
           "link",
@@ -20,6 +21,7 @@ function Buttons() {
         <Button
           key={variant}
           variant={variant}
+          size={variant === "composer" ? "composer" : "default"}
           onClick={() => setCount((value) => value + 1)}
         >
           {variant}
@@ -44,14 +46,14 @@ export default {
   group: "操作",
   source: "src/components/ui/button.tsx",
   description:
-    "shadcn 操作按钮，统一变体、尺寸与键盘焦点；section 用于低强调目录标题，展开不等于选中；send 专用于原型蓝色的图标发送动作，文字主按钮使用更深的 primary-strong。",
+    "shadcn 操作按钮，统一变体、尺寸与键盘焦点；composer 变体与尺寸用于输入区设置入口，28px高、胶囊圆角、13px/20px、左右8px，统一悬停、展开与焦点；section 用于低强调目录标题，展开不等于选中；send 专用于原型蓝色的图标发送动作，文字主按钮使用更深的 primary-strong。",
   boundary: "复用官方实现；图标按钮必须提供可访问名称。",
   inputs: ["variant、size、disabled、asChild 及原生 button 属性。"],
   events: ["onClick：鼠标或键盘激活。"],
   composition: ["Radix Slot、CVA"],
   consumers: [
     "WorkspacePicker、MaterialChip、PrimaryNavigation、ConversationGroup、ConversationItem、UserMenu",
-    "HomeSidebar、AppShell、LiveConversationView、SessionConfig、InputGroupButton、Dialog、组件库外壳",
+    "HomeSidebar、AppShell、LiveConversationView、ModelPicker、SessionConfig、InputGroupButton、Dialog、组件库外壳",
   ],
   viewport: { width: 640, height: 240 },
   states: [
@@ -70,6 +72,25 @@ export default {
       render: () => (
         <div className="p-6">
           <Button disabled>暂不可发送</Button>
+        </div>
+      ),
+    },
+    {
+      id: "composer",
+      name: "输入区设置入口",
+      condition: "variant与size均为composer。",
+      expected: "同一胶囊外形与文字尺寸；展开保持相同中性背景，禁用不激活。",
+      render: () => (
+        <div className="flex flex-wrap items-center gap-3 p-6">
+          <Button variant="composer" size="composer">
+            设置入口
+          </Button>
+          <Button variant="composer" size="composer" aria-expanded>
+            展开入口
+          </Button>
+          <Button variant="composer" size="composer" disabled>
+            禁用入口
+          </Button>
         </div>
       ),
     },

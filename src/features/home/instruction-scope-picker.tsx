@@ -1,112 +1,186 @@
-import { ChevronDown, FileText } from "lucide-react"
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible"
+import { useRef, useState } from "react"
+import { ArrowLeft, ChevronRight, FileText } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import type { SessionInstruction } from "@/features/models/model-contract.generated"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import type { InstructionScope } from "./home-types"
-
 export const instructionScopes = [
   {
     value: "all",
     label: "全局与目录指令",
-    description: "加载个人指令，以及当前目录链的项目指令",
+    description: "个人指令及当前目录链的项目指令",
   },
   {
     value: "directory",
     label: "仅目录指令",
-    description: "不加载全局指令，保留目录链的项目指令",
+    description: "只加载当前目录链的项目指令",
   },
   { value: "none", label: "不加载项目指令", description: "不影响应用系统指令" },
 ] as const
-
 export function InstructionScopePicker({
   value,
   onChange,
   workspacePath,
   instructions,
+  savedInstructions,
   snapshot = false,
 }: {
   value: InstructionScope
   onChange: (scope: InstructionScope) => void
   snapshot?: boolean
   instructions?: SessionInstruction[]
+  savedInstructions?: SessionInstruction[]
   workspacePath: string
 }) {
-  const visible = (instructions ?? []).filter(
-    (file) =>
-      value === "all" || (value === "directory" && file.source === "directory")
-  )
+  const [showSaved, setShowSaved] = useState(false)
+  const [detail, setDetail] = useState<SessionInstruction>()
+  const scroll = useRef<HTMLDivElement>(null)
+  const position = useRef(0)
+  const buttons = useRef(new Map<string, HTMLButtonElement>())
+  const savedView = snapshot || showSaved
+  const visible = showSaved
+    ? (savedInstructions ?? [])
+    : (instructions ?? []).filter(
+        (file) =>
+          value === "all" ||
+          (value === "directory" && file.source === "directory")
+      )
+  function back() {
+    const path = detail?.path
+    setDetail(undefined)
+    requestAnimationFrame(() => {
+      if (scroll.current) scroll.current.scrollTop = position.current
+      if (path) buttons.current.get(path)?.focus()
+    })
+  }
   return (
-    <div>
-      <div className="mb-3 border-b pb-3 text-xs leading-6">
-        <p className="text-muted-foreground">工作目录</p>
-        <p className="break-all">{workspacePath || "未选择工作目录"}</p>
-      </div>
-      <RadioGroup
-        aria-label="项目指令加载范围"
-        className="gap-0 overflow-hidden rounded-[14px] border"
-        value={value}
-        onValueChange={(scope) => onChange(scope as InstructionScope)}
-      >
-        {instructionScopes.map((option) => (
-          <label
-            key={option.value}
-            className="flex min-h-14 cursor-pointer items-start gap-3 border-b px-3 py-2 last:border-b-0 hover:bg-accent/50 has-data-checked:bg-accent/60"
+    <div
+      className="flex h-full min-h-0 flex-col gap-3"
+      onKeyDownCapture={(event) => {
+        if (detail && event.key === "Escape") {
+          event.preventDefault()
+          event.stopPropagation()
+          back()
+        }
+      }}
+    >
+      {detail ? (
+        <>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="w-fit shrink-0"
+            onClick={back}
           >
-            <RadioGroupItem value={option.value} className="mt-0.5" />
-            <span>
-              <span className="block text-[13px] leading-5">
-                {option.label}
-              </span>
-              <span className="block text-xs leading-5 text-muted-foreground">
-                {option.description}
-              </span>
-            </span>
-          </label>
-        ))}
-      </RadioGroup>
-      <p className="mt-3 text-xs leading-5 text-muted-foreground">
-        {instructions
-          ? snapshot
-            ? "以下是本会话已保存的指令快照。采用本次读取的文件并应用后才更新。"
-            : "以下为本次从磁盘读取的候选指令文件；应用成功后保存为生效快照。"
-          : "此展示使用示例配置，不读取指令文件。"}
-      </p>
-      {instructions && (
-        <section className="mt-4" aria-label="项目指令来源">
-          <h3 className="mb-2 text-xs font-medium">
-            指令文件 · {visible.length}
-          </h3>
-          {!visible.length && (
-            <p className="text-xs leading-5 text-muted-foreground">
-              {value === "none"
-                ? "本会话不加载项目指令。"
-                : "所选范围内未发现指令文件。"}
-            </p>
-          )}
-          {visible.map((file) => (
-            <Collapsible key={file.path} className="border-b last:border-b-0">
-              <CollapsibleTrigger className="flex w-full items-start gap-2 py-3 text-left text-xs hover:bg-accent/50 [&[data-state=open]>svg:last-child]:rotate-180">
-                <FileText className="mt-0.5 size-4 shrink-0" />
-                <span className="min-w-0 flex-1">
-                  <span className="block leading-5 break-all">{file.path}</span>
-                  <span className="text-muted-foreground">
-                    {file.source === "global" ? "全局指令" : "目录指令"}
+            <ArrowLeft />
+            返回项目指令
+          </Button>
+          <p className="shrink-0 text-xs break-all text-muted-foreground">
+            {detail.path} · {savedView ? "已保存快照" : "本次磁盘读取"} · 只读
+          </p>
+          <pre className="moon-scrollbar min-h-0 flex-1 overflow-auto rounded-lg bg-muted p-3 text-xs leading-5 whitespace-pre-wrap">
+            {detail.content || "文件为空"}
+          </pre>
+        </>
+      ) : (
+        <>
+          <RadioGroup
+            className="shrink-0 gap-2"
+            aria-label="项目指令加载范围"
+            value={value}
+            onValueChange={(scope) => onChange(scope as InstructionScope)}
+          >
+            {instructionScopes.map((option) => (
+              <label
+                key={option.value}
+                className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-accent/50"
+              >
+                <RadioGroupItem value={option.value} />
+                <span className="text-[13px] leading-5">
+                  {option.label}
+                  <span className="block text-xs leading-[18px] text-muted-foreground">
+                    {option.description}
                   </span>
                 </span>
-                <ChevronDown className="mt-0.5 size-4 shrink-0" />
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <pre className="mb-3 max-h-52 overflow-auto rounded-lg bg-muted p-3 text-xs leading-5 break-words whitespace-pre-wrap">
-                  {file.content || "文件为空"}
-                </pre>
-              </CollapsibleContent>
-            </Collapsible>
-          ))}
-        </section>
+              </label>
+            ))}
+          </RadioGroup>
+          {savedInstructions && (
+            <div className="flex shrink-0 gap-1">
+              <Button
+                type="button"
+                size="xs"
+                variant={showSaved ? "ghost" : "secondary"}
+                onClick={() => setShowSaved(false)}
+              >
+                磁盘候选
+              </Button>
+              <Button
+                type="button"
+                size="xs"
+                variant={showSaved ? "secondary" : "ghost"}
+                onClick={() => setShowSaved(true)}
+              >
+                已保存快照
+              </Button>
+            </div>
+          )}
+          <p
+            className="shrink-0 text-xs leading-5 text-muted-foreground"
+            title={workspacePath}
+          >
+            {savedView
+              ? "已保存指令快照；应用新配置后才会更新。"
+              : instructions
+                ? "本次从磁盘读取的候选文件，应用成功后保存为生效快照。"
+                : "示例配置，不读取指令文件。"}
+          </p>
+          <div
+            ref={scroll}
+            className="moon-scrollbar min-h-0 flex-1 overflow-auto"
+            aria-label="项目指令来源"
+          >
+            <p className="mb-2 text-xs text-muted-foreground">
+              指令文件 · {visible.length}
+            </p>
+            {!visible.length && (
+              <p className="py-8 text-center text-xs text-muted-foreground">
+                {value === "none"
+                  ? "本会话不加载项目指令"
+                  : "所选范围内未发现指令文件"}
+              </p>
+            )}
+            {visible.map((file) => (
+              <Button
+                ref={(node) => {
+                  if (node) buttons.current.set(file.path, node)
+                  else buttons.current.delete(file.path)
+                }}
+                key={file.path}
+                type="button"
+                variant="ghost"
+                className="h-auto min-h-10 w-full justify-start gap-2 py-2 font-normal"
+                onClick={() => {
+                  position.current = scroll.current?.scrollTop ?? 0
+                  setDetail(file)
+                }}
+              >
+                <FileText className="size-4 shrink-0" />
+                <span
+                  className="min-w-0 flex-1 truncate text-left text-[13px]"
+                  title={file.path}
+                >
+                  {file.path.split(/[\\/]/u).pop()}
+                </span>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {file.source === "global" ? "全局" : "目录"}
+                </span>
+                <ChevronRight className="size-3 shrink-0" />
+              </Button>
+            ))}
+          </div>
+        </>
       )}
     </div>
   )
