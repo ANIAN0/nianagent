@@ -41,7 +41,16 @@ test("one admission policy preserves material-only input and rejects unfinished 
   assert.equal(composerDraftEligibility(draft, data, true, true).canSend, false)
   const imageDraft = {
     ...draft,
-    materials: [{ id: "image", type: "image", status: "ready" }],
+    materials: [
+      {
+        id: "image",
+        name: "示例.png",
+        kind: "附件",
+        type: "image",
+        status: "ready",
+        source: "固定图片来源",
+      },
+    ],
   }
   assert.equal(composerDraftEligibility(imageDraft, data, true).canSend, false)
   assert.equal(
@@ -54,11 +63,16 @@ test("one admission policy preserves material-only input and rejects unfinished 
     "ready",
     "display validation never mutates a prepared source"
   )
-  assert.equal(
-    composerDisplayMaterials(imageDraft.materials, "text", data.modelInputs)[0]
-      .status,
-    "failed"
-  )
+  const original = structuredClone(imageDraft.materials)
+  const incompatible = composerDisplayMaterials(
+    imageDraft.materials,
+    "text",
+    data.modelInputs
+  )[0]
+  assert.equal(incompatible.status, "ready")
+  assert.equal(incompatible.incompatible, true)
+  assert.equal(incompatible.source, original[0].source)
+  assert.deepEqual(imageDraft.materials, original)
   assert.equal(
     composerDisplayMaterials(
       imageDraft.materials,
@@ -67,6 +81,79 @@ test("one admission policy preserves material-only input and rejects unfinished 
     )[0].status,
     "ready"
   )
+  const compatible = composerDisplayMaterials(
+    imageDraft.materials,
+    "vision",
+    data.modelInputs
+  )[0]
+  assert.notEqual(compatible.incompatible, true)
+  assert.equal(compatible.source, original[0].source)
+})
+
+test("non-retryable file and directory references explain selection or removal instead of a hidden retry", () => {
+  for (const [type, name, label] of [
+    ["file", "README.md", "文件"],
+    ["directory", "docs", "目录"],
+  ]) {
+    const state = composerDraftEligibility(
+      {
+        ...draft,
+        materials: [
+          {
+            id: type,
+            name,
+            kind: "附件",
+            type,
+            presentation: "reference",
+            status: "failed",
+            retryable: false,
+            error: "来源不可用",
+          },
+        ],
+      },
+      data,
+      false
+    )
+    assert.equal(state.canSend, false)
+    assert.equal(state.reasonKind, "materials")
+    assert.ok(state.reason.includes(label))
+    assert.ok(state.reason.includes(name))
+    assert.match(state.reason, /重新选择/u)
+    assert.match(state.reason, /移除/u)
+    assert.doesNotMatch(state.reason, /重新检查/u)
+  }
+})
+
+test("a failed image beside a ready file never makes the gate blame that file", () => {
+  const state = composerDraftEligibility(
+    {
+      ...draft,
+      model: "vision",
+      materials: [
+        {
+          id: "file",
+          name: "README.md",
+          kind: "附件",
+          type: "file",
+          status: "ready",
+          presentation: "reference",
+        },
+        {
+          id: "image",
+          name: "截图.png",
+          kind: "附件",
+          type: "image",
+          status: "failed",
+          presentation: "attachment",
+        },
+      ],
+    },
+    data,
+    false
+  )
+  assert.equal(state.canSend, false)
+  assert.equal(state.reasonKind, "materials")
+  assert.doesNotMatch(state.reason, /README\.md|文件/u)
 })
 
 test("ordinary running composer never loses Stop behind blank, invalid, blocked or compact drafts", () => {

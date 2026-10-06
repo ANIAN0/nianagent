@@ -43,7 +43,10 @@ const tool = obj(
     occurrenceId: str("Pi assistant entryId与内容位置组成的调用身份；旧格式未持久迁移时使用稳定展示id，不冒充正式entryId；不以可重复的提供者toolCallId作为唯一键"),
     target: ref("ConversationToolTarget"),
     resultLength: num("Pi工具文本结果在Moon展示截断前的字符数；不是源文件总长度"),
-    resultTruncated: { type: "boolean", description: "Pi结果本身或Moon展示结果发生截断；不能将展示文本当完整文件" },
+    resultTruncated: {
+      type: "boolean",
+      description: "Pi结果本身或Moon展示结果发生截断；不能将展示文本当完整文件",
+    },
     details: ref("ConversationToolDetails"),
     images: arr(ref("MaterialReference")),
     artifact: ref("ConversationFileArtifact"),
@@ -52,21 +55,35 @@ const tool = obj(
   ["id", "name", "source", "status", "input", "result"]
 )
 // Internal index metadata shares this contract source, but is not a public DTO.
-export const conversationRequestReceiptStorageSchema = obj({
-  sessionId: id,
-  clientRequestId: id,
-  fingerprint: str("内部：冻结请求SHA-256；不保存正文或凭据", { pattern: "^[a-f0-9]{64}$" }),
-  status: str("preparing尚未提交启动；started与启动摘要原子提交；rejected未接受", { enum: ["preparing", "started", "rejected"] }),
-  ownerEpoch: str("登记准备的宿主身份；冷恢复不继续未完成准备", { minLength: 1 }),
-  updatedAt: str("回执更新时点"),
-  runId: id,
-  issue: ref("OperationIssue"),
-}, ["sessionId", "clientRequestId", "fingerprint", "status", "ownerEpoch", "updatedAt"])
+export const conversationRequestReceiptStorageSchema = obj(
+  {
+    sessionId: id,
+    clientRequestId: id,
+    fingerprint: str("内部：冻结请求SHA-256；不保存正文或凭据", {
+      pattern: "^[a-f0-9]{64}$",
+    }),
+    status: str("preparing尚未提交启动；started与启动摘要原子提交；rejected明确未接受；handled由Pi公开回调确认已由扩展处理，不代表保存user消息", { enum: ["preparing", "started", "rejected", "handled"] }),
+    ownerEpoch: str("登记准备的宿主身份；冷恢复不继续未完成准备", {
+      minLength: 1,
+    }),
+    updatedAt: str("回执更新时点"),
+    runId: id,
+    issue: ref("OperationIssue"),
+  },
+  [
+    "sessionId",
+    "clientRequestId",
+    "fingerprint",
+    "status",
+    "ownerEpoch",
+    "updatedAt",
+  ]
+)
 export const conversationSchemas = {
   ConversationRequestReceipt: obj({
     sessionId: id,
     clientRequestId: id,
-    state: str("仅原请求的接受结论；accepted由正式Pi输入或已存队列证明，未知不重发", { enum: ["accepted", "rejected", "unknown"] }),
+    state: str("仅原请求的结论；accepted由正式Pi输入或已存队列证明，handled由明确保存的扩展处理回执证明；started缺权威证据始终unknown，不重发", { enum: ["accepted", "handled", "rejected", "unknown"] }),
     issue: ref("OperationIssue"),
   }, ["sessionId", "clientRequestId", "state"]),
   ConversationToolTarget: obj({
@@ -122,7 +139,9 @@ export const conversationSchemas = {
         description: "在完整Pi分支中的位置，包含custom条目；pending位于branch.length，继续指令使用原custom_message位置",
       },
       userTurnId: str("对应可见用户输入的稳定展示标识，用于聚合该输入之后的正式阶段；不是Pi fork锚点"),
-      inputKind: str("可见用户输入的正式类型；不按正文文案猜继续请求", { enum: ["continuation"] }),
+      inputKind: str("可见用户输入的正式类型；不按正文文案猜继续请求", {
+        enum: ["continuation"],
+      }),
       continuationOf: str("可见继续指令所恢复的前一用户轮次；独立输入身份保留，便于标注历史attempt恢复关系"),
       runId: str("Moon正式请求标记提供的运行归属；旧记录缺失时省略，不推测"),
       stopReason: str("Pi正式assistant停止原因；length表示输出上限，不当作完整答案", { enum: ["stop", "length", "toolUse", "error", "aborted"] }),
@@ -166,7 +185,9 @@ export const conversationSchemas = {
             id: str("原始Pi内容位置生成的标识"),
             type: { type: "string", enum: ["thinking"] },
             text: str("该位置的Pi思考正文"),
-            phase: str("此思考块的真实生成阶段", { enum: ["running", "settled"] }),
+            phase: str("此思考块的真实生成阶段", {
+              enum: ["running", "settled"],
+            }),
           }),
           obj({
             id: str("原始Pi内容位置生成的标识"),
@@ -192,14 +213,18 @@ export const conversationSchemas = {
         cwd: str("真实工作目录"),
         version: num("当前宿主单调更新版本，结合 epoch 判断新宿主"),
         epoch: str("宿主启动标识"),
-        clientRequestId: str("最后接受的客户端请求标识；空会话为空"),
+        clientRequestId: str("最后提交启动的客户端请求标识；不是接受证明，未启动会话为空"),
         inputAccepted: {
           type: "boolean",
           description:
-            "仅在 Pi 持久化方法成功返回后确认用户消息（或继续指令）已接受；消息事件本身不代表保存成功。该输入写入失败时返回 false、保留草稿，明确重发使用新请求标识；相同标识不重复执行。",
+            "仅在 Pi 持久化方法成功返回后确认本次用户消息（或继续指令）已接受；消息事件本身不代表保存成功。false不推断拒绝，须核对原回执；handled表示扩展领取输入，仍不伪造user保存。相同标识不重复执行。",
         },
+        inputDisposition: str("handled表示Pi公开入口确认扩展已处理本次输入；没有本次user接受证据，不能声称执行成功或重复提交", { enum: ["handled"] }),
         runId: str("本次或最后一次运行标识"),
-        canContinue: { type: "boolean", description: "输入已接受且末次回复失败/停止或Pi length截断；继续是新的幂等可见指令，不重发原请求或自动执行旧工具" },
+        canContinue: {
+          type: "boolean",
+          description: "输入已接受且末次回复失败/停止或Pi length截断；继续是新的幂等可见指令，不重发原请求或自动执行旧工具",
+        },
         phase: str(
           "真实回复运行状态；completed 仅表示本轮运行结束，不代表用户任务验收成功",
           {
@@ -223,6 +248,17 @@ export const conversationSchemas = {
           "本次运行失败对应的正式 Pi 回复条目 ID；无对应回复时省略"
         ),
         messages: arr(ref("ConversationChatMessage")),
+        permission: ref("ConversationPermission"),
+        approvals: arr(ref("ConversationApproval")),
+        statistics: ref("ConversationStatistics"),
+        command: ref("ConversationCommandReceipt"),
+        extensionNotifications: arr(
+          obj({
+            id,
+            message: str("扩展提示"),
+            severity: str("提示等级", { enum: ["info", "warning", "error"] }),
+          })
+        ),
         historyNotice: str(
           "旧格式历史的非阻断说明；只读恢复不持久化迁移标识，显式发送交由Pi迁移后恢复派生能力"
         ),
@@ -238,7 +274,7 @@ export const conversationSchemas = {
         }),
         runtime: ref("ConversationRuntime"),
         notice: obj({
-          kind: str("非阻断执行提醒", { enum: ["compaction-failed"] }),
+          kind: str("非阻断执行提醒", { enum: ["compaction-failed", "input-handled"] }),
           message: str("安全说明；不把压缩失败等同任务失败"),
           occurredAt: str("提醒发生时的 ISO 时间"),
           runId: str("此提醒所属回复运行标识；新回复清除旧提醒"),
@@ -321,7 +357,7 @@ export const conversationOperations = {
     input: ["sessionId", "clientRequestId"],
     result: "ConversationRequestReceipt",
     condition: "按原sessionId/clientRequestId核对，不要求会话摘要已创建；同会话锁等待准备结束，不激活Pi或重发输入。没有登记的请求、未能保存明确拒绝的当前preparing、损坏/缺失的权威历史保持unknown；started摘要本身不表示accepted或rejected。",
-    effect: "index的preparing先于昂贵准备，started与启动摘要原子提交；明确拒绝按本request单独保存，不覆盖上一已接受run。实际本run未接受且无Pi写入错误的终态拒绝与摘要原子保存。旧宿主的preparing证明未启动；accepted须有正式Pi用户输入/可见继续指令或持久队列证明，已接受的历史身份不随当前分支变化而消失。Pi1.0.0在首user时flush；启动commit仍早于该append，冷恢复缺首文件不能区分append前崩溃与历史丢失，保持unknown。只返回身份与安全结论，不返回输入、材料或fingerprint，不改写历史或回执。",
+    effect: "index的preparing先于昂贵准备，started与启动摘要原子提交；明确拒绝及公开Pi入口的handled按本request单独保存。handled仅确认扩展领取本次输入，不代表命令成功或保存user。旧宿主的preparing证明未启动；accepted须有正式Pi用户输入/可见继续指令或持久队列证明，已接受的历史身份不随当前分支变化而消失。started无本次accepted/handled/rejected权威证据始终unknown，包括已有历史、缺首文件和handled保存失败，原ID不重执行。只返回身份与安全结论，不返回输入、材料或fingerprint，不改写历史或回执。",
     errors: "回执索引或正式历史损坏、存储不可访问、请求已取消；错误不确认拒绝，不自动重复外部效果。",
     example: { sessionId: "sample-session", clientRequestId: "sample-request" },
   },
@@ -338,6 +374,7 @@ export const conversationOperations = {
       "thinking",
       "materials",
       "$signal",
+      "delivery",
     ],
     title: "发送真实多轮消息",
     input: [
@@ -356,6 +393,9 @@ export const conversationOperations = {
         clientRequestId: id,
         text: str("本轮用户文本；有就绪材料时可以为空", { maxLength: 100000 }),
         materials: arr(ref("MaterialReference")),
+        delivery: str("运行中Enter的交付方式，空闲始终正常发送", {
+          enum: ["followUp", "steer"],
+        }),
         ...selection,
       },
       [
@@ -371,7 +411,7 @@ export const conversationOperations = {
     condition:
       "需保存工作区、会话配置与可用模型；空闲时启动，运行中原子保存至本会话待处理队列，不并行推理。clientRequestId冻结内容幂等；已接受请求不再执行，started但未确认输入的重复请求要求只读核对，明确拒绝的原ID不重放。队列acceptedRequestIds表示已保存待处理输入，与Pi inputAccepted区分。控制操作运行中、结果未确认或停止中拒绝新提交。启动提交前取消不开始推理，可能保留准备回执和已建空会话；启动提交后需Stop明确停止，不因断开轮询取消。",
     effect:
-      "Pi 官方SessionManager在首user输入时将正文及此前设置条目写入JSONL；后台发起真实推理与已启用工具，可能产生费用并修改所选目录。正常快速返回等待Pi接受并保存输入，失败且inputAccepted=false需按原ID只读ReceiptRead核对，不能凭终态摘要恢复/重放。之后轮询Read，历史完整性与冷恢复接受结论分开核对。",
+      "空闲正文原样交公开Pi prompt默认解析，Skill由Pi原生加载；图片随同一输入传入，核对后的文件/目录路径说明通过before_agent_start的隐藏上下文提供，不遮住leading命令。正式user对象保存成功后确认inputAccepted，并将原文及材料身份元数据绑定该user。Pi公开回调handled明确保存后返回inputDisposition=handled，释放原提交但不伪造user接受或命令成功。未确认时按原ID只读ReceiptRead，不凭终态重放。运行/冷队列保留已有准备与交付协议，未在本次迁移。后台推理及工具可能产生费用并修改所选目录。",
     example: {
       sessionId: "sample-session",
       workspaceId: "sample-workspace",

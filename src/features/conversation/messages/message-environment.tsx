@@ -5,6 +5,7 @@ export type MessageEnvironment = {
   sessionId: string
   cwd: string
   disclosures: Map<string, boolean>
+  waitingTools?: ReadonlySet<string>
   onOpenPath?: (path: string) => Promise<void>
   onOpenAttachment?: (attachment: MessageAttachment) => void
   onOpenSettings?: () => void

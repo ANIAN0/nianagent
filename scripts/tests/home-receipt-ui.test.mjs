@@ -44,14 +44,20 @@ test("another accepted turn or another session cannot confirm the original", () 
 test("a missing legacy identity is unknown, never inferred from the latest history", () => {
   assert.equal(inspect("home-a", undefined, snapshot).state, "unknown")
 })
-test("only a matching definitive refusal restores the original input", () => {
+test("a terminal snapshot without authoritative receipt evidence remains unknown", () => {
   const failed = { ...snapshot, inputAccepted: false, phase: "failed" }
-  assert.equal(inspect("home-a", "request-a", failed).state, "rejected")
+  assert.equal(inspect("home-a", "request-a", failed).state, "unknown")
   assert.equal(inspect("home-a", "request-b", failed).state, "unknown")
   assert.equal(
     inspect("home-a", "request-a", { ...failed, phase: "running" }).state,
     "unknown"
   )
+})
+test("handled resolves only the matching original request without inventing user acceptance", () => {
+  const handled = { ...snapshot, inputAccepted: false, inputDisposition: "handled" }
+  assert.equal(inspect("home-a", "request-a", handled).state, "handled")
+  assert.equal(inspect("home-a", "request-b", handled).state, "unknown")
+  assert.equal(inspect("home-b", "request-a", handled).state, "unknown")
 })
 test("accepted queue IDs remain proof even when the latest turn is a different request", () => {
   assert.equal(
@@ -158,6 +164,29 @@ test("Home can confirm an earlier accepted request while showing a newer officia
   assert.deepEqual(result.snapshot, later)
   assert.equal(result.clientRequestId, "request-a")
   assert.equal(reads, 1)
+})
+test("Home consumes a durable handled receipt by reading its conversation without resending", async () => {
+  let reads = 0, sends = 0
+  const handled = { ...snapshot, inputAccepted: false, inputDisposition: "handled" }
+  const result = await readReceipt({
+    receipt: async () => ({ sessionId: "home-a", clientRequestId: "request-a", state: "handled" }),
+    read: async () => { reads++; return handled },
+    send: async () => { sends++; throw new Error("must not resend") },
+  }, "home-a", "request-a")
+  assert.equal(result.state, "handled")
+  assert.equal(result.snapshot.inputAccepted, false)
+  assert.equal(result.snapshot.inputDisposition, "handled")
+  assert.equal(reads, 1)
+  assert.equal(sends, 0)
+})
+test("a started unknown ledger is not overridden by a failed snapshot containing older history", async () => {
+  let reads = 0
+  const result = await readReceipt({
+    receipt: async () => ({ sessionId: "home-a", clientRequestId: "request-a", state: "unknown" }),
+    read: async () => { reads++; return { ...snapshot, inputAccepted: false, phase: "failed", messages: [{ role: "user", text: "earlier" }] } },
+  }, "home-a", "request-a")
+  assert.equal(result.state, "unknown")
+  assert.equal(reads, 0)
 })
 
 test("a lookup for another request cannot resolve Home's immutable attempt", async () => {

@@ -266,12 +266,13 @@ test("the official homepage restores the persisted session ID and blocks new sen
       },
     })
   )
-  assert.match(html, /原消息的接收结果暂未确认/)
-  assert.match(html, /检查发送状态/)
+  assert.match(html, /读取参考文件并解释结果/)
   assert.match(
     html,
-    /disabled=""[^>]*aria-label="发送"|aria-label="发送"[^>]*disabled=""/
+    /<button\b(?=[^>]*aria-label="核对原消息")(?=[^>]*type="button")(?=[^>]*data-state="closed")[^>]*>/u
   )
+  assert.doesNotMatch(html, /<button\b[^>]*type="submit"/u)
+  assert.doesNotMatch(html, /原消息的接收结果暂未确认|检查发送状态/u)
 })
 test("the official homepage gives a nonempty legacy draft a fresh identity instead of reusing an old receipt's cwd identity", (t) => {
   fixture(t)
@@ -296,7 +297,7 @@ test("the official homepage gives a nonempty legacy draft a fresh identity inste
     })
   )
   assert.match(html, /读取参考文件并解释结果/)
-  assert.equal(html.includes("检查发送状态"), false)
+  assert.doesNotMatch(html, /aria-label="核对原消息"/u)
 })
 test("the official navigation hook prevents a delayed home receipt from navigating after another page was opened", async () => {
   let navigation
@@ -516,6 +517,136 @@ test("the official hook's rejected history read preserves the original home iden
   )
   assert.deepEqual(store.restoreHomeSubmissions()[draft.sessionId], submission)
   assert.deepEqual(store.restoreHomeDraft(draft.workspaceId), draft)
+})
+test("the official receipt API defers Home handoff ACKs and retains the original ACK behind a newer display", async (t) => {
+  fixture(t)
+  const previousFetch = globalThis.fetch
+  t.after(() => {
+    globalThis.fetch = previousFetch
+  })
+  let snapshot = {
+    id: draft.sessionId,
+    title: "正式会话",
+    workspaceId: draft.workspaceId,
+    cwd: "/workspace",
+    version: 10,
+    epoch: "receipt-epoch",
+    clientRequestId: "later-input",
+    inputAccepted: true,
+    runId: "later-run",
+    phase: "idle",
+    modelId: "model",
+    connectionId: "connection",
+    providerModelId: "model",
+    thinking: "off",
+    error: "",
+    messages: [],
+  }
+  globalThis.fetch = async (url, options) => {
+    if (url === "/api/models/conversationReceiptRead") {
+      const input = JSON.parse(options.body)
+      return Response.json({
+        result: { ...input, state: "accepted" },
+      })
+    }
+    assert.equal(url, "/api/models/conversationRead")
+    return Response.json({ result: snapshot })
+  }
+  let chat
+  function Probe() {
+    chat = useLiveConversation(undefined)
+    return null
+  }
+  // This checks the real hook's public receipt callbacks, not an SSR effect.
+  renderToString(createElement(Probe))
+  const receipts = []
+  const unsubscribe = chat.subscribeInputReceipts((value) =>
+    receipts.push(value)
+  )
+  t.after(unsubscribe)
+  await Promise.resolve()
+  chat.beginHomeHandoff(draft.sessionId, draft)
+  await chat.inspectReceipt(draft.sessionId, "later-input")
+  const later = snapshot
+  snapshot = {
+    ...later,
+    version: 1,
+    clientRequestId: "original-home-input",
+    runId: "original-run",
+  }
+  const original = snapshot
+  await chat.inspectReceipt(draft.sessionId, "original-home-input")
+  assert.deepEqual(receipts, [])
+  chat.endHomeHandoff(draft.sessionId)
+  assert.deepEqual(receipts, [later, original])
+
+  // Unknown input is not a resolution, even when an earlier input was accepted.
+  snapshot = { ...later, version: 11, inputAccepted: false }
+  await chat.reconcile(draft.sessionId)
+  assert.deepEqual(receipts, [later, original])
+
+  // An older matching handled receipt must notify before display version checks.
+  snapshot = {
+    ...original,
+    version: 0,
+    inputAccepted: false,
+    inputDisposition: "handled",
+  }
+  await chat.inspectReceipt(draft.sessionId, "original-home-input")
+  assert.deepEqual(receipts, [later, original, snapshot])
+})
+test("unsubscribing cancels receipt replay and later receipt delivery", async (t) => {
+  fixture(t)
+  const previousFetch = globalThis.fetch
+  t.after(() => {
+    globalThis.fetch = previousFetch
+  })
+  const snapshot = {
+    id: draft.sessionId,
+    title: "正式会话",
+    workspaceId: draft.workspaceId,
+    cwd: "/workspace",
+    version: 1,
+    epoch: "receipt-epoch",
+    clientRequestId: "original-home-input",
+    inputAccepted: true,
+    runId: "original-run",
+    phase: "idle",
+    modelId: "model",
+    connectionId: "connection",
+    providerModelId: "model",
+    thinking: "off",
+    error: "",
+    messages: [],
+  }
+  globalThis.fetch = async (url, options) =>
+    Response.json({
+      result:
+        url === "/api/models/conversationReceiptRead"
+          ? { ...JSON.parse(options.body), state: "accepted" }
+          : snapshot,
+    })
+  let chat
+  function Probe() {
+    chat = useLiveConversation(undefined)
+    return null
+  }
+  renderToString(createElement(Probe))
+  await chat.inspectReceipt(draft.sessionId, "original-home-input")
+  const cancelled = []
+  chat.subscribeInputReceipts((value) => cancelled.push(value))()
+  await Promise.resolve()
+  assert.deepEqual(cancelled, [])
+  const delivered = []
+  const unsubscribe = chat.subscribeInputReceipts((value) =>
+    delivered.push(value)
+  )
+  await Promise.resolve()
+  assert.deepEqual(delivered, [snapshot])
+  unsubscribe()
+  await chat.inspectReceipt(draft.sessionId, "original-home-input")
+  assert.deepEqual(delivered, [snapshot])
+  assert.deepEqual(cancelled, [])
 })
 test("unknown and active receipts cannot unlock another send, while cleanup denial exposes a retryable rejected marker", async (t) => {
   const f = fixture(t)

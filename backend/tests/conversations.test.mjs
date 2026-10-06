@@ -38,7 +38,8 @@ async function fixture(
         chunk({}, "stop") +
         "data: [DONE]\n\n"
     )
-  }
+  },
+  modelInput = model.input
 ) {
   const root = await mkdtemp(join(tmpdir(), "moon-conversation-"))
   const cwd = join(root, "project")
@@ -94,7 +95,7 @@ async function fixture(
     apiKey: "",
     environmentVariable: "",
     headers: "{}",
-    models: [model],
+    models: [{ ...model, input: modelInput }],
   })
   await service.sessions.apply("session-test", cwd, [], "directory")
   t.after(async () => {
@@ -148,6 +149,195 @@ async function fixture(
     settled,
   }
 }
+
+// Register through the public loader boundary, keeping the real Pi prompt,
+// preflight callbacks, event objects and persistence in these regressions.
+function addInputExtension(f, factory) {
+  const create = f.service.sessions.create.bind(f.service.sessions)
+  f.service.sessions.create = (...args) => {
+    const options = args[5] ?? {}
+    args[5] = { ...options, extensionFactories: [...(options.extensionFactories ?? []), factory] }
+    return create(...args)
+  }
+}
+
+async function addNativeSkill(f) {
+  const folder = join(f.cwd, ".pi", "skills", "home-review")
+  await mkdir(folder, { recursive: true })
+  await writeFile(join(folder, "SKILL.md"),
+    "---\nname: home-review\ndescription: Native Home regression skill\n---\nNATIVE_HOME_SKILL_BODY")
+}
+
+test("idle public Pi Skill expansion preserves raw invocation through live and cold history", async (t) => {
+  const f = await fixture(t)
+  await addNativeSkill(f)
+  const original = "/skill:home-review 检查正文参数"
+  const accepted = await f.send("native-skill-home", original)
+  assert.equal(accepted.inputAccepted, true)
+  const done = await f.settled()
+  const user = done.messages.find((message) => message.role === "user")
+  assert.equal(user.text, original)
+  assert.equal(user.attachments?.length ?? 0, 0)
+  const actual = f.requests[0].messages.find((message) => message.role === "user")
+  assert.match(JSON.stringify(actual.content), /NATIVE_HOME_SKILL_BODY/u)
+  assert.match(JSON.stringify(actual.content), /检查正文参数/u)
+  const record = await f.store.get("session-test")
+  const bytes = await readFile(record.sessionFile, "utf8")
+  assert.match(bytes, /moon-materials/u)
+  assert.match(bytes, /NATIVE_HOME_SKILL_BODY/u)
+  await f.chats.close()
+  const cold = new ConversationService(f.directory, f.service, f.service.sessions, f.store, f.workspaces)
+  t.after(() => cold.close())
+  assert.deepEqual((await cold.read("session-test")).messages, done.messages)
+  assert.equal((await cold.readReceipt("session-test", "native-skill-home")).state, "accepted")
+  assert.equal(await readFile(record.sessionFile, "utf8"), bytes)
+})
+
+test("unknown, inline, removed Skill and ordinary whitespace stay ordinary public Pi input", async (t) => {
+  const f = await fixture(t)
+  await addNativeSkill(f)
+  const inputs = [
+    "/skill:missing.name 原样参数",
+    "句内 /skill:home-review 不强制加载",
+    "已删除前缀，只保留原任务",
+    "  原文\n\n@Override @README.md.backup",
+  ]
+  for (const [index, text] of inputs.entries()) {
+    await f.send(`raw-home-${index}`, text)
+    const done = await f.settled()
+    assert.equal(done.messages.filter((message) => message.role === "user").at(-1).text, text)
+    const actual = f.requests.at(-1).messages.filter((message) => message.role === "user").at(-1)
+    const actualText = actual.content
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("")
+    assert.equal(actualText, text)
+    assert.doesNotMatch(actualText, /NATIVE_HOME_SKILL_BODY/u)
+  }
+})
+
+test("idle Skill plus paths and image keeps leading native parsing and original material ownership", async (t) => {
+  const f = await fixture(t, undefined, ["text", "image"])
+  await addNativeSkill(f)
+  const file = join(f.cwd, "引用 文件.md")
+  const directory = join(f.cwd, "docs")
+  const imagePath = join(f.cwd, "image.png")
+  await writeFile(file, "FILE_BODY_NOT_AUTOMATICALLY_READ")
+  await mkdir(directory)
+  await writeFile(join(directory, "child.md"), "DIRECTORY_BODY_NOT_AUTOMATICALLY_READ")
+  await writeFile(imagePath, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgaPj/HwAEggJ/59habAAAAABJRU5ErkJggg==", "base64"))
+  const materials = await f.service.materials.prepare("session-test", f.cwd, [file, directory, imagePath])
+  assert.ok(materials.every((item) => item.status === "ready"), JSON.stringify(materials))
+  const text = "/skill:home-review 使用本次材料"
+  await f.service.dispatch("conversationSend", {
+    sessionId: "session-test", workspaceId: "workspace-test", clientRequestId: "native-mixed-home",
+    text, materials, connectionId: "local", modelId: model.id, thinking: "off",
+  })
+  const done = await f.settled()
+  const user = done.messages.find((message) => message.role === "user")
+  assert.equal(user.text, text)
+  assert.deepEqual(user.attachments.map((item) => item.materialType), ["file", "directory", "image"])
+  assert.deepEqual(user.attachments.map((item) => item.id), materials.map((item) => item.id))
+  const messages = f.requests[0].messages
+  const nativeUser = messages.find((message) => message.role === "user")
+  assert.match(JSON.stringify(nativeUser.content), /NATIVE_HOME_SKILL_BODY/u)
+  assert.ok(nativeUser.content.some((part) => part.type === "image_url"))
+  const context = messages.find((message) => JSON.stringify(message.content).includes("Referenced paths (not read):"))
+  assert.ok(context)
+  assert.ok(messages.indexOf(context) > messages.indexOf(nativeUser))
+  assert.match(JSON.stringify(context.content), /引用 文件\.md|docs/u)
+  assert.doesNotMatch(JSON.stringify(context.content), /FILE_BODY_NOT_AUTOMATICALLY_READ|DIRECTORY_BODY_NOT_AUTOMATICALLY_READ/u)
+  await f.chats.close()
+  const cold = new ConversationService(f.directory, f.service, f.service.sessions, f.store, f.workspaces)
+  t.after(() => cold.close())
+  assert.deepEqual((await cold.read("session-test")).messages, done.messages)
+})
+
+test("public native commands and input hooks persist handled without fabricated user acceptance or replay", async (t) => {
+  const f = await fixture(t)
+  let commands = 0, inputs = 0
+  addInputExtension(f, (pi) => {
+    pi.registerCommand("claim-home", { handler: async () => { commands++ } })
+    pi.on("input", (event) => {
+      if (event.text !== "CLAIM_HOME_INPUT") return
+      inputs++
+      return { action: "handled" }
+    })
+  })
+  const command = await f.send("native-command-home", "/claim-home 保留参数")
+  assert.equal(command.inputAccepted, false)
+  assert.equal(command.inputDisposition, "handled")
+  assert.equal(command.notice.kind, "input-handled")
+  assert.ok(Number.isFinite(Date.parse(command.notice.occurredAt)))
+  assert.equal(command.notice.runId, command.runId)
+  assert.equal(command.messages.length, 0)
+  assert.equal((await f.chats.readReceipt("session-test", "native-command-home")).state, "handled")
+  await f.send("native-command-home", "/claim-home 保留参数")
+  assert.equal(commands, 1)
+  const input = await f.send("native-hook-home", "CLAIM_HOME_INPUT")
+  assert.equal(input.inputDisposition, "handled")
+  assert.equal(input.inputAccepted, false)
+  assert.equal(inputs, 1)
+  assert.equal(f.requests.length, 0)
+  await f.chats.close()
+  const coldStore = new ConversationStore(f.directory)
+  await coldStore.initialize()
+  const cold = new ConversationService(f.directory, f.service, f.service.sessions, coldStore, f.workspaces)
+  f.service.conversations = cold
+  t.after(() => cold.close())
+  const restored = await cold.read("session-test")
+  assert.equal(restored.inputDisposition, "handled")
+  assert.equal(restored.inputAccepted, false)
+  assert.ok(Number.isFinite(Date.parse(restored.notice.occurredAt)))
+  assert.equal((await cold.readReceipt("session-test", "native-command-home")).state, "handled")
+  await f.send("native-hook-home", "CLAIM_HOME_INPUT")
+  assert.equal(inputs, 1)
+  await f.send("after-handled-home", "普通首条消息仍可发送")
+  const done = await f.settled()
+  assert.equal(done.inputDisposition, undefined)
+  assert.equal(done.notice, undefined)
+  assert.equal(done.messages.filter((message) => message.role === "user").length, 1)
+  assert.equal(f.requests.length, 1)
+})
+
+test("handled ledger failure stays unknown after restart with readable earlier history and never replays", async (t) => {
+  const f = await fixture(t)
+  let claims = 0
+  addInputExtension(f, (pi) => {
+    pi.registerCommand("claim-fault", { handler: async () => { claims++ } })
+  })
+  await f.send("before-handled-fault", "真实已有历史")
+  const prior = await f.settled()
+  const update = f.store.update.bind(f.store)
+  const fault = t.mock.method(f.store, "update", async (...args) => {
+    if (args[3]?.outcome === "handled") throw Object.assign(new Error("ENOSPC: handled receipt"), { code: "ENOSPC" })
+    return update(...args)
+  })
+  const unknown = await f.send("handled-fault", "/claim-fault 原副本")
+  fault.mock.restore()
+  assert.equal(unknown.inputAccepted, false)
+  assert.equal(unknown.inputDisposition, undefined)
+  assert.equal(unknown.issue.code, "result_unknown")
+  assert.equal((await f.store.request("session-test", "handled-fault")).status, "started")
+  assert.equal((await f.chats.readReceipt("session-test", "handled-fault")).state, "unknown")
+  assert.equal(claims, 1)
+  await f.chats.close()
+  const coldStore = new ConversationStore(f.directory)
+  await coldStore.initialize()
+  const cold = new ConversationService(f.directory, f.service, f.service.sessions, coldStore, f.workspaces)
+  f.service.conversations = cold
+  t.after(() => cold.close())
+  const record = await coldStore.get("session-test")
+  const bytes = await readFile(record.sessionFile, "utf8")
+  const index = await readFile(coldStore.file, "utf8")
+  assert.deepEqual((await cold.read("session-test")).messages, prior.messages)
+  assert.equal((await cold.readReceipt("session-test", "handled-fault")).state, "unknown")
+  assert.equal(await readFile(record.sessionFile, "utf8"), bytes)
+  assert.equal(await readFile(coldStore.file, "utf8"), index)
+  await assert.rejects(f.send("handled-fault", "/claim-fault 原副本"), (error) => error.issue?.code === "result_unknown")
+  assert.equal(claims, 1)
+  assert.equal(f.requests.length, 1)
+})
 
 test("unknown compact receipts block formal sends until authoritative reconciliation", async (t) => {
   const f = await fixture(t)
@@ -419,6 +609,10 @@ test("official Pi shell results preserve zero/nonzero exit codes and durations a
     "This regression requires an available official Pi shell tool"
   )
   await f.service.sessions.apply("session-test", f.cwd, [shell], "directory", 1)
+  // This case checks real shell results, after explicit permission to execute.
+  await f.service.dispatch("conversationPermissionSet", {
+    sessionId: "session-test", mode: "full-access", revision: 0,
+  })
   await f.send("shell-request", "执行两条命令并显示实际退出码")
   const done = await f.settled()
   const tools = done.messages.flatMap((message) => message.tools || [])
@@ -891,6 +1085,10 @@ test("stop targets only active shell calls while retaining genuine nonzero failu
     catalog.tools.find((tool) => tool.id === "bash" && tool.available)?.id
   assert.ok(shell)
   await f.service.sessions.apply("session-test", f.cwd, [shell], "directory", 1)
+  // Keep the default fixture policy; grant execution only in this stop case.
+  await f.service.dispatch("conversationPermissionSet", {
+    sessionId: "session-test", mode: "full-access", revision: 0,
+  })
   const run = await f.send("stop-tools", "停止正在运行的工具，保留之前的错误")
   let ready = false
   for (let i = 0; i < 240; i++) {
@@ -2176,6 +2374,9 @@ test("a declared extension executes through Pi, preserves versioned presentation
   })
   await f.service.dispatch("extensionConfigure", { id: "example-note", revision: 0, enabled: true, configuration: '{"prefix":"验收"}', operationRequestId: "enable-extension" })
   await f.service.sessions.apply("session-test", f.cwd, [name], "directory", 1)
+  await f.service.dispatch("conversationPermissionSet", {
+    sessionId: "session-test", mode: "full-access", revision: 0,
+  })
   await f.send("formal-extension-request", "生成短记录")
   const result = await f.settled()
   assert.equal(result.phase, "completed")

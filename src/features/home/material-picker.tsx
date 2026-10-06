@@ -50,6 +50,7 @@ import {
   materialQueryAtSelection,
   materialCandidateMatches,
   replaceMaterialQuery,
+  replaceLeadingSkill,
 } from "./material-query"
 import { materialPanelPlacement } from "./material-panel-position"
 export type MaterialPickerProps = {
@@ -65,6 +66,7 @@ export type MaterialPickerProps = {
   sessionId?: string
   workspacePath?: string
   onTextChange?: (text: string) => void
+  onCommandSelect?: (name: string, text: string) => void
 }
 export function MaterialPicker(props: MaterialPickerProps) {
   // A disabled phase owns no open candidates. Restoring the phase starts closed
@@ -89,6 +91,7 @@ function MaterialPickerContent({
   sessionId,
   workspacePath,
   onTextChange,
+  onCommandSelect,
 }: MaterialPickerProps) {
   const [open, setOpen] = useComposerPanel("materials")
   const inactive = useComposerPanelInactive()
@@ -108,6 +111,7 @@ function MaterialPickerContent({
   const [active, setActive] = useState(0)
   const trigger = useRef<HTMLButtonElement>(null)
   const fileInput = useRef<HTMLInputElement>(null)
+  const search = useRef<HTMLInputElement>(null)
   const list = useRef<HTMLDivElement>(null)
   const id = useId()
   const panel = useRef<HTMLDivElement>(null)
@@ -179,17 +183,21 @@ function MaterialPickerContent({
         if (inputMode !== "button") setOpen(false)
         return
       }
-      const completed = selected.some(
-        (item) =>
-          item.status === "ready" &&
-          (current.mode === "file"
-            ? materialMention(item, workspacePath) ===
-              textarea!.value.slice(current.start, current.end)
-            : item.type === "skill" &&
-              textarea!.value.slice(current.start, current.end) ===
-                `/skill:${item.name}`)
+      const completed = selected.some((item) =>
+        current.mode === "file"
+          ? materialMention(item, workspacePath) ===
+            textarea!.value.slice(current.start, current.end)
+          : item.type === "skill" &&
+            textarea!.value.slice(current.start, current.end) ===
+              `/skill:${item.name}`
       )
-      if (completed) {
+      const commandName = textarea!.value
+        .slice(current.start, current.end)
+        .replace(/^\//, "")
+      if (
+        completed ||
+        resources.commands.some((command) => command.name === commandName)
+      ) {
         if (inputMode !== "button") setOpen(false)
         return
       }
@@ -244,6 +252,7 @@ function MaterialPickerContent({
     setOpen,
     selected,
     workspacePath,
+    resources.commands,
   ])
   useLayoutEffect(() => {
     if (!open) return
@@ -308,23 +317,45 @@ function MaterialPickerContent({
   }
   function add(item: Material) {
     if (disabled || choosing) return
+    if (item.type === "skill" || item.kind === "Skill") {
+      const textarea = composerEditor(anchorRef?.current)
+      if (!textarea || !onTextChange) return
+      const updated = replaceLeadingSkill(textarea.value, item.name)
+      onTextChange(updated.text)
+      textarea.setSelectionAfterChange(
+        updated.text,
+        updated.caret,
+        updated.caret
+      )
+      dismiss()
+      textarea.focus({ preventScroll: true })
+      return
+    }
     onAdd(item)
-    if (inputMode !== "button" && onTextChange) {
+    if (
+      (inputMode !== "button" ||
+        ["skill", "file", "directory"].includes(item.type ?? "")) &&
+      onTextChange
+    ) {
       const textarea = composerEditor(anchorRef?.current)
       if (textarea) {
-        const { start, end } = queryRange.current
+        const { start, end } =
+          inputMode === "button"
+            ? { start: textarea.selectionStart, end: textarea.selectionEnd }
+            : queryRange.current
         const replacement =
-          inputMode === "slash" || inputMode === "skill"
-            ? `/skill:${item.name} `
-            : `${materialMention(item, workspacePath)} `
+          (start > 0 && !/\s/u.test(textarea.value[start - 1]!) ? " " : "") +
+          `${materialMention(item, workspacePath)} `
         const updated = replaceMaterialQuery(
           textarea.value,
           { start, end },
           replacement
         )
         onTextChange(updated.text)
-        requestAnimationFrame(() =>
-          textarea.setSelectionRange(updated.caret, updated.caret)
+        textarea.setSelectionAfterChange(
+          updated.text,
+          updated.caret,
+          updated.caret
         )
       }
     }
@@ -335,7 +366,19 @@ function MaterialPickerContent({
     if (disabled || choosing) return
     if ((inputMode === "slash" || inputMode === "skill") && onTextChange) {
       const textarea = composerEditor(anchorRef?.current)
-      onTextChange(text + (textarea?.value.slice(queryRange.current.end) ?? ""))
+      if (textarea) {
+        const updated = replaceMaterialQuery(
+          textarea.value,
+          queryRange.current,
+          text
+        )
+        onTextChange(updated.text)
+        textarea.setSelectionAfterChange(
+          updated.text,
+          updated.caret,
+          updated.caret
+        )
+      }
     } else onInsert?.(text)
     setOpen(false)
     composerEditor(anchorRef?.current)?.focus()
@@ -344,12 +387,7 @@ function MaterialPickerContent({
     .filter((item) => pane === "resources" || item.kind === "Skill")
     .map((item) => ({
       id: item.id,
-      group:
-        item.kind === "Skill"
-          ? inputMode === "slash" || inputMode === "skill"
-            ? "Skill 调用"
-            : "Skills"
-          : "工作区文件",
+      group: item.kind === "Skill" ? "Skills" : "工作区文件",
       name: item.name,
       searchText: `${item.name} ${item.source ?? ""} ${item.description ?? ""}`,
       description:
@@ -369,39 +407,63 @@ function MaterialPickerContent({
       drill: item.type === "directory",
       disabled:
         item.status === "failed" ||
-        selected.some(
-          (value) =>
-            value.id === item.id ||
-            (value.source &&
-              value.source === item.source &&
-              value.type === item.type)
-        ),
-      selected: selected.some(
-        (value) =>
-          value.id === item.id ||
-          (value.source &&
-            value.source === item.source &&
-            value.type === item.type)
-      ),
+        (item.kind !== "Skill" &&
+          selected.some(
+            (value) =>
+              value.id === item.id ||
+              (value.source &&
+                value.source === item.source &&
+                value.type === item.type)
+          )),
+      selected:
+        item.kind === "Skill"
+          ? composerEditor(anchorRef?.current)
+              ?.value.trimStart()
+              .match(/^\/skill:([^\s]+)/u)?.[1] === item.name
+          : selected.some(
+              (value) =>
+                value.id === item.id ||
+                (value.source &&
+                  value.source === item.source &&
+                  value.type === item.type)
+            ),
     }))
   const candidates: Candidate[] =
     pane === "resources"
       ? [
           ...(inputMode === "slash" &&
-          allowCompact &&
+          queryRange.current.start === 0 &&
           (onInsert || onTextChange)
             ? [
                 {
                   id: "compact",
                   group: "内置命令",
                   name: "压缩上下文 · /compact",
-                  description: "填入命令，再打开压缩面板；不会发送给模型",
+                  description: allowCompact
+                    ? "填入命令，再打开压缩面板；不会发送给模型"
+                    : "新会话尚无上下文，请先打开已有会话",
+                  disabled: !allowCompact,
                   icon: Terminal,
                   text: "/compact ",
                 },
               ]
             : []),
           ...materialRows,
+          ...(inputMode === "slash" && queryRange.current.start === 0
+            ? resources.commands
+                .filter((command) => command.kind === "extension")
+                .map((command) => ({
+                  id: `command:${command.name}`,
+                  group: "扩展命令",
+                  name: `/${command.name}`,
+                  description: command.available
+                    ? command.description
+                    : command.reason || "当前不可用",
+                  icon: Terminal,
+                  disabled: !command.available,
+                  text: `/${command.name} `,
+                }))
+            : []),
         ]
       : [
           {
@@ -421,8 +483,8 @@ function MaterialPickerContent({
           {
             id: "skills",
             group: "添加",
-            name: "调用 Skill",
-            description: "/ 搜索指令",
+            name: "选择 Skill",
+            description: "补全消息开头的 /skill:name",
             icon: Sparkles,
           },
         ]
@@ -453,6 +515,20 @@ function MaterialPickerContent({
       setResourceKind(item.id === "skills" ? "skill" : "file")
       setActive(0)
       setQuery("")
+    } else if (item.id.startsWith("command:") && item.text && onCommandSelect) {
+      const textarea = composerEditor(anchorRef?.current)
+      const updated = replaceMaterialQuery(
+        textarea?.value ?? "",
+        queryRange.current,
+        item.text
+      )
+      onCommandSelect(item.id.slice(8), updated.text)
+      textarea?.setSelectionAfterChange(
+        updated.text,
+        updated.caret,
+        updated.caret
+      )
+      dismiss(true)
     } else if (item.text) insert(item.text)
     else {
       const material = available.find((entry) => entry.id === item.id)
@@ -539,12 +615,8 @@ function MaterialPickerContent({
           /\s/u.test(path) ? `@"${path}"` : `@${path}`
         )
         onTextChange(updated.text)
-        requestAnimationFrame(() =>
-          editor.setSelectionRange(
-            updated.caret - (/\s/u.test(path) ? 1 : 0),
-            updated.caret - (/\s/u.test(path) ? 1 : 0)
-          )
-        )
+        const caret = updated.caret - (/\s/u.test(path) ? 1 : 0)
+        editor.setSelectionAfterChange(updated.text, caret, caret)
       }
     }
   }
@@ -670,6 +742,8 @@ function MaterialPickerContent({
                     <Search />
                   </InputGroupAddon>
                   <InputGroupInput
+                    ref={search}
+                    variant="compact"
                     autoFocus
                     role="combobox"
                     aria-expanded
@@ -728,8 +802,28 @@ function MaterialPickerContent({
                     ? "没有匹配的命令或 Skill，可修改关键词"
                     : "没有可用的工作区文件或 Skill"
               }
-              diagnostics={pane === "resources" ? resources.diagnostics : []}
-              onRetry={resources.retry}
+              diagnostics={
+                pane === "resources"
+                  ? resources.diagnostics
+                      .filter(
+                        (item) =>
+                          item.scope ===
+                          (inputMode === "slash" ||
+                          inputMode === "skill" ||
+                          (inputMode === "button" && resourceKind === "skill")
+                            ? "skills"
+                            : "files")
+                      )
+                      .map((item) => item.message)
+                  : []
+              }
+              onRetry={() => {
+                resources.retry()
+                ;(inputMode === "button"
+                  ? search.current
+                  : composerEditor(anchorRef?.current)
+                )?.focus({ preventScroll: true })
+              }}
               onActive={setActive}
               onSelect={activate}
               onDrill={drill}

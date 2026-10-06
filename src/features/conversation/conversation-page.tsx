@@ -84,7 +84,7 @@ export function ConversationPage({
             className="conversation-reading"
             aria-busy={state === "loading" || undefined}
           >
-            {state === "ready" ? (
+            {state === "ready" || items.length > 0 ? (
               <ConversationList
                 key={viewKey}
                 items={items}

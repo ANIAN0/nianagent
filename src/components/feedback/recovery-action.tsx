@@ -11,6 +11,7 @@ export type RecoveryActionProps = {
   disabled?: boolean
   className?: string
   labels?: Partial<Record<RecoveryCommand, string>>
+  variant?: "outline" | "ghost"
 }
 
 /** A recovery names its actual action; a restart never becomes another request. */
@@ -23,6 +24,7 @@ export function RecoveryAction({
   disabled = false,
   className,
   labels,
+  variant = "outline",
 }: RecoveryActionProps) {
   const recovery =
     issue.recovery ?? (onRetry ? "retry" : onReload ? "reload" : "none")
@@ -50,8 +52,8 @@ export function RecoveryAction({
   return (
     <Button
       type="button"
-      variant="outline"
-      size="sm"
+      variant={variant}
+      size={variant === "ghost" ? "xs" : "sm"}
       className={className}
       disabled={disabled}
       onClick={command.run}

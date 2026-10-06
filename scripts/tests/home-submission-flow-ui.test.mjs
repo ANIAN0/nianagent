@@ -4,13 +4,15 @@ import { mkdtemp, lstat, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { basename, dirname, join, resolve } from "node:path"
 import { createElement } from "react"
-import { renderToString } from "react-dom/server"
+import { renderToString as renderMarkup } from "react-dom/server"
 import { createServer } from "vite"
 import react from "@vitejs/plugin-react"
 let server,
   cache,
   store,
   HomeSubmissionEcho,
+  TooltipProvider,
+  ComposerPanelProvider,
   followingHomeDraft,
   recoverRejectedHomeDraft,
   adoptFollowingHomeDraft,
@@ -37,7 +39,22 @@ test.before(async () => {
   lifecycle = await server.ssrLoadModule(
     "/src/features/home/home-submission-lifecycle.ts"
   )
+  ;({ TooltipProvider } = await server.ssrLoadModule(
+    "/src/components/ui/tooltip.tsx"
+  ))
+  ;({ ComposerPanelProvider } = await server.ssrLoadModule(
+    "/src/features/home/composer-panel-context.tsx"
+  ))
 })
+function renderToString(element) {
+  return renderMarkup(
+    createElement(
+      TooltipProvider,
+      null,
+      createElement(ComposerPanelProvider, null, element)
+    )
+  )
+}
 test.after(async () => {
   await server?.close()
   if (!cache) return
@@ -503,16 +520,20 @@ test("unknown receipt reload restores separate original and next input without r
   assert.equal(next.sessionId, restored.sessionId)
 })
 
-test("Home's local echo renders the real message surface without fake history actions", () => {
+test("Home's original submission uses a closed recovery action without inventing message history", () => {
   const submission = store.createHomeSubmission(original)
   const html = renderToString(
     createElement(HomeSubmissionEcho, { submission, workspacePath: "/demo" })
   )
-  assert.match(html, /data-slot="message"/u)
-  assert.match(html, /data-slot="bubble"/u)
-  assert.match(html, /原需求/u)
-  assert.match(html, /正在确认发送/u)
-  assert.doesNotMatch(html, /复制消息|消息信息|<time/u)
+  assert.match(
+    html,
+    /<button\b(?=[^>]*aria-label="核对原消息")(?=[^>]*type="button")(?=[^>]*data-state="closed")[^>]*>/u
+  )
+  assert.doesNotMatch(
+    html,
+    /data-slot="message"|data-slot="bubble"|原需求|正在确认发送|复制消息|消息信息|<time/u
+  )
+  assert.doesNotMatch(html, /<button\b[^>]*type="submit"/u)
 })
 
 test("prepared and known-rejected recovery phases remain durable without a model request", (t) => {

@@ -12,6 +12,8 @@ const alertVariants = cva(
           "border-destructive/20 bg-destructive/5 text-foreground *:data-[slot=alert-description]:text-foreground *:[svg]:text-destructive",
         warning:
           "border-status-warning/30 bg-status-warning/5 text-foreground *:data-[slot=alert-description]:text-foreground *:[svg]:text-status-warning",
+        compact:
+          "border-0 bg-transparent px-1 py-1 text-[13px] leading-5 *:[svg]:row-span-1 *:[svg]:size-3.5",
       },
     },
     defaultVariants: {

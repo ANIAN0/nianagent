@@ -18,6 +18,7 @@ import { ToolCall } from "./tool-call"
 import { ExecutionProcess } from "./execution-process"
 import { MessageAttachments } from "./message-attachments"
 import { MessageActions } from "./message-actions"
+import { useMessageEnvironment } from "./message-environment"
 
 export interface ConversationTurnRecord {
   id: string
@@ -49,7 +50,7 @@ export function ConversationTurnView({
   forkFeedback?: ReactNode
   issueFeedback?: (
     message: ConversationMessage,
-    recovered: boolean,
+    recovered: boolean
   ) => ReactNode
   /** An authoritative feedback for this exact current run owns its stop reason. */
   stopFeedbackProvided?: boolean
@@ -69,13 +70,13 @@ export function ConversationTurnView({
   const answer: ConversationContentBlock[] = []
   const tools = turn.messages.flatMap((message) =>
     messageBlocks(message).flatMap((block) =>
-      block.type === "tool" ? [block.tool] : [],
-    ),
+      block.type === "tool" ? [block.tool] : []
+    )
   )
   for (const message of turn.messages) {
     const blocks = messageBlocks(message).filter(hasVisibleBlock)
     const lastProcess = blocks.findLastIndex(
-      (block) => block.type === "thinking" || block.type === "tool",
+      (block) => block.type === "thinking" || block.type === "tool"
     )
     const processBlocks = blocks.filter((block, index) => {
       const final =
@@ -88,7 +89,7 @@ export function ConversationTurnView({
     })
     const issue = issueFeedback?.(
       message,
-      turn.recoveredAttemptIds?.has(message.id) ?? false,
+      turn.recoveredAttemptIds?.has(message.id) ?? false
     )
     // Historical failures belong to this turn and remain readable even while
     // its execution details are collapsed. The authoritative current failure
@@ -133,7 +134,7 @@ export function ConversationTurnView({
       tool.status === "failed" ||
       (tool.status === "success" &&
         tool.exitCode !== undefined &&
-        tool.exitCode !== 0),
+        tool.exitCode !== 0)
   ).length
   const showStoppedNotice =
     tail?.status === "interrupted" && !tail.issue && !stopFeedbackProvided
@@ -266,6 +267,7 @@ function MessageBlock({
   message: ConversationMessage
   onOpenAttachment?: (attachment: MessageAttachment) => void
 }) {
+  const environment = useMessageEnvironment()
   return (
     <div data-block-occurrence={block.id}>
       {block.type === "text" ? (
@@ -282,7 +284,13 @@ function MessageBlock({
           }
         />
       ) : block.type === "tool" ? (
-        <ToolCall tool={block.tool} occurrenceId={block.id} />
+        <ToolCall
+          tool={block.tool}
+          occurrenceId={block.id}
+          awaitingApproval={environment?.waitingTools?.has(
+            JSON.stringify([message.runId, block.tool.id])
+          )}
+        />
       ) : block.type === "image" ? (
         <MessageAttachments
           attachments={[

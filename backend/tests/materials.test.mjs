@@ -11,16 +11,20 @@ import {
   readdir,
   rename,
   symlink,
+  lstat,
 } from "node:fs/promises"
-import { dirname, join } from "node:path"
-import { tmpdir } from "node:os"
+import { basename, dirname, join, resolve } from "node:path"
 import { MaterialService } from "../materials.mjs"
 const image = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgaPj/HwAEggJ/59habAAAAABJRU5ErkJggg==",
   "base64"
 )
+const fixtureRoot = resolve(".dev/task-orchestrator/attachment-check-temp/backend")
 async function fixture() {
-  const directory = await mkdtemp(join(tmpdir(), "moon-materials-"))
+  await mkdir(fixtureRoot, { recursive: true })
+  for (const path of [resolve(".dev"), resolve(".dev/task-orchestrator"), dirname(fixtureRoot), fixtureRoot])
+    assert.equal((await lstat(path)).isSymbolicLink(), false)
+  const directory = await mkdtemp(join(fixtureRoot, "moon-materials-"))
   const cwd = join(directory, "工作区")
   await mkdir(cwd)
   const resources = { skills: [], diagnostics: [] }
@@ -40,6 +44,14 @@ async function fixture() {
     sessions,
     service: new MaterialService(join(directory, "data"), sessions),
   }
+}
+
+async function cleanupFixture(directory) {
+  assert.equal(dirname(resolve(directory)), fixtureRoot)
+  assert.ok(basename(directory).startsWith("moon-materials-"))
+  for (const path of [resolve(".dev"), resolve(".dev/task-orchestrator"), dirname(fixtureRoot), fixtureRoot, directory])
+    assert.equal((await lstat(path)).isSymbolicLink(), false)
+  await rm(directory, { recursive: true, force: true })
 }
 
 test("directory catalog, drill, prepare, restart, preview and prompt preserve one bounded reference", async () => {
@@ -68,7 +80,7 @@ test("directory catalog, drill, prepare, restart, preview and prompt preserve on
     await rename(join(f.cwd, "docs"), join(f.cwd, "moved"))
     const [missing] = await restarted.restore("session", f.cwd, [prepared])
     assert.equal(missing.status, "failed")
-  } finally { await rm(f.directory, { recursive: true, force: true }) }
+  } finally { await cleanupFixture(f.directory) }
 })
 
 test("directory references and drill reject outside workspace and junction targets", async () => {
@@ -79,12 +91,51 @@ test("directory references and drill reject outside workspace and junction targe
     await symlink(outside, join(f.cwd, "linked"), process.platform === "win32" ? "junction" : "dir")
     const [selected] = await f.service.prepare("session", f.cwd, [outside])
     assert.equal(selected.status, "failed")
+    assert.equal(selected.type, "directory")
     assert.equal(selected.retryable, false)
     await assert.rejects(f.service.catalog("session", f.cwd, "linked/"), /工作区/u)
     await assert.rejects(f.service.catalog("session", f.cwd, "../outside/"), /工作区/u)
     const controller = new AbortController(); controller.abort()
     await assert.rejects(f.service.prepare("session", f.cwd, [f.cwd], "workspace", controller.signal), { name: "AbortError" })
-  } finally { await rm(f.directory, { recursive: true, force: true }) }
+  } finally { await cleanupFixture(f.directory) }
+})
+
+test("failed preparation retains a stat-confirmed directory kind without guessing missing sources", async () => {
+  const f = await fixture()
+  try {
+    const folder = join(f.cwd, "docs")
+    await mkdir(folder)
+    await mkdir(dirname(f.service.directory), { recursive: true })
+    await writeFile(f.service.directory, "BLOCK_MATERIAL_STORE")
+    const [failed] = await f.service.prepare("session", f.cwd, [folder])
+    assert.equal(failed.status, "failed")
+    assert.equal(failed.type, "directory")
+    assert.equal(failed.source, folder)
+    assert.equal(failed.retryable, true)
+    const [restored] = await f.service.restore("session", f.cwd, [failed])
+    assert.deepEqual(restored, failed)
+    assert.match(restored.error, /目录/u)
+    const [missing] = await f.service.prepare("session", f.cwd, [
+      join(f.cwd, "missing-directory"),
+    ])
+    assert.equal(missing.status, "failed")
+    assert.equal(missing.type, "file")
+    assert.equal(missing.retryable, true)
+    await rm(f.service.directory)
+    const [prepared] = await f.service.prepare("session", f.cwd, [folder])
+    assert.equal(prepared.status, "ready")
+    assert.equal(prepared.type, "directory")
+    assert.equal(prepared.source, await realpath(folder))
+    const [unknown] = await f.service.restore("session", f.cwd, [
+      { ...prepared, id: "0".repeat(64), status: "failed" },
+    ])
+    assert.equal(unknown.status, "failed")
+    assert.equal(unknown.type, "directory")
+    assert.equal(unknown.source, prepared.source)
+    assert.equal(unknown.retryable, false)
+  } finally {
+    await cleanupFixture(f.directory)
+  }
 })
 
 test("workspace previews resolve relative links and reject outside and junction targets while explicit selected files remain usable", async () => {
@@ -112,7 +163,7 @@ test("workspace previews resolve relative links and reject outside and junction 
     const [viaLink] = await f.service.prepare("session", f.cwd, [join(link, "private.md")], "workspace")
     assert.equal(viaLink.status, "failed")
     assert.equal(viaLink.retryable, false)
-  } finally { await rm(f.directory, { recursive: true, force: true }) }
+  } finally { await cleanupFixture(f.directory) }
 })
 
 test("path searches normalize slashes without changing canonical material identity", async () => {
@@ -124,7 +175,79 @@ test("path searches normalize slashes without changing canonical material identi
     const backslash = await f.service.catalog("session", f.cwd, "SRC\\APP")
     assert.equal(slash.files.length, 1)
     assert.deepEqual(slash.files, backslash.files)
-  } finally { await rm(f.directory, { recursive: true, force: true }) }
+  } finally { await cleanupFixture(f.directory) }
+})
+
+test("catalog ranks names before path matches and applies its limit after ranking", async () => {
+  const f = await fixture()
+  try {
+    await mkdir(join(f.cwd, "a-README.md-path"))
+    for (let index = 0; index < 70; index++)
+      await writeFile(
+        join(
+          f.cwd,
+          "a-README.md-path",
+          `${String(index).padStart(2, "0")}.txt`
+        ),
+        "PATH_MATCH"
+      )
+    await mkdir(join(f.cwd, "z-last"))
+    await writeFile(join(f.cwd, "z-last", "README.md"), "EXACT_NAME")
+    await writeFile(join(f.cwd, "README.md.backup"), "PREFIX_NAME")
+    await writeFile(join(f.cwd, "copy-README.md.txt"), "CONTAINS_NAME")
+    const result = await f.service.catalog("session", f.cwd, "README.md")
+    assert.equal(result.files.length, 60)
+    assert.deepEqual(
+      result.files.slice(0, 4).map((item) => item.name),
+      [
+        "README.md",
+        "README.md.backup",
+        "a-README.md-path",
+        "copy-README.md.txt",
+      ]
+    )
+    assert.equal(
+      result.files[0].source,
+      await realpath(join(f.cwd, "z-last", "README.md"))
+    )
+    assert.ok(
+      result.diagnostics.some(
+        (item) => item.scope === "files" && /数量限制/u.test(item.message)
+      )
+    )
+    assert.deepEqual(
+      (await f.service.catalog("session", f.cwd, "README.md")).files,
+      result.files
+    )
+  } finally {
+    await cleanupFixture(f.directory)
+  }
+})
+
+test("empty and slash catalogs keep directories first while path searches retain exact sources", async () => {
+  const f = await fixture()
+  try {
+    await mkdir(join(f.cwd, "docs folder", "z-dir"), { recursive: true })
+    await mkdir(join(f.cwd, "docs folder", "a-dir"))
+    await writeFile(join(f.cwd, "docs folder", "b.md"), "B")
+    await writeFile(join(f.cwd, "docs folder", "a.md"), "A")
+    await writeFile(join(f.cwd, "0-root.md"), "ROOT")
+    const empty = await f.service.catalog("session", f.cwd)
+    assert.equal(empty.files[0].type, "directory")
+    const children = await f.service.catalog("session", f.cwd, "docs folder/")
+    assert.deepEqual(
+      children.files.map((item) => item.name),
+      ["a-dir", "z-dir", "a.md", "b.md"]
+    )
+    const path = await f.service.catalog("session", f.cwd, "DOCS FOLDER\\A.MD")
+    assert.equal(path.files.length, 1)
+    assert.equal(
+      path.files[0].source,
+      await realpath(join(f.cwd, "docs folder", "a.md"))
+    )
+  } finally {
+    await cleanupFixture(f.directory)
+  }
 })
 
 test("official output images reuse fixed material cache and survive cwd removal without base64 snapshots", async () => {
@@ -144,7 +267,7 @@ test("official output images reuse fixed material cache and survive cwd removal 
     const invalid = await restarted.captureImage(f.cwd, "Pi-invalid", "image/png", "invalid!")
     assert.equal(invalid.status, "failed")
     assert.equal(invalid.retryable, false)
-  } finally { await rm(f.directory, { recursive: true, force: true }) }
+  } finally { await cleanupFixture(f.directory) }
 })
 test("prepared images remain fixed after source edits, restart and workspace removal", async () => {
   const f = await fixture()
@@ -182,7 +305,7 @@ test("prepared images remain fixed after source edits, restart and workspace rem
     const preview = await restarted.preview(f.cwd, material.id)
     assert.equal(preview.data, image.toString("base64"))
   } finally {
-    await rm(f.directory, { recursive: true, force: true })
+    await cleanupFixture(f.directory)
   }
 })
 test("file references deliver a readable native path and failures retain identity", async () => {
@@ -229,7 +352,7 @@ test("file references deliver a readable native path and failures retain identit
       /来源已不存在/
     )
   } finally {
-    await rm(f.directory, { recursive: true, force: true })
+    await cleanupFixture(f.directory)
   }
 })
 test("mixed file and Skill references preserve exact absolute paths and separate resource scopes", async () => {
@@ -304,8 +427,28 @@ test("mixed file and Skill references preserve exact absolute paths and separate
     )
     assert.equal(prompt.text, "按本次引用的真实文件和 Skill 完成任务。")
   } finally {
-    await rm(f.directory, { recursive: true, force: true })
+    await cleanupFixture(f.directory)
   }
+})
+
+test("native idle material resolution preserves raw Skill text and does not prepare legacy Skill identity", async () => {
+  const f = await fixture()
+  try {
+    const source = join(f.cwd, "README.md")
+    await writeFile(source, "FILE_BODY_MUST_NOT_BE_AUTO_READ")
+    const [file] = await f.service.prepare("session", f.cwd, [source])
+    f.sessions.skillResources = async () => { throw new Error("native Skill must not be resolved as material") }
+    const text = "/skill:unknown.name 用原文参数"
+    const prompt = await f.service.resolveForPrompt({
+      sessionId: "session", cwd: f.cwd, text,
+      materials: [{ id: "old-skill", name: "review", kind: "Skill", type: "skill", source: "old source", status: "failed" }, file],
+      model: { input: ["text"] }, nativeSkills: true,
+    })
+    assert.equal(prompt.text, text)
+    assert.deepEqual(prompt.displayMaterials, [file])
+    assert.match(prompt.textPrefix, /Referenced files \(not read\)/u)
+    assert.doesNotMatch(prompt.textPrefix, /FILE_BODY_MUST_NOT_BE_AUTO_READ|<skill/u)
+  } finally { await cleanupFixture(f.directory) }
 })
 
 test("explicit skills keep prepared instructions, source and relative resource base", async () => {
@@ -360,7 +503,7 @@ test("explicit skills keep prepared instructions, source and relative resource b
     assert.equal(invalid.status, "failed")
     assert.equal(invalid.retryable, true)
   } finally {
-    await rm(f.directory, { recursive: true, force: true })
+    await cleanupFixture(f.directory)
   }
 })
 test("cancelled preparation installs no metadata and oversized or disguised images fail", async () => {
@@ -410,7 +553,7 @@ test("cancelled preparation installs no metadata and oversized or disguised imag
     assert.match(invalid.error, /8MiB/)
     assert.equal((await readFile(source)).length, 8 * 1024 * 1024 + 1)
   } finally {
-    await rm(f.directory, { recursive: true, force: true })
+    await cleanupFixture(f.directory)
   }
 })
 
@@ -460,7 +603,7 @@ test("damaged fixed images return an authority non-retryable result regardless o
       "ready"
     )
   } finally {
-    await rm(f.directory, { recursive: true, force: true })
+    await cleanupFixture(f.directory)
   }
 })
 
@@ -494,7 +637,7 @@ test("temporary cache read failures remain retryable and restore the same fixed 
       image.toString("base64")
     )
   } finally {
-    await rm(f.directory, { recursive: true, force: true })
+    await cleanupFixture(f.directory)
   }
 })
 
@@ -549,7 +692,7 @@ test("an initial path preparation failure survives persisted restore until an ex
       "ready"
     )
   } finally {
-    await rm(f.directory, { recursive: true, force: true })
+    await cleanupFixture(f.directory)
   }
 })
 
@@ -568,7 +711,6 @@ test("provisional path recovery cannot rescue changed identities or missing fixe
       { ...failed, source: "relative.md" },
       { ...failed, type: "image" },
       { ...failed, status: "ready" },
-      { ...failed, retryable: false },
     ]
     for (const value of await f.service.restore("session", f.cwd, variants)) {
       assert.equal(value.status, "failed")
@@ -609,6 +751,42 @@ test("provisional path recovery cannot rescue changed identities or missing fixe
     // a lost fixed image by silently preparing that source again.
     await assert.rejects(stat(fixedRecord), { code: "ENOENT" })
   } finally {
-    await rm(f.directory, { recursive: true, force: true })
+    await cleanupFixture(f.directory)
+  }
+})
+
+test("an oversized path image keeps its permanent preparation reason after restart without reading or granting a fixed identity", async () => {
+  const f = await fixture()
+  try {
+    const source = join(f.cwd, "超限.png")
+    await writeFile(source, Buffer.alloc(8 * 1024 * 1024 + 1))
+    const [failed] = await f.service.prepare("session", f.cwd, [source])
+    assert.equal(failed.type, "file")
+    assert.equal(failed.status, "failed")
+    assert.equal(failed.retryable, false)
+    assert.match(failed.error, /8MiB/u)
+    const draft = join(f.directory, "failed-image.json")
+    await writeFile(draft, JSON.stringify(failed))
+    await rm(source)
+    const restarted = new MaterialService(join(f.directory, "data"), f.sessions)
+    const saved = JSON.parse(await readFile(draft, "utf8"))
+    assert.deepEqual((await restarted.restore("session", f.cwd, [saved]))[0], failed)
+    assert.deepEqual((await restarted.restore("session", f.cwd, [{ ...saved, status: "preparing" }]))[0], failed)
+    await assert.rejects(stat(restarted.directory), { code: "ENOENT" })
+    await assert.rejects(restarted.resolveForPrompt({ sessionId: "session", cwd: f.cwd, materials: [saved], text: "检查图片" }), /尚未就绪/u)
+    const [unknown] = await restarted.restore("session", f.cwd, [{ ...saved, id: "f".repeat(64), retryable: true }])
+    assert.equal(unknown.status, "failed")
+    assert.equal(unknown.retryable, false)
+    assert.notEqual(unknown.error, saved.error)
+    const [pretendReady] = await restarted.restore("session", f.cwd, [{ ...saved, status: "ready" }])
+    assert.equal(pretendReady.status, "failed")
+    assert.equal(pretendReady.retryable, false)
+    await writeFile(source, image)
+    const [reselected] = await restarted.prepare("session", f.cwd, [source])
+    assert.equal(reselected.status, "ready", reselected.error)
+    assert.equal(reselected.type, "image")
+    assert.notEqual(reselected.id, failed.id)
+  } finally {
+    await cleanupFixture(f.directory)
   }
 })

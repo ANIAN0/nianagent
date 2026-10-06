@@ -31,11 +31,30 @@
   overflow: auto;
 }
 .conversation-composer-dock {
+  flex-shrink: 0;
   margin: 0 8px -3px;
   min-height: 0;
   max-height: min(180px, 22dvh);
   overflow: auto;
   scrollbar-width: thin;
+}
+.conversation-composer-interaction {
+  display: flex;
+  min-height: 0;
+  flex: 0 1 auto;
+  flex-direction: column;
+  margin-bottom: 12px;
+}
+.conversation-approval-count {
+  margin: 6px 16px 0;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.conversation-composer-feedback {
+  min-height: 0;
+  max-height: min(140px, 18dvh);
+  overflow: auto;
+  margin-bottom: 12px;
 }
 .conversation-input-card[data-slot="input-group"] {
   min-height: 0;
@@ -409,9 +428,20 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  justify-content: center;
-  gap: 4px 12px;
+  justify-content: space-between;
+  gap: 4px 16px;
   padding-top: 4px;
+}
+.composer-auxiliary-actions,
+.composer-auxiliary-insights {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.composer-auxiliary-insights {
+  margin-left: auto;
 }
 .composer-auxiliary-trigger,
 .composer-auxiliary .context-usage-trigger {

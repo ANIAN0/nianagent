@@ -3,7 +3,7 @@ import type { OperationIssue } from "@/features/models/model-contract.generated"
 import type { ConversationService } from "./conversation-service"
 
 export type ConversationReceipt = {
-  state: "accepted" | "rejected" | "unknown"
+  state: "accepted" | "handled" | "rejected" | "unknown"
   snapshot?: ConversationSnapshot
   clientRequestId?: string
   issue?: OperationIssue
@@ -28,7 +28,7 @@ export async function readConversationReceipt(
     lookup.clientRequestId !== clientRequestId
   )
     return { state: "unknown", clientRequestId }
-  if (lookup.state !== "accepted")
+  if (lookup.state !== "accepted" && lookup.state !== "handled")
     return {
       state: lookup.state,
       clientRequestId,
@@ -37,7 +37,7 @@ export async function readConversationReceipt(
   const snapshot = await service.read(sessionId, signal)
   signal?.throwIfAborted()
   if (snapshot.id !== sessionId) return { state: "unknown", clientRequestId }
-  return { state: "accepted", snapshot, clientRequestId }
+  return { state: lookup.state, snapshot, clientRequestId }
 }
 
 /** A history read only confirms the original request; another turn is not proof. */
@@ -59,9 +59,10 @@ export function inspectConversationReceipt(
     return { ...receipt, state: "accepted" }
   if (
     snapshot.clientRequestId === clientRequestId &&
-    !snapshot.inputAccepted &&
-    ["failed", "interrupted"].includes(snapshot.phase)
+    snapshot.inputDisposition === "handled"
   )
-    return { ...receipt, state: "rejected" }
+    return { ...receipt, state: "handled" }
+  // A terminal run (including an older readable history) does not establish
+  // rejection of this input. Only the explicit request ledger may do that.
   return receipt
 }

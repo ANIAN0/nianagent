@@ -439,6 +439,7 @@ export class SessionService {
       signal?.throwIfAborted()
       if (mcpEnabled) mcp?.runtime.set(owner, instructionState.mcpStatuses)
       await session.bindExtensions({
+        ...(options.uiContext ? { uiContext: options.uiContext, mode: "rpc" } : {}),
         onError: (error) => {
           // This is a real host binding: Pi reuses it after reload and therefore
           // emits session_start itself exactly once. Retain a safe, inspectable

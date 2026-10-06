@@ -93,7 +93,7 @@ export class ConversationStore {
       assertSchema(conversationRequestReceiptStorageSchema, receipt, "已保存发送回执")
       identity(receipt.sessionId)
       identity(receipt.clientRequestId)
-      if (receipt.status === "started") identity(receipt.runId)
+      if (receipt.status === "started" || receipt.status === "handled") identity(receipt.runId)
       check(Number.isFinite(Date.parse(receipt.updatedAt)), "发送回执时间损坏；原文件未覆盖。")
       const key = JSON.stringify([receipt.sessionId, receipt.clientRequestId])
       check(!identities.has(key), "发送回执存在重复身份；原文件未覆盖。")
@@ -300,11 +300,13 @@ export class ConversationStore {
           item.sessionId === id && item.clientRequestId === request.clientRequestId)
         check(receipt && receipt.fingerprint === request.fingerprint,
           "发送回执与原请求内容不一致。")
-        if (request.outcome === "rejected") {
+        if (request.outcome === "rejected" || request.outcome === "handled") {
           check(receipt.status === "started" && receipt.runId === request.runId &&
-            record.runId === request.runId, "原请求运行已经变化；不能确认其他运行的拒绝。")
-          Object.assign(receipt, { status: "rejected", issue: request.issue,
+            record.runId === request.runId, "原请求运行已经变化；不能确认其他运行的结果。")
+          Object.assign(receipt, { status: request.outcome,
             updatedAt: new Date().toISOString() })
+          if (request.issue) receipt.issue = request.issue
+          else delete receipt.issue
         } else {
           check(receipt.status === "preparing", "原请求不在可启动的准备阶段，请先核对原回执。")
           Object.assign(receipt, { status: "started", runId: patch.runId,

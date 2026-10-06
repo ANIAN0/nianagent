@@ -77,6 +77,7 @@ export function createMaterialService() {
             status: item.status ?? "failed",
             source: item.source ?? "",
             ...(item.description ? { description: item.description } : {}),
+            ...(item.error ? { error: item.error } : {}),
             ...(typeof item.retryable === "boolean"
               ? { retryable: item.retryable }
               : {}),
@@ -116,12 +117,10 @@ export function appendPreparedMaterials(
   for (const item of items) {
     const index = output.findIndex((value) => sameMaterial(value, item))
     if (index < 0) output.push(item)
-    else if (
-      output[index].id === item.id &&
-      output[index].status === "failed" &&
-      item.status === "ready"
-    )
-      output[index] = item
+    else if (output[index].status === "failed" && item.status === "ready")
+      output[index] = output[index].presentation
+        ? { ...item, presentation: output[index].presentation }
+        : item
   }
   return output
 }

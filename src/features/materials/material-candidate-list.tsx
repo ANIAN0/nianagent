@@ -1,3 +1,4 @@
+import { HoverHint } from "@/components/feedback/hover-hint"
 import type { RefObject } from "react"
 import { Check, ChevronRight, type LucideIcon } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -85,40 +86,44 @@ export function MaterialCandidateList({
                   {item.group}
                 </div>
               )}
-              <Button
-                type="button"
-                id={`${id}-${rowIndex}`}
-                data-candidate-index={rowIndex}
-                role="option"
-                aria-selected={active === rowIndex}
-                disabled={item.disabled}
-                tabIndex={-1}
-                variant="ghost"
-                className={cn(
-                  "h-9 w-full justify-start gap-2 rounded-lg px-3 py-1 font-normal",
-                  item.drill && "pr-10",
-                  active === rowIndex && "bg-accent/60"
-                )}
-                onMouseDown={(event) => event.preventDefault()}
-                onMouseMove={() => {
-                  if (!item.disabled) onActive(rowIndex)
-                }}
-                onClick={() => onSelect(item)}
+              <HoverHint
+                content={`${item.name}${item.description ? `\n${item.description}` : ""}`}
+                onlyWhenTruncated=".moon-candidate-name, .moon-candidate-description"
               >
-                <item.icon data-icon="inline-start" />
-                <span className="flex min-w-0 flex-1 items-center gap-4">
-                  <span className="min-w-0 shrink truncate text-left text-[13px]">
-                    {item.name}
-                  </span>
-                  <span
-                    className="ml-auto max-w-[55%] min-w-0 shrink truncate text-xs text-muted-foreground"
-                    title={item.description}
+                <span className="block">
+                  <Button
+                    type="button"
+                    id={`${id}-${rowIndex}`}
+                    data-candidate-index={rowIndex}
+                    role="option"
+                    aria-selected={active === rowIndex}
+                    disabled={item.disabled}
+                    tabIndex={-1}
+                    variant="ghost"
+                    className={cn(
+                      "h-9 w-full justify-start gap-2 rounded-lg px-3 py-1 font-normal",
+                      item.drill && "pr-10",
+                      active === rowIndex && "bg-accent/60"
+                    )}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onMouseMove={() => {
+                      if (!item.disabled) onActive(rowIndex)
+                    }}
+                    onClick={() => onSelect(item)}
                   >
-                    {item.description}
-                  </span>
+                    <item.icon data-icon="inline-start" />
+                    <span className="flex min-w-0 flex-1 items-center gap-4">
+                      <span className="moon-candidate-name min-w-0 shrink truncate text-left text-[13px]">
+                        {item.name}
+                      </span>
+                      <span className="moon-candidate-description ml-auto max-w-[55%] min-w-0 shrink truncate text-xs text-muted-foreground">
+                        {item.description}
+                      </span>
+                    </span>
+                    {item.selected && <Check data-icon="inline-end" />}
+                  </Button>
                 </span>
-                {item.selected && <Check data-icon="inline-end" />}
-              </Button>
+              </HoverHint>
               {item.drill && onDrill && (
                 <Button
                   type="button"

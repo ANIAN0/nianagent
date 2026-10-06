@@ -35,12 +35,14 @@ export function OperationFeedback({
   details,
   severity = "error",
   actions,
+  density = "default",
 }: {
   title: string
   message: string
   details?: string
   severity?: "error" | "warning" | "info"
   actions?: ReactNode
+  density?: "default" | "compact"
 }) {
   const Icon =
     severity === "error"
@@ -48,6 +50,36 @@ export function OperationFeedback({
       : severity === "warning"
         ? TriangleAlert
         : Info
+  if (density === "compact")
+    return (
+      <Alert variant="compact" role={severity === "error" ? "alert" : "status"}>
+        <Icon
+          aria-hidden="true"
+          className={
+            severity === "error"
+              ? "text-destructive"
+              : severity === "warning"
+                ? "text-status-warning"
+                : "text-muted-foreground"
+          }
+        />
+        <div className="flex min-w-0 flex-col items-start gap-1">
+          <span className="w-full min-w-0 [overflow-wrap:anywhere]">
+            {message || title}
+          </span>
+          {actions && (
+            <div className="flex w-full flex-wrap items-center gap-1">
+              {actions}
+            </div>
+          )}
+          {details && (
+            <div className="w-full">
+              <FeedbackDetails key={`${title}:${details}`} details={details} />
+            </div>
+          )}
+        </div>
+      </Alert>
+    )
   return (
     <Alert
       variant={

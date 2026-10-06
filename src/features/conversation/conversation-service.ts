@@ -1,5 +1,8 @@
 import { modelCall } from "@/features/models/model-service"
-import type { RpcRequests } from "@/features/models/model-contract.generated"
+import type {
+  RpcRequests,
+  ConversationSnapshot,
+} from "@/features/models/model-contract.generated"
 
 export function createConversationService() {
   return {
@@ -25,6 +28,43 @@ export function createConversationService() {
       ),
     read: (sessionId: string, signal?: AbortSignal) =>
       modelCall("conversationRead", { sessionId }, signal),
+    follow: async (
+      sessionId: string,
+      previous?: ConversationSnapshot,
+      signal?: AbortSignal
+    ) => {
+      const frame = await modelCall(
+        "conversationFollow",
+        {
+          sessionId,
+          ...(previous
+            ? { epoch: previous.epoch, afterVersion: previous.version }
+            : {}),
+        },
+        signal
+      )
+      if (frame.kind === "heartbeat") return previous!
+      if (frame.kind === "snapshot" && frame.snapshot) return frame.snapshot
+      if (
+        previous &&
+        frame.epoch === previous.epoch &&
+        frame.baseVersion === previous.version &&
+        frame.metadata &&
+        frame.order &&
+        frame.upserts
+      ) {
+        const messages = new Map(
+          previous.messages.map((message) => [message.id, message])
+        )
+        frame.upserts.forEach((message) => messages.set(message.id, message))
+        if (frame.order.every((id) => messages.has(id)))
+          return {
+            ...frame.metadata,
+            messages: frame.order.map((id) => messages.get(id)!),
+          }
+      }
+      return modelCall("conversationRead", { sessionId }, signal)
+    },
     send: (input: RpcRequests["conversationSend"], signal?: AbortSignal) =>
       modelCall("conversationSend", input, signal),
     stop: (sessionId: string, runId: string) =>

@@ -1,3 +1,4 @@
+import { HoverHint } from "@/components/feedback/hover-hint"
 import { ConversationItem } from "./conversation-item"
 import { ChevronDown, FolderOpen, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -39,12 +40,11 @@ export function ConversationGroup({
               )}
             />
           </span>
-          <span
-            className="min-w-0 flex-1 truncate text-left"
-            title={workspace.path}
-          >
-            {workspace.name}
-          </span>
+          <HoverHint content={workspace.path}>
+            <span className="min-w-0 flex-1 truncate text-left">
+              {workspace.name}
+            </span>
+          </HoverHint>
         </Button>
         {onNew && (
           <Button

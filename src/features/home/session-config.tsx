@@ -1,9 +1,11 @@
+import { HoverHint } from "@/components/feedback/hover-hint"
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
-import { useContext, useEffect, useEffectEvent, useRef, useState } from "react"
+  useContext,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+} from "react"
 import {
   ChevronDown,
   SlidersHorizontal,
@@ -12,7 +14,6 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { notifyComposer } from "@/components/composer/composer-notification"
-import { DisabledControlReason } from "@/components/composer/disabled-control-reason"
 import {
   Dialog,
   DialogTrigger,
@@ -43,7 +44,7 @@ import {
   ExtensionServiceContext,
   type ExtensionService,
 } from "@/features/extensions/extension-service"
-import { ToolPicker } from "./tool-picker"
+import { ToolPicker, type ToolPickerHandle } from "./tool-picker"
 import { InstructionScopePicker } from "./instruction-scope-picker"
 import type { HomeTool, SessionOptions } from "./home-types"
 import { useNavigationBoundary } from "./navigation-boundary"
@@ -132,6 +133,8 @@ function SessionConfigPanel({
   const extensions = useContext(ExtensionServiceContext)
   const extensionService = suppliedExtensions ?? extensions
   const [extensionOpen, setExtensionOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState("tools")
+  const toolPicker = useRef<ToolPickerHandle>(null)
   const navigation = useNavigationBoundary()
   const [open, setOpen] = useComposerPanel("config")
   const closeAutoFocus = useComposerPanelCloseAutoFocus("config")
@@ -412,7 +415,23 @@ function SessionConfigPanel({
       setPhase(retainView ? "refresh-error" : "load-error")
       const issue = feedbackFromError(cause, "会话配置暂时无法读取，请重试。")
       setFeedback(
-        issue.code === "cancelled" ? { ...issue, recovery: "reload" } : issue
+        retainView
+          ? {
+              ...issue,
+              message:
+                issue.code === "cancelled"
+                  ? "重新读取已取消，上次读取内容和候选修改仍保留。"
+                  : "重新读取失败，上次读取内容和候选修改仍保留。",
+              details: [issue.message, issue.details]
+                .filter(Boolean)
+                .join("\n\n"),
+              ...(issue.code === "cancelled"
+                ? { recovery: "reload" as const }
+                : {}),
+            }
+          : issue.code === "cancelled"
+            ? { ...issue, recovery: "reload" }
+            : issue
       )
     }
   }
@@ -543,6 +562,7 @@ function SessionConfigPanel({
       type="button"
       size="composer"
       variant="composer"
+      className="moon-composer-selector"
       aria-label="打开会话配置"
       disabled={disabled}
     >
@@ -555,10 +575,14 @@ function SessionConfigPanel({
       ) : (
         <SlidersHorizontal data-icon="inline-start" />
       )}
-      <span className="hidden @sm:inline" role={applied ? "status" : undefined}>
+      <span
+        data-hint-label
+        className="hidden @sm:inline"
+        role={applied ? "status" : undefined}
+      >
         {applied ? "配置已应用" : "会话配置"}
       </span>
-      <ChevronDown className="text-caption" data-icon="inline-end" />
+      <ChevronDown data-icon="inline-end" />
     </Button>
   )
   return (
@@ -569,6 +593,7 @@ function SessionConfigPanel({
           if (releaseNavigation.current) return
           if (next) {
             setApplied(false)
+            setActiveTab("tools")
             setPhase("loading")
           } else {
             rememberSubmission()
@@ -578,27 +603,32 @@ function SessionConfigPanel({
         }}
       >
         {disabled ? (
-          <DisabledControlReason
-            label="会话配置暂不可修改"
-            reason={disabledReason}
+          <HoverHint
+            disabled
+            label="会话配置"
+            content={loading ? undefined : disabledReason}
           >
             {trigger}
-          </DisabledControlReason>
+          </HoverHint>
         ) : (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <DialogTrigger asChild>{trigger}</DialogTrigger>
-            </TooltipTrigger>
-            <TooltipContent side="top">
-              {loading ? "正在读取会话配置" : "配置本会话的工具与项目指令"}
-            </TooltipContent>
-          </Tooltip>
+          <HoverHint
+            content={loading ? undefined : applied ? "配置已应用" : "会话配置"}
+            onlyWhenTruncated="[data-hint-label]"
+            suppressed={open}
+          >
+            <DialogTrigger asChild>{trigger}</DialogTrigger>
+          </HoverHint>
         )}
         <DialogContent
           onCloseAutoFocus={closeAutoFocus}
           showCloseButton={!requestBusy && !extensionOpen}
           onEscapeKeyDown={(event) => {
-            if (extensionOpen) event.preventDefault()
+            if (extensionOpen || releaseNavigation.current) {
+              event.preventDefault()
+              return
+            }
+            if (activeTab === "tools" && toolPicker.current?.backIfDetail())
+              event.preventDefault()
           }}
           onInteractOutside={(event) => {
             if (extensionOpen) event.preventDefault()
@@ -621,12 +651,12 @@ function SessionConfigPanel({
                 {phase === "refreshing" && (
                   <LoaderCircle
                     className="ml-2 inline size-3.5 animate-spin"
-                    aria-label="正在更新工具目录"
+                    aria-label="正在重新读取会话配置"
                   />
                 )}
               </DialogTitle>
               <DialogDescription className="sr-only">
-                选择会话可用工具与项目指令范围。应用成功后保存到当前会话。
+                选择会话可用工具与AGENTS.md加载范围。应用成功后保存到当前会话。
               </DialogDescription>
             </DialogHeader>
             {phase === "loading" ? (
@@ -639,13 +669,14 @@ function SessionConfigPanel({
                 <Skeleton className="h-14 w-full" />
                 <Skeleton className="h-14 w-full" />
                 <p className="text-xs text-muted-foreground">
-                  正在读取工具与项目指令…
+                  正在读取工具与AGENTS.md…
                 </p>
               </div>
             ) : phase === "load-error" ? (
               <div className="moon-scrollbar min-h-0 flex-1 overflow-auto px-6 py-4">
                 {feedback && (
                   <OperationFeedback
+                    density="compact"
                     title={
                       feedback.code === "cancelled"
                         ? "读取已取消"
@@ -654,6 +685,7 @@ function SessionConfigPanel({
                     {...feedback}
                     actions={
                       <RecoveryAction
+                        variant="ghost"
                         issue={feedback}
                         onRetry={() => void load(keepCandidateOnLoad.current)}
                         onReload={() => void load(keepCandidateOnLoad.current)}
@@ -672,14 +704,18 @@ function SessionConfigPanel({
                 {unavailableSelected.length > 0 && (
                   <div className="mx-6 mb-3">
                     <OperationFeedback
+                      density="compact"
                       title="所选工具不可用"
-                      message={`请取消选择后应用：${unavailableSelected.join("、")}`}
+                      message={`请取消选择后应用：${unavailableSelected
+                        .map((id) => displayTools.find((tool) => tool.id === id)?.name ?? id)
+                        .join("、")}`}
                       severity="warning"
                     />
                   </div>
                 )}
                 <Tabs
-                  defaultValue="tools"
+                  value={activeTab}
+                  onValueChange={setActiveTab}
                   className="min-h-0 flex-1 gap-4 px-6"
                 >
                   <div className="flex shrink-0 items-center justify-between gap-3">
@@ -693,17 +729,9 @@ function SessionConfigPanel({
                           />
                         )}
                       </TabsTrigger>
-                      <TabsTrigger value="instructions">
-                        项目指令{" "}
-                        {(scopeChanged || instructionsChanged) && (
-                          <span
-                            aria-label="已修改"
-                            className="size-[5px] rounded-full bg-primary"
-                          />
-                        )}
-                      </TabsTrigger>
+                      <TabsTrigger value="instructions">AGENTS.md</TabsTrigger>
                     </TabsList>
-                    {extensionService && (
+                    {extensionService && activeTab === "tools" && (
                       <Button
                         type="button"
                         variant="outline"
@@ -721,6 +749,13 @@ function SessionConfigPanel({
                     className="flex min-h-0 flex-col gap-3 pb-4 data-[state=inactive]:hidden"
                   >
                     <ToolPicker
+                      ref={toolPicker}
+                      canRestoreFocus={
+                        activeTab === "tools" &&
+                        !extensionOpen &&
+                        phase !== "saving" &&
+                        phase !== "refreshing"
+                      }
                       tools={displayTools}
                       value={pending.toolIds}
                       onChange={(toolIds) =>
@@ -733,18 +768,8 @@ function SessionConfigPanel({
                     value="instructions"
                     className="flex min-h-0 flex-col pb-4 data-[state=inactive]:hidden"
                   >
-                    {saved && (
-                      <p className="mb-3 text-xs leading-5 text-muted-foreground">
-                        已保存 {saved.instructions.length} 个指令文件。
-                        {instructionsChanged
-                          ? "磁盘内容或所选范围已变化；应用后更新会话快照。"
-                          : "本次读取内容与已保存快照一致。"}
-                      </p>
-                    )}
                     <InstructionScopePicker
-                      workspacePath={catalog?.cwd ?? workspacePath}
                       instructions={catalog?.instructions}
-                      savedInstructions={saved?.instructions}
                       value={pending.instructionScope}
                       onChange={(instructionScope) =>
                         updatePending({ ...pending, instructionScope })
@@ -757,21 +782,26 @@ function SessionConfigPanel({
             {feedback && phase !== "load-error" && (
               <div className="moon-scrollbar max-h-[45%] shrink-0 overflow-auto px-6 pb-3">
                 <OperationFeedback
+                  density="compact"
                   title={
-                    submissionBlocked
-                      ? "保存结果待核对"
-                      : feedback.code === "session_revision_conflict"
-                        ? "当前会话配置已更新"
-                        : feedback.code === "configuration_confirmed"
-                          ? "配置已确认保存"
-                          : feedback.code === "cancelled"
-                            ? "应用已取消"
-                            : "配置未能保存"
+                    phase === "refresh-error"
+                      ? feedback.code === "cancelled"
+                        ? "重新读取已取消"
+                        : "无法重新读取会话配置"
+                      : submissionBlocked
+                        ? "保存结果待核对"
+                        : feedback.code === "session_revision_conflict"
+                          ? "当前会话配置已更新"
+                          : feedback.code === "configuration_confirmed"
+                            ? "配置已确认保存"
+                            : feedback.code === "cancelled"
+                              ? "应用已取消"
+                              : "配置未能保存"
                   }
                   {...feedback}
                   actions={
                     feedback.recovery === "restart" ? (
-                      <RecoveryAction issue={feedback} />
+                      <RecoveryAction issue={feedback} variant="ghost" />
                     ) : submissionBlocked ? (
                       <Button
                         variant="outline"
@@ -791,13 +821,20 @@ function SessionConfigPanel({
                       </Button>
                     ) : feedback.code !== "configuration_confirmed" ? (
                       <RecoveryAction
+                        variant="ghost"
                         issue={feedback}
                         onRetry={() => void load(true)}
                         onReload={() => void load(true)}
                         onCheck={() => void load(true)}
                         labels={{
-                          retry: "读取当前会话已保存配置",
-                          reload: "读取当前会话已保存配置",
+                          retry:
+                            phase === "refresh-error"
+                              ? "重新读取"
+                              : "读取当前会话已保存配置",
+                          reload:
+                            phase === "refresh-error"
+                              ? "重新读取"
+                              : "读取当前会话已保存配置",
                           check: "核对配置",
                         }}
                       />

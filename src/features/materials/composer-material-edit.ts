@@ -1,20 +1,23 @@
 import type { Material } from "@/features/home/home-types"
+import {
+  composerReferenceToken,
+  removeComposerReferenceTokens,
+} from "../../components/composer/composer-editor-contract.ts"
 
-/** Removing a selected Skill also releases only its leading bound command. */
+/** Remove this reference's exact tokens, preserving other calls and prose. */
 export function removeComposerMaterial<
   T extends { text: string; materials: Material[] },
->(draft: T, id: string): T {
+>(draft: T, id: string, cwd = ""): T {
   const removed = draft.materials.find((item) => item.id === id)
-  // Submission trims leading whitespace before Pi parses the command. Resolve
-  // that same call here while preserving the user's original spacing/body.
-  const bound = /^(\s*)\/skill:([^\s]+)(?=\s|$)/u.exec(draft.text)
-  const releasesCommand =
-    removed?.type === "skill" && bound?.[2] === removed.name
+  const token =
+    removed &&
+    removed.presentation !== "attachment" &&
+    ["skill", "file", "directory"].includes(removed.type ?? "")
+      ? composerReferenceToken(removed, cwd)
+      : undefined
   return {
     ...draft,
-    text: releasesCommand
-      ? bound![1] + draft.text.slice(bound![0].length).replace(/^[ \t]/u, "")
-      : draft.text,
+    text: token ? removeComposerReferenceTokens(draft.text, token) : draft.text,
     materials: draft.materials.filter((item) => item.id !== id),
   }
 }

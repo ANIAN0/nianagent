@@ -1,6 +1,7 @@
 import type { KeyboardEvent, ReactNode } from "react"
 import { Check } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { HoverHint } from "@/components/feedback/hover-hint"
 
 // Focus navigation must never change the selected value.
 export function navigatePicker(event: KeyboardEvent<HTMLElement>) {
@@ -33,6 +34,7 @@ export function PickerOption({
   active = false,
   id,
   onPointerMove,
+  fullName,
 }: {
   selected: boolean
   children: ReactNode
@@ -41,8 +43,9 @@ export function PickerOption({
   active?: boolean
   id?: string
   onPointerMove?: () => void
+  fullName?: string
 }) {
-  return (
+  const option = (
     <Button
       id={id}
       type="button"
@@ -51,12 +54,14 @@ export function PickerOption({
       aria-checked={selected}
       data-picker-item
       data-active={active || undefined}
-      className="h-9 w-full min-w-0 justify-start gap-3 px-3 py-1 text-left text-[13px] font-normal data-active:bg-accent"
+      className="h-[34px] w-full min-w-0 justify-start gap-2 px-2 py-1 text-left text-[13px] leading-5 font-normal data-active:bg-accent"
       onClick={onSelect}
       onPointerMove={onPointerMove}
     >
       <span className="flex min-w-0 flex-1 items-center gap-4">
-        <span className="min-w-0 flex-1 truncate">{children}</span>
+        <span className="moon-picker-option-name min-w-0 flex-1 truncate">
+          {children}
+        </span>
         {description && (
           <span className="ml-auto max-w-[45%] truncate text-xs text-muted-foreground">
             {description}
@@ -70,5 +75,12 @@ export function PickerOption({
         {selected && <Check />}
       </span>
     </Button>
+  )
+  return fullName ? (
+    <HoverHint content={fullName} onlyWhenTruncated=".moon-picker-option-name">
+      {option}
+    </HoverHint>
+  ) : (
+    option
   )
 }

@@ -223,6 +223,81 @@ function render(Component, props) {
   )
 }
 
+test("等待审批属于输入操作区，工具等待确认而历史通知不堆积", () => {
+  const tool = {
+    id: "current-call",
+    name: "powershell",
+    source: "Pi",
+    status: "running",
+    input: '{"command":"Write-Output approval-target"}',
+    result: "",
+  }
+  const html = render(LiveConversationView, {
+    ...viewProps,
+    snapshot: snapshot({
+      phase: "running",
+      runtime: { kind: "tool", toolName: "powershell" },
+      approvals: [
+        {
+          id: "approval",
+          runId: "boundary-run",
+          toolCallId: tool.id,
+          kind: "tool",
+          toolName: tool.name,
+          title: "执行命令",
+          message: "确认后才会执行",
+          input: tool.input,
+          expiresAt: "2099-01-01T00:00:00Z",
+        },
+      ],
+      extensionNotifications: [
+        {
+          id: "old-notice",
+          message: "历史扩展通知不应作为消息显示",
+          type: "info",
+        },
+      ],
+      messages: [
+        {
+          id: "current-assistant",
+          role: "assistant",
+          status: "streaming",
+          time: stamp,
+          text: "准备执行",
+          runId: "boundary-run",
+          tools: [tool],
+        },
+      ],
+      queue: {
+        revision: 1,
+        mode: "single",
+        paused: false,
+        items: [
+          {
+            id: "steer",
+            clientRequestId: "steer",
+            text: "后续补充",
+            materials: [],
+            status: "dispatching",
+            delivery: "steer",
+            error: "",
+            createdAt: stamp,
+          },
+        ],
+      },
+    }),
+  })
+  assert.match(html, /data-status="waiting"/)
+  assert.match(html, /等待确认后处理/)
+  assert.doesNotMatch(html, /正在交付|历史扩展通知不应作为消息显示/)
+  const interaction = html.indexOf('class="conversation-composer-interaction"')
+  const target = html.indexOf('aria-label="待确认的操作"')
+  assert.ok(interaction >= 0 && target > interaction)
+  assert.match(html.slice(target, target + 120), /Write-Output approval-target/)
+  expectButton(html, "允许这一次", false)
+  expectButton(html, "拒绝", false)
+})
+
 function buttons(html, label) {
   return [...html.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)]
     .filter((match) => {
@@ -371,6 +446,28 @@ for (const readState of ["loading", "error"]) {
     assert.match(html, /原队列操作恢复/)
   })
 }
+
+test("an in-flight send shows progress instead of an unknown result and preserves the next draft", (t) => {
+  storage(t)
+  const html = render(LiveConversationView, {
+    ...viewProps,
+    snapshot: snapshot(),
+    pending: true,
+    unconfirmed: true,
+    pendingSubmission: {
+      id: "sending-original",
+      kind: "send",
+      stage: "sending",
+      draft: { ...draft, text: "正在提交的原消息" },
+    },
+  })
+  assert.match(html, /正在提交的原消息/)
+  assert.match(html, /正在提交消息，尚未收到接收确认。/)
+  assert.match(html, /正在确认本次操作，草稿可继续编辑。/)
+  assert.match(html, /这是独立的下一条草稿，必须继续保留。/)
+  assert.doesNotMatch(html, /发送结果待确认|发送结果待核对|核对发送/)
+  expectButton(html, "发送", true)
+})
 
 test("an unconfirmed original locks all new writes and keeps the next draft and read recovery", (t) => {
   storage(t)

@@ -1,4 +1,5 @@
 import { useId, type ReactNode } from "react"
+import { cn } from "@/lib/utils"
 import {
   Tooltip,
   TooltipContent,
@@ -11,10 +12,12 @@ export function DisabledControlReason({
   reason,
   label,
   children,
+  className,
 }: {
   reason: string
   label: string
   children: ReactNode
+  className?: string
 }) {
   const id = useId()
   return (
@@ -27,7 +30,10 @@ export function DisabledControlReason({
             aria-disabled="true"
             aria-label={label}
             aria-describedby={id}
-            className="inline-flex min-w-0 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+            className={cn(
+              "inline-flex min-w-0 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring/30",
+              className
+            )}
             onKeyDown={(event) => {
               if (event.key === "Enter" || event.key === " ")
                 event.preventDefault()

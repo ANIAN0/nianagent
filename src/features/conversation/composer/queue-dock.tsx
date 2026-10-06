@@ -62,6 +62,7 @@ export type QueueDockProps = {
   }[]
   running: boolean
   paused?: boolean
+  waitingApproval?: boolean
   cwd?: string
   busy?: boolean
   checkPending?: boolean
@@ -133,6 +134,7 @@ function QueueDockContent({
   items,
   running,
   paused = false,
+  waitingApproval = false,
   cwd = "",
   busy = false,
   checkPending = false,
@@ -544,7 +546,15 @@ function QueueDockContent({
       {editing && !editingItem && <div className="px-3">{editor}</div>}
       {items.length > 0 && (
         <p className="conversation-queue-mode" role="status">
-          {paused || !running ? "已暂停，发送后继续处理" : "当前工作结束后继续"}
+          {paused || !running
+            ? "已暂停，发送后继续处理"
+            : waitingApproval
+              ? "等待确认后处理"
+              : items.every((item) => item.delivery === "steer")
+                ? "补充将在下个可用边界处理"
+                : items.some((item) => item.delivery === "steer")
+                  ? "补充在可用边界处理，排队在工作结束后处理"
+                  : "当前工作结束后继续"}
           <span>{deliveryMode === "all" ? "全部交付" : "逐条交付"}</span>
         </p>
       )}
@@ -604,9 +614,15 @@ function QueueDockContent({
                     {(item.status === "dispatching" ||
                       item.delivery === "steer") && (
                       <small role="status">
-                        {item.status === "dispatching"
-                          ? "正在交付"
-                          : "等待补充边界"}
+                        {waitingApproval
+                          ? item.delivery === "steer"
+                            ? "待补充 · 等待确认"
+                            : "排队 · 等待确认"
+                          : item.status === "dispatching"
+                            ? item.delivery === "steer"
+                              ? "待补充"
+                              : "正在交付"
+                            : "待补充"}
                       </small>
                     )}
                     {!issue && !deliverIssue && item.error && (

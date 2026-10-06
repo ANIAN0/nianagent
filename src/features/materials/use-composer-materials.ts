@@ -16,6 +16,10 @@ import {
 } from "./material-service"
 import { prepareImageUpload } from "./prepare-image-upload"
 import {
+  fileReferenceFeedback,
+  isFileReference,
+} from "./material-reference-feedback"
+import {
   getUploadRetrySource,
   releaseUploadRetrySource,
   rememberUploadRetrySource,
@@ -28,6 +32,17 @@ import {
 type Update = (apply: (materials: Material[]) => Material[]) => void
 type RetrySource = { type: "path"; path: string }
 
+/** A failed check may precede stat; preserve the already selected reference kind. */
+function withSelectedReferenceType(
+  result: Material,
+  selected?: Material
+): Material {
+  return result.status === "failed" &&
+    (selected?.type === "file" || selected?.type === "directory")
+    ? { ...result, type: selected.type }
+    : result
+}
+
 function hasActualPath(material: Material) {
   return (
     !!material.source && /^(?:[a-z]:[\\/]|[\\/]{2}|\/)/i.test(material.source)
@@ -37,6 +52,14 @@ function canPreparePath(material: Material) {
   return (
     hasActualPath(material) &&
     (material.type !== "image" || /^preparing:/.test(material.id))
+  )
+}
+
+function isTemporaryUpload(material: Material) {
+  return (
+    (material.type === "image" || material.type === "file") &&
+    /^preparing:[a-zA-Z0-9-]+$/.test(material.id) &&
+    !hasActualPath(material)
   )
 }
 
@@ -100,7 +123,34 @@ export function useComposerMaterials({
     for (const item of items) verified.current.add(`${scope}:${item.id}`)
     // Event ownership is synchronous; presentation reads the immutable snapshot.
     setVerifiedKeys(new Set(verified.current))
+    const references = items.filter((value): value is Material => {
+      const item = value as Partial<Material>
+      return (
+        item.status === "ready" &&
+        !!item.source &&
+        typeof item.name === "string" &&
+        typeof item.kind === "string" &&
+        ["file", "directory", "skill"].includes(item.type ?? "")
+      )
+    })
+    if (references.length)
+      setReferenceHistory((current) => ({
+        scope,
+        items: [
+          ...(current.scope === scope ? current.items : []).filter(
+            (old) =>
+              !references.some(
+                (item) => old.source === item.source && old.type === item.type
+              )
+          ),
+          ...references,
+        ],
+      }))
   }
+  const [referenceHistory, setReferenceHistory] = useState<{
+    scope: string
+    items: Material[]
+  }>({ scope, items: [] })
   const preparing = useRef(new Set<string>())
   // Only retain sources for unfinished preparation. Prepared images continue
   // to use their fixed host identity instead of silently rereading a disk file.
@@ -168,26 +218,39 @@ export function useComposerMaterials({
         !verified.current.has(`${scope}:${item.id}`) &&
         !preparing.current.has(item.id)
     )
+    // A provisional browser upload has no host record. Restore its local failure,
+    // not an unknown RPC identity; a retained File is the only retry source.
     const localUploads = pending.filter(
-      (item) =>
-        item.type === "image" &&
-        item.status !== "ready" &&
-        item.retryable !== false &&
-        getUploadRetrySource(service, sessionId, cwd, item.id)
+      (item) => isTemporaryUpload(item) && item.status !== "ready"
     )
     if (localUploads.length) {
       const localIds = new Set(localUploads.map((item) => item.id))
       markVerified(localUploads)
       latest.current.update((current) =>
         current.map((item) =>
-          localIds.has(item.id)
-            ? {
-                ...item,
-                status: "failed",
-                retryable: true,
-                error: item.error || "图片尚未准备，重试后再发送。",
-              }
-            : item
+          !localIds.has(item.id)
+            ? item
+            : item.retryable === false
+              ? { ...item, status: "failed" }
+              : getUploadRetrySource(service, sessionId, cwd, item.id)
+                ? {
+                    ...item,
+                    status: "failed",
+                    retryable: true,
+                    error: item.error || "图片尚未准备，重试后再发送。",
+                  }
+                : {
+                    ...item,
+                    status: "failed",
+                    retryable: false,
+                    error:
+                      item.type === "file"
+                        ? item.error ||
+                          "浏览器拖入的普通文件缺少实际路径，请使用“添加附件”从系统选择。"
+                        : item.error
+                          ? `${item.error} 图片准备来源已失效，请重新选择或移除。`
+                          : "图片准备已中断，请重新选择或移除。",
+                  }
         )
       )
     }
@@ -206,10 +269,16 @@ export function useComposerMaterials({
       .restore(sessionId, cwd, unverified, controller.signal)
       .then((restored) => {
         if (controller.signal.aborted || !owns(owner)) return
-        markVerified(restored)
+        const ownedRestored = restored.map((item) => {
+          const original = unverified.find((old) => old.id === item.id)
+          return { ...original, ...withSelectedReferenceType(item, original) }
+        })
+        markVerified(ownedRestored)
         latest.current.update((current) =>
           current.map((item) => {
-            const value = restored.find((candidate) => candidate.id === item.id)
+            const value = ownedRestored.find(
+              (candidate) => candidate.id === item.id
+            )
             return value
               ? {
                   ...item,
@@ -323,8 +392,12 @@ export function useComposerMaterials({
                 path: item.source!,
               })
           syncRetrySources()
-          markVerified(items)
-          append(items)
+          const attachments = items.map((item) => ({
+            ...item,
+            presentation: "attachment" as const,
+          }))
+          markVerified(attachments)
+          append(attachments)
         }
       )
     } catch (failure) {
@@ -349,11 +422,16 @@ export function useComposerMaterials({
       return
     const owner = scopeOwner.current
     if (!service || !source.source) {
-      append([source])
+      latest.current.update((current) =>
+        appendPreparedMaterials(current, [
+          { ...source, presentation: source.presentation ?? "reference" },
+        ])
+      )
       return
     }
     const placeholder = {
       ...source,
+      presentation: source.presentation ?? ("reference" as const),
       id: `preparing:${crypto.randomUUID()}`,
       status: "preparing" as const,
     }
@@ -365,7 +443,9 @@ export function useComposerMaterials({
       path: source.source,
     })
     syncRetrySources()
-    append([placeholder])
+    latest.current.update((current) =>
+      appendPreparedMaterials(current, [placeholder])
+    )
     try {
       await operation(
         (signal) => service.prepare(sessionId, cwd, [source.source!], signal),
@@ -377,12 +457,16 @@ export function useComposerMaterials({
                 path: source.source!,
               })
           syncRetrySources()
-          markVerified(prepared)
+          const references = prepared.map((item) => ({
+            ...withSelectedReferenceType(item, placeholder),
+            presentation: placeholder.presentation,
+          }))
+          markVerified(references)
           latest.current.update((current) =>
             appendPreparedMaterials(
               [],
               current.flatMap((item) =>
-                item.id === placeholder.id ? prepared : [item]
+                item.id === placeholder.id ? references : [item]
               )
             )
           )
@@ -392,7 +476,8 @@ export function useComposerMaterials({
       if (owns(owner)) {
         const description = feedbackFromError(
           failure,
-          "材料未能准备，请重新选择或移除。"
+          fileReferenceFeedback({ ...placeholder, status: "failed" })
+            ?.message ?? "材料未能准备，请重新选择或移除。"
         )
         if (description.code === "cancelled") {
           latest.current.update((current) =>
@@ -433,6 +518,7 @@ export function useComposerMaterials({
       id: `preparing:${crypto.randomUUID()}`,
       name: file.name || "粘贴图片.png",
       kind: "附件",
+      presentation: "attachment",
       type: file.type.startsWith("image/") ? "image" : "file",
       status: "preparing",
       source: file.type.startsWith("image/")
@@ -441,14 +527,21 @@ export function useComposerMaterials({
     }
     preparing.current.add(placeholder.id)
     append([placeholder])
+    let invalidInput = false
     try {
       if (!service) throw new Error("当前环境未连接材料服务。")
-      if (!/^image\/(png|jpeg|webp|gif)$/.test(file.type))
+      if (!/^image\/(png|jpeg|webp|gif)$/.test(file.type)) {
+        invalidInput = true
         throw new Error(
-          "浏览器拖入的普通文件缺少实际路径，请使用“添加附件”从系统选择。"
+          file.type.startsWith("image/")
+            ? "图片格式不支持，仅支持 PNG、JPEG、WebP、GIF，请重新选择或移除。"
+            : "浏览器拖入的普通文件缺少实际路径，请使用“添加附件”从系统选择。"
         )
-      if (file.size > 8 * 1024 * 1024)
-        throw new Error("图片超过8MiB，请选择较小图片。")
+      }
+      if (file.size > 8 * 1024 * 1024) {
+        invalidInput = true
+        throw new Error("图片超过8MiB，请选择较小图片或移除。")
+      }
       rememberUploadRetrySource(service, sessionId, cwd, placeholder.id, file)
       selectedUploads.current.add(placeholder.id)
       await operation(
@@ -464,12 +557,16 @@ export function useComposerMaterials({
         (prepared) => {
           releaseUploadRetrySource(service, sessionId, cwd, placeholder.id)
           selectedUploads.current.delete(placeholder.id)
-          markVerified([prepared])
+          const attachment = {
+            ...prepared,
+            presentation: "attachment" as const,
+          }
+          markVerified([attachment])
           latest.current.update((current) =>
             appendPreparedMaterials(
               [],
               current.map((item) =>
-                item.id === placeholder.id ? prepared : item
+                item.id === placeholder.id ? attachment : item
               )
             )
           )
@@ -490,6 +587,10 @@ export function useComposerMaterials({
           )
           return
         }
+        const retryable = !invalidInput && description.recovery !== "none"
+        // This attempt has settled in this owner. Further draft validation must
+        // not replace its real reason with a missing host-record error.
+        markVerified([placeholder])
         latest.current.update((current) =>
           current.map((item) =>
             item.id === placeholder.id
@@ -497,12 +598,12 @@ export function useComposerMaterials({
                   ...item,
                   status: "failed",
                   error: description.message,
-                  retryable: description.recovery !== "none",
+                  retryable,
                 }
               : item
           )
         )
-        if (description.recovery === "none") {
+        if (!retryable) {
           if (service)
             releaseUploadRetrySource(service, sessionId, cwd, placeholder.id)
           selectedUploads.current.delete(placeholder.id)
@@ -529,6 +630,8 @@ export function useComposerMaterials({
     )
   }
   function retryLabel(id: string) {
+    const item = materials.find((candidate) => candidate.id === id)
+    if (item && isFileReference(item)) return "重新检查"
     return (retrySourceKeys.scope === scope && retrySourceKeys.ids.has(id)) ||
       (service && getUploadRetrySource(service, sessionId, cwd, id))
       ? "重试准备"
@@ -613,9 +716,15 @@ export function useComposerMaterials({
           return service.restore(sessionId, cwd, [original], signal)
         },
         (restored) => {
-          const value = restored[0]
-          if (!value) throw new Error("材料未返回准备结果，请重试。")
-          markVerified([value])
+          const result = restored[0]
+          const value = result && withSelectedReferenceType(result, original)
+          if (!value)
+            throw new Error(
+              isFileReference(original)
+                ? "引用未返回检查结果，请重新检查。"
+                : "材料未返回准备结果，请重试。"
+            )
+          markVerified([{ ...original, ...value }])
           // Keep the selected position and use the authority-generated ID. An
           // existing reference keeps its ID; a provisional upload/path item is
           // replaced in place rather than appended as a duplicate.
@@ -654,7 +763,8 @@ export function useComposerMaterials({
       if (!owns(owner)) return
       const description = feedbackFromError(
         failure,
-        "材料未能重新检查，请重试或移除。"
+        fileReferenceFeedback({ ...original, status: "failed" })?.message ??
+          "材料未能重新检查，请重试或移除。"
       )
       markVerified([{ id }])
       latest.current.update((current) =>
@@ -789,6 +899,7 @@ export function useComposerMaterials({
                 type: "file",
                 status: "ready",
                 source: path,
+                presentation: "attachment",
               })
           })
         )
@@ -832,6 +943,8 @@ export function useComposerMaterials({
       ))
   return {
     service,
+    referenceIdentities:
+      referenceHistory.scope === scope ? referenceHistory.items : [],
     ready,
     choosing,
     dropActive: dropState.scope === scope && dropState.active,

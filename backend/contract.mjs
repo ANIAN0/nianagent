@@ -1,12 +1,19 @@
 import { workspaceOperations } from "./workspace-contract.mjs"
 import { conversationOperations as catalogOperations } from "./conversation-catalog-contract.mjs"
 import { conversationOperations } from "./conversation-contract.mjs"
+import { liveOperations } from "./conversation-live-contract.mjs"
+import { permissionOperations } from "./permission-contract.mjs"
+import { insightOperations } from "./conversation-insight-contract.mjs"
 import { materialOperations } from "./material-contract.mjs"
 import { queueOperations } from "./queue-contract.mjs"
 import { controlOperations } from "./conversation-control-contract.mjs"
 import { mcpOperations } from "./mcp-contract.mjs"
 import { extensionOperations } from "./extension-contract.mjs"
-import { writeReceiptOperations, writeRequestId, writeOperations } from "./write-receipt-contract.mjs"
+import {
+  writeReceiptOperations,
+  writeRequestId,
+  writeOperations,
+} from "./write-receipt-contract.mjs"
 import { schemas, object, ref, assertSchema } from "./schema.mjs"
 export { schemas, assertSchema } from "./schema.mjs"
 // Authority for RPC names, required input fields, documentation and dispatch.
@@ -19,6 +26,9 @@ export const operations = {
   ...workspaceOperations,
   ...catalogOperations,
   ...conversationOperations,
+  ...liveOperations,
+  ...permissionOperations,
+  ...insightOperations,
   ...controlOperations,
   sessionCatalog: {
     module: "会话配置",
@@ -155,7 +165,13 @@ export const operations = {
   save: {
     method: "save",
     args: ["connection", "$signal", "operationRequestId"],
-    request: object({ connection: ref("ModelConnection"), operationRequestId: writeRequestId }, ["connection"]),
+    request: object(
+      {
+        connection: ref("ModelConnection"),
+        operationRequestId: writeRequestId,
+      },
+      ["connection"]
+    ),
     response: ref("ModelConnection"),
     condition:
       "提交前取消不写入；rename 为提交边界，提交后取消不回滚。新建不传 revision；编辑必须携带原版本。",
@@ -268,7 +284,13 @@ export const operations = {
   authStart: {
     method: "jobs.start",
     args: ["connection", "$signal", "operationRequestId"],
-    request: object({ connection: ref("ModelConnection"), operationRequestId: writeRequestId }, ["connection"]),
+    request: object(
+      {
+        connection: ref("ModelConnection"),
+        operationRequestId: writeRequestId,
+      },
+      ["connection"]
+    ),
     response: ref("AuthState"),
     condition:
       "先保存连接再开始授权；取消不删除已保存连接。客户端提供operationRequestId作为已知任务ID，准备也可authPoll/authCancel；同ID同输入只返回原任务，不再保存/登录。响应丢失只核对/取消原任务，不新建授权。启动取消覆盖准备；Pi登录接受后使用authCancel。同提供者退出登录或授权清理尚未结束时拒绝新授权，不按凭据存在与否推断闲置。",
@@ -358,17 +380,62 @@ export const operations = {
 // the authority for what callers may do after losing the response, not a regex
 // over operation names or translated error strings.
 export const transportRecoveryByOperation = {
-  list: "reload", revealKey: "reload", providers: "reload", discover: "reload", check: "none",
-  sessionCatalog: "reload", sessionRead: "reload", sessionApply: "check",
-  save: "check", remove: "check", authStart: "check", authPoll: "reload", authReply: "check", authCancel: "check", logout: "check",
-  workspaceList: "reload", workspaceGet: "reload", workspaceAdd: "check", workspaceSelect: "check", workspaceChoose: "check",
-  conversationList: "reload", conversationInfo: "reload", conversationMarkRead: "check",
-  conversationRead: "reload", conversationReceiptRead: "reload", conversationSend: "check", conversationRetry: "check", conversationStop: "check",
-  conversationQueueEdit: "check", conversationQueueRemove: "check", conversationQueueMode: "check", conversationQueueDeliver: "check", conversationQueueReceiptRead: "reload",
-  conversationFork: "check", conversationCompact: "check", conversationControlRead: "reload", conversationCompactCancel: "check",
-  materialChoose: "check", materialPrepare: "check", materialUpload: "check", materialCatalog: "reload", materialPreview: "reload", materialRestore: "reload",
-  mcpList: "reload", mcpSave: "check", mcpRemove: "check", mcpTest: "reload",
-  extensionList: "reload", extensionConfigure: "check", writeReceiptRead: "reload",
+  list: "reload",
+  revealKey: "reload",
+  providers: "reload",
+  discover: "reload",
+  check: "none",
+  sessionCatalog: "reload",
+  sessionRead: "reload",
+  sessionApply: "check",
+  save: "check",
+  remove: "check",
+  authStart: "check",
+  authPoll: "reload",
+  authReply: "check",
+  authCancel: "check",
+  logout: "check",
+  workspaceList: "reload",
+  workspaceGet: "reload",
+  workspaceAdd: "check",
+  workspaceSelect: "check",
+  workspaceChoose: "check",
+  conversationList: "reload",
+  conversationInfo: "reload",
+  conversationMarkRead: "check",
+  conversationRead: "reload",
+  conversationFollow: "reload",
+  conversationReceiptRead: "reload",
+  conversationSend: "check",
+  conversationRetry: "check",
+  conversationStop: "check",
+  conversationQueueEdit: "check",
+  conversationQueueRemove: "check",
+  conversationQueueMode: "check",
+  conversationQueueDeliver: "check",
+  conversationQueueReceiptRead: "reload",
+  conversationFork: "check",
+  conversationCompact: "check",
+  conversationControlRead: "reload",
+  conversationCompactCancel: "check",
+  materialChoose: "check",
+  materialPrepare: "check",
+  materialUpload: "check",
+  materialCatalog: "reload",
+  materialPreview: "reload",
+  materialRestore: "reload",
+  mcpList: "reload",
+  mcpSave: "check",
+  mcpRemove: "check",
+  mcpTest: "reload",
+  extensionList: "reload",
+  extensionConfigure: "check",
+  writeReceiptRead: "reload",
+  conversationPermissionRead: "reload",
+  conversationPermissionSet: "check",
+  conversationApprovalReply: "check",
+  conversationCommandRun: "check",
+  conversationCommandRead: "reload",
 }
 for (const [name, definition] of Object.entries(operations)) {
   if (!Object.hasOwn(transportRecoveryByOperation, name)) throw new Error(`Missing transport recovery contract: ${name}`)

@@ -1,8 +1,4 @@
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
+import { HoverHint } from "@/components/feedback/hover-hint"
 import { useCallback, useEffect, useId, useRef, useState } from "react"
 import {
   ArrowLeft,
@@ -10,7 +6,6 @@ import {
   ChevronRight,
   Search,
   Settings,
-  Cpu,
   X,
 } from "lucide-react"
 import {
@@ -21,7 +16,6 @@ import {
 } from "@/components/ui/input-group"
 import { useComposerKeyboard } from "@/components/composer/composer-keymap"
 import { Button } from "@/components/ui/button"
-import { DisabledControlReason } from "@/components/composer/disabled-control-reason"
 import "@/components/composer/composer-input-card.css"
 import { Separator } from "@/components/ui/separator"
 import {
@@ -201,38 +195,37 @@ export function ModelPicker({
     groups.set(connection, entries)
   }
   const triggerButton = (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <PopoverTrigger asChild>
-          <Button
-            ref={trigger}
-            disabled={disabled}
-            type="button"
-            variant="composer"
-            size="composer"
-            className="moon-composer-model-trigger"
-            aria-label={`选择模型，当前为 ${title}`}
-          >
-            <Cpu
-              className="moon-composer-model-icon"
-              data-icon="inline-start"
-            />
-            <span className="moon-composer-model-name">
-              {displayName || placeholder}
-              {unavailable ? " · 不可用" : ""}
-            </span>
-            {currentThinking && (
-              <span className="moon-composer-thinking">{currentThinking}</span>
-            )}
-            <ChevronDown
-              className="shrink-0 text-caption"
-              data-icon="inline-end"
-            />
-          </Button>
-        </PopoverTrigger>
-      </TooltipTrigger>
-      <TooltipContent side="top">{title}</TooltipContent>
-    </Tooltip>
+    <HoverHint
+      content={disabled ? disabledReason : title}
+      disabled={disabled}
+      label="选择模型"
+      onlyWhenTruncated={disabled ? false : ".moon-composer-model-name"}
+      suppressed={open || catalog?.status === "loading"}
+    >
+      <PopoverTrigger asChild>
+        <Button
+          ref={trigger}
+          disabled={disabled}
+          type="button"
+          variant="composer"
+          size="composer"
+          className="moon-composer-model-trigger moon-composer-selector"
+          aria-label={`选择模型，当前为 ${title}`}
+        >
+          <span className="moon-composer-model-short" aria-hidden="true">
+            模型
+          </span>
+          <span className="moon-composer-model-name">
+            {displayName || placeholder}
+            {unavailable ? " · 不可用" : ""}
+          </span>
+          {currentThinking && (
+            <span className="moon-composer-thinking">{currentThinking}</span>
+          )}
+          <ChevronDown data-icon="inline-end" />
+        </Button>
+      </PopoverTrigger>
+    </HoverHint>
   )
   return (
     <Popover
@@ -244,13 +237,7 @@ export function ModelPicker({
         setQuery("")
       }}
     >
-      {disabled && disabledReason ? (
-        <DisabledControlReason label="选择模型暂不可用" reason={disabledReason}>
-          {triggerButton}
-        </DisabledControlReason>
-      ) : (
-        triggerButton
-      )}
+      {triggerButton}
       <PopoverContent
         onCloseAutoFocus={closeAutoFocus}
         ref={content}
@@ -259,10 +246,10 @@ export function ModelPicker({
         sideOffset={8}
         collisionPadding={12}
         style={{
-          width: `min(420px, max(240px, ${Math.max(240, Math.min(420, Math.max(...models.map((model) => (labels?.[model] ?? model).length * 8), 0) + 72))}px))`,
+          width: `${Math.max(catalog?.status === "error" ? 320 : 240, Math.min(420, Math.max(...models.map((model) => (lookup.get(model)?.name ?? labels?.[model] ?? model).length * 8), ...[...groups.keys()].map((name) => name.length * 8), 0) + 56))}px`,
           maxHeight: `min(${bounds.height}px, var(--radix-popover-content-available-height))`,
         }}
-        className="w-72 max-w-[calc(100vw-24px)] gap-1 overflow-hidden rounded-xl p-1.5"
+        className="moon-model-menu max-w-[calc(100vw-24px)] gap-1 overflow-hidden rounded-xl p-1"
         aria-label="模型与思考"
         onOpenAutoFocus={(event) => {
           event.preventDefault()
@@ -281,7 +268,7 @@ export function ModelPicker({
           <Button
             type="button"
             variant="ghost"
-            className="h-9 shrink-0 justify-start"
+            className="h-[34px] shrink-0 justify-start px-2 text-[13px] leading-5 font-normal"
             onClick={() => show("root")}
             aria-label="返回模型与思考"
           >
@@ -290,10 +277,10 @@ export function ModelPicker({
           </Button>
         )}
         {pane === "model" && models.length > 4 && (
-          <InputGroup className="h-8 shrink-0">
+          <InputGroup className="moon-model-search h-8 shrink-0">
             <InputGroupInput
               ref={searchRef}
-              type="search"
+              type="text"
               aria-label="搜索模型名称、ID或连接"
               aria-controls={listId}
               placeholder="搜索模型…"
@@ -354,6 +341,7 @@ export function ModelPicker({
           {catalog?.status === "error" && failure && (
             <div className="p-1.5">
               <OperationFeedback
+                density="compact"
                 title={
                   failure.code === "cancelled"
                     ? "模型读取已取消"
@@ -362,6 +350,7 @@ export function ModelPicker({
                 {...failure}
                 actions={
                   <RecoveryAction
+                    variant="ghost"
                     issue={failure}
                     onRetry={catalog.onRetry}
                     onReload={catalog.onRetry}
@@ -402,11 +391,11 @@ export function ModelPicker({
                   role="menuitem"
                   type="button"
                   variant="ghost"
-                  className="h-auto min-h-10 w-full justify-start gap-3 py-2 font-normal"
+                  className="h-[34px] w-full justify-start gap-2 px-2 py-0 text-[13px] leading-5 font-normal"
                   onClick={() => show("model")}
                 >
                   <span className="shrink-0">模型</span>
-                  <span className="ml-auto min-w-0 truncate text-xs text-muted-foreground">
+                  <span className="ml-auto min-w-0 truncate text-[13px] text-muted-foreground">
                     {displayName || "请选择"}
                   </span>
                   <ChevronRight data-icon="inline-end" />
@@ -421,11 +410,11 @@ export function ModelPicker({
                     role="menuitem"
                     type="button"
                     variant="ghost"
-                    className="h-10 w-full justify-start font-normal"
+                    className="h-[34px] w-full justify-start gap-2 px-2 py-0 text-[13px] leading-5 font-normal"
                     onClick={() => show("thinking")}
                   >
                     <span>思考强度</span>
-                    <span className="ml-auto text-xs text-muted-foreground">
+                    <span className="ml-auto text-[13px] text-muted-foreground">
                       {currentThinking}
                     </span>
                     <ChevronRight data-icon="inline-end" />
@@ -455,16 +444,14 @@ export function ModelPicker({
                   aria-label={connection}
                   className="min-w-0"
                 >
-                  <h3 className="px-3 py-1.5 text-xs font-medium [overflow-wrap:anywhere] text-muted-foreground">
+                  <h3 className="px-2 py-1 text-xs font-normal [overflow-wrap:anywhere] text-muted-foreground">
                     {connection}
                   </h3>
                   {items.map((item) => (
                     <PickerOption
                       key={item.value}
                       selected={item.value === value}
-                      description={
-                        item.modelId !== item.name ? item.modelId : undefined
-                      }
+                      fullName={item.name}
                       onSelect={() => {
                         onChange(item.value)
                         setOpen(false)
@@ -493,7 +480,7 @@ export function ModelPicker({
             <Button
               type="button"
               variant="ghost"
-              className="h-9 shrink-0 justify-start font-normal"
+              className="h-[34px] shrink-0 justify-start px-2 text-[13px] leading-5 font-normal"
               onClick={() => {
                 setOpen(false)
                 catalog.onOpenSettings()

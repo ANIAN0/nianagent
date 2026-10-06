@@ -65,7 +65,9 @@ export function ConversationSubmissionEcho({
       <p>
         {unconfirmed
           ? "发送结果待核对，正在保留本次消息副本。"
-          : "正在提交消息，尚未收到接收确认。"}
+          : submission.stage === "prepared"
+            ? "正在准备会话，原消息已保留。"
+            : "正在提交消息，尚未收到接收确认。"}
       </p>
     </div>
   )

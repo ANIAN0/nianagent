@@ -8,7 +8,7 @@ export type PromptInputProps = Omit<
 > &
   Partial<Pick<ComposerEditorProps, "placeholder" | "ariaLabel" | "variant">>
 export function PromptInput({
-  placeholder = "描述你想完成的工作，/ 调用 Skill，@ 引用文件",
+  placeholder = "描述你想完成的工作，/ 选择命令或 Skill，@ 引用文件",
   ariaLabel = "描述你想完成的工作",
   variant = "hero",
   ...props

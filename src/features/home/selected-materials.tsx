@@ -29,8 +29,9 @@ export function SelectedMaterials({
     ? allMaterials.filter(
         (item) =>
           !(
-            (item.type === "file" || item.type === "directory") &&
-            item.status === "ready"
+            item.type === "skill" ||
+            ((item.type === "file" || item.type === "directory") &&
+              item.presentation !== "attachment")
           )
       )
     : allMaterials

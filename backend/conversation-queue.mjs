@@ -366,7 +366,7 @@ export class ConversationQueue {
           text: input.text,
           materials: prepared.displayMaterials,
           status: "pending",
-          delivery: "followUp",
+          delivery: input.delivery || "followUp",
           error: "",
           createdAt: new Date().toISOString(),
         }),

@@ -8,7 +8,8 @@ export type ConversationSendControlProps = {
   stopping?: boolean
   hasDraft: boolean
   disabled?: boolean
-  command?: "compact"
+  command?: "compact" | "extension"
+  delivery?: "followUp" | "steer"
   onStop: () => void
 }
 export function ConversationSendControl({
@@ -18,6 +19,7 @@ export function ConversationSendControl({
   hasDraft,
   disabled = false,
   command,
+  delivery = "followUp",
   onStop,
 }: ConversationSendControlProps) {
   const action = composerPrimaryAction({
@@ -35,8 +37,12 @@ export function ConversationSendControl({
         : action === "compact"
           ? "打开压缩面板"
           : action === "queue"
-            ? "排队发送"
-            : "发送"
+            ? delivery === "steer"
+              ? "补充当前工作"
+              : "排队发送"
+            : command === "extension"
+              ? "执行扩展命令"
+              : "发送"
   const primaryStops = action === "stop" || action === "stopping"
   return (
     <div className="conversation-send-controls">

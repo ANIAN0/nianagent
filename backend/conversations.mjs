@@ -10,9 +10,16 @@ import {
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai"
 import { ConversationQueue } from "./conversation-queue.mjs"
 import { ConversationControls } from "./conversation-controls.mjs"
+import { ConversationLive } from "./conversation-live.mjs"
+import { ConversationPermissions } from "./conversation-permissions.mjs"
+import { ConversationCommands } from "./conversation-commands.mjs"
+import {
+  conversationStatistics,
+  runStatisticsEvent,
+} from "./conversation-statistics.mjs"
 import { modelFailureIssue, publicFailure, operationError } from "./operation-issue.mjs"
 import { issueSchemas } from "./issue-contract.mjs"
-import { assertSchema } from "./schema.mjs"
+import { assertSchema, schemas } from "./schema.mjs"
 import { projectedResult, projectedDetails, toolTarget, fileArtifact } from "./conversation-projection.mjs"
 
 const requireValue = (value, message) => {
@@ -162,12 +169,19 @@ export class ConversationService {
     this.closed = false
     this.queue = new ConversationQueue(directory, this)
     this.controls = new ConversationControls(this, directory)
+    this.live = new ConversationLive(this)
+    this.permissions = new ConversationPermissions(directory, this)
+    this.commands = new ConversationCommands(directory, this)
   }
   ensureOpen() {
     requireValue(!this.closed, "对话服务已关闭，请重新打开 Moon。")
   }
   touch(state) {
     state.version = ++this.version
+    this.live.wake(state)
+  }
+  follow(...args) {
+    return this.live.follow(...args)
   }
   async selection(connectionId, modelId, thinking, signal) {
     signal?.throwIfAborted()
@@ -410,8 +424,22 @@ export class ConversationService {
       notice: undefined,
     }
     await this.queue.load(state)
+    state.permission = await this.permissions.read(record.id, signal)
     state.inputAccepted = acceptedInput(manager, record.lastRequestId)
     for (const item of manager.getEntries()) {
+      if (
+        item.type === "custom" &&
+        item.customType === "moon-run-result" &&
+        item.data?.runId === record.runId &&
+        item.data.statistics
+      ) {
+        try {
+          assertSchema(schemas.ConversationStatistics, item.data.statistics)
+          state.recoveredStatistics = item.data.statistics
+        } catch {
+          /* Optional metrics never prevent history recovery. */
+        }
+      }
       if (
         item.type === "custom" &&
         item.customType === "moon-run-result" &&
@@ -469,6 +497,13 @@ export class ConversationService {
         fingerprint: record.lastRequestFingerprint,
         runId: record.runId,
       })
+    const receipt = record.lastRequestId
+      ? await this.store.request(record.id, record.lastRequestId, signal)
+      : undefined
+    if (receipt?.status === "handled") {
+      state.inputDisposition = "handled"
+      state.notice = this.handledNotice(receipt.runId, receipt.updatedAt)
+    }
     if (selected) await this.activate(state, selected, signal)
     await this.controls.load(state)
     this.active.set(record.id, state)
@@ -476,6 +511,7 @@ export class ConversationService {
   }
   async activate(state, selected, signal) {
     const record = state.record
+    state.permission = await this.permissions.read(record.id, signal)
     const config = await this.sessions.readExclusive(record.id, signal)
     requireValue(config, "此会话缺少工具与指令配置，请打开会话配置后重试。")
     signal?.throwIfAborted()
@@ -492,7 +528,12 @@ export class ConversationService {
         modelRuntime: selected.runtime,
         model: selected.model,
         thinking: selected.thinking,
-        extensionFactories: [this.queue.factory(state)],
+        extensionFactories: [
+          this.nativeInputFactory(state),
+          this.permissions.factory(state),
+          this.queue.factory(state),
+        ],
+        uiContext: this.permissions.ui(state),
       }
     )
     if (this.closed) {
@@ -508,16 +549,59 @@ export class ConversationService {
     }
     this.sessions.active.set(record.id, state.entry)
     state.session = session
-    this.persistence.get(state.manager).beforeInput = (message) =>
-      this.queue.beforeInput(state, message)
-    this.persistence.get(state.manager).onInput = (_message, queued) => {
-      this.queue.afterInput(state, queued)
+    this.persistence.get(state.manager).beforeInput = (message) => {
+      const prompt = state.nativePrompt
+      if (prompt?.message === message) {
+        state.manager.appendCustomEntry("moon-request", prompt.request)
+        // Even a pure Skill needs its original user text on live/read projection.
+        state.manager.appendCustomEntry("moon-materials", {
+          clientRequestId: prompt.request.clientRequestId,
+          text: prompt.text,
+          materials: prompt.materials,
+        })
+        return { nativePrompt: prompt }
+      }
+      return this.queue.beforeInput(state, message)
+    }
+    this.persistence.get(state.manager).onInput = (_message, input) => {
+      if (!input?.nativePrompt) this.queue.afterInput(state, input)
+      if (state.nativePrompt && input?.nativePrompt !== state.nativePrompt)
+        return
       if (!state.entry.busy) return
       state.inputAccepted = true
       state.acceptedResolve?.()
       this.touch(state)
     }
     state.unsubscribe = session.subscribe((event) => this.event(state, event))
+  }
+  handledNotice(runId, occurredAt = new Date().toISOString()) {
+    return {
+      kind: "input-handled",
+      message: "扩展已处理此次输入，未生成本次用户消息。请查看扩展反馈；不要重复发送。",
+      occurredAt,
+      runId,
+    }
+  }
+  nativeInputFactory(state) {
+    return (pi) => {
+      pi.on("before_agent_start", () => {
+        const prompt = state.nativePrompt
+        if (!prompt?.context || prompt.contextConsumed) return
+        prompt.contextConsumed = true
+        return {
+          message: {
+            customType: "moon-input-material-context",
+            content: prompt.context,
+            display: false,
+          },
+        }
+      })
+      pi.on("message_start", (event) => {
+        const prompt = state.nativePrompt
+        if (prompt?.started && !prompt.message && event.message.role === "user")
+          prompt.message = event.message
+      })
+    }
   }
   toolHistory(branch) {
     const calls = new Map()
@@ -623,6 +707,7 @@ export class ConversationService {
     )
   }
   event(state, event) {
+    runStatisticsEvent(state, event)
     if (event.type === "message_start" && event.message.role === "user")
       this.queue.inputStarted(state, event.message)
     if (
@@ -1129,6 +1214,7 @@ export class ConversationService {
       epoch: this.epoch,
       clientRequestId: record.lastRequestId || "",
       inputAccepted: state.inputAccepted,
+      ...(state.inputDisposition ? { inputDisposition: state.inputDisposition } : {}),
       runId: record.runId || "",
       canContinue: this.canContinue(state),
       phase: state.phase,
@@ -1140,6 +1226,17 @@ export class ConversationService {
       ...(state.issue ? { issue: state.issue } : {}),
       ...(state.issueEntryId ? { issueEntryId: state.issueEntryId } : {}),
       messages: this.transcript(state),
+      permission: state.permission || {
+        sessionId: record.id,
+        mode: "workspace",
+        revision: 0,
+      },
+      approvals: this.permissions.pendingFor(record.id),
+      statistics: conversationStatistics(state),
+      ...(state.command ? { command: state.command } : {}),
+      ...(state.extensionNotifications?.length
+        ? { extensionNotifications: state.extensionNotifications }
+        : {}),
       queue: this.queue.snapshot(state),
       ...(state.queueError
         ? {
@@ -1165,7 +1262,7 @@ export class ConversationService {
         : {}),
       ...this.contextFeedback(state),
     }
-    return snapshot
+    return this.live.remember(state, snapshot)
   }
   canContinue(state) {
     if (!state.inputAccepted || state.entry.busy) return false
@@ -1244,6 +1341,7 @@ export class ConversationService {
           ? await this.fileManager(record) : state.manager
         if (acceptedInput(manager, clientRequestId)) return result("accepted")
       }
+      if (receipt?.status === "handled") return result("handled")
       if (receipt?.status === "rejected")
         return result("rejected", restoredIssue(receipt.issue))
       const interrupted = {
@@ -1255,15 +1353,8 @@ export class ConversationService {
       // preparing receipt whose rejection write failed remains unknown.
       if (receipt?.status === "preparing" && receipt.ownerEpoch !== this.epoch)
         return result("rejected", interrupted)
-      if (receipt?.status === "started" && record &&
-        !(state?.entry.busy && state.record.runId === receipt.runId)) {
-        // Missing history can mean either no first append or loss of accepted
-        // data. It is not proof of rejection, even if the index says failed.
-        if (!record.sessionFile) return result("unknown")
-        try { await readFile(record.sessionFile, "utf8") }
-        catch (error) { if (error.code === "ENOENT") return result("unknown"); throw error }
-        return result("rejected", interrupted)
-      }
+      // A committed start without this input's Pi/queue or terminal-ledger
+      // evidence remains uncertain, including a readable older history file.
       return result("unknown")
     })
   }
@@ -1276,7 +1367,8 @@ export class ConversationService {
     modelId,
     thinking,
     materials = [],
-    signal
+    signal,
+    delivery = "followUp"
   ) {
     // Compatibility for direct callers written before message materials existed.
     if (materials instanceof AbortSignal) {
@@ -1303,6 +1395,7 @@ export class ConversationService {
         thinking,
         materials,
         mode: "send",
+        delivery,
       },
       signal
     )
@@ -1351,246 +1444,331 @@ export class ConversationService {
       const begin = async () => {
         if (input.mode === "queue") return
         const { receipt, created } = await this.store.beginRequest(
-          input.sessionId, input.clientRequestId, fingerprint, this.epoch, signal)
+          input.sessionId,
+          input.clientRequestId,
+          fingerprint,
+          this.epoch,
+          signal
+        )
         if (!created && receipt.status === "started")
-          throw operationError("result_unknown", "原请求已进入启动阶段，请先核对原回执；不会重新执行。", "check")
+          throw operationError(
+            "result_unknown",
+            "原请求已进入启动阶段，请先核对原回执；不会重新执行。",
+            "check"
+          )
         tracked = true
         if (!created)
-          throw operationError("request_not_accepted", "原请求尚未接受，请保留输入并使用新请求重新发送。", "none")
+          throw operationError(
+            "request_not_accepted",
+            "原请求尚未接受，请保留输入并使用新请求重新发送。",
+            "none"
+          )
       }
       try {
-      if (record) {
-        requireValue(
-          !input.workspaceId || record.workspaceId === input.workspaceId,
-          "已有会话不能更换工作区。"
-        )
-        const restored = await this.restore(record, undefined, signal)
-        const queuedReceipt = restored.queue.items.find(
-          (item) => item.clientRequestId === input.clientRequestId
-        )
-        if (queuedReceipt) {
-          await this.queue.enqueueReceipt(restored, input)
-          return restored
-        }
-        const accepted = restored.requests.get(input.clientRequestId)
-        if (accepted) {
+        if (record) {
           requireValue(
-            accepted.fingerprint === fingerprint,
-            "请求标识已经用于不同内容，请重新发送。"
+            !input.workspaceId || record.workspaceId === input.workspaceId,
+            "已有会话不能更换工作区。"
           )
-          const manager = this.persistence.get(restored.manager)?.error
-            ? await this.fileManager(record) : restored.manager
-          if (acceptedInput(manager, input.clientRequestId)) return restored
-          const receipt = await this.store.request(record.id, input.clientRequestId, signal)
-          if (receipt?.status === "rejected" && receipt.fingerprint === fingerprint &&
-              record.lastRequestId === input.clientRequestId &&
-              ["failed", "interrupted"].includes(restored.phase))
+          const restored = await this.restore(record, undefined, signal)
+          const storedReceipt = await this.store.request(
+            record.id, input.clientRequestId, signal
+          )
+          if (storedReceipt?.status === "handled") {
+            requireValue(storedReceipt.fingerprint === fingerprint,
+              "请求标识已经用于不同内容，请重新发送。")
             return restored
+          }
+          const queuedReceipt = restored.queue.items.find(
+            (item) => item.clientRequestId === input.clientRequestId
+          )
+          if (queuedReceipt) {
+            await this.queue.enqueueReceipt(restored, input)
+            return restored
+          }
+          const accepted = restored.requests.get(input.clientRequestId)
+          if (accepted) {
+            requireValue(
+              accepted.fingerprint === fingerprint,
+              "请求标识已经用于不同内容，请重新发送。"
+            )
+            const manager = this.persistence.get(restored.manager)?.error
+              ? await this.fileManager(record)
+              : restored.manager
+            if (acceptedInput(manager, input.clientRequestId)) return restored
+            const receipt = await this.store.request(
+              record.id,
+              input.clientRequestId,
+              signal
+            )
+            if (
+              receipt?.status === "rejected" &&
+              receipt.fingerprint === fingerprint &&
+              record.lastRequestId === input.clientRequestId &&
+              ["failed", "interrupted"].includes(restored.phase)
+            )
+              return restored
+          }
+          await begin()
+          requireValue(!restored.controlBusy, "会话控制操作尚未完成，请稍候。")
+          requireValue(
+            !restored.commandRunning,
+            "当前扩展命令结束后才能发送消息。"
+          )
+          const unresolvedControl = this.controls.unresolvedReason(restored)
+          requireValue(!unresolvedControl, unresolvedControl)
+          if (restored.entry.busy && input.mode === "send") {
+            requireValue(
+              record.modelId ===
+                selectionId(input.connectionId, input.modelId) &&
+                record.thinking === input.thinking,
+              "运行中排队与补充沿用当前模型和思考强度；请等待结束后切换。"
+            )
+            await this.queue.enqueue(restored, input, signal)
+            if (input.delivery === "steer")
+              queueMicrotask(() => {
+                void this.queue.boundary(restored, "steer").catch((error) => {
+                  queueFailure(
+                    restored,
+                    error,
+                    "补充消息交付尚未完成，消息保留。"
+                  )
+                  this.touch(restored)
+                })
+              })
+            return restored
+          }
+          requireValue(
+            !restored.entry.busy,
+            "此会话正在执行，请先停止或等待完成。"
+          )
+          if (input.mode === "queue")
+            requireValue(
+              !restored.queue.paused &&
+                restored.queue.items.some((item) => item.status === "pending"),
+              "队列已暂停或没有可发送内容。"
+            )
+          if (input.mode === "retry") {
+            requireValue(
+              ["failed", "interrupted"].includes(restored.phase) ||
+                (restored.phase === "completed" &&
+                  this.lastStopReason(restored) === "length"),
+              "只有失败、中断或输出达到上限的回复可以继续。"
+            )
+            requireValue(
+              restored.inputAccepted &&
+                this.transcript(restored).some(
+                  (message) => message.role === "user"
+                ),
+              "上一请求尚未写入对话，请在输入框重新发送。"
+            )
+          }
+        } else {
+          requireValue(input.mode === "send", "会话不存在。")
+          await begin()
         }
-        await begin()
-        requireValue(!restored.controlBusy, "会话控制操作尚未完成，请稍候。")
-        const unresolvedControl = this.controls.unresolvedReason(restored)
-        requireValue(!unresolvedControl, unresolvedControl)
-        if (restored.entry.busy && input.mode === "send") {
-          requireValue(
-            record.modelId === selectionId(input.connectionId, input.modelId) &&
-              record.thinking === input.thinking,
-            "运行中排队与补充沿用当前模型和思考强度；请等待结束后切换。"
-          )
-          await this.queue.enqueue(restored, input, signal)
-          return restored
-        }
-        requireValue(
-          !restored.entry.busy,
-          "此会话正在执行，请先停止或等待完成。"
-        )
-        if (input.mode === "queue")
-          requireValue(
-            !restored.queue.paused &&
-              restored.queue.items.some((item) => item.status === "pending"),
-            "队列已暂停或没有可发送内容。"
-          )
-        if (input.mode === "retry") {
-          requireValue(
-            ["failed", "interrupted"].includes(restored.phase) ||
-              (restored.phase === "completed" && this.lastStopReason(restored) === "length"),
-            "只有失败、中断或输出达到上限的回复可以继续。"
-          )
-          requireValue(
-            restored.inputAccepted &&
-              this.transcript(restored).some(
-                (message) => message.role === "user"
-              ),
-            "上一请求尚未写入对话，请在输入框重新发送。"
-          )
-        }
-      } else {
-        requireValue(input.mode === "send", "会话不存在。")
-        await begin()
-      }
-      const workspace = await this.workspaces.get(
-        record?.workspaceId || input.workspaceId,
-        signal
-      )
-      requireValue(workspace, "工作区已移除，请重新添加目录。")
-      const cwd = await this.sessions.cwd(workspace.path || workspace.cwd)
-      requireValue(
-        !record || record.cwd === cwd,
-        "工作区路径已改变，请新建会话。"
-      )
-      const selected = await this.selection(
-        input.connectionId,
-        input.modelId,
-        input.thinking,
-        signal
-      )
-      input.preparedMaterials =
-        input.materials?.length || input.text.startsWith("/skill:")
-          ? await this.models.materials.resolveForPrompt({
-              sessionId: input.sessionId,
-              cwd,
-              materials: input.materials ?? [],
-              text: input.text,
-              model: selected.model,
-              signal,
-            })
-          : { textPrefix: "", images: [], displayMaterials: [] }
-      let config = await this.sessions.readExclusive(input.sessionId, signal)
-      if (this.sessions.refreshForRunExclusive)
-        await this.sessions.refreshForRunExclusive(input.sessionId, signal)
-      if (!config) {
-        const catalog = await this.sessions.catalog(cwd, signal)
-        config = await this.sessions.applyExclusive(
-          input.sessionId,
-          cwd,
-          catalog.defaults.toolIds,
-          catalog.defaults.instructionScope,
-          undefined,
+        const workspace = await this.workspaces.get(
+          record?.workspaceId || input.workspaceId,
           signal
         )
-      }
-      requireValue(config.cwd === cwd, "会话配置与工作区目录不一致。")
-      requireValue(
-        config.unavailableToolIds.length === 0,
-        "会话中有失效工具，请打开会话配置移除后再发送。"
-      )
-      signal?.throwIfAborted()
-      if (!record)
-        record = await this.store.create(
-          {
-            id: input.sessionId,
-            workspaceId: input.workspaceId,
+        requireValue(workspace, "工作区已移除，请重新添加目录。")
+        const cwd = await this.sessions.cwd(workspace.path || workspace.cwd)
+        requireValue(
+          !record || record.cwd === cwd,
+          "工作区路径已改变，请新建会话。"
+        )
+        const selected = await this.selection(
+          input.connectionId,
+          input.modelId,
+          input.thinking,
+          signal
+        )
+        input.preparedMaterials =
+          input.materials?.length ||
+          (input.mode !== "send" && input.text.startsWith("/skill:"))
+            ? await this.models.materials.resolveForPrompt({
+                sessionId: input.sessionId,
+                cwd,
+                materials: input.materials ?? [],
+                text: input.text,
+                model: selected.model,
+                nativeSkills: input.mode === "send",
+                signal,
+              })
+            : { textPrefix: "", images: [], displayMaterials: [] }
+        let config = await this.sessions.readExclusive(input.sessionId, signal)
+        if (this.sessions.refreshForRunExclusive)
+          await this.sessions.refreshForRunExclusive(input.sessionId, signal)
+        if (!config) {
+          const catalog = await this.sessions.catalog(cwd, signal)
+          config = await this.sessions.applyExclusive(
+            input.sessionId,
             cwd,
-            title: (
-              input.text.trim() ||
-              input.preparedMaterials.displayMaterials
-                .map((item) => item.name)
-                .join("、")
-            )
-              .replace(/\s+/g, " ")
-              .slice(0, 80),
-            sessionFile: "",
+            catalog.defaults.toolIds,
+            catalog.defaults.instructionScope,
+            undefined,
+            signal
+          )
+        }
+        requireValue(config.cwd === cwd, "会话配置与工作区目录不一致。")
+        requireValue(
+          config.unavailableToolIds.length === 0,
+          "会话中有失效工具，请打开会话配置移除后再发送。"
+        )
+        signal?.throwIfAborted()
+        if (!record)
+          record = await this.store.create(
+            {
+              id: input.sessionId,
+              workspaceId: input.workspaceId,
+              cwd,
+              title: (
+                input.text.trim() ||
+                input.preparedMaterials.displayMaterials
+                  .map((item) => item.name)
+                  .join("、")
+              )
+                .replace(/\s+/g, " ")
+                .slice(0, 80),
+              sessionFile: "",
+              modelId: selectionId(input.connectionId, input.modelId),
+              thinking: input.thinking,
+            },
+            signal
+          )
+        const state = await this.restore(record, selected, signal)
+        const provider = providerId(selected.connection)
+        const registered =
+          selected.runtime.getRegisteredProviderConfig(provider)
+        if (registered)
+          state.session.modelRuntime.registerProvider(provider, registered)
+        const model = state.session.modelRuntime.getModel(
+          provider,
+          input.modelId
+        )
+        requireValue(model, "Pi 未找到所选模型。")
+        await state.session.setModel(model)
+        state.session.setThinkingLevel(input.thinking)
+        requireValue(
+          state.session.thinkingLevel === input.thinking,
+          "Pi 无法应用所选思考等级。"
+        )
+        signal?.throwIfAborted()
+        this.ensureOpen()
+        const runId = randomUUID()
+        state.permission = await this.permissions.read(input.sessionId, signal)
+        // Atomic index commit authorizes the run, but does not yet prove Pi input
+        // acceptance. After this boundary, caller cancellation cannot stop work;
+        // Stop identifies the committed run while receipt reads inspect Pi input.
+        state.record = await this.store.update(
+          record.id,
+          {
+            sessionFile: state.manager.getSessionFile() || "",
+            status: "running",
+            unread: false,
+            runId,
+            lastError: "",
             modelId: selectionId(input.connectionId, input.modelId),
             thinking: input.thinking,
+            lastRequestId: input.clientRequestId,
+            lastRequestFingerprint: fingerprint,
           },
-          signal
+          signal,
+          input.mode === "queue"
+            ? undefined
+            : {
+                clientRequestId: input.clientRequestId,
+                fingerprint,
+              }
         )
-      const state = await this.restore(record, selected, signal)
-      const provider = providerId(selected.connection)
-      const registered = selected.runtime.getRegisteredProviderConfig(provider)
-      if (registered)
-        state.session.modelRuntime.registerProvider(provider, registered)
-      const model = state.session.modelRuntime.getModel(provider, input.modelId)
-      requireValue(model, "Pi 未找到所选模型。")
-      await state.session.setModel(model)
-      state.session.setThinkingLevel(input.thinking)
-      requireValue(
-        state.session.thinkingLevel === input.thinking,
-        "Pi 无法应用所选思考等级。"
-      )
-      signal?.throwIfAborted()
-      this.ensureOpen()
-      const runId = randomUUID()
-      // Atomic index commit authorizes the run, but does not yet prove Pi input
-      // acceptance. After this boundary, caller cancellation cannot stop work;
-      // Stop identifies the committed run while receipt reads inspect Pi input.
-      state.record = await this.store.update(
-        record.id,
-        {
-          sessionFile: state.manager.getSessionFile() || "",
-          status: "running",
-          unread: false,
+        const request = {
+          clientRequestId: input.clientRequestId,
+          fingerprint,
           runId,
-          lastError: "",
-          modelId: selectionId(input.connectionId, input.modelId),
-          thinking: input.thinking,
-          lastRequestId: input.clientRequestId,
-          lastRequestFingerprint: fingerprint,
-        },
-        signal,
-        input.mode === "queue" ? undefined : {
-          clientRequestId: input.clientRequestId, fingerprint,
         }
-      )
-      const request = {
-        clientRequestId: input.clientRequestId,
-        fingerprint,
-        runId,
-      }
-      state.requests.set(input.clientRequestId, request)
-      state.inputAccepted = false
-      state.issue = undefined
-      state.issueEntryId = undefined
-      if (this.closed) {
-        state.record = await this.store.update(record.id, {
-          status: "idle",
-          lastError: "应用关闭前请求尚未开始，请重新发送。",
-        }, undefined, input.mode === "queue" ? undefined : {
-          clientRequestId: input.clientRequestId, fingerprint, runId,
-          outcome: "rejected", issue: {
-            code: "request_not_accepted", summary: "应用关闭前原请求尚未接受，输入已保留。",
-            recovery: "none", severity: "info",
-          },
+        state.requests.set(input.clientRequestId, request)
+        state.inputAccepted = false
+        state.inputDisposition = undefined
+        state.issue = undefined
+        state.issueEntryId = undefined
+        if (this.closed) {
+          state.record = await this.store.update(
+            record.id,
+            {
+              status: "idle",
+              lastError: "应用关闭前请求尚未开始，请重新发送。",
+            },
+            undefined,
+            input.mode === "queue"
+              ? undefined
+              : {
+                  clientRequestId: input.clientRequestId,
+                  fingerprint,
+                  runId,
+                  outcome: "rejected",
+                  issue: {
+                    code: "request_not_accepted",
+                    summary: "应用关闭前原请求尚未接受，输入已保留。",
+                    recovery: "none",
+                    severity: "info",
+                  },
+                }
+          )
+          state.phase = "interrupted"
+          state.error = state.record.lastError
+          state.issue = {
+            code: "run_not_started",
+            summary: state.error,
+            recovery: "retry",
+            severity: "info",
+          }
+          return state
+        }
+        state.phase = "running"
+        state.command = undefined
+        state.runMetrics = {
+          startedAt: performance.now(),
+          modelDurationMs: 0,
+          outputTokens: 0,
+          hasUsage: false,
+        }
+        state.error = ""
+        state.issue = undefined
+        state.stopRequested = false
+        state.stoppedToolIds.clear()
+        state.stoppedToolCalls.clear()
+        state.entry.busy = true
+        state.pending = undefined
+        state.toolProgress.clear()
+        state.compactionActive = false
+        state.runtime = {
+          phase: "responding",
+          updatedAt: new Date().toISOString(),
+        }
+        state.notice = undefined
+        this.touch(state)
+        state.accepted = new Promise((resolve) => {
+          state.acceptedResolve = resolve
         })
-        state.phase = "interrupted"
-        state.error = state.record.lastError
-        state.issue = {
-          code: "run_not_started",
-          summary: state.error,
-          recovery: "retry",
-          severity: "info",
-        }
+        state.run = this.run(state, input)
         return state
-      }
-      state.phase = "running"
-      state.error = ""
-      state.issue = undefined
-      state.stopRequested = false
-      state.stoppedToolIds.clear()
-      state.stoppedToolCalls.clear()
-      state.entry.busy = true
-      state.pending = undefined
-      state.toolProgress.clear()
-      state.compactionActive = false
-      state.runtime = {
-        phase: "responding",
-        updatedAt: new Date().toISOString(),
-      }
-      state.notice = undefined
-      this.touch(state)
-      state.accepted = new Promise((resolve) => {
-        state.acceptedResolve = resolve
-      })
-      state.run = this.run(state, input)
-      return state
       } catch (error) {
         if (tracked) {
           try {
-            await this.store.rejectRequest(input.sessionId, input.clientRequestId,
-              fingerprint, publicFailure(error, "conversationSend").issue)
+            await this.store.rejectRequest(
+              input.sessionId,
+              input.clientRequestId,
+              fingerprint,
+              publicFailure(error, "conversationSend").issue
+            )
           } catch (storageError) {
-            throw operationError("result_unknown", "请求尚未确认：准备结果未能保存，请先核对原回执，输入副本保留。", "check",
-              publicFailure(storageError, "conversationReceiptRead").issue.details)
+            throw operationError(
+              "result_unknown",
+              "请求尚未确认：准备结果未能保存，请先核对原回执，输入副本保留。",
+              "check",
+              publicFailure(storageError, "conversationReceiptRead").issue
+                .details
+            )
           }
         }
         throw error
@@ -1615,17 +1793,30 @@ export class ConversationService {
     const manager = state.manager
     const before = [manager.getHeader(), ...manager.getEntries()]
     const beforeEntryIds = new Set(before.map((entry) => entry.id))
+    const nativePrompt = input.mode === "send" ? {
+      request: state.requests.get(input.clientRequestId),
+      text: input.text,
+      materials: input.preparedMaterials?.displayMaterials ?? [],
+      context: input.preparedMaterials?.textPrefix ?? "",
+      contextConsumed: false,
+      started: false,
+      handled: false,
+      message: undefined,
+    } : undefined
+    state.nativePrompt = nativePrompt
     try {
-      state.manager.appendCustomEntry(
-        "moon-request",
-        state.requests.get(input.clientRequestId)
-      )
-      if (input.preparedMaterials?.displayMaterials.length)
-        state.manager.appendCustomEntry("moon-materials", {
-          clientRequestId: input.clientRequestId,
-          text: input.text,
-          materials: input.preparedMaterials.displayMaterials,
-        })
+      if (!nativePrompt) {
+        state.manager.appendCustomEntry(
+          "moon-request",
+          state.requests.get(input.clientRequestId)
+        )
+        if (input.preparedMaterials?.displayMaterials.length)
+          state.manager.appendCustomEntry("moon-materials", {
+            clientRequestId: input.clientRequestId,
+            text: input.text,
+            materials: input.preparedMaterials.displayMaterials,
+          })
+      }
       if (input.mode === "queue") await this.queue.seed(state)
       else if (input.mode === "retry")
         await state.session.sendCustomMessage(
@@ -1636,20 +1827,24 @@ export class ConversationService {
           },
           { triggerTurn: true }
         )
-      else
+      else {
+        if (state.stopRequested || this.closed) throw new Error("请求已停止。")
         await state.session.prompt(
-          (input.preparedMaterials?.textPrefix ?? "") +
-            ((input.preparedMaterials?.text ?? input.text) ||
-              "请处理所附材料。"),
+          input.text || "请处理所附材料。",
           {
             images: input.preparedMaterials?.images ?? [],
-            expandPromptTemplates: false,
-            preflightResult: () => {
+            preflightResult: (disposition) => {
+              if (disposition === "handled") {
+                nativePrompt.handled = true
+                return
+              }
               if (state.stopRequested || this.closed)
                 throw new Error("请求已停止。")
+              if (disposition === "started") nativePrompt.started = true
             },
           }
         )
+      }
       const lastEntry = [...state.manager.getBranch()]
         .reverse()
         .find(
@@ -1671,6 +1866,9 @@ export class ConversationService {
     } catch (error) {
       failure = runFailureIssue(error)
     } finally {
+      // Keep only the terminal disposition locally. Never carry original text,
+      // user-object binding or path context into another input/queued turn.
+      state.nativePrompt = undefined
       await this.sessions.exclusive(state.record.id, async () => {
         const writeError = this.persistence.get(manager)?.error
         if (writeError) {
@@ -1713,6 +1911,9 @@ export class ConversationService {
           }
         }
         state.pending = undefined
+        if (state.runMetrics)
+          state.runMetrics.durationMs =
+            performance.now() - state.runMetrics.startedAt
         state.runtime = undefined
         state.compactionActive = false
         state.phase = state.stopRequested
@@ -1739,6 +1940,7 @@ export class ConversationService {
             state.manager.appendCustomEntry("moon-run-result", {
               runId: state.record.runId,
               phase: state.phase,
+              statistics: conversationStatistics(state),
               error: state.error,
               ...(state.issue ? { issue: state.issue } : {}),
               ...(state.issue && failureEntryId
@@ -1758,35 +1960,63 @@ export class ConversationService {
                 : {}),
             })
           }
-          state.record = await this.store.update(state.record.id, {
-            status: state.phase === "interrupted" ? "idle" : state.phase,
-            unread: true,
-            lastError: state.error,
-            lastMessage: lastMessage.slice(0, 2000),
-            sessionFile: writeError
-              ? state.record.sessionFile
-              : state.manager.getSessionFile() || "",
-          }, undefined,
-          input.mode !== "queue" && !state.inputAccepted && !writeError &&
+          state.record = await this.store.update(
+            state.record.id,
+            {
+              status: state.phase === "interrupted" ? "idle" : state.phase,
+              unread: true,
+              lastError: state.error,
+              lastMessage: lastMessage.slice(0, 2000),
+              sessionFile: writeError
+                ? state.record.sessionFile
+                : state.manager.getSessionFile() || "",
+            },
+            undefined,
+            nativePrompt?.handled
+              ? {
+                  clientRequestId: input.clientRequestId,
+                  fingerprint: nativePrompt.request.fingerprint,
+                  runId: state.record.runId,
+                  outcome: "handled",
+                }
+              : input.mode !== "queue" &&
+              !nativePrompt?.started &&
+              !state.inputAccepted &&
+              !writeError &&
               !acceptedInput(manager, input.clientRequestId)
-            ? {
-                clientRequestId: input.clientRequestId,
-                fingerprint: state.requests.get(input.clientRequestId)?.fingerprint,
-                runId: state.record.runId,
-                outcome: "rejected",
-                issue: state.issue ?? {
-                  code: "request_not_accepted", summary: "原请求尚未接受，输入已保留。",
-                  recovery: "none", severity: "info",
-                },
-              }
-            : undefined)
+              ? {
+                  clientRequestId: input.clientRequestId,
+                  fingerprint: state.requests.get(input.clientRequestId)
+                    ?.fingerprint,
+                  runId: state.record.runId,
+                  outcome: "rejected",
+                  issue: state.issue ?? {
+                    code: "request_not_accepted",
+                    summary: "原请求尚未接受，输入已保留。",
+                    recovery: "none",
+                    severity: "info",
+                  },
+                }
+              : undefined
+          )
+          if (nativePrompt?.handled) {
+            state.inputDisposition = "handled"
+            state.notice = this.handledNotice(state.record.runId, state.record.updatedAt)
+          }
         } catch (error) {
           state.phase = "failed"
-          state.issue = storageIssue(
-            error,
-            "conversationRead",
-            `回复已结束，但会话记录未能保存。${publicFailure(error, "conversationRead").issue.summary}`
-          )
+          state.issue = nativePrompt?.handled
+            ? {
+                ...publicFailure(error, "conversationReceiptRead").issue,
+                code: "result_unknown",
+                summary: "扩展输入的处理回执未能保存，请核对原回执；不要重复发送。",
+                recovery: "check",
+              }
+            : storageIssue(
+                error,
+                "conversationRead",
+                `回复已结束，但会话记录未能保存。${publicFailure(error, "conversationRead").issue.summary}`
+              )
           state.error = state.issue.summary
         }
         state.entry.busy = false
@@ -1865,6 +2095,7 @@ export class ConversationService {
           .map(([key]) => key)
       )
       state.phase = "stopping"
+      this.permissions.cancel(state)
       state.runtime = undefined
       state.compactionActive = false
       this.touch(state)
@@ -1891,6 +2122,8 @@ export class ConversationService {
   async closeActive() {
     await this.controls.close()
     const states = [...this.active.values()]
+    for (const state of states) this.permissions.cancel(state)
+    for (const state of states) this.live.close(state)
     for (const state of states)
       if (state.entry.busy) {
         state.stopRequested = true
@@ -1907,6 +2140,7 @@ export class ConversationService {
       }
     await Promise.allSettled(states.map((state) => state.session?.abort()))
     await Promise.allSettled(states.map((state) => state.run))
+    await this.commands.close()
     for (const state of states) {
       state.unsubscribe?.()
       state.session?.dispose()

@@ -57,58 +57,106 @@ test("slash and Skill candidates replace one call instead of leaving token suffi
   assert.equal(materialQueryAtSelection("/compact 保留接口", 3).mode, "slash")
 })
 
-test("removing a bound Skill releases the trimmed invocation and retains leading whitespace and body", () => {
-  const skill = {
-    id: "skill-a",
-    name: "代码审查",
-    kind: "Skill",
-    type: "skill",
+test("removing selected file and quoted references preserves whitespace, prose and ordinary Skill text", () => {
+  const cwd = "H:/工作区/moon"
+  const file = {
+    id: "file-a",
+    name: "README.md",
+    kind: "附件",
+    type: "file",
+    source: `${cwd}/README.md`,
+    presentation: "reference",
   }
-  const file = { id: "file-a", name: "验收.md", kind: "文件引用", type: "file" }
-  for (const [text, expected] of [
-    ["/skill:代码审查 正文", "正文"],
-    ["  /skill:代码审查 正文", "  正文"],
-    ["\n/skill:代码审查\n正文", "\n\n正文"],
-    ["\t\u00a0/skill:代码审查\t正文", "\t\u00a0正文"],
-    [" \ufeff/skill:代码审查", " \ufeff"],
+  const quoted = {
+    id: "quoted",
+    name: "设计 说明.md",
+    kind: "附件",
+    type: "file",
+    source: `${cwd}/文档/设计 说明.md`,
+    presentation: "reference",
+  }
+  const folder = {
+    id: "folder",
+    name: "文档 目录",
+    kind: "附件",
+    type: "directory",
+    source: `${cwd}/文档 目录`,
+    presentation: "reference",
+  }
+  const other = {
+    id: "other",
+    name: "验收.md",
+    kind: "附件",
+    type: "file",
+    source: `${cwd}/验收.md`,
+  }
+  for (const [material, text, expected] of [
+    [
+      file,
+      "/skill:代码审查 请读 @README.md 并检查 @README.md.backup",
+      "/skill:代码审查 请读  并检查 @README.md.backup",
+    ],
+    [
+      file,
+      "@README.md.backup @README.md \n@README.md 正文",
+      "@README.md.backup  \n 正文",
+    ],
+    [file, "\t\u00a0@README.md\t正文", "\t\u00a0\t正文"],
+    [
+      quoted,
+      '第一行\n请读 @"文档/设计 说明.md" 并继续 /skill:文档整理',
+      "第一行\n请读  并继续 /skill:文档整理",
+    ],
+    [folder, '检查 @"文档 目录" 后继续', "检查  后继续"],
   ]) {
-    const draft = { text, materials: [skill, file], model: "saved-model" }
-    const next = removeComposerMaterial(draft, "skill-a")
+    const original = {
+      text,
+      materials: [material, other],
+      model: "saved-model",
+    }
+    const draft = Object.freeze({
+      ...original,
+      materials: Object.freeze([Object.freeze(material), Object.freeze(other)]),
+    })
+    const next = removeComposerMaterial(draft, material.id, cwd)
     assert.equal(next.text, expected)
-    assert.deepEqual(next.materials, [file])
+    assert.deepEqual(next.materials, [other])
     assert.equal(next.model, "saved-model")
-    assert.equal(draft.text, text)
-    assert.deepEqual(draft.materials, [skill, file])
+    assert.deepEqual(draft, original)
   }
 })
 
-test("removing a material cannot release another or embedded Skill invocation", () => {
-  const skill = {
-    id: "skill-a",
-    name: "代码审查",
-    kind: "Skill",
-    type: "skill",
+test("missing identities and similar paths never remove prose or another selected material", () => {
+  const cwd = "H:/工作区/moon"
+  const file = {
+    id: "file-a",
+    name: "README.md",
+    kind: "附件",
+    type: "file",
+    source: `${cwd}/README.md`,
+    presentation: "reference",
   }
-  for (const text of [
-    "  /skill:文档整理 正文",
-    "  /skill:代码审查扩展 正文",
-    "请说明 /skill:代码审查 的用途",
-  ])
-    assert.equal(
-      removeComposerMaterial({ text, materials: [skill] }, "skill-a").text,
-      text
-    )
-  const text = "  /skill:代码审查 正文"
-  assert.equal(
-    removeComposerMaterial(
-      {
-        text,
-        materials: [{ ...skill, type: "file" }],
-      },
-      "skill-a"
-    ).text,
-    text
-  )
+  const other = {
+    ...file,
+    id: "other",
+    name: "验收.md",
+    source: `${cwd}/验收.md`,
+  }
+  const draft = {
+    text: '请读 @README.md.backup @README.md /skill:代码审查 @"README.md".backup',
+    materials: [file, other],
+  }
+  const original = structuredClone(draft)
+  assert.deepEqual(removeComposerMaterial(draft, "missing", cwd), draft)
+  const next = removeComposerMaterial(draft, other.id, cwd)
+  assert.equal(next.text, draft.text)
+  assert.deepEqual(next.materials, [file])
+  const similar = {
+    text: "普通x@README.md @README.md.backup /skill:代码审查",
+    materials: [file],
+  }
+  assert.equal(removeComposerMaterial(similar, file.id, cwd).text, similar.text)
+  assert.deepEqual(draft, original)
 })
 
 function withinViewport(placement, viewportHeight, expectedWidth) {

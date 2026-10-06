@@ -1,3 +1,4 @@
+import { HoverHint } from "@/components/feedback/hover-hint"
 import { useState } from "react"
 import {
   ArrowRight,
@@ -104,12 +105,11 @@ export function DirectoryPicker({
               {path && (
                 <>
                   <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
-                  <span
-                    className="min-w-0 flex-1 truncate text-[13px]"
-                    title={path}
-                  >
-                    {path}
-                  </span>
+                  <HoverHint content={path}>
+                    <span className="min-w-0 flex-1 truncate text-[13px]">
+                      {path}
+                    </span>
+                  </HoverHint>
                 </>
               )}
               <Button

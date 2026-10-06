@@ -19,6 +19,7 @@ import { ConversationSubmissionEcho } from "./conversation-submission-echo"
 import type { ConversationSubmissionEchoValue } from "./conversation-submission"
 import { MaterialServiceContext } from "@/features/materials/material-service"
 import { ExecutionFeedback } from "./execution-feedback"
+import { useConversationNotifications } from "./use-conversation-notifications"
 import { QueueDock } from "./composer/queue-dock"
 import { QueueOperationRecovery } from "./composer/queue-operation-recovery"
 import {
@@ -40,6 +41,10 @@ import { ConversationCompactionRecord } from "./controls/conversation-compaction
 import { useConversationControls } from "./controls/use-conversation-controls"
 import { ForkFeedback } from "./controls/fork-feedback"
 import type { ConversationControlService } from "./controls/conversation-control-service"
+import { ApprovalCard } from "./permissions/approval-card"
+import { PermissionServiceContext } from "./permissions/permission-service"
+import type { BusyInputMode } from "./composer/run-input-control"
+import { useConversationCommand } from "./controls/use-conversation-command"
 
 // Ephemeral disclosure state survives a view switch; it stores no message data.
 const sessionDisclosures = new Map<string, Map<string, boolean>>()
@@ -72,7 +77,7 @@ export type LiveConversationViewProps = {
   positions?: Map<string, ConversationReadingPosition>
   onChange: (draft: HomeDraft) => void
   onRecoverDraft?: (draft: HomeDraft) => void | Promise<unknown>
-  onSend: (draft: HomeDraft) => void
+  onSend: (draft: HomeDraft, delivery?: BusyInputMode) => void
   onStop: () => void
   onContinue: () => void
   onReload: () => void
@@ -142,6 +147,7 @@ export function LiveConversationView({
 }: LiveConversationViewProps) {
   const [activeMaterial, setActiveMaterial] = useState<Material | null>(null)
   const materialService = useContext(MaterialServiceContext)
+  const permissionService = useContext(PermissionServiceContext)
   const previewRequest = useRef<AbortController | undefined>(undefined)
   const [disclosures] = useState(() => {
     let value = sessionDisclosures.get(id)
@@ -158,6 +164,11 @@ export function LiveConversationView({
       sessionId: id,
       cwd,
       disclosures,
+      waitingTools: new Set(
+        (snapshot?.approvals ?? [])
+          .filter((request) => request.kind === "tool" && request.toolCallId)
+          .map((request) => JSON.stringify([request.runId, request.toolCallId]))
+      ),
       onOpenSettings: onOpenSettings ?? data.modelCatalog?.onOpenSettings,
       onOpenAttachment: (
         attachment: import("./conversation-types").MessageAttachment
@@ -201,11 +212,15 @@ export function LiveConversationView({
       cwd,
       disclosures,
       materialService,
+      snapshot?.approvals,
       onOpenSettings,
       data.modelCatalog?.onOpenSettings,
     ]
   )
   const running = snapshot?.phase === "running"
+  useConversationNotifications(id, snapshot)
+  const approval = snapshot?.approvals?.[0]
+  const command = useConversationCommand(id, snapshot?.command)
   const controls = useConversationControls(id, snapshot, controlService)
   const [compactOpen, setCompactOpen] = useState(false)
   const [compactFocus, setCompactFocus] = useState("")
@@ -218,6 +233,12 @@ export function LiveConversationView({
   useLayoutEffect(() => {
     latestDraft.current = draft
   }, [draft])
+  useEffect(() => {
+    if (command.receipt?.status !== "completed" || !command.pending) return
+    if (latestDraft.current.text === command.pending.text)
+      onChange({ ...latestDraft.current, text: "", command: undefined })
+    command.acknowledge()
+  })
   const compactActive =
     controls.operation?.kind === "compact" &&
     ["running", "cancelling", "unknown"].includes(controls.operation.status)
@@ -233,12 +254,12 @@ export function LiveConversationView({
     (!!forkOperation && ["running", "unknown"].includes(forkOperation.status))
   const submissionBlockedReason = receiptIssue
     ? "请先完成原请求的本地回执处理，草稿仍保留。"
-    : unconfirmed
-      ? pendingSubmission?.kind === "retry"
-        ? "继续请求的接收结果尚未核对；下一稿和材料可继续编辑，但尚未发送，请先核对原继续请求。"
-        : "原消息的接收结果尚未核对，草稿可继续编辑；请先核对原消息。"
-      : pending
-        ? "正在确认本次操作，草稿可继续编辑。"
+    : pending
+      ? "正在确认本次操作，草稿可继续编辑。"
+      : unconfirmed
+        ? pendingSubmission?.kind === "retry"
+          ? "继续请求的接收结果尚未核对；下一稿和材料可继续编辑，但尚未发送，请先核对原继续请求。"
+          : "原消息的接收结果尚未核对，草稿可继续编辑；请先核对原消息。"
         : undefined
   const controlPendingReason = controls.pending
     ? controls.pendingAction === "fork"
@@ -250,6 +271,11 @@ export function LiveConversationView({
           : "正在核对会话操作，草稿仍可编辑。"
     : undefined
   const mutationBlockedReason =
+    (command.checking ||
+    (command.pending &&
+      !["completed", "failed"].includes(command.receipt?.status ?? ""))
+      ? "扩展命令正在执行或等待核对，草稿保留。"
+      : undefined) ??
     submissionBlockedReason ??
     queueRecoveryReason ??
     (!snapshot
@@ -335,9 +361,17 @@ export function LiveConversationView({
     )
     setCompactOpen(true)
   }
-  function submit(next: HomeDraft) {
+  function submit(next: HomeDraft, delivery?: BusyInputMode) {
     if (/^\/compact(?:\s|$)/.test(next.text.trim())) openCompact(next.text)
-    else onSend(next)
+    else if (
+      next.command?.kind === "extension" &&
+      next.text.trim().match(/^\/([^\s]+)/)?.[1] === next.command.name
+    ) {
+      void command
+        .run(latestDraft.current.text, next.command.name)
+        .catch(() => {})
+      onReload()
+    } else onSend(next, delivery)
   }
   const stopping = snapshot?.phase === "stopping"
   const canContinue =
@@ -609,7 +643,12 @@ export function LiveConversationView({
         />
       ),
     })),
-    ...(pendingSubmission
+    ...(pendingSubmission &&
+    !(
+      snapshot?.inputAccepted &&
+      snapshot.clientRequestId === pendingSubmission.id
+    ) &&
+    !snapshot?.queue?.acceptedRequestIds?.includes(pendingSubmission.id)
       ? [
           {
             id: `submission-${pendingSubmission.id}`,
@@ -620,7 +659,7 @@ export function LiveConversationView({
                 submission={pendingSubmission}
                 workspacePath={cwd}
                 pending={pending}
-                unconfirmed={unconfirmed}
+                unconfirmed={unconfirmed && !pending}
               />
             ),
           },
@@ -679,23 +718,33 @@ export function LiveConversationView({
           ) : undefined
         }
         status={
-          stopping
-            ? "正在停止"
-            : running
-              ? runtime?.phase === "retrying"
-                ? "等待重试"
-                : runtime?.phase === "compacting"
-                  ? "正在压缩上下文"
-                  : runtime?.phase === "tool"
-                    ? "正在执行工具"
-                    : "正在回复"
-              : snapshot?.phase === "interrupted"
-                ? "已停止"
-                : snapshot?.phase === "failed"
-                  ? "回复失败"
-                  : snapshot?.phase === "completed"
-                    ? "回复结束"
-                    : ""
+          snapshot?.approvals?.length
+            ? "等待你的确认"
+            : stopping
+              ? "正在停止"
+              : snapshot?.command?.status === "started"
+                ? "正在执行命令"
+                : running
+                  ? runtime?.phase === "retrying"
+                    ? "等待重试"
+                    : runtime?.phase === "compacting"
+                      ? "正在压缩上下文"
+                      : runtime?.phase === "tool"
+                        ? "正在执行工具"
+                        : "正在回复"
+                  : snapshot?.phase === "interrupted"
+                    ? "已停止"
+                    : snapshot?.phase === "failed"
+                      ? "回复失败"
+                      : snapshot?.phase === "completed"
+                        ? snapshot.queue?.paused && snapshot.queue.items.length
+                          ? "回复结束 · 待处理消息已暂停"
+                          : snapshot.messages.at(-1)?.stopReason === "length"
+                            ? "已达到输出上限"
+                            : "回复结束"
+                        : pendingSubmission?.stage === "prepared"
+                          ? "正在准备会话"
+                          : ""
         }
         items={historyItems}
         composer={
@@ -704,6 +753,7 @@ export function LiveConversationView({
             key={id}
             sessionId={id}
             data={data}
+            statistics={snapshot?.statistics}
             draft={draft}
             workspacePath={snapshot?.cwd ?? workspacePath ?? ""}
             running={running}
@@ -711,22 +761,82 @@ export function LiveConversationView({
             blocked={!!mutationBlockedReason}
             blockedReason={mutationBlockedReason}
             allowQueue
+            interaction={
+              approval && (
+                <>
+                  <ApprovalCard
+                    key={approval.id}
+                    request={approval}
+                    onReload={onReload}
+                    onReply={async (value) => {
+                      if (!permissionService)
+                        throw new Error("审批服务不可用。")
+                      await permissionService.reply(
+                        id,
+                        approval.id,
+                        approval.runId,
+                        value
+                      )
+                      onReload()
+                    }}
+                  />
+                  {(snapshot?.approvals?.length ?? 0) > 1 && (
+                    <p className="conversation-approval-count">
+                      还有 {snapshot!.approvals!.length - 1} 项等待确认
+                    </p>
+                  )}
+                </>
+              )
+            }
             queuedCount={snapshot?.queue?.items.length ?? 0}
             deliveryMode={snapshot?.queue?.mode}
             modeIssue={currentQueueIssues.mode}
             queueRecovery={
-              <QueueOperationRecovery
-                records={originalQueueRecords}
-                issues={queueIssues}
-                issuesByRequest={queueRecoveryIssuesByRequest}
-                storageIssue={queueStorageIssue}
-                retryAllowed={queueOriginalRetryAllowed}
-                checking={readPending}
-                restoring={pending}
-                processing={queueOperationPendingByRequest}
-                onCheck={onReload}
-                onRestore={onRetryQueueOriginal}
-              />
+              <>
+                {(command.pending || command.issue) && (
+                  <OperationFeedback
+                    title={
+                      command.receipt?.status === "started"
+                        ? `正在执行 /${command.receipt.name}`
+                        : command.receipt?.status === "failed"
+                          ? "扩展命令未完成"
+                          : "扩展命令待核对"
+                    }
+                    message={
+                      command.issue?.message ??
+                      command.receipt?.issue?.summary ??
+                      "原命令与参数已保留；核对不会重复执行。"
+                    }
+                    severity={
+                      command.receipt?.status === "failed" ? "error" : "info"
+                    }
+                    actions={
+                      command.pending && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={command.checking}
+                          onClick={() => void command.check()}
+                        >
+                          核对原命令
+                        </Button>
+                      )
+                    }
+                  />
+                )}
+                <QueueOperationRecovery
+                  records={originalQueueRecords}
+                  issues={queueIssues}
+                  issuesByRequest={queueRecoveryIssuesByRequest}
+                  storageIssue={queueStorageIssue}
+                  retryAllowed={queueOriginalRetryAllowed}
+                  checking={readPending}
+                  restoring={pending}
+                  processing={queueOperationPendingByRequest}
+                  onCheck={onReload}
+                  onRestore={onRetryQueueOriginal}
+                />
+              </>
             }
             onCheckMode={onReload}
             modeChecking={readPending}
@@ -763,6 +873,7 @@ export function LiveConversationView({
                       busy={stopping || !!mutationBlockedReason}
                       checkPending={readPending}
                       paused={snapshot.queue.paused}
+                      waitingApproval={!!approval}
                       cwd={snapshot.cwd}
                       deliveryMode={snapshot.queue.mode}
                       issue={
@@ -814,7 +925,20 @@ export function LiveConversationView({
                       onSendNow={onQueueDeliver}
                     />
                   )}
-                <div className="flex flex-col gap-2 pb-3">
+              </>
+            }
+            feedback={
+              (runtime && !approval) ||
+              stopping ||
+              snapshot?.notice ||
+              snapshot?.historyNotice ||
+              needsResend ||
+              readIssue ||
+              actionIssue ||
+              draftError ||
+              receiptIssue ||
+              unconfirmed ? (
+                <div className="flex flex-col gap-2">
                   {snapshot?.historyNotice && (
                     <OperationFeedback
                       title="历史记录提示"
@@ -822,10 +946,10 @@ export function LiveConversationView({
                       severity="info"
                     />
                   )}
-                  {(runtime || stopping || snapshot?.notice) && (
+                  {((runtime && !approval) || stopping || snapshot?.notice) && (
                     <ExecutionFeedback
                       key={id}
-                      runtime={runtime}
+                      runtime={approval ? undefined : runtime}
                       stopping={stopping}
                       notice={snapshot?.notice}
                     />
@@ -862,7 +986,7 @@ export function LiveConversationView({
                     draftError={draftError}
                     receiptIssue={receiptIssue}
                     onCleanReceipt={onCleanReceipt}
-                    unconfirmed={unconfirmed}
+                    unconfirmed={unconfirmed && !pending}
                     pending={pending}
                     readPending={readPending}
                     onReload={onReload}
@@ -876,7 +1000,7 @@ export function LiveConversationView({
                     }
                   />
                 </div>
-              </>
+              ) : undefined
             }
           />
         }

@@ -18,12 +18,18 @@ const identity = s("会话稳定标识", {
 })
 const cwd = s("当前会话真实工作目录", { minLength: 1, maxLength: 4096 })
 export const materialSchemas = {
+  MaterialDiagnostic: o({
+    scope: s("诊断所属资源视图", { enum: ["files", "skills"] }),
+    message: s("Pi资源诊断或文件目录限制说明"),
+  }),
   MaterialReference: o(
     {
       id: s("服务准备后返回的稳定材料标识", { minLength: 1, maxLength: 200 }),
       name: s("材料原始名称", { minLength: 1, maxLength: 500 }),
       kind: s("材料类别", { enum: ["附件", "Skill"] }),
-      type: s("实际交付方式", { enum: ["file", "directory", "image", "skill"] }),
+      type: s("实际交付方式", {
+        enum: ["file", "directory", "image", "skill"],
+      }),
       status: s("准备状态；非 ready 不可交付", {
         enum: ["preparing", "ready", "failed"],
       }),
@@ -41,12 +47,16 @@ export const materialSchemas = {
     },
     ["id", "name", "kind", "type", "status", "source"]
   ),
-  MaterialCatalog: o({
-    cwd,
-    files: a(r("MaterialReference")),
-    skills: a(r("MaterialReference")),
-    diagnostics: a(s("Pi 资源诊断或目录限制说明")),
-  }),
+  MaterialCatalog: o(
+    {
+      cwd,
+      files: a(r("MaterialReference")),
+      skills: a(r("MaterialReference")),
+      diagnostics: a(r("MaterialDiagnostic")),
+      commands: a(r("ConversationCommand")),
+    },
+    ["cwd", "files", "skills", "diagnostics"]
+  ),
   MaterialPreview: o({
     id: s("材料标识"),
     name: s("材料名称"),
@@ -86,18 +96,24 @@ export const materialOperations = {
     ...common,
     method: "materials.prepare",
     args: ["sessionId", "cwd", "paths", "scope", "$signal"],
-    request: o({
-      sessionId: identity,
-      cwd,
-      paths: a(s("明确选择的文件绝对路径", { maxLength: 4096 })),
-      scope: s("selected用于用户明确系统选择绝对路径；workspace用于Agent正文链接/本地图像/成果，可使用相对cwd路径，必须realpath位于cwd内", { enum: ["selected", "workspace"] }),
-    }, ["sessionId", "cwd", "paths"]),
+    request: o(
+      {
+        sessionId: identity,
+        cwd,
+        paths: a(s("明确选择的文件绝对路径", { maxLength: 4096 })),
+        scope: s(
+          "selected用于用户明确系统选择绝对路径；workspace用于Agent正文链接/本地图像/成果，可使用相对cwd路径，必须realpath位于cwd内",
+          { enum: ["selected", "workspace"] }
+        ),
+      },
+      ["sessionId", "cwd", "paths"]
+    ),
     response: a(r("MaterialReference")),
     title: "准备附件或资源路径",
     input: ["sessionId", "cwd", "paths"],
     result: "MaterialReference[]",
     effect:
-      "图片最多8MiB，验证实际解码并按Pi官方尺寸与传输预算准备，历史保存原图；普通文件只保存真实路径；Skill通过Pi目录识别。默认selected保留用户明确选择工作区外文件的能力；Agent正文或成果打开必须使用workspace，拒绝realpath越界及符号链接绕过。单项失败返回failed条目及权威retryable，内容/格式无效不可重复准备同一来源。",
+      "图片最多8MiB，验证实际解码并按Pi官方尺寸与传输预算准备，历史保存原图；文件引用检查真实路径与可读性，目录引用检查真实目录及工作区范围，两者只保存路径身份，不读取正文或递归内容；Skill通过Pi目录识别。默认selected保留用户明确选择工作区外文件的能力；Agent正文或成果打开必须使用workspace，拒绝realpath越界及符号链接绕过。单项失败返回failed条目及权威retryable，内容/格式无效不可重复准备同一来源。",
     example: {
       sessionId: "sample-session",
       cwd: "H:/workspace/moon",
@@ -136,14 +152,17 @@ export const materialOperations = {
     request: o({
       sessionId: identity,
       cwd,
-      query: s("文件/目录相对路径或Skill名称搜索；路径以/结尾时列出该目录的直接子项", { maxLength: 500 }),
+      query: s(
+        "文件/目录相对路径或Skill名称搜索；路径以/结尾时列出该目录的直接子项",
+        { maxLength: 500 }
+      ),
     }),
     response: r("MaterialCatalog"),
     title: "发现工作区文件与Skills",
     input: ["sessionId", "cwd", "query"],
     result: "MaterialCatalog",
     effect:
-      "文件仅列当前工作目录内实际可读来源，不沿符号链接越界；Skills由Pi ResourceLoader发现，不执行工具。",
+      "文件和目录仅列当前工作目录内实际可用来源，不沿符号链接越界。最多扫描15000个目录项；搜索按名称完全匹配、前缀、包含、路径包含排序后取前60项，同级按目录、名称与相对路径稳定排列；空查询及末尾/浏览保持目录优先、名称顺序。Skills由Pi ResourceLoader发现，不执行工具。",
     example: {
       sessionId: "sample-session",
       cwd: "H:/workspace/moon",
@@ -163,7 +182,7 @@ export const materialOperations = {
     input: ["cwd", "id"],
     result: "MaterialPreview",
     effect:
-      "文件读取磁盘当前版本，最多128KiB；图片与Skill读取本次准备的固定内容；历史显示不冒充原文件版本。",
+      "文件读取磁盘当前版本，最多128KiB；图片与旧协议Skill材料读取本次准备的固定内容。空闲消息Skill只使用普通正文由Pi原生解析，不在此准备或预览；历史显示不冒充原文件版本。",
     example: { cwd: "H:/workspace/moon", id: "material-id" },
   },
   materialRestore: {
@@ -180,7 +199,7 @@ export const materialOperations = {
     input: ["sessionId", "cwd", "materials"],
     result: "MaterialReference[]",
     effect:
-      "恢复已准备图片、文件引用和Skills；失效材料保留名称、失败原因及权威retryable。固定图片内容/缓存损坏或不存在不可原地修复，需重新选择；临时读写失败与文件/Skill来源失效允许人工核对。调用方的恢复标记不参与服务判定，不重新上传、丢弃或发送消息。",
+      "恢复已准备图片、文件引用和Skills；固定材料按服务记录核对，失效材料保留名称、失败原因及权威retryable。路径准备失败的临时条目仅在失败身份与绝对来源匹配时保留原原因及是否可重试，仍为failed，不读取或准备来源。固定图片内容/缓存损坏或不存在不可原地修复，需重新选择；不重新上传、丢弃或发送消息。",
     example: {
       sessionId: "sample-session",
       cwd: "H:/workspace/moon",

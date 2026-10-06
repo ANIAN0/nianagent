@@ -1,0 +1,33 @@
+.moon-permission-trigger {
+  min-width: 0;
+  max-width: 220px;
+  white-space: nowrap;
+}
+.moon-permission-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.moon-permission-menu {
+  width: max-content;
+  min-width: 144px;
+  max-width: calc(100vw - 24px);
+  padding: 4px;
+}
+.moon-permission-item {
+  min-height: 34px;
+  padding: 6px 28px 6px 8px;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 400;
+}
+.moon-permission-item > svg {
+  width: 16px;
+  height: 16px;
+}
+@container moon-composer-toolbar (max-width: 560px) {
+  .moon-permission-label {
+    display: none;
+  }
+}

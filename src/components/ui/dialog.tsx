@@ -1,6 +1,7 @@
 import * as React from "react"
 import { cn } from "cn"
 import { Dialog as DialogPrimitive } from "radix-ui"
+import { cva, type VariantProps } from "class-variance-authority"
 
 import { Button } from "@/components/ui/button"
 import { XIcon } from "lucide-react"
@@ -31,13 +32,19 @@ function DialogClose({
 
 function DialogOverlay({
   className,
+  appearance = "default",
   ...props
-}: React.ComponentProps<typeof DialogPrimitive.Overlay>) {
+}: React.ComponentProps<typeof DialogPrimitive.Overlay> & {
+  appearance?: "default" | "image-preview"
+}) {
   return (
     <DialogPrimitive.Overlay
       data-slot="dialog-overlay"
       className={cn(
-        "fixed inset-0 isolate z-50 bg-black/30 duration-100 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
+        "fixed inset-0 isolate z-50 duration-100 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
+        appearance === "image-preview"
+          ? "bg-image-preview-overlay"
+          : "bg-black/30",
         className
       )}
       {...props}
@@ -45,32 +52,53 @@ function DialogOverlay({
   )
 }
 
+const dialogContentVariants = cva(
+  "fixed z-50 text-sm duration-100 outline-none data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
+  {
+    variants: {
+      variant: {
+        default:
+          "top-1/2 left-1/2 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-popover-foreground ring-1 ring-foreground/10 sm:max-w-sm data-open:zoom-in-95 data-closed:zoom-out-95",
+        reader:
+          "top-1/2 left-1/2 flex max-h-[calc(100dvh-32px)] w-[calc(100vw-32px)] max-w-[800px] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl bg-popover text-popover-foreground ring-1 ring-foreground/10 data-open:zoom-in-95 data-closed:zoom-out-95 [&_[data-slot=dialog-description]]:text-xs [&_[data-slot=dialog-description]]:leading-5 [&_[data-slot=dialog-description]]:[overflow-wrap:anywhere] [&_[data-slot=dialog-header]]:max-h-[30dvh] [&_[data-slot=dialog-header]]:shrink-0 [&_[data-slot=dialog-header]]:overflow-auto [&_[data-slot=dialog-header]]:p-4 [&_[data-slot=dialog-header]]:pr-12 [&_[data-slot=dialog-title]]:leading-6 [&_[data-slot=dialog-title]]:[overflow-wrap:anywhere]",
+        "image-preview":
+          "inset-0 flex h-dvh w-full items-center justify-center p-4 text-image-preview-foreground sm:p-6",
+      },
+    },
+    defaultVariants: { variant: "default" },
+  }
+)
+
 function DialogContent({
   className,
   children,
   showCloseButton = true,
+  variant = "default",
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
-}) {
+} & VariantProps<typeof dialogContentVariants>) {
   return (
     <DialogPortal>
-      <DialogOverlay />
+      <DialogOverlay
+        appearance={variant === "image-preview" ? "image-preview" : "default"}
+      />
       <DialogPrimitive.Content
         data-slot="dialog-content"
-        className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
-          className
-        )}
+        className={cn(dialogContentVariants({ variant }), className)}
         {...props}
       >
         {children}
         {showCloseButton && (
           <DialogPrimitive.Close data-slot="dialog-close" asChild>
             <Button
-              variant="ghost"
-              className="absolute top-2 right-2"
-              size="icon-sm"
+              variant={variant === "image-preview" ? "secondary" : "ghost"}
+              className={
+                variant === "image-preview"
+                  ? "absolute top-4 right-4"
+                  : "absolute top-2 right-2"
+              }
+              size={variant === "image-preview" ? "icon-lg" : "icon-sm"}
             >
               <XIcon />
               <span className="sr-only">关闭</span>
@@ -79,6 +107,34 @@ function DialogContent({
         )}
       </DialogPrimitive.Content>
     </DialogPortal>
+  )
+}
+
+const dialogBodyVariants = cva("min-h-0 min-w-0", {
+  variants: {
+    variant: {
+      default: "moon-scrollbar overflow-auto",
+      document:
+        "moon-scrollbar overflow-auto border-t bg-muted/30 p-4 text-sm leading-6 [overflow-wrap:anywhere] text-foreground",
+      "image-preview": "flex h-full w-full items-center justify-center",
+      feedback:
+        "moon-scrollbar max-h-full w-full max-w-[400px] overflow-auto rounded-xl bg-popover p-4 text-popover-foreground",
+    },
+  },
+  defaultVariants: { variant: "default" },
+})
+
+function DialogBody({
+  className,
+  variant = "default",
+  ...props
+}: React.ComponentProps<"div"> & VariantProps<typeof dialogBodyVariants>) {
+  return (
+    <div
+      data-slot={variant === "feedback" ? "dialog-feedback" : "dialog-body"}
+      className={cn(dialogBodyVariants({ variant }), className)}
+      {...props}
+    />
   )
 }
 
@@ -155,6 +211,7 @@ export {
   Dialog,
   DialogClose,
   DialogContent,
+  DialogBody,
   DialogDescription,
   DialogFooter,
   DialogHeader,

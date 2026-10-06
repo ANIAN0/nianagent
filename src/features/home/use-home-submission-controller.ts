@@ -6,6 +6,7 @@ import { feedbackFromError } from "@/lib/operation-issue"
 import { RpcRequestRejected } from "@/features/models/model-service"
 import type { useLiveConversation } from "@/features/conversation/use-live-conversation"
 import type { ModelConnection } from "@/features/models/model-types"
+import type { ConversationSnapshot } from "@/features/models/model-contract.generated"
 import type { useWorkspaces } from "@/features/workspaces/use-workspaces"
 import type { SessionService } from "@/features/session/session-service"
 import { consumeHomeSession } from "@/features/session/session-service"
@@ -82,6 +83,9 @@ export function useHomeSubmissionController({
   )
   const homeSelectionActivities = useRef(new Map<string, number>())
   const resumeHomeHandoff = useRef<(id: string) => void>(() => {})
+  const acceptLiveHomeReceipt = useRef<
+    (snapshot: ConversationSnapshot) => void
+  >(() => {})
   const [homeCleanupErrors, setHomeCleanupErrors] = useState<
     Record<
       string,
@@ -103,7 +107,7 @@ export function useHomeSubmissionController({
             accepted: !!submission.transfer || submission.stage === "accepted",
             message:
               submission.transfer || submission.stage === "accepted"
-                ? "原消息已接受，下一条草稿保留。请完成本地交接后继续。"
+                ? "原提交结果已确认，下一条草稿保留。请完成本地交接后继续。"
                 : "消息尚未接受，原副本与输入保留。请完成本地草稿恢复后继续。",
           },
         ])
@@ -430,7 +434,7 @@ export function useHomeSubmissionController({
             accepted: true,
             waitingMaterials: true,
             message:
-              "原消息已接受，正在完成下一条草稿已开始的材料准备。完成后会自动带入本会话。",
+              "原输入已处理，正在完成下一条草稿已开始的材料准备。完成后会自动带入本会话。",
           },
         }))
         return false
@@ -468,13 +472,26 @@ export function useHomeSubmissionController({
         [submission.sessionId]: {
           accepted: true,
           message:
-            "消息已接受，但下一条草稿尚未完整保存到会话。原副本与新稿保留；暂缓编辑，请重试完成交接。",
+            "原提交结果已确认，但下一条草稿尚未完整保存到会话。原副本与新稿保留；暂缓编辑，请重试完成交接。",
         },
       }))
       return false
     }
   }
   useEffect(() => {
+    acceptLiveHomeReceipt.current = (snapshot) => {
+      const submission = homeSubmissionsRef.current[snapshot.id]
+      if (
+        submission?.stage !== "sending" ||
+        submission.sessionId !== snapshot.id ||
+        submission.clientRequestId !== snapshot.clientRequestId ||
+        (!snapshot.inputAccepted && snapshot.inputDisposition !== "handled") ||
+        !snapshot.cwd
+      )
+        return
+      if (acceptHomeSubmission(submission, snapshot.cwd))
+        void refreshCatalog(true)
+    }
     resumeHomeHandoff.current = (id) => {
       const waiting = waitingHomeMaterials.current.get(id)
       const submission = homeSubmissionsRef.current[id]
@@ -491,6 +508,13 @@ export function useHomeSubmissionController({
       }
     }
   })
+  useEffect(
+    () =>
+      chat.subscribeInputReceipts((snapshot) =>
+        acceptLiveHomeReceipt.current(snapshot)
+      ),
+    [chat.subscribeInputReceipts]
+  )
   async function submitHome(
     draft: HomeDraft,
     signal?: AbortSignal,
@@ -508,6 +532,14 @@ export function useHomeSubmissionController({
     }
     if (!homeSubmissionsRef.current[id])
       prepareHomeSubmission(submission, followingHomeDraft(submission.draft))
+    // The immutable original is durable. Render it immediately in the selected
+    // conversation while expensive configuration/model preparation continues.
+    chat.beginHomeHandoff(
+      id,
+      currentHomeEditing(submission) ?? followingHomeDraft(submission.draft)
+    )
+    if (!signal?.aborted && ownsPage()) selectConversation(id)
+    const ownsConversation = homeNavigation.capture()
     let started = false
     let preflightPhase: "read" | "apply" = "read"
     let cleaned: boolean
@@ -539,9 +571,11 @@ export function useHomeSubmissionController({
         submission.draft,
         connections,
         signal,
-        submission.clientRequestId
+        submission.clientRequestId,
+        "followUp",
+        true
       )
-      if (!accepted.inputAccepted)
+      if (!accepted.inputAccepted && accepted.inputDisposition !== "handled")
         throw new RpcRequestRejected(
           accepted.error || "消息未能开始，请检查模型配置后重试。",
           accepted.issue
@@ -553,15 +587,25 @@ export function useHomeSubmissionController({
         () => !signal?.aborted && ownsPage()
       )
     } catch (error) {
-      if (!started || !chat.submissionDraft(id))
-        throw rejectHomeSubmission(
+      if (!started || !chat.submissionDraft(id)) {
+        const recovered = recoverRejectedHomeSubmission(
+          submission,
+          currentHomeEditing(submission) ?? chat.drafts[id]
+        )
+        const rejected = rejectHomeSubmission(
           submission,
           !started ? homePreflightError(error, preflightPhase) : error
         )
+        chat.adoptRecoveredDraft(id, recovered.draft)
+        if (!signal?.aborted && ownsConversation()) selectConversation()
+        throw rejected
+      }
       throw retainedHomeSubmissionError(
         error,
-        "尚未确认原消息是否已接收。正在核对的副本和下一条草稿均已保留。"
+        "尚未确认原提交结果。正在核对的副本和下一条草稿均已保留。"
       )
+    } finally {
+      chat.endHomeHandoff(id)
     }
     if (cleaned && !signal?.aborted && ownsPage()) selectConversation(id)
     void refreshCatalog(true)
@@ -628,14 +672,14 @@ export function useHomeSubmissionController({
             receipt.issue ?? receipt.snapshot?.issue
           )
         )
-      if (receipt.state !== "accepted")
+      if (receipt.state !== "accepted" && receipt.state !== "handled")
         throw retainedHomeSubmissionError(
           undefined,
-          "仍未确认原消息是否被接受，副本和下一条输入均已保留。"
+          "仍未确认原提交结果，副本和下一条输入均已保留。"
         )
       cwd = receipt.snapshot?.cwd
     }
-    if (!cwd) throw new Error("已接受记录的工作目录尚未确认，草稿保留。")
+    if (!cwd) throw new Error("原提交的工作目录尚未确认，草稿保留。")
     const candidate = restoreHomeDraft(submission.draft.workspaceId)
     const preserved =
       !!(candidate.text?.trim() || candidate.materials?.length) &&
@@ -649,12 +693,12 @@ export function useHomeSubmissionController({
     ) {
       if (waitingHomeMaterials.current.has(id))
         return { disposition: "conversation" as const }
-      throw new Error("消息已接受，下一条草稿尚未完整交接。请重试清理。")
+      throw new Error("原提交结果已确认，下一条草稿尚未完整交接。请重试清理。")
     }
     if (navigate && !signal?.aborted && ownsPage()) {
       selectConversation(id)
       if (preserved)
-        setNotice("原消息已接受，等待期间的下一条草稿已带入本会话输入区。")
+        setNotice("原输入已处理，等待期间的下一条草稿已带入本会话输入区。")
     }
     void refreshCatalog(true)
     return { disposition: "conversation" as const }
@@ -674,7 +718,18 @@ export function useHomeSubmissionController({
     Object.values(retainedHomeViews).filter(
       (view) => selected || view.key !== homeDraft.key
     )
-  if (!selected && !workspaces.initialLoading)
+  const activeHomeSubmission = homeDraft.draft?.sessionId
+    ? homeSubmissions[homeDraft.draft.sessionId]
+    : undefined
+  // Keep the original submit owner mounted during early navigation. Its
+  // configuration-effect cleanup aborts the request if this view disappears.
+  if (
+    (!selected ||
+      (activeHomeSubmission &&
+        ["prepared", "sending"].includes(activeHomeSubmission.stage ?? ""))) &&
+    !workspaces.initialLoading &&
+    !homeViews.some((view) => view.key === homeDraft.key)
+  )
     homeViews.push({
       key: homeDraft.key,
       draft: homeDraft.draft,
@@ -749,5 +804,24 @@ export function useHomeSubmissionController({
     openHome,
     retryCleanup,
     checkRetained,
+    changeFollowingDraft: (draft: HomeDraft) => {
+      if (draft.sessionId && homeSubmissionsRef.current[draft.sessionId])
+        homeSubmissionEditing.current.set(draft.sessionId, draft)
+    },
+    submissionEcho: (id: string) => {
+      const submission = homeSubmissions[id]
+      return submission &&
+        !["accepted", "rejected"].includes(submission.stage ?? "")
+        ? {
+            id: submission.clientRequestId ?? id,
+            kind: "send" as const,
+            stage:
+              submission.stage === "sending"
+                ? ("sending" as const)
+                : ("prepared" as const),
+            draft: submission.draft,
+          }
+        : undefined
+    },
   }
 }

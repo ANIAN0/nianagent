@@ -36,15 +36,38 @@ export function materialQueryAtSelection(
     }
   }
 
-  const slash = text.match(/^\/(skill:)?([\p{L}\p{N}_-]*)/u)
-  if (!slash || start > slash[0].length) return null
-  const prefix = slash[1] ? "/skill:".length : 1
-  return {
-    mode: slash[1] ? "skill" : "slash",
-    query: text.slice(Math.min(prefix, start), start),
-    start: 0,
-    end: slash[0].length,
+  for (const slash of text.matchAll(/^(\s*)\/(skill:)?([^\s]*)/gu)) {
+    const tokenStart = slash.index + slash[1]!.length
+    const tokenEnd = slash.index + slash[0].length
+    if (start <= tokenStart || start > tokenEnd) continue
+    if (text[tokenEnd] && !/\s/u.test(text[tokenEnd]!)) continue
+    if (!slash[2] && !/^[\p{L}\p{N}_-]*$/u.test(slash[3]!)) continue
+    const prefix = tokenStart + (slash[2] ? "/skill:".length : 1)
+    return {
+      mode: slash[2] ? "skill" : "slash",
+      query: text.slice(Math.min(prefix, start), start),
+      start: tokenStart,
+      end: tokenEnd,
+    }
   }
+  return null
+}
+
+/** Skill selection changes only the leading text token, never a material identity. */
+export function replaceLeadingSkill(text: string, name: string) {
+  const leading = text.match(
+    /^(\s*)\/(?:skill:[^\s]*|[\p{L}\p{N}_-]*)(?=\s|$)/u
+  )
+  const start = leading ? leading[1]!.length : 0
+  const end = leading ? leading[0].length : 0
+  const suffix = text.slice(end)
+  const separator = suffix.match(/^\s+/u)?.[0] ?? ""
+  const updated = replaceMaterialQuery(
+    text,
+    { start, end },
+    `/skill:${name}${separator ? "" : " "}`
+  )
+  return { ...updated, caret: updated.caret + separator.length }
 }
 
 export function replaceMaterialQuery(

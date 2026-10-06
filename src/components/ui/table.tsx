@@ -1,7 +1,23 @@
 import * as React from "react"
+import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "cn"
 
-function Table({ className, ...props }: React.ComponentProps<"table">) {
+const tableVariants = cva("w-full caption-bottom", {
+  variants: {
+    variant: {
+      default: "text-sm",
+      compact:
+        "text-[13px] leading-5 [&_[data-slot=table-head]]:h-8 [&_[data-slot=table-head]]:text-xs [&_[data-slot=table-head]]:leading-[18px] [&_[data-slot=table-head]]:text-muted-foreground [&_[data-slot=table-cell]]:px-2 [&_[data-slot=table-cell]]:py-3 [&_[data-slot=table-cell]]:whitespace-normal [&_[data-slot=table-cell]]:break-words [&_[data-slot=table-cell]:has([role=checkbox])]:pr-2",
+    },
+  },
+  defaultVariants: { variant: "default" },
+})
+
+function Table({
+  className,
+  variant = "default",
+  ...props
+}: React.ComponentProps<"table"> & VariantProps<typeof tableVariants>) {
   return (
     <div
       data-slot="table-container"
@@ -9,7 +25,8 @@ function Table({ className, ...props }: React.ComponentProps<"table">) {
     >
       <table
         data-slot="table"
-        className={cn("w-full caption-bottom text-sm", className)}
+        data-variant={variant}
+        className={cn(tableVariants({ variant }), className)}
         {...props}
       />
     </div>
@@ -75,12 +92,34 @@ function TableHead({ className, ...props }: React.ComponentProps<"th">) {
   )
 }
 
-function TableCell({ className, ...props }: React.ComponentProps<"td">) {
+function TableCell({
+  className,
+  variant = "default",
+  ...props
+}: React.ComponentProps<"td"> & { variant?: "default" | "secondary" }) {
   return (
     <td
       data-slot="table-cell"
+      data-variant={variant}
       className={cn(
         "p-2 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0",
+        variant === "secondary" && "text-xs leading-[18px] text-muted-foreground",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function TableCellDescription({
+  className,
+  ...props
+}: React.ComponentProps<"p">) {
+  return (
+    <p
+      data-slot="table-cell-description"
+      className={cn(
+        "text-xs leading-[18px] break-words whitespace-pre-wrap text-muted-foreground",
         className
       )}
       {...props}
@@ -109,5 +148,6 @@ export {
   TableHead,
   TableRow,
   TableCell,
+  TableCellDescription,
   TableCaption,
 }

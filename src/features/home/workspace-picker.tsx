@@ -1,3 +1,4 @@
+import { HoverHint } from "@/components/feedback/hover-hint"
 import { useEffect, useId, useRef, useState } from "react"
 import {
   Folder,
@@ -56,6 +57,8 @@ export function WorkspacePicker({
   )
   const [busyAction, setBusyAction] = useState<"select" | "read">("select")
   const request = useRef<AbortController | null>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const restoreDirectFocus = useRef(false)
   const [retrySelection, setRetrySelection] = useState<string | null>(null)
   const [pendingSelection, setPendingSelection] = useState<string | null>(null)
   const errorId = useId()
@@ -84,12 +87,23 @@ export function WorkspacePicker({
       : feedback?.severity === "warning"
         ? TriangleAlert
         : CircleAlert
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    const trackFocus = (event: FocusEvent) => {
+      if (
+        restoreDirectFocus.current &&
+        event.target !== document.body &&
+        event.target !== triggerRef.current
+      ) {
+        restoreDirectFocus.current = false
+      }
+    }
+    document.addEventListener("focusin", trackFocus)
+    return () => {
       request.current?.abort()
-    },
-    []
-  )
+      restoreDirectFocus.current = false
+      document.removeEventListener("focusin", trackFocus)
+    }
+  }, [])
   async function run(
     action: (signal: AbortSignal) => void | Promise<void>,
     kind: "select" | "read" = "select"
@@ -126,48 +140,85 @@ export function WorkspacePicker({
   const reread = onRetry
     ? () => void run((signal) => onRetry(signal), "read")
     : undefined
+  const chooseDirectly =
+    workspaces.length === 0 &&
+    !loading &&
+    !error &&
+    !issue &&
+    !(localIssue && localRecovery === "read") &&
+    !!onChooseDirectory
+  useEffect(() => {
+    if (pending || !restoreDirectFocus.current) return
+    restoreDirectFocus.current = false
+    // Pending feedback replaces the trigger's wrapper. Restore its lost focus
+    // only after cancellation/failure, without stealing another control's focus.
+    if (
+      chooseDirectly &&
+      !disabled &&
+      document.activeElement === document.body
+    ) {
+      triggerRef.current?.focus()
+    }
+  }, [chooseDirectly, disabled, pending])
+  const chooseDirectory = () => {
+    if (request.current || disabled || loading) return
+    restoreDirectFocus.current =
+      chooseDirectly && document.activeElement === triggerRef.current
+    setRetrySelection(null)
+    if (onChooseDirectory) void run(onChooseDirectory)
+  }
+  const trigger = (
+    <Button
+      ref={triggerRef}
+      type="button"
+      aria-label="选择工作目录"
+      aria-busy={pending}
+      aria-describedby={feedback ? errorId : undefined}
+      disabled={pending || disabled}
+      onClick={chooseDirectly ? chooseDirectory : undefined}
+      variant="ghost"
+      className={cn(
+        "h-7 max-w-full gap-1 px-2 text-[13px] leading-5 font-normal text-muted-foreground",
+        missing &&
+          "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
+      )}
+    >
+      {pending ? (
+        <LoaderCircle
+          data-icon="inline-start"
+          className="animate-spin motion-reduce:animate-none"
+        />
+      ) : workspace ? (
+        <FolderOpen className="size-4" data-icon="inline-start" />
+      ) : (
+        <Folder className="size-4" data-icon="inline-start" />
+      )}
+      <span className="truncate">
+        {loading || (busy && busyAction === "read")
+          ? "读取工作目录…"
+          : busy
+            ? (workspaces.find((item) => item.id === pendingSelection)?.name ??
+              "正在选择工作目录…")
+            : (workspace?.name ?? "选择工作目录")}
+      </span>
+      <ChevronDown className="size-3 text-caption" data-icon="inline-end" />
+    </Button>
+  )
   return (
     <div className="@container mb-3 px-2">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              aria-label="选择工作目录"
-              aria-busy={pending}
-              aria-describedby={feedback ? errorId : undefined}
-              disabled={pending || disabled}
-              variant="ghost"
-              className={cn(
-                "h-7 max-w-full gap-1 px-2 text-[13px] leading-5 font-normal text-muted-foreground",
-                missing &&
-                  "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
-              )}
-              title={workspace?.path ?? "选择工作目录后开始工作"}
-            >
-              {pending ? (
-                <LoaderCircle
-                  data-icon="inline-start"
-                  className="animate-spin motion-reduce:animate-none"
-                />
-              ) : workspace ? (
-                <FolderOpen className="size-4" data-icon="inline-start" />
-              ) : (
-                <Folder className="size-4" data-icon="inline-start" />
-              )}
-              <span className="truncate">
-                {loading || (busy && busyAction === "read")
-                  ? "读取工作目录…"
-                  : busy
-                    ? (workspaces.find((item) => item.id === pendingSelection)
-                        ?.name ?? "正在选择工作目录…")
-                    : (workspace?.name ?? "选择工作目录")}
-              </span>
-              <ChevronDown
-                className="size-3 text-caption"
-                data-icon="inline-end"
-              />
-            </Button>
-          </DropdownMenuTrigger>
+          <HoverHint
+            content={workspace?.path ?? "选择工作目录后开始工作"}
+            disabled={pending || disabled}
+            label="选择工作目录"
+          >
+            {chooseDirectly ? (
+              trigger
+            ) : (
+              <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+            )}
+          </HoverHint>
           <DropdownMenuContent
             align="start"
             sideOffset={8}
@@ -175,39 +226,45 @@ export function WorkspacePicker({
           >
             <DropdownMenuGroup className="max-h-64 overflow-y-auto">
               {workspaces.map((item) => (
-                <DropdownMenuItem
-                  key={item.id}
-                  disabled={item.available === false || pending}
-                  onSelect={() => {
-                    setPendingSelection(item.id)
-                    setRetrySelection(item.id)
-                    void run((signal) => onChange(item.id, signal))
-                  }}
-                  className="min-h-10 gap-2 rounded-xl px-3"
-                  title={
+                <HoverHint
+                  content={
                     item.available === false
                       ? `${item.path} — ${item.unavailableReason}`
                       : item.path
                   }
+                  key={item.id}
+                  className="w-full rounded-md"
+                  disabled={item.available === false || pending}
                 >
-                  <Folder />
-                  <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate">{item.name}</span>
-                    {workspaces.some(
-                      (other) =>
-                        other.id !== item.id && other.name === item.name
-                    ) && (
-                      <span className="truncate text-xs text-muted-foreground">
-                        {item.path}
-                      </span>
+                  <DropdownMenuItem
+                    key={item.id}
+                    disabled={item.available === false || pending}
+                    onSelect={() => {
+                      setPendingSelection(item.id)
+                      setRetrySelection(item.id)
+                      void run((signal) => onChange(item.id, signal))
+                    }}
+                    className="min-h-10 gap-2 rounded-xl px-3"
+                  >
+                    <Folder />
+                    <span className="flex min-w-0 flex-1 flex-col">
+                      <span className="truncate">{item.name}</span>
+                      {workspaces.some(
+                        (other) =>
+                          other.id !== item.id && other.name === item.name
+                      ) && (
+                        <span className="truncate text-xs text-muted-foreground">
+                          {item.path}
+                        </span>
+                      )}
+                    </span>
+                    {item.available === false ? (
+                      <span className="shrink-0 text-xs">不可用</span>
+                    ) : (
+                      workspace?.id === item.id && <Check aria-label="已选择" />
                     )}
-                  </span>
-                  {item.available === false ? (
-                    <span className="shrink-0 text-xs">不可用</span>
-                  ) : (
-                    workspace?.id === item.id && <Check aria-label="已选择" />
-                  )}
-                </DropdownMenuItem>
+                  </DropdownMenuItem>
+                </HoverHint>
               ))}
             </DropdownMenuGroup>
             {onChooseDirectory && (
@@ -218,10 +275,7 @@ export function WorkspacePicker({
                 <DropdownMenuGroup>
                   <DropdownMenuItem
                     className="h-10 gap-2 rounded-xl px-3"
-                    onSelect={() => {
-                      setRetrySelection(null)
-                      void run(onChooseDirectory)
-                    }}
+                    onSelect={chooseDirectory}
                   >
                     <Plus />
                     添加工作区…

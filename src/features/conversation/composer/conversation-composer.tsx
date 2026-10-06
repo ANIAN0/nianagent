@@ -21,6 +21,7 @@ import { PromptInput } from "@/features/home/prompt-input"
 import {
   composerDraftEligibility,
   composerDisplayMaterials,
+  editableComposerDraft,
 } from "@/components/composer/composer-policy"
 import { SelectedMaterials } from "@/features/home/selected-materials"
 import { ComposerPanelProvider } from "@/features/home/composer-panel-context"
@@ -31,6 +32,8 @@ import { ComposerAuxiliaryBar } from "./composer-auxiliary-bar"
 import { useComposerMaterials } from "@/features/materials/use-composer-materials"
 import { OperationFeedback } from "@/components/feedback/operation-feedback"
 import type { FeedbackDescription } from "@/lib/operation-issue"
+import type { ConversationStatistics } from "@/features/models/model-contract.generated"
+import type { BusyInputMode } from "./run-input-control"
 
 export type ConversationComposerProps = {
   inputRef?: Ref<ComposerEditorElement>
@@ -54,8 +57,11 @@ export type ConversationComposerProps = {
   blocked?: boolean
   blockedReason?: string
   dock?: ReactNode
+  interaction?: ReactNode
+  feedback?: ReactNode
   queueRecovery?: ReactNode
   context?: ContextUsageProps
+  statistics?: ConversationStatistics
   deliveryMode?: "single" | "all"
   queuedCount?: number
   modeIssue?: FeedbackDescription
@@ -64,7 +70,7 @@ export type ConversationComposerProps = {
   onCheckMode?: () => void
   onDeliveryModeChange?: (mode: "single" | "all") => void | Promise<unknown>
   onChange: (draft: HomeDraft) => void
-  onSubmit: (draft: HomeDraft) => void
+  onSubmit: (draft: HomeDraft, delivery?: BusyInputMode) => void
   onStop: () => void
 }
 export function ConversationComposer({
@@ -79,8 +85,11 @@ export function ConversationComposer({
   blocked = false,
   blockedReason,
   dock,
+  interaction,
+  feedback,
   queueRecovery,
   context,
+  statistics,
   deliveryMode = "single",
   queuedCount = 0,
   modeIssue,
@@ -92,14 +101,32 @@ export function ConversationComposer({
   onSubmit,
   onStop,
 }: ConversationComposerProps) {
+  const [busyInputMode, setBusyInputMode] = useState<BusyInputMode>(() => {
+    try {
+      return localStorage.getItem("moon.busy-input.v1") === "steer"
+        ? "steer"
+        : "followUp"
+    } catch {
+      return "followUp"
+    }
+  })
+  function changeBusyInputMode(mode: BusyInputMode) {
+    setBusyInputMode(mode)
+    try {
+      localStorage.setItem("moon.busy-input.v1", mode)
+    } catch {
+      /* Session preference remains usable. */
+    }
+  }
   const draft = useMemo(
-    () => ({
-      ...rawDraft,
-      thinking: effectiveThinking(
-        rawDraft.thinking,
-        data.modelThinking?.[rawDraft.model]
-      ),
-    }),
+    () =>
+      editableComposerDraft({
+        ...rawDraft,
+        thinking: effectiveThinking(
+          rawDraft.thinking,
+          data.modelThinking?.[rawDraft.model]
+        ),
+      }),
     [rawDraft, data.modelThinking]
   )
   const anchorRef = useRef<HTMLDivElement>(null)
@@ -113,8 +140,18 @@ export function ConversationComposer({
       )
     )
     const measureMinimum = () => {
+      const style = getComputedStyle(card)
+      const editor = card.querySelector<HTMLElement>(
+        ".moon-composer-editor-body"
+      )
+      const editorMinimum = editor
+        ? parseFloat(getComputedStyle(editor).minHeight)
+        : 36
       const minimum =
-        36 +
+        editorMinimum +
+        parseFloat(style.borderTopWidth) +
+        parseFloat(style.borderBottomWidth) +
+        (parseFloat(style.rowGap) || 0) * addons.length +
         addons.reduce(
           (sum, addon) => sum + addon.getBoundingClientRect().height,
           0
@@ -131,11 +168,14 @@ export function ConversationComposer({
     latest.current = draft
   }, [draft])
   function change(patch: Partial<HomeDraft>) {
-    const next = { ...latest.current, ...patch }
+    const next = editableComposerDraft({ ...latest.current, ...patch })
     latest.current = next
     onChange(next)
   }
   const compactCommand = /^\/compact(?:\s|$)/.test(draft.text.trim())
+  const extensionCommand =
+    draft.command?.kind === "extension" &&
+    draft.text.trim().match(/^\/([^\s]+)/)?.[1] === draft.command.name
   const compactBlockedReason = !compactCommand
     ? ""
     : draft.materials.length > 0
@@ -161,10 +201,10 @@ export function ConversationComposer({
         text: insertComposerText(latest.current.text, text, start, end),
       }),
     update: (apply) => {
-      const next = {
+      const next = editableComposerDraft({
         ...latest.current,
         materials: apply(latest.current.materials),
-      }
+      })
       latest.current = next
       onChange(next)
     },
@@ -179,16 +219,29 @@ export function ConversationComposer({
     eligibility.canSend && !stopping && !blocked && (!running || allowQueue)
   const valid =
     !materialController.choosing &&
-    (compactCommand ? !compactBlockedReason : messageValid)
+    (compactCommand
+      ? !compactBlockedReason
+      : extensionCommand
+        ? messageValid && !running && draft.materials.length === 0
+        : messageValid)
   const materialFailure = materialController.feedback
-  function submit() {
+  function submit(alternate = false) {
     if (valid)
-      onSubmit({
-        ...draft,
-        text: draft.text.trim(),
-        modelLabel:
-          data.modelLabels?.[draft.model] ?? draft.modelLabel ?? draft.model,
-      })
+      onSubmit(
+        {
+          ...draft,
+          text: draft.text.trim(),
+          modelLabel:
+            data.modelLabels?.[draft.model] ?? draft.modelLabel ?? draft.model,
+        },
+        running
+          ? alternate
+            ? busyInputMode === "followUp"
+              ? "steer"
+              : "followUp"
+            : busyInputMode
+          : "followUp"
+      )
   }
   const configurationDisabledReason = stopping
     ? "正在停止当前工作，停止完成后可修改会话配置。"
@@ -207,6 +260,12 @@ export function ConversationComposer({
   return (
     <ComposerPanelProvider>
       <div className="conversation-composer">
+        {interaction && (
+          <div className="conversation-composer-interaction">{interaction}</div>
+        )}
+        {feedback && (
+          <div className="conversation-composer-feedback">{feedback}</div>
+        )}
         {dock && <div className="conversation-composer-dock">{dock}</div>}
         <form
           style={{ minHeight: formMinimum }}
@@ -242,6 +301,17 @@ export function ConversationComposer({
                   }
                   value={draft.text}
                   materials={draft.materials}
+                  referenceIdentities={materialController.referenceIdentities}
+                  onRetryReference={(id) => void materialController.retry(id)}
+                  canRetryReference={(material) =>
+                    materialController.canRetry(material.id)
+                  }
+                  retryLabelReference={(material) =>
+                    materialController.retryLabel(material.id)
+                  }
+                  onRemoveReference={(id) =>
+                    change(removeComposerMaterial(draft, id, workspacePath))
+                  }
                   cwd={workspacePath}
                   onReferencesChanged={(text, ids, restored) =>
                     change({
@@ -276,7 +346,9 @@ export function ConversationComposer({
                   retryLabel={(material) =>
                     materialController.retryLabel(material.id)
                   }
-                  onRemove={(id) => change(removeComposerMaterial(draft, id))}
+                  onRemove={(id) =>
+                    change(removeComposerMaterial(draft, id, workspacePath))
+                  }
                 />
                 <ComposerToolbar
                   sessionId={sessionId}
@@ -308,7 +380,14 @@ export function ConversationComposer({
                       running={running}
                       stopping={stopping}
                       hasDraft={eligibility.hasDraft}
-                      command={compactCommand ? "compact" : undefined}
+                      command={
+                        compactCommand
+                          ? "compact"
+                          : extensionCommand
+                            ? "extension"
+                            : undefined
+                      }
+                      delivery={busyInputMode}
                       disabled={blocked || !valid}
                       onStop={onStop}
                     />
@@ -357,6 +436,9 @@ export function ConversationComposer({
           />
         )}
         <ComposerAuxiliaryBar
+          statistics={statistics}
+          busyInputMode={busyInputMode}
+          onBusyInputModeChange={changeBusyInputMode}
           recovery={queueRecovery}
           context={context}
           deliveryMode={deliveryMode}

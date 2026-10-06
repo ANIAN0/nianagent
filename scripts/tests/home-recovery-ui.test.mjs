@@ -5,7 +5,7 @@ import { tmpdir } from "node:os"
 import { basename, dirname, join, resolve } from "node:path"
 import { createElement } from "react"
 import { Terminal } from "lucide-react"
-import { renderToString } from "react-dom/server"
+import { renderToString as renderMarkup } from "react-dom/server"
 import { createServer } from "vite"
 import react from "@vitejs/plugin-react"
 
@@ -14,6 +14,7 @@ let server,
   RecoveryAction,
   WorkspacePicker,
   MaterialCandidateList,
+  TooltipProvider,
   createWorkspaceReadController
 test.before(async () => {
   cache = await mkdtemp(join(tmpdir(), "moon-home-recovery-ui-"))
@@ -38,7 +39,13 @@ test.before(async () => {
   ;({ createWorkspaceReadController } = await server.ssrLoadModule(
     "/src/features/workspaces/workspace-read-controller.ts"
   ))
+  ;({ TooltipProvider } = await server.ssrLoadModule(
+    "/src/components/ui/tooltip.tsx"
+  ))
 })
+function renderToString(element) {
+  return renderMarkup(createElement(TooltipProvider, null, element))
+}
 test.after(async () => {
   await server?.close()
   if (!cache) return

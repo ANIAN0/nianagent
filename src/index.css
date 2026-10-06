@@ -48,6 +48,8 @@
   --color-composer-selector: var(--composer-selector);
   --color-composer-selector-hover: var(--composer-selector-hover);
   --color-caption: var(--caption);
+  --color-image-preview-overlay: var(--image-preview-overlay);
+  --color-image-preview-foreground: var(--image-preview-foreground);
   --color-popover-foreground: var(--popover-foreground);
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
@@ -64,6 +66,9 @@
 }
 
 :root {
+  --moon-composer-radius: 20px;
+  --image-preview-overlay: rgb(10 12 18 / 88%);
+  --image-preview-foreground: #f5f7fb;
   color-scheme: light;
   --background: #f8f9fb;
   --foreground: #17202f;

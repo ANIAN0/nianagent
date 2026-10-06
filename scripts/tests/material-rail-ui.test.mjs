@@ -1,10 +1,9 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { mkdtemp, lstat, rm } from "node:fs/promises"
-import { tmpdir } from "node:os"
+import { mkdtemp, mkdir, lstat, rm } from "node:fs/promises"
 import { basename, dirname, join, resolve } from "node:path"
 import { createElement, useRef } from "react"
-import { renderToString } from "react-dom/server"
+import { renderToString as renderMarkup } from "react-dom/server"
 import { createServer } from "vite"
 import react from "@vitejs/plugin-react"
 
@@ -26,8 +25,17 @@ let server,
   MaterialImagePreview,
   readMaterialThumbnail,
   ToolCall
+const cacheRoot = resolve(".dev/task-orchestrator/attachment-check-temp/frontend")
 test.before(async () => {
-  cache = await mkdtemp(join(tmpdir(), "moon-material-rail-ui-"))
+  await mkdir(cacheRoot, { recursive: true })
+  for (const path of [
+    resolve(".dev"),
+    resolve(".dev/task-orchestrator"),
+    dirname(cacheRoot),
+    cacheRoot,
+  ])
+    assert.equal((await lstat(path)).isSymbolicLink(), false)
+  cache = await mkdtemp(join(cacheRoot, "moon-material-rail-ui-"))
   server = await createServer({
     configFile: false,
     cacheDir: cache,
@@ -80,15 +88,20 @@ test.before(async () => {
 test.after(async () => {
   await server?.close()
   if (!cache) return
-  assert.equal(dirname(resolve(cache)), resolve(tmpdir()))
+  assert.equal(dirname(resolve(cache)), cacheRoot)
   assert.ok(basename(cache).startsWith("moon-material-rail-ui-"))
   assert.equal((await lstat(cache)).isSymbolicLink(), false)
+  assert.equal((await lstat(cacheRoot)).isSymbolicLink(), false)
   await rm(cache, { recursive: true, force: true })
 })
 
 // These real SSR renders check recovery semantics and accessible actions. They
 // do not execute effects, measure layout or prove DOM focus/scroll behaviour;
 // those boundaries remain part of the formal-page browser acceptance.
+function renderToString(element) {
+  return renderMarkup(createElement(TooltipProvider, null, element))
+}
+
 function renderMaterials(raw, display = raw) {
   const service = {
     restore: async () => {
@@ -195,19 +208,27 @@ for (const page of ["home", "conversation"]) {
             })
       const html = renderToString(
         createElement(
-          TooltipProvider,
-          null,
-          createElement(
-            MaterialServiceContext.Provider,
-            { value: service },
-            component,
-          ),
+          MaterialServiceContext.Provider,
+          { value: service },
+          component,
         ),
       )
       assert.doesNotMatch(html, /aria-label="(?:重新检查|重试准备)/)
-      assert.doesNotMatch(html, /aria-label="预览/)
-      assert.match(html, /当前模型不支持图片/)
+      if (status === "ready") {
+        assert.match(html, /aria-label="预览 设计稿.png"/)
+        // Conversation exposes this reason in a hover portal, outside SSR.
+        if (page === "home") assert.match(html, /当前模型不支持图片/)
+      } else {
+        assert.doesNotMatch(html, /aria-label="预览/)
+        assert.match(html, /缓存暂时无法读取。/)
+      }
       assert.match(html, /aria-label="移除设计稿.png"/)
+      const send = (html.match(/<button\b[^>]*>/g) ?? []).find((button) =>
+        /aria-label="发送"/.test(button),
+      )
+      assert.ok(send, `${page} must retain its send control`)
+      assert.match(send, /type="submit"/)
+      assert.match(send, /\bdisabled(?:=|\s|>)/)
     })
   }
 }
@@ -276,6 +297,52 @@ test("re-selecting repaired fixed content upgrades only its failed matching auth
   assert.equal(failed.status, "failed")
 })
 
+test("re-selecting a failed path replaces its different authority ID in place and keeps its original presentation", () => {
+  const before = { id: "before", name: "before.md", kind: "附件", status: "ready" }
+  const later = { id: "later", name: "later.md", kind: "附件", status: "ready" }
+  const failed = {
+    id: "a".repeat(64),
+    name: "README.md",
+    kind: "附件",
+    type: "file",
+    status: "failed",
+    source: "H:/workspace/moon/README.md",
+    presentation: "reference",
+    error: "原文件暂不可读取。",
+    retryable: false,
+  }
+  const ready = {
+    id: "b".repeat(64),
+    name: failed.name,
+    kind: failed.kind,
+    type: failed.type,
+    source: failed.source,
+    status: "ready",
+    presentation: "attachment",
+  }
+  const original = [before, failed, later]
+  const result = appendPreparedMaterials(original, [ready])
+  assert.deepEqual(result, [before, { ...ready, presentation: "reference" }, later])
+  assert.equal(result[0], before)
+  assert.equal(result[2], later)
+  assert.equal("error" in result[1], false)
+  assert.equal("retryable" in result[1], false)
+  assert.deepEqual(original, [before, failed, later])
+  assert.equal(failed.status, "failed")
+  assert.equal(appendPreparedMaterials(result, [{ ...ready, name: "renamed" }])[1], result[1])
+  for (const different of [
+    { ...ready, source: "H:/workspace/moon/docs/README.md" },
+    { ...ready, type: "directory" },
+  ]) {
+    const items = appendPreparedMaterials(original, [different])
+    assert.equal(items[1], failed)
+    assert.equal(items[3], different)
+  }
+  const image = { ...failed, type: "image", source: "粘贴或拖入的图片" }
+  const otherImage = { ...ready, type: "image", source: image.source }
+  assert.deepEqual(appendPreparedMaterials([image], [otherImage]), [image, otherImage])
+})
+
 test("authority recovery metadata survives both draft caches while image thumbnails stay local", (t) => {
   const previous = Object.getOwnPropertyDescriptor(globalThis, "localStorage")
   const values = new Map()
@@ -310,6 +377,7 @@ test("authority recovery metadata survives both draft caches while image thumbna
         status: "failed",
         source: "粘贴图片",
         retryable: false,
+        error: "图片格式不支持，请重新选择。",
         thumbnail: "local-preview",
       },
     ],
@@ -321,8 +389,43 @@ test("authority recovery metadata survives both draft caches while image thumbna
     draftStore.restoreConversationDrafts().drafts.recovery,
   ]) {
     assert.equal(restored.materials[0].retryable, false)
+    assert.equal(restored.materials[0].error, draft.materials[0].error)
     assert.equal("thumbnail" in restored.materials[0], false)
   }
+})
+
+test("the actual restore request preserves a path preparation failure reason and retryability without sending UI caches", async (t) => {
+  const material = {
+    id: "f".repeat(64),
+    name: "超限.png",
+    kind: "附件",
+    type: "file",
+    status: "failed",
+    source: "H:/workspace/moon/超限.png",
+    error: "图片超过8MiB，请选择较小图片。",
+    retryable: false,
+    presentation: "attachment",
+    thumbnail: "data:image/png;base64,local",
+  }
+  let request
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    assert.equal(url, "/api/models/materialRestore")
+    request = JSON.parse(options.body)
+    return Response.json({ result: [material] })
+  })
+  await createMaterialService().restore("session", "H:/workspace/moon", [material])
+  assert.deepEqual(request.materials, [{
+    id: material.id,
+    name: material.name,
+    kind: material.kind,
+    type: material.type,
+    status: material.status,
+    source: material.source,
+    error: material.error,
+    retryable: false,
+  }])
+  assert.equal(material.presentation, "attachment")
+  assert.ok(material.thumbnail)
 })
 
 test("browser file failures without a real source do not expose a futile retry", () => {
@@ -479,21 +582,17 @@ test("a handed-off failed upload exposes the actual conversation retry and uploa
   }
   const html = renderToString(
     createElement(
-      TooltipProvider,
-      null,
-      createElement(
-        MaterialServiceContext.Provider,
-        { value: service },
-        createElement(ConversationComposer, {
-          data,
-          draft,
-          sessionId: sid,
-          workspacePath: cwd,
-          onChange: () => {},
-          onSubmit: () => {},
-          onStop: () => {},
-        }),
-      ),
+      MaterialServiceContext.Provider,
+      { value: service },
+      createElement(ConversationComposer, {
+        data,
+        draft,
+        sessionId: sid,
+        workspacePath: cwd,
+        onChange: () => {},
+        onSubmit: () => {},
+        onStop: () => {},
+      }),
     ),
   )
   assert.match(html, /aria-label="重试准备 下一项设计.png"/)
@@ -1014,11 +1113,7 @@ test("formal command tool separates the authoritative cwd from output and never 
   }
   function renderCommand(current) {
     return renderToString(
-      createElement(
-        TooltipProvider,
-        null,
-        createElement(ToolCall, { tool: current, defaultOpen: true }),
-      ),
+      createElement(ToolCall, { tool: current, defaultOpen: true }),
     )
   }
   const recorded = renderCommand({

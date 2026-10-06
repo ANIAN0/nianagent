@@ -127,13 +127,17 @@ function AttachmentDescription({
 
 function AttachmentActions({
   className,
+  placement = "default",
   ...props
-}: React.ComponentProps<"div">) {
+}: React.ComponentProps<"div"> & { placement?: "default" | "corner" }) {
   return (
     <div
       data-slot="attachment-actions"
       className={cn(
-        "relative z-20 flex shrink-0 items-center group-data-[orientation=vertical]/attachment:absolute group-data-[orientation=vertical]/attachment:top-3 group-data-[orientation=vertical]/attachment:right-3 group-data-[orientation=vertical]/attachment:gap-1",
+        "z-20 flex shrink-0 items-center",
+        placement === "corner"
+          ? "absolute top-1 right-1 gap-1"
+          : "relative group-data-[orientation=vertical]/attachment:absolute group-data-[orientation=vertical]/attachment:top-3 group-data-[orientation=vertical]/attachment:right-3 group-data-[orientation=vertical]/attachment:gap-1",
         className
       )}
       {...props}
@@ -143,18 +147,25 @@ function AttachmentActions({
 
 function AttachmentAction({
   className,
+  appearance = "default",
   variant,
   size = "icon-xs",
   type = "button",
   ...props
-}: React.ComponentProps<typeof Button>) {
+}: React.ComponentProps<typeof Button> & {
+  appearance?: "default" | "overlay"
+}) {
   return (
     <Button
       data-slot="attachment-action"
       type={type}
       variant={variant ?? "ghost"}
       size={size}
-      className={cn(className)}
+      className={cn(
+        appearance === "overlay" &&
+          "bg-card/90 text-muted-foreground hover:bg-muted hover:text-foreground",
+        className
+      )}
       {...props}
     />
   )

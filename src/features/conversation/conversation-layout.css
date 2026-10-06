@@ -98,6 +98,9 @@
   position: relative;
   scrollbar-width: thin;
 }
+.conversation-input-seat:has(.conversation-composer-interaction) {
+  --conversation-seat-max: min(80cqh, calc(100cqh - 128px));
+}
 .conversation-input-inner {
   width: 100%;
   max-width: 812px;

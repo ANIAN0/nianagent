@@ -172,6 +172,7 @@ export class ModelService {
       this.conversationStore,
       this.workspaces
     )
+    this.sessions.commands = this.conversations.commands
   }
   async initialize() {
     await this.store.initialize()

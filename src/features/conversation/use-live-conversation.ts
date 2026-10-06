@@ -195,6 +195,13 @@ export function useLiveConversation(selectedId: string | undefined) {
   >({})
   const [readPending, setReadPending] = useState<Record<string, boolean>>({})
   const readOwners = useRef(new Map<string, AbortController>())
+  const homeHandoffs = useRef(new Set<string>())
+  const inputReceiptListeners = useRef(
+    new Set<(snapshot: ConversationSnapshot) => void>()
+  )
+  const handoffInputReceipts = useRef(
+    new Map<string, Map<string, ConversationSnapshot>>()
+  )
   const reloadRequested = useRef<string | undefined>(undefined)
   const [queueIssues, setQueueIssues] = useState<
     Record<string, Record<string, FeedbackDescription | undefined>>
@@ -206,6 +213,43 @@ export function useLiveConversation(selectedId: string | undefined) {
   const [pending, setPending] = useState<Record<string, boolean>>({})
   const [reload, setReload] = useState(0)
   const current = useRef(snapshots)
+  const publishInputReceipt = useCallback((snapshot: ConversationSnapshot) => {
+    if (
+      !snapshot.clientRequestId ||
+      (!snapshot.inputAccepted && snapshot.inputDisposition !== "handled")
+    )
+      return
+    if (homeHandoffs.current.has(snapshot.id)) {
+      // Keep the original ACK until the initial Home owner finishes, even if a
+      // newer display snapshot belongs to a different input by that time.
+      const receipts =
+        handoffInputReceipts.current.get(snapshot.id) ?? new Map()
+      receipts.set(snapshot.clientRequestId, snapshot)
+      handoffInputReceipts.current.set(snapshot.id, receipts)
+      return
+    }
+    for (const listener of inputReceiptListeners.current) listener(snapshot)
+  }, [])
+  const subscribeInputReceipts = useCallback(
+    (listener: (snapshot: ConversationSnapshot) => void) => {
+      inputReceiptListeners.current.add(listener)
+      queueMicrotask(() => {
+        if (!inputReceiptListeners.current.has(listener)) return
+        for (const snapshot of Object.values(current.current)) {
+          if (
+            !homeHandoffs.current.has(snapshot.id) &&
+            snapshot.clientRequestId &&
+            (snapshot.inputAccepted || snapshot.inputDisposition === "handled")
+          )
+            listener(snapshot)
+        }
+      })
+      return () => {
+        inputReceiptListeners.current.delete(listener)
+      }
+    },
+    []
+  )
   const requests = useRef(restored.requests)
   const locks = useRef(new Set<string>())
   const stopLocks = useRef(new Set<string>())
@@ -457,24 +501,28 @@ export function useLiveConversation(selectedId: string | undefined) {
     (
       id: string,
       submission: PendingSubmission,
-      outcome: "accepted" | "rejected" = submission.stage === "rejected"
+      outcome: "accepted" | "handled" | "rejected" = submission.stage ===
+      "rejected"
         ? "rejected"
         : "accepted"
     ) => {
+      // Local receipt consumption also releases handled input. The official
+      // snapshot continues to distinguish it from a persisted Pi user message.
+      const resolvedOutcome = outcome === "handled" ? "accepted" : outcome
       const draft = resolvedConversationDraft(
         id,
         submission,
-        outcome,
+        resolvedOutcome,
         draftsRef.current[id]
       )
-      const resolved = { ...submission, stage: outcome }
+      const resolved = { ...submission, stage: resolvedOutcome }
       // Retain both copies in memory on any storage failure. A resolved receipt
       // cannot be resent, including after a window reload.
       requests.current.set(id, resolved)
       draftsRef.current = { ...draftsRef.current, [id]: draft }
       setDrafts(draftsRef.current)
       try {
-        persistConversationResolution(id, resolved, outcome, draft)
+        persistConversationResolution(id, resolved, resolvedOutcome, draft)
         requests.current.delete(id)
         receiptCleanups.current.delete(id)
         setDraftErrors((all) => ({ ...all, [id]: "" }))
@@ -541,7 +589,8 @@ export function useLiveConversation(selectedId: string | undefined) {
         submission &&
         (snapshot.queue?.acceptedRequestIds.includes(submission.id) ||
           (snapshot.clientRequestId === submission.id &&
-            snapshot.inputAccepted))
+            (snapshot.inputAccepted ||
+              snapshot.inputDisposition === "handled")))
       if (submission && accepted) {
         setActionIssues((all) => ({
           ...all,
@@ -553,6 +602,8 @@ export function useLiveConversation(selectedId: string | undefined) {
         }))
         clearReceipt(snapshot.id, submission, "accepted")
       }
+      // Acceptance belongs to the request, independently of display ordering.
+      publishInputReceipt(snapshot)
       const previous = current.current[snapshot.id]
       if (
         previous?.epoch === snapshot.epoch &&
@@ -571,7 +622,7 @@ export function useLiveConversation(selectedId: string | undefined) {
       // Interrupted metadata without Pi input is not proof of rejection;
       // only the formal per-request lookup or an explicit RPC rejection is.
     },
-    [clearReceipt]
+    [clearReceipt, publishInputReceipt]
   )
   useEffect(() => {
     if (!selectedId) return
@@ -583,10 +634,17 @@ export function useLiveConversation(selectedId: string | undefined) {
     const controller = new AbortController()
     reloadRequested.current = undefined
     const ownedReads = readOwners.current
+    const hasFollow = typeof service.follow === "function"
     let timer: ReturnType<typeof setTimeout>
     async function read() {
+      if (homeHandoffs.current.has(selectedId!)) {
+        timer = setTimeout(read, 100)
+        return
+      }
+      let failedRead = false
       ownedReads.set(selectedId!, controller)
-      setReadPending((all) => ({ ...all, [selectedId!]: true }))
+      if (!current.current[selectedId!])
+        setReadPending((all) => ({ ...all, [selectedId!]: true }))
       const before = mutations.current.get(selectedId!) ?? 0
       try {
         // Receipt reads have their own owner. They never borrow the write lock,
@@ -602,7 +660,13 @@ export function useLiveConversation(selectedId: string | undefined) {
           if (controller.signal.aborted) throw error
         })
         controller.signal.throwIfAborted()
-        const snapshot = await service.read(selectedId!, controller.signal)
+        const snapshot = hasFollow
+          ? await service.follow(
+              selectedId!,
+              current.current[selectedId!],
+              controller.signal
+            )
+          : await service.read(selectedId!, controller.signal)
         if (
           !controller.signal.aborted &&
           !locks.current.has(selectedId!) &&
@@ -610,6 +674,7 @@ export function useLiveConversation(selectedId: string | undefined) {
         )
           accept(snapshot)
       } catch (error) {
+        failedRead = true
         if (
           !controller.signal.aborted &&
           before === (mutations.current.get(selectedId!) ?? 0)
@@ -634,9 +699,13 @@ export function useLiveConversation(selectedId: string | undefined) {
             read,
             requested
               ? 0
-              : phase === "running" || phase === "stopping"
-                ? 250
-                : 1600
+              : hasFollow
+                ? current.current[selectedId!] && !failedRead
+                  ? 0
+                  : 1000
+                : phase === "running" || phase === "stopping"
+                  ? 250
+                  : 1600
           )
         }
       }
@@ -971,11 +1040,13 @@ export function useLiveConversation(selectedId: string | undefined) {
     draft: HomeDraft,
     connections: ModelConnection[],
     signal?: AbortSignal,
-    clientRequestId?: string
+    clientRequestId?: string,
+    delivery: "followUp" | "steer" = "followUp",
+    preserveFollowing = false
   ) {
     // Preflight failures preserve input. Once both copies are durable, the next
     // editable input separates from the frozen message before the host call.
-    changeDraft(id, draft)
+    if (!preserveFollowing) changeDraft(id, draft)
     assertQueueRecovered(id)
     const snapshot = await perform(id, () => {
       const input = {
@@ -983,6 +1054,7 @@ export function useLiveConversation(selectedId: string | undefined) {
         workspaceId: draft.workspaceId,
         text: draft.text.trim(),
         materials: draft.materials.map(materialReference),
+        delivery,
         ...resolveConversationModel(connections, draft),
       }
       const submission = submissionFor(
@@ -1002,7 +1074,12 @@ export function useLiveConversation(selectedId: string | undefined) {
         clientRequestId
       )
       try {
+        const editing = preserveFollowing ? draftsRef.current[id] : undefined
         const prepared = prepareConversationSubmission(id, submission)
+        if (editing) {
+          prepared.draft = editing
+          saveConversationDraft(id, editing)
+        }
         requests.current.set(id, prepared.submission)
         draftsRef.current = { ...draftsRef.current, [id]: prepared.draft }
         setDrafts(draftsRef.current)
@@ -1146,6 +1223,23 @@ export function useLiveConversation(selectedId: string | undefined) {
         )
         .map(([id]) => [id, true])
     ),
+    beginHomeHandoff: (id: string, draft: HomeDraft) => {
+      homeHandoffs.current.add(id)
+      draftsRef.current = { ...draftsRef.current, [id]: draft }
+      setDrafts(draftsRef.current)
+      setReadIssues((all) => ({ ...all, [id]: undefined }))
+    },
+    endHomeHandoff: (id: string) => {
+      homeHandoffs.current.delete(id)
+      const receipts = handoffInputReceipts.current.get(id)
+      handoffInputReceipts.current.delete(id)
+      for (const snapshot of receipts?.values() ?? [])
+        publishInputReceipt(snapshot)
+      const snapshot = current.current[id]
+      if (snapshot && !receipts?.has(snapshot.clientRequestId ?? ""))
+        publishInputReceipt(snapshot)
+    },
+    subscribeInputReceipts,
     submissionDraft: (id: string) => requests.current.get(id)?.draft,
     submissionRequestId: (id: string) => requests.current.get(id)?.id,
     submissionEcho: (id: string) =>

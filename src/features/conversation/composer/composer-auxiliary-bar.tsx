@@ -4,10 +4,16 @@ import type { FeedbackDescription } from "@/lib/operation-issue"
 import { ContextUsage, type ContextUsageProps } from "./context-usage"
 import { QueueDeliveryControl } from "./queue-delivery-control"
 import type { ReactNode } from "react"
+import { RunInputControl, type BusyInputMode } from "./run-input-control"
+import { RunStatistics } from "./run-statistics"
+import type { ConversationStatistics } from "@/features/models/model-contract.generated"
 import "./composer.css"
 
 export type ComposerAuxiliaryBarProps = {
   context?: ContextUsageProps
+  statistics?: ConversationStatistics
+  busyInputMode?: BusyInputMode
+  onBusyInputModeChange?: (mode: BusyInputMode) => void
   deliveryMode?: "single" | "all"
   queuedCount?: number
   onDeliveryModeChange?: (mode: "single" | "all") => void | Promise<unknown>
@@ -21,6 +27,9 @@ export type ComposerAuxiliaryBarProps = {
 /** Card and dock share one owner; queue count never moves the delivery control. */
 export function ComposerAuxiliaryBar({
   context,
+  statistics,
+  busyInputMode = "followUp",
+  onBusyInputModeChange,
   deliveryMode = "single",
   queuedCount = 0,
   onDeliveryModeChange,
@@ -35,20 +44,39 @@ export function ComposerAuxiliaryBar({
   const disabledReason = unknown
     ? "交付设置的保存结果尚未确认，请先核对原操作。"
     : modeDisabledReason
-  if (!context && !onDeliveryModeChange && !modeIssue && !recovery) return null
+  if (
+    !context &&
+    !statistics &&
+    !onBusyInputModeChange &&
+    !onDeliveryModeChange &&
+    !modeIssue &&
+    !recovery
+  )
+    return null
   return (
     <div className="composer-auxiliary" aria-label="对话输入辅助设置">
       <div className="composer-auxiliary-controls">
-        {onDeliveryModeChange && (
-          <QueueDeliveryControl
-            mode={deliveryMode}
-            disabled={!!disabledReason}
-            disabledReason={disabledReason}
-            queuedCount={queuedCount}
-            onChange={onDeliveryModeChange}
-          />
-        )}
-        {context && <ContextUsage {...context} />}
+        <div className="composer-auxiliary-actions">
+          {onBusyInputModeChange && (
+            <RunInputControl
+              mode={busyInputMode}
+              onChange={onBusyInputModeChange}
+            />
+          )}
+          {onDeliveryModeChange && (
+            <QueueDeliveryControl
+              mode={deliveryMode}
+              disabled={!!disabledReason}
+              disabledReason={disabledReason}
+              queuedCount={queuedCount}
+              onChange={onDeliveryModeChange}
+            />
+          )}
+        </div>
+        <div className="composer-auxiliary-insights">
+          {context && <ContextUsage {...context} />}
+          {statistics && <RunStatistics value={statistics} />}
+        </div>
       </div>
       {recovery}
       {modeIssue && (

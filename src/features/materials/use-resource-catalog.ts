@@ -1,5 +1,9 @@
 import { useContext, useEffect, useState } from "react"
 import type { Material } from "@/features/home/home-types"
+import type {
+  ConversationCommand,
+  MaterialDiagnostic,
+} from "@/features/models/model-contract.generated"
 import { MaterialServiceContext } from "./material-service"
 import {
   feedbackFromError,
@@ -25,7 +29,8 @@ export function useResourceCatalog({
     key: string
     files: Material[]
     skills: Material[]
-    diagnostics: string[]
+    diagnostics: MaterialDiagnostic[]
+    commands?: ConversationCommand[]
     error?: string
     issue?: FeedbackDescription
   }>()
@@ -75,6 +80,7 @@ export function useResourceCatalog({
       files: fallback.filter((item) => item.kind !== "Skill"),
       skills: fallback.filter((item) => item.kind === "Skill"),
       diagnostics: [],
+      commands: [],
       error: undefined,
       issue: undefined,
       loading: false,
@@ -85,6 +91,7 @@ export function useResourceCatalog({
     files: current?.files ?? [],
     skills: current?.skills ?? [],
     diagnostics: current?.diagnostics ?? [],
+    commands: current?.commands ?? [],
     error: current?.error,
     issue: current?.issue,
     loading: enabled && !current,

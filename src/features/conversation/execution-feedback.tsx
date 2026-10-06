@@ -1,5 +1,12 @@
 import { useEffect, useState } from "react"
-import { CircleAlert, Layers, LoaderCircle, Timer, Wrench } from "lucide-react"
+import {
+  CircleAlert,
+  Layers,
+  LoaderCircle,
+  ShieldQuestion,
+  Timer,
+  Wrench,
+} from "lucide-react"
 import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import type { ConversationSnapshot } from "@/features/models/model-contract.generated"
@@ -8,6 +15,7 @@ import "./execution-feedback.css"
 export type ExecutionFeedbackProps = {
   runtime?: ConversationSnapshot["runtime"]
   stopping?: boolean
+  waitingApproval?: boolean
   notice?: ConversationSnapshot["notice"]
 }
 
@@ -37,13 +45,18 @@ function RetryWait({ deadline }: { deadline?: number }) {
 export function ExecutionFeedback({
   runtime,
   stopping = false,
+  waitingApproval = false,
   notice,
 }: ExecutionFeedbackProps) {
   const retryAt = runtime?.phase === "retrying" ? runtime.retryAt : undefined
   const deadline = retryAt ? Date.parse(retryAt) : undefined
-  if (!runtime && !stopping && !notice) return null
+  if (!runtime && !stopping && !waitingApproval && !notice) return null
 
-  const phase = stopping ? "stopping" : runtime?.phase
+  const phase = stopping
+    ? "stopping"
+    : waitingApproval
+      ? "approval"
+      : runtime?.phase
   const title = {
     responding: "正在回复",
     tool: "正在执行工具",
@@ -53,15 +66,18 @@ export function ExecutionFeedback({
         : "等待重试模型请求",
     compacting: "正在压缩上下文",
     stopping: "正在停止",
+    approval: "等待你的确认",
   }[phase ?? "responding"]
   const Icon =
-    phase === "tool"
-      ? Wrench
-      : phase === "retrying"
-        ? Timer
-        : phase === "compacting"
-          ? Layers
-          : LoaderCircle
+    phase === "approval"
+      ? ShieldQuestion
+      : phase === "tool"
+        ? Wrench
+        : phase === "retrying"
+          ? Timer
+          : phase === "compacting"
+            ? Layers
+            : LoaderCircle
   const attempt = runtime?.attempt
   const attempts =
     attempt === undefined
@@ -110,7 +126,11 @@ export function ExecutionFeedback({
       {notice && (
         <Alert role="status" className="execution-notice">
           <CircleAlert aria-hidden />
-          <AlertTitle>上下文压缩未完成</AlertTitle>
+          <AlertTitle>
+            {notice.kind === "input-handled"
+              ? "扩展已处理输入"
+              : "上下文压缩未完成"}
+          </AlertTitle>
           <AlertDescription>{notice.message}</AlertDescription>
         </Alert>
       )}

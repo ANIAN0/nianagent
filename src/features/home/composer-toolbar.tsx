@@ -6,6 +6,7 @@ import { ModelPicker } from "./model-picker"
 import { SessionConfig } from "./session-config"
 import { SendControl } from "./send-control"
 import type { HomeData, HomeDraft, Material } from "./home-types"
+import { SessionPermissionControl } from "@/features/conversation/permissions/permission-picker"
 
 export type ComposerToolbarProps = {
   disabled?: boolean
@@ -33,6 +34,7 @@ export type ComposerToolbarProps = {
   workspacePath?: string
   draft: HomeDraft
   canSubmit: boolean
+  sendDisabledReason?: string
   onChange: (patch: Partial<HomeDraft>) => void
   onAddMaterial: (material: Material) => void
   onChooseAttachments?: () => Promise<void>
@@ -55,6 +57,7 @@ export function ComposerToolbar({
   workspacePath = "",
   draft,
   canSubmit,
+  sendDisabledReason,
   onChange,
   onAddMaterial,
   onChooseAttachments,
@@ -82,6 +85,9 @@ export function ComposerToolbar({
       sessionId={sessionId}
       workspacePath={workspacePath}
       onTextChange={(text) => onChange({ text })}
+      onCommandSelect={(name, text) =>
+        onChange({ text, command: { name, kind: "extension" } })
+      }
       onChooseAttachments={onChooseAttachments}
       choosing={choosingMaterials}
     />
@@ -99,6 +105,12 @@ export function ComposerToolbar({
         ) : (
           materialPicker
         )}
+        <SessionPermissionControl
+          key={sessionId}
+          sessionId={sessionId}
+          disabled={disabled || configurationDisabled || configurationLoading}
+          disabledReason={configurationDisabledReason}
+        />
       </div>
       <div className="moon-composer-toolbar-trailing">
         <ModelPicker
@@ -124,7 +136,12 @@ export function ComposerToolbar({
           workspacePath={workspacePath}
           onChange={(session) => onChange({ session })}
         />
-        {sendControl ?? <SendControl disabled={!canSubmit} />}
+        {sendControl ?? (
+          <SendControl
+            disabled={!canSubmit}
+            disabledReason={sendDisabledReason}
+          />
+        )}
       </div>
     </InputGroupAddon>
   )

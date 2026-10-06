@@ -47,6 +47,7 @@ import { useComposerMaterials } from "@/features/materials/use-composer-material
 import {
   composerDraftEligibility,
   composerDisplayMaterials,
+  editableComposerDraft,
 } from "@/components/composer/composer-policy"
 import { RecoveryAction } from "@/components/feedback/recovery-action"
 import { ComposerPanelProvider } from "./composer-panel-context"
@@ -202,11 +203,14 @@ export function HomeComposer({
       ...provided,
       workspaceId,
     })
-    if (pendingSubmission?.draft.workspaceId !== workspaceId) return candidate
+    if (pendingSubmission?.draft.workspaceId !== workspaceId)
+      return editableComposerDraft(candidate)
     const owned = { ...candidate, sessionId: pendingSubmission.sessionId }
-    return matchesHomeSubmission(owned, pendingSubmission)
-      ? followingHomeDraft(owned)
-      : owned
+    return editableComposerDraft(
+      matchesHomeSubmission(owned, pendingSubmission)
+        ? followingHomeDraft(owned)
+        : owned
+    )
   })
   const sessionSeed = useRef({
     workspaceId: rawDraft.workspaceId,
@@ -251,7 +255,9 @@ export function HomeComposer({
   }, [])
   const updateDraft = useCallback(
     (apply: (current: HomeDraft) => HomeDraft, persist = true) => {
-      const next = bindDraftIdentity(apply(latestDraft.current))
+      const next = editableComposerDraft(
+        bindDraftIdentity(apply(latestDraft.current))
+      )
       latestDraft.current = next
       setDraft(next)
       onDraftChange?.(next)
@@ -368,6 +374,53 @@ export function HomeComposer({
   useLayoutEffect(() => {
     copyRef.current = pendingCopy
   }, [pendingCopy])
+  const applyHomeRecovery = useCallback(
+    (submission: HomeSubmission) => {
+      const current = latestDraft.current
+      const original = submission.originalDraft ?? submission.draft
+      const currentCopy = copyRef.current
+      if (
+        !mounted.current ||
+        current.sessionId !== submission.sessionId ||
+        current.workspaceId !== original.workspaceId ||
+        submission.draft.workspaceId !== original.workspaceId ||
+        (currentCopy && !sameHomeSubmissionAttempt(currentCopy, submission))
+      )
+        return
+      // Error metadata may predate more typing. Merge the immutable original
+      // with the live owner now, never with a previously merged recovery draft.
+      const recovery = recoverRejectedHomeDraft(submission, current)
+      const input = inputRef.current
+      if (
+        !inactiveRef.current &&
+        input?.isConnected &&
+        input.isContentEditable &&
+        document.activeElement === input &&
+        input.value === current.text &&
+        recovery.draft.text !== current.text
+      ) {
+        if (!current.text.trim())
+          input.setSelectionAfterChange(
+            recovery.draft.text,
+            recovery.draft.text.length,
+            recovery.draft.text.length,
+            { requireFocus: true }
+          )
+        else if (recovery.draft.text.endsWith(current.text)) {
+          const prefix = recovery.draft.text.length - current.text.length
+          input.setSelectionAfterChange(
+            recovery.draft.text,
+            input.selectionStart + prefix,
+            input.selectionEnd + prefix,
+            { requireFocus: true }
+          )
+        }
+      }
+      updateDraft(() => recovery.draft)
+      return recovery
+    },
+    [updateDraft]
+  )
   // A page-level recovery must reach the same live material owner. Changing
   // initialDraft cannot update that editor, and remounting would cancel Files.
   const appliedRestorations = useRef(new Set<string>())
@@ -385,16 +438,16 @@ export function HomeComposer({
         return
       // Merge with the owner's latest edits, including material completions
       // that happened after the page-level durable recovery.
-      const recovery = recoverRejectedHomeDraft(submission, latestDraft.current)
+      const recovery = applyHomeRecovery(submission)
+      if (!recovery) return
       appliedRestorations.current.add(identity)
-      updateDraft(() => recovery.draft)
       setLocalSubmission(undefined)
       setSubmitFeedback({ sessionId: submission.sessionId, feedback })
     })
     return () => {
       alive = false
     }
-  }, [restoredSubmission, updateDraft])
+  }, [restoredSubmission, applyHomeRecovery])
   const automaticKey =
     localSubmission?.clientRequestId ?? localSubmission?.sessionId
   const automaticReady =
@@ -467,9 +520,9 @@ export function HomeComposer({
         }
       } catch (error) {
         if (alive && !controller.signal.aborted) {
-          const recovery = homeDraftRecoveryFromError(error)
-          if (recovery) {
-            updateDraft(() => recovery.draft)
+          if (homeDraftRecoveryFromError(error)) {
+            const recovery = applyHomeRecovery(copy)
+            if (!recovery) return
             setLocalSubmission(undefined)
           }
           setSubmitFeedback({
@@ -495,7 +548,7 @@ export function HomeComposer({
         setAutoChecking(false)
       }
     }
-  }, [automaticReady, automaticKey, updateDraft])
+  }, [automaticReady, automaticKey, updateDraft, applyHomeRecovery])
   const unsupportedCompact = /^\/compact(?:\s|$)/.test(draft.text.trim())
   const configLoading =
     !!sessionService &&
@@ -686,10 +739,8 @@ export function HomeComposer({
         const unknown =
           feedback.code === "result_unknown" || feedback.recovery === "check"
         if (prepared && !unknown) {
-          const recovery =
-            homeDraftRecoveryFromError(error) ??
-            recoverRejectedHomeDraft(copy, latestDraft.current)
-          updateDraft(() => recovery.draft)
+          const recovery = applyHomeRecovery(copy)
+          if (!recovery) return
           setLocalSubmission(undefined)
           if (recovery.merged)
             feedback = {
@@ -710,7 +761,8 @@ export function HomeComposer({
   async function checkSubmission() {
     if (!onCheckSubmission || submitting || autoChecking) return
     const previous = structuredClone(latestDraft.current)
-    const originalId = pendingCopy?.sessionId ?? sessionId
+    const originalCopy = pendingCopy ?? copyRef.current
+    const originalId = originalCopy?.sessionId ?? sessionId
     setSubmitting(true)
     setChecking(true)
     try {
@@ -735,14 +787,22 @@ export function HomeComposer({
           error,
           "发送结果未能核对，请保留草稿后再检查。"
         )
-        const recovery = homeDraftRecoveryFromError(error)
-        if (recovery) {
-          updateDraft(() => recovery.draft)
-          setLocalSubmission(undefined)
-          if (recovery.merged)
+        if (homeDraftRecoveryFromError(error)) {
+          if (originalCopy) {
+            const recovery = applyHomeRecovery(originalCopy)
+            if (!recovery) return
+            setLocalSubmission(undefined)
+            if (recovery.merged)
+              feedback = {
+                ...feedback,
+                message: `${feedback.message} 原输入和等待期间的新文字、材料已合并保留。`,
+              }
+          } else
             feedback = {
               ...feedback,
-              message: `${feedback.message} 原输入和等待期间的新文字、材料已合并保留。`,
+              message:
+                "当前窗口缺少可核对的原提交副本，不能安全合并恢复。当前输入保留，请继续核对原提交。",
+              recovery: "check",
             }
         }
         if (feedback.code !== "cancelled")
@@ -899,6 +959,17 @@ export function HomeComposer({
                     inputRef={inputRef}
                     value={draft.text}
                     materials={draft.materials}
+                    referenceIdentities={materialController.referenceIdentities}
+                    onRetryReference={(id) => void materialController.retry(id)}
+                    canRetryReference={(material) =>
+                      materialController.canRetry(material.id)
+                    }
+                    retryLabelReference={(material) =>
+                      materialController.retryLabel(material.id)
+                    }
+                    onRemoveReference={(id) =>
+                      change(removeComposerMaterial(draft, id, workspacePath))
+                    }
                     cwd={workspacePath}
                     disabled={acceptedSubmission || inactive || !workspacePath}
                     placeholder={
@@ -918,32 +989,31 @@ export function HomeComposer({
                     onChange={(text) => change({ text })}
                     onSubmit={submit}
                   />
-                  {eligibility.hasDraft && eligibility.reason && (
-                    <div className="moon-composer-blocker" role="status">
-                      {eligibility.reason}
-                      {!eligibility.modelAvailable && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="xs"
-                          onClick={() =>
-                            anchorRef.current
-                              ?.querySelector<HTMLButtonElement>(
-                                '[aria-label^="选择模型"]'
-                              )
-                              ?.click()
-                          }
-                        >
-                          选择模型
-                        </Button>
-                      )}
-                    </div>
-                  )}
-                  {unsupportedCompact && (
-                    <div className="moon-composer-blocker" role="status">
-                      请先打开已有会话，再用 /compact 压缩上下文。
-                    </div>
-                  )}
+                  {eligibility.hasDraft &&
+                    eligibility.reason &&
+                    !["query", "materials", "image"].includes(
+                      eligibility.reasonKind ?? ""
+                    ) && (
+                      <div className="moon-composer-blocker" role="status">
+                        {eligibility.reason}
+                        {!eligibility.modelAvailable && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="xs"
+                            onClick={() =>
+                              anchorRef.current
+                                ?.querySelector<HTMLButtonElement>(
+                                  '[aria-label^="选择模型"]'
+                                )
+                                ?.click()
+                            }
+                          >
+                            选择模型
+                          </Button>
+                        )}
+                      </div>
+                    )}
                   <SelectedMaterials
                     inlineReferences
                     key={`${sessionId}:${workspacePath}:${inactive || acceptedSubmission ? "inactive" : "active"}`}
@@ -964,9 +1034,35 @@ export function HomeComposer({
                     retryLabel={(material) =>
                       materialController.retryLabel(material.id)
                     }
-                    onRemove={(id) => change(removeComposerMaterial(draft, id))}
+                    onRemove={(id) =>
+                      change(removeComposerMaterial(draft, id, workspacePath))
+                    }
                   />
                   <ComposerToolbar
+                    sendControl={
+                      !acceptedSubmission &&
+                      (!submitting ||
+                        checking ||
+                        autoChecking ||
+                        recoveringSubmission) &&
+                      (pendingCopy || unknownSubmission) ? (
+                        <HomeSubmissionEcho
+                          key={`${sessionId}:${workspacePath}:${pendingCopy?.clientRequestId ?? "unconfirmed"}`}
+                          submission={pendingCopy}
+                          workspacePath={workspacePath}
+                          inactive={inactive}
+                          recovering={recoveringSubmission}
+                          checking={autoChecking || checking}
+                          issue={submissionFailure}
+                          onSettings={data.modelCatalog?.onOpenSettings}
+                          onCheck={
+                            onCheckSubmission
+                              ? () => void checkSubmission()
+                              : undefined
+                          }
+                        />
+                      ) : undefined
+                    }
                     disabled={acceptedSubmission || inactive}
                     configurationDisabled={
                       submitting || unknownSubmission || acceptedSubmission
@@ -976,11 +1072,13 @@ export function HomeComposer({
                         ? "正在打开已接收的会话，请稍候。"
                         : inactive
                           ? "当前输入区已离开。"
-                          : unknownSubmission
-                            ? "先检查原消息的发送状态，再修改会话配置。"
+                          : checking || autoChecking
+                            ? "正在核对原消息的接收状态，请稍候。"
                             : submitting
                               ? "正在确认当前发送，确认后可修改会话配置。"
-                              : undefined
+                              : unknownSubmission
+                                ? "先检查原消息的发送状态，再修改会话配置。"
+                                : undefined
                     }
                     configurationLoading={configLoading}
                     sessionId={sessionId}
@@ -1000,6 +1098,21 @@ export function HomeComposer({
                     }
                     draft={draft}
                     canSubmit={canSubmit}
+                    sendDisabledReason={
+                      checking || autoChecking
+                        ? "正在核对原消息的接收状态，请稍候。"
+                        : submitting
+                          ? "正在确认当前发送，请稍候。"
+                          : unknownSubmission
+                            ? "请先核对原消息的发送状态。"
+                            : acceptedSubmission
+                              ? "正在打开已接收的会话，请稍候。"
+                              : unsupportedCompact
+                                ? "请先打开已有会话，再用 /compact 压缩上下文。"
+                                : eligibility.reasonKind === "empty"
+                                  ? undefined
+                                  : eligibility.reason
+                    }
                     onChange={change}
                     onAddMaterial={(item) => {
                       void materialController.prepare(item)
@@ -1018,44 +1131,6 @@ export function HomeComposer({
           </ComposerPanelProvider>
         </fieldset>
       </form>
-      {pendingCopy && (
-        <HomeSubmissionEcho
-          submission={pendingCopy}
-          workspacePath={workspacePath}
-          accepted={acceptedSubmission}
-          inactive={inactive}
-          recovering={recoveringSubmission}
-          checking={autoChecking || checking}
-          unresolved={unknownSubmission && !submitting}
-          issue={submissionFailure}
-          onSettings={data.modelCatalog?.onOpenSettings}
-          onCheck={onCheckSubmission ? () => void checkSubmission() : undefined}
-        />
-      )}
-      {unknownSubmission && !pendingCopy && (
-        <div
-          role="status"
-          className="mb-3 flex flex-wrap items-center gap-2 text-xs leading-5 text-muted-foreground"
-        >
-          <span>原消息的接收结果暂未确认，当前输入已保留。</span>
-          {onCheckSubmission && (
-            <RecoveryAction
-              issue={
-                submissionFailure ?? {
-                  code: "result_unknown",
-                  message: "原消息的接收结果暂未确认。",
-                  recovery: "check",
-                  severity: "warning",
-                }
-              }
-              disabled={submitting || checking}
-              onCheck={() => void checkSubmission()}
-              onSettings={data.modelCatalog?.onOpenSettings}
-              labels={{ check: "检查发送状态" }}
-            />
-          )}
-        </div>
-      )}
       {submissionFeedback}
       {!submissionFeedback &&
         submissionFailure &&

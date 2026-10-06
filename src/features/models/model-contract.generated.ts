@@ -24,6 +24,7 @@ export const transportRecoveryByOperation = {
   conversationInfo: "reload",
   conversationMarkRead: "check",
   conversationRead: "reload",
+  conversationFollow: "reload",
   conversationReceiptRead: "reload",
   conversationSend: "check",
   conversationRetry: "check",
@@ -50,6 +51,11 @@ export const transportRecoveryByOperation = {
   extensionList: "reload",
   extensionConfigure: "check",
   writeReceiptRead: "reload",
+  conversationPermissionRead: "reload",
+  conversationPermissionSet: "check",
+  conversationApprovalReply: "check",
+  conversationCommandRun: "check",
+  conversationCommandRead: "reload",
 } as const
 export const receiptOperationNames = [
   "extensionConfigure",
@@ -213,6 +219,12 @@ export type ConversationQueue = {
   /** 已持久接受的提交回执，用于原请求核对，已交付/已删除仍保留 */
   acceptedRequestIds: string[]
 }
+export type MaterialDiagnostic = {
+  /** 诊断所属资源视图 */
+  scope: "files" | "skills"
+  /** Pi资源诊断或文件目录限制说明 */
+  message: string
+}
 export type MaterialReference = {
   /** 服务准备后返回的稳定材料标识 */
   id: string
@@ -247,7 +259,9 @@ export type MaterialCatalog = {
   /**  */
   skills: MaterialReference[]
   /**  */
-  diagnostics: string[]
+  diagnostics: MaterialDiagnostic[]
+  /**  */
+  commands?: ConversationCommand[]
 }
 export type MaterialPreview = {
   /** 材料标识 */
@@ -335,8 +349,8 @@ export type ConversationRequestReceipt = {
   sessionId: string
   /** 稳定的业务会话/请求标识 */
   clientRequestId: string
-  /** 仅原请求的接受结论；accepted由正式Pi输入或已存队列证明，未知不重发 */
-  state: "accepted" | "rejected" | "unknown"
+  /** 仅原请求的结论；accepted由正式Pi输入或已存队列证明，handled由明确保存的扩展处理回执证明；started缺权威证据始终unknown，不重发 */
+  state: "accepted" | "handled" | "rejected" | "unknown"
   /**  */
   issue?: OperationIssue
 }
@@ -534,10 +548,12 @@ export type ConversationSnapshot = {
   version: number
   /** 宿主启动标识 */
   epoch: string
-  /** 最后接受的客户端请求标识；空会话为空 */
+  /** 最后提交启动的客户端请求标识；不是接受证明，未启动会话为空 */
   clientRequestId: string
-  /** 仅在 Pi 持久化方法成功返回后确认用户消息（或继续指令）已接受；消息事件本身不代表保存成功。该输入写入失败时返回 false、保留草稿，明确重发使用新请求标识；相同标识不重复执行。 */
+  /** 仅在 Pi 持久化方法成功返回后确认本次用户消息（或继续指令）已接受；消息事件本身不代表保存成功。false不推断拒绝，须核对原回执；handled表示扩展领取输入，仍不伪造user保存。相同标识不重复执行。 */
   inputAccepted: boolean
+  /** handled表示Pi公开入口确认扩展已处理本次输入；没有本次user接受证据，不能声称执行成功或重复提交 */
+  inputDisposition?: "handled"
   /** 本次或最后一次运行标识 */
   runId: string
   /** 输入已接受且末次回复失败/停止或Pi length截断；继续是新的幂等可见指令，不重发原请求或自动执行旧工具 */
@@ -561,6 +577,23 @@ export type ConversationSnapshot = {
   issueEntryId?: string
   /**  */
   messages: ConversationChatMessage[]
+  /**  */
+  permission?: ConversationPermission
+  /**  */
+  approvals?: ConversationApproval[]
+  /**  */
+  statistics?: ConversationStatistics
+  /**  */
+  command?: ConversationCommandReceipt
+  /**  */
+  extensionNotifications?: {
+    /** 稳定的业务会话/请求标识 */
+    id: string
+    /** 扩展提示 */
+    message: string
+    /** 提示等级 */
+    severity: "info" | "warning" | "error"
+  }[]
   /** 旧格式历史的非阻断说明；只读恢复不持久化迁移标识，显式发送交由Pi迁移后恢复派生能力 */
   historyNotice?: string
   /**  */
@@ -587,7 +620,7 @@ export type ConversationSnapshot = {
   /**  */
   notice?: {
     /** 非阻断执行提醒 */
-    kind: "compaction-failed"
+    kind: "compaction-failed" | "input-handled"
     /** 安全说明；不把压缩失败等同任务失败 */
     message: string
     /** 提醒发生时的 ISO 时间 */
@@ -621,6 +654,222 @@ export type ConversationSnapshot = {
     /** 未知用量的安全说明 */
     reason: string
   }
+}
+export type ConversationMetadata = {
+  /** 稳定的业务会话/请求标识 */
+  id: string
+  /** 会话标题 */
+  title: string
+  /** 稳定的业务会话/请求标识 */
+  workspaceId: string
+  /** 真实工作目录 */
+  cwd: string
+  /** 当前宿主单调更新版本，结合 epoch 判断新宿主 */
+  version: number
+  /** 宿主启动标识 */
+  epoch: string
+  /** 最后提交启动的客户端请求标识；不是接受证明，未启动会话为空 */
+  clientRequestId: string
+  /** 仅在 Pi 持久化方法成功返回后确认本次用户消息（或继续指令）已接受；消息事件本身不代表保存成功。false不推断拒绝，须核对原回执；handled表示扩展领取输入，仍不伪造user保存。相同标识不重复执行。 */
+  inputAccepted: boolean
+  /** handled表示Pi公开入口确认扩展已处理本次输入；没有本次user接受证据，不能声称执行成功或重复提交 */
+  inputDisposition?: "handled"
+  /** 本次或最后一次运行标识 */
+  runId: string
+  /** 输入已接受且末次回复失败/停止或Pi length截断；继续是新的幂等可见指令，不重发原请求或自动执行旧工具 */
+  canContinue?: boolean
+  /** 真实回复运行状态；completed 仅表示本轮运行结束，不代表用户任务验收成功 */
+  phase:
+    "idle" | "running" | "stopping" | "completed" | "failed" | "interrupted"
+  /** 连接 ID/模型 ID 的选择值 */
+  modelId: string
+  /** 模型连接 ID */
+  connectionId: string
+  /** 服务端模型 ID */
+  providerModelId: string
+  /** Pi 原生思考等级；不支持思考的模型只能使用 off */
+  thinking: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
+  /** 错误说明，成功为空 */
+  error: string
+  /**  */
+  issue?: OperationIssue
+  /** 本次运行失败对应的正式 Pi 回复条目 ID；无对应回复时省略 */
+  issueEntryId?: string
+  /**  */
+  permission?: ConversationPermission
+  /**  */
+  approvals?: ConversationApproval[]
+  /**  */
+  statistics?: ConversationStatistics
+  /**  */
+  command?: ConversationCommandReceipt
+  /**  */
+  extensionNotifications?: {
+    /** 稳定的业务会话/请求标识 */
+    id: string
+    /** 扩展提示 */
+    message: string
+    /** 提示等级 */
+    severity: "info" | "warning" | "error"
+  }[]
+  /** 旧格式历史的非阻断说明；只读恢复不持久化迁移标识，显式发送交由Pi迁移后恢复派生能力 */
+  historyNotice?: string
+  /**  */
+  queue?: ConversationQueue
+  /** 待处理消息保存或恢复错误；不会自动重发 */
+  queueError?: string
+  /**  */
+  queueIssue?: OperationIssue
+  /**  */
+  control?: ConversationControl
+  /**  */
+  compactions?: ConversationCompaction[]
+  /**  */
+  lineage?: {
+    /** 稳定的业务会话/请求标识 */
+    sourceSessionId: string
+    /** 来源会话标题 */
+    sourceTitle: string
+    /** Pi来源回复标识 */
+    sourceEntryId: string
+  }
+  /**  */
+  runtime?: ConversationRuntime
+  /**  */
+  notice?: {
+    /** 非阻断执行提醒 */
+    kind: "compaction-failed" | "input-handled"
+    /** 安全说明；不把压缩失败等同任务失败 */
+    message: string
+    /** 提醒发生时的 ISO 时间 */
+    occurredAt: string
+    /** 此提醒所属回复运行标识；新回复清除旧提醒 */
+    runId: string
+  }
+  /**  */
+  context?: {
+    /** Pi getContextUsage 提供的上下文 token 估算，不等同完整请求或精确计费 */
+    usedTokens: number
+    /** 当前模型上下文上限 */
+    contextWindow: number
+    /** 统计的权威来源 */
+    source?: "pi-context-estimate"
+    /** Pi 统计为上下文估算，正式实现为 true */
+    estimated?: boolean
+    /** 统计读取时点的 ISO 时间 */
+    observedAt?: string
+    /** true 表示从正式历史恢复的已记录统计，并非当前实时请求 */
+    restored?: boolean
+  }
+  /**  */
+  contextState?: {
+    /** 未知用量的原因分类；不会同时返回 context */
+    status: "awaiting-response" | "unavailable"
+    /** 已知的模型上下文上限 */
+    contextWindow?: number
+    /** 未知状态确认时点的 ISO 时间 */
+    observedAt: string
+    /** 未知用量的安全说明 */
+    reason: string
+  }
+}
+export type ConversationFrame = {
+  /** 首次/失去版本基线返回snapshot；变化返回update；无变化返回heartbeat */
+  kind: "snapshot" | "update" | "heartbeat"
+  /** 宿主身份 */
+  epoch: string
+  /** 变化版本 */
+  version: number
+  /** 增量所需的精确基线 */
+  baseVersion?: number
+  /**  */
+  snapshot?: ConversationSnapshot
+  /**  */
+  metadata?: ConversationMetadata
+  /**  */
+  upserts?: ConversationChatMessage[]
+  /**  */
+  order?: string[]
+}
+export type ConversationPermission = {
+  /** 稳定标识 */
+  sessionId: string
+  /** 文件工具范围与命令审批策略，不等同操作系统沙箱 */
+  mode: "read-only" | "workspace" | "full-access"
+  /** 权限配置CAS版本，运行中禁止更改 */
+  revision: number
+}
+export type ConversationApproval = {
+  /** 稳定标识 */
+  id: string
+  /** 所属运行，扩展空闲命令为空 */
+  runId: string
+  /** 请求类型 */
+  kind: "tool" | "confirm" | "select" | "input"
+  /** 请求标题 */
+  title: string
+  /** 请求说明 */
+  message: string
+  /** 工具名称 */
+  toolName?: string
+  /** Pi 工具调用标识，与 runId 共同关联当前待执行工具 */
+  toolCallId?: string
+  /** 完整工具参数JSON */
+  input?: string
+  /**  */
+  options?: string[]
+  /** 到期自动拒绝，ISO时间 */
+  expiresAt: string
+}
+export type ConversationStatistics = {
+  /** Pi provider input tokens */
+  input: number
+  /** Pi provider output tokens */
+  output: number
+  /** Pi缓存读tokens */
+  cacheRead: number
+  /** Pi缓存写tokens */
+  cacheWrite: number
+  /** Pi会话tokens总和 */
+  totalTokens: number
+  /** 正式分支工具调用数 */
+  toolCalls: number
+  /** 本轮总耗时，包含工具与等待 */
+  durationMs?: number
+  /** 本轮模型消息生成耗时，不含工具与审批 */
+  modelDurationMs?: number
+  /** 本轮Pi output tokens，未返回usage时省略 */
+  outputTokens?: number
+  /** 本轮output/modelDuration估算，等待不算生成，缺usage不返回 */
+  tokensPerSecond?: number
+  /** Pi模型费率估算USD；无费率不返回，不能当实际账单 */
+  cost?: number
+  /** 历史恢复 */
+  restored?: boolean
+}
+export type ConversationCommand = {
+  /** 精确调用名 */
+  name: string
+  /** 命令描述 */
+  description: string
+  /** 命令类型 */
+  kind: "host" | "extension"
+  /**  */
+  available: boolean
+  /** 禁用原因 */
+  reason?: string
+}
+export type ConversationCommandReceipt = {
+  /** 稳定标识 */
+  id: string
+  /** 稳定标识 */
+  sessionId: string
+  /** 精确命令名 */
+  name: string
+  /** 命令状态，started先于副作用；unknown不能重发 */
+  status: "started" | "completed" | "failed" | "unknown"
+  /**  */
+  issue?: OperationIssue
 }
 export type ConversationControlOperation = {
   /** 稳定操作或会话标识 */
@@ -1148,6 +1397,8 @@ export type RpcRequests = {
     text: string
     /**  */
     materials?: MaterialReference[]
+    /** 运行中Enter的交付方式，空闲始终正常发送 */
+    delivery?: "followUp" | "steer"
     /** 连接目录中的精确 ID */
     connectionId: string
     /** 模型的精确 ID，允许斜杠 */
@@ -1178,6 +1429,52 @@ export type RpcRequests = {
     modelId: string
     /** Pi 原生思考等级；不支持思考的模型只能使用 off */
     thinking: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
+  }
+  conversationFollow: {
+    /** 稳定业务标识 */
+    sessionId: string
+    /** 客户端宿主身份 */
+    epoch?: string
+    /** 已应用版本 */
+    afterVersion?: number
+  }
+  conversationPermissionRead: {
+    /** 稳定标识 */
+    sessionId: string
+  }
+  conversationPermissionSet: {
+    /** 稳定标识 */
+    sessionId: string
+    /** 文件工具范围与命令审批策略，不等同操作系统沙箱 */
+    mode: "read-only" | "workspace" | "full-access"
+    /** 已读CAS版本 */
+    revision: number
+  }
+  conversationApprovalReply: {
+    /** 稳定标识 */
+    sessionId: string
+    /** 稳定标识 */
+    approvalId: string
+    /** 精确运行身份 */
+    runId: string
+    /** 工具/confirm为allow或deny；select为选项；input为文字；cancel取消 */
+    value: string
+  }
+  conversationCommandRun: {
+    /** 稳定标识 */
+    sessionId: string
+    /** 稳定标识 */
+    commandRequestId: string
+    /** 精确注册名 */
+    name: string
+    /** 参数 */
+    arguments: string
+  }
+  conversationCommandRead: {
+    /** 稳定标识 */
+    sessionId: string
+    /** 稳定标识 */
+    commandRequestId: string
   }
   conversationFork: {
     /** 稳定操作或会话标识 */
@@ -1318,6 +1615,12 @@ export type RpcResults = {
   conversationRead: ConversationSnapshot
   conversationStop: ConversationSnapshot
   conversationRetry: ConversationSnapshot
+  conversationFollow: ConversationFrame
+  conversationPermissionRead: ConversationPermission
+  conversationPermissionSet: ConversationPermission
+  conversationApprovalReply: null
+  conversationCommandRun: ConversationCommandReceipt
+  conversationCommandRead: ConversationCommandReceipt
   conversationFork: ConversationControlOperation
   conversationCompact: ConversationControlOperation
   conversationControlRead: ConversationControlOperation | null

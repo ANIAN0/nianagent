@@ -1,7 +1,7 @@
 .moon-composer-input {
   position: relative;
   min-height: 0;
-  border-radius: 20px;
+  border-radius: var(--moon-composer-radius);
   row-gap: 12px;
   background: var(--card);
   box-shadow: 0 1px 3px rgb(0 0 0 / 4%);
@@ -42,6 +42,7 @@
   min-width: 0;
   padding: 2px 8px 8px;
   container-type: inline-size;
+  container-name: moon-composer-toolbar;
 }
 .moon-composer-toolbar-leading,
 .moon-composer-toolbar-trailing {
@@ -62,6 +63,13 @@
   max-width: min(360px, 45cqw);
   min-width: 0;
   flex: 0 1 auto;
+}
+.moon-composer-selector > [data-icon="inline-end"] {
+  flex: none;
+  transition: transform 120ms ease;
+}
+.moon-composer-selector[aria-expanded="true"] > [data-icon="inline-end"] {
+  transform: rotate(180deg);
 }
 .moon-composer-model-name {
   flex: 0 1 auto;
@@ -137,6 +145,16 @@
   color: var(--primary);
   box-decoration-break: clone;
 }
+.moon-inline-reference[data-reference-status="preparing"] {
+  color: var(--muted-foreground);
+  text-decoration: underline dashed;
+  text-underline-offset: 3px;
+}
+.moon-inline-reference[data-reference-status="failed"] {
+  color: var(--destructive);
+  text-decoration: underline dashed;
+  text-underline-offset: 3px;
+}
 .moon-composer-input:has([data-composer-editor]:focus) {
   --tw-ring-shadow: 0 0 #0000;
 }
@@ -159,11 +177,11 @@
   color: var(--muted-foreground);
   pointer-events: none;
 }
-.moon-composer-model-icon {
+.moon-composer-model-short {
   display: none;
 }
 @container (max-width: 300px) {
-  .moon-composer-model-icon {
+  .moon-composer-model-short {
     display: block;
   }
   .moon-composer-model-name {
@@ -172,6 +190,11 @@
   .moon-composer-model-trigger {
     flex: none;
   }
+}
+
+.moon-model-search:focus-within {
+  --tw-ring-shadow: 0 0 #0000;
+  border-color: var(--ring);
 }
 
 .moon-composer-input {

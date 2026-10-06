@@ -24,7 +24,11 @@ export type Conversation = {
 // Display fixtures may omit host fields; RPC preparation supplies the complete
 // authority-generated type. UI caches never become another independent DTO.
 export type Material = Pick<MaterialReference, "id" | "name" | "kind"> &
-  Partial<Omit<MaterialReference, "id" | "name" | "kind">>
+  Partial<Omit<MaterialReference, "id" | "name" | "kind">> & {
+    /** Client presentation only; host MaterialReference projection excludes it. */
+    presentation?: "attachment" | "reference"
+    incompatible?: boolean
+  }
 export type HomeTool = {
   available?: boolean
   unavailableReason?: string
@@ -60,6 +64,7 @@ export type HomeDraft = {
   homeRecoveryKey?: string
   workspaceId: string
   text: string
+  command?: { name: string; kind: "extension" }
   model: string
   modelLabel?: string
   thinking: string

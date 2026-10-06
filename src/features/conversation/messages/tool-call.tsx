@@ -63,10 +63,12 @@ export function ToolCall({
   tool,
   defaultOpen = false,
   occurrenceId,
+  awaitingApproval = false,
 }: {
   tool: ConversationToolCall
   defaultOpen?: boolean
   occurrenceId?: string
+  awaitingApproval?: boolean
 }) {
   const environment = useMessageEnvironment()
   // Display block identity remains stable when Pi assigns a durable entryId.
@@ -87,8 +89,9 @@ export function ToolCall({
     tool.exitCode !== 0
       ? "failed"
       : tool.status
-  const label =
-    command && status === "success" && tool.exitCode === undefined
+  const label = awaitingApproval
+    ? "等待确认"
+    : command && status === "success" && tool.exitCode === undefined
       ? "已返回"
       : labels[status]
   const object =
@@ -107,7 +110,7 @@ export function ToolCall({
       open={open}
       onOpenChange={setOpen}
       className="conversation-tool"
-      data-status={status}
+      data-status={awaitingApproval ? "waiting" : status}
       data-tool-kind={tool.name}
     >
       <CollapsibleTrigger

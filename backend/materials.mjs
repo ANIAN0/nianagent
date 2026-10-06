@@ -23,6 +23,7 @@ import {
 import { createHash, randomUUID } from "node:crypto"
 import { pickNativeFiles } from "./native-directory.mjs"
 import { operationError } from "./operation-issue.mjs"
+import { sortMaterialCatalogFiles } from "./material-catalog-sort.mjs"
 import {
   resizeImage,
   formatDimensionNote,
@@ -38,10 +39,10 @@ const within = (root, path) => {
 }
 const bodyOf = (text) =>
   text.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, "").trim()
-const safe = (error) =>
+const safe = (error, kind = "文件") =>
   /[\u4e00-\u9fff]/u.test(error?.message || "")
     ? error.message
-    : "文件无法读取，请检查路径与权限。"
+    : `${kind}无法读取，请检查路径与权限。`
 async function readableSource(path, cwd, scope) {
   const file = await open(path, "r")
   try {
@@ -211,6 +212,7 @@ export class MaterialService {
     const results = []
     for (const source of paths) {
       signal?.throwIfAborted()
+      let sourceType = "file"
       try {
         if (scope !== "workspace" && !isAbsolute(source))
           throw new Error("请选择文件的实际绝对路径。")
@@ -224,6 +226,7 @@ export class MaterialService {
             "none"
           )
         const sourceStat = await stat(path)
+        if (sourceStat.isDirectory()) sourceType = "directory"
         if (!sourceStat.isFile() && !sourceStat.isDirectory())
           throw new Error("所选路径不是文件或目录。")
         await access(path, constants.R_OK)
@@ -322,10 +325,10 @@ export class MaterialService {
           id: hash(`${cwd}\0failed\0${source}`),
           name: basename(source),
           kind: "附件",
-          type: "file",
+          type: sourceType,
           status: "failed",
           source,
-          error: safe(error),
+          error: safe(error, sourceType === "directory" ? "目录" : "文件"),
           retryable: error.issue?.recovery !== "none",
         })
       }
@@ -462,7 +465,10 @@ export class MaterialService {
     this.sessions.identity(sessionId)
     cwd = await this.sessions.cwd(cwd)
     const resources = await this.sessions.skillResources(cwd, sessionId, signal)
-    const diagnostics = resources.diagnostics.map((item) => item.message)
+    const diagnostics = resources.diagnostics.map((item) => ({
+      scope: "skills",
+      message: item.message,
+    }))
     const lower = query.replaceAll("\\", "/").toLowerCase()
     const browsing = lower.endsWith("/")
     const browsePath = browsing
@@ -501,7 +507,7 @@ export class MaterialService {
               .includes(lower)
           ) {
             const actual = await realpath(path)
-            if (within(cwd, actual) && files.length < 60)
+            if (within(cwd, actual))
               files.push({
                 id: hash(`${cwd}\0directory\0${actual}`),
                 name: entry.name,
@@ -518,9 +524,10 @@ export class MaterialService {
           } catch (error) {
             if (signal?.aborted) throw error
             if (diagnostics.length < 60)
-              diagnostics.push(
-                `目录“${relative(cwd, path)}”不可读取，未列出其文件。`
-              )
+              diagnostics.push({
+                scope: "files",
+                message: `目录“${relative(cwd, path)}”不可读取，未列出其文件。`,
+              })
           }
           if (limited) return
         } else if (
@@ -535,16 +542,15 @@ export class MaterialService {
             const actual = await realpath(path)
             if (!within(cwd, actual)) continue
             await access(actual, constants.R_OK)
-            if (files.length < 60)
-              files.push({
-                id: hash(`${cwd}\0file\0${actual}`),
-                name: entry.name,
-                kind: "附件",
-                type: "file",
-                status: "ready",
-                source: actual,
-                description: relative(cwd, actual),
-              })
+            files.push({
+              id: hash(`${cwd}\0file\0${actual}`),
+              name: entry.name,
+              kind: "附件",
+              type: "file",
+              status: "ready",
+              source: actual,
+              description: relative(cwd, actual),
+            })
           } catch {
             /* Unreadable files are not available candidates. */
           }
@@ -552,8 +558,12 @@ export class MaterialService {
       }
     }
     await walk(browsePath)
-    if (limited || files.length === 60)
-      diagnostics.push("文件结果有数量限制，请输入更具体的相对路径。")
+    const sortedFiles = sortMaterialCatalogFiles(files, query).slice(0, 60)
+    if (limited || files.length > 60)
+      diagnostics.push({
+        scope: "files",
+        message: "文件结果有数量限制，请输入更具体的相对路径。",
+      })
     const skills = resources.skills
       .filter((item) =>
         `${item.name} ${item.description} ${item.filePath}`
@@ -579,7 +589,13 @@ export class MaterialService {
           ? { error: "同名Skill存在来源冲突，请先消除冲突。" }
           : {}),
       }))
-    return { cwd, files, skills, diagnostics }
+    return {
+      cwd,
+      files: sortedFiles,
+      skills,
+      diagnostics,
+      commands: this.sessions.commands?.catalog(sessionId) || [],
+    }
   }
   async verify(record, sessionId, signal) {
     signal?.throwIfAborted()
@@ -643,12 +659,11 @@ export class MaterialService {
       // Initial path preparation can fail before installing any fixed record.
       // Its separate identity namespace survives a draft round-trip without
       // rereading the source; only an explicit retry may prepare that path again.
-      // Fixed image/file/Skill records never have this provisional identity.
+      // Fixed image/file/directory/Skill records never have this provisional identity.
       if (
         material.kind === "附件" &&
-        material.type === "file" &&
+        ["file", "directory"].includes(material.type) &&
         ["failed", "preparing"].includes(material.status) &&
-        material.retryable !== false &&
         typeof material.source === "string" &&
         isAbsolute(material.source) &&
         material.id === hash(`${cwd}\0failed\0${material.source}`)
@@ -656,8 +671,10 @@ export class MaterialService {
         output.push({
           ...material,
           status: "failed",
-          error: "材料尚未准备，请重新检查。",
-          retryable: true,
+          error:
+            material.error ||
+            `${material.type === "directory" ? "目录" : "文件"}尚未检查，${material.retryable === false ? "请重新选择或移除。" : "请重新检查。"}`,
+          retryable: material.retryable !== false,
         })
         continue
       }
@@ -741,6 +758,7 @@ export class MaterialService {
     text = "",
     model,
     signal,
+    nativeSkills = false,
   }) {
     const parts = []
     const referencedFiles = []
@@ -748,7 +766,9 @@ export class MaterialService {
     const displayMaterials = []
     const seen = new Set()
     cwd = await this.sessions.cwd(cwd)
-    const command = text.match(/^\/skill:([^\s]+)(?:\s+([\s\S]*))?$/u)
+    // Native idle prompts let Pi interpret the unmodified leading command.
+    // The default remains the prepared protocol used by existing queues.
+    const command = !nativeSkills && text.match(/^\/skill:([^\s]+)(?:\s+([\s\S]*))?$/u)
     if (command) {
       const resources = await this.sessions.skillResources(
         cwd,
@@ -788,6 +808,7 @@ export class MaterialService {
       text = command[2] ?? ""
     }
     for (const material of materials) {
+      if (nativeSkills && (material.type === "skill" || material.kind === "Skill")) continue
       if (material.status !== "ready")
         throw new Error(`材料“${material.name}”尚未就绪，请重新选择或移除。`)
       const record = await this.record(cwd, material.id)

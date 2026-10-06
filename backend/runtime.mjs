@@ -1,25 +1,13 @@
 import { createServer } from "node:http"
-import { randomUUID, createHash, timingSafeEqual } from "node:crypto"
-import {
-  readFile,
-  writeFile,
-  rename,
-  unlink,
-  mkdir,
-} from "node:fs/promises"
-import { join, dirname } from "node:path"
-import { fileURLToPath } from "node:url"
+import { randomUUID, timingSafeEqual } from "node:crypto"
+import { readFile, writeFile, rename, unlink, mkdir } from "node:fs/promises"
+import { dirname } from "node:path"
 import lockfile from "proper-lockfile"
 import { readJsonBody } from "./http-body.mjs"
-import { backendSourceFiles } from "./extensions/source-files.mjs"
-
 export async function runtimeVersion() {
-  const dir = dirname(fileURLToPath(import.meta.url))
-  const hash = createHash("sha256")
-  for (const name of await backendSourceFiles(dir)) {
-    hash.update(name).update(await readFile(join(dir, name)))
-  }
-  return hash.digest("hex")
+  // Explicit wire compatibility, never source-file hashing on an RPC request.
+  // Backend edits take effect by restarting the dev host.
+  return "moon-host-protocol-2"
 }
 export async function startRuntime(file, dispatch, publicFailure) {
   const version = await runtimeVersion()
