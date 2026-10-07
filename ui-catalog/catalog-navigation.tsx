@@ -1,16 +1,8 @@
-import { useEffect, useRef, useState } from "react"
-import {
-  FileText,
-  Diamond,
-  ChevronRight,
-  Search,
-  SearchX,
-  X,
-} from "lucide-react"
+import { Search, X, SearchX, ChevronRight } from "lucide-react"
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import {
   Empty,
-  EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
@@ -22,78 +14,111 @@ import {
   InputGroupButton,
   InputGroupInput,
 } from "@/components/ui/input-group"
-import { entries, symbolOf, type CatalogMetadata } from "./catalog"
+import { entries, type CatalogMetadata } from "./catalog"
+import { storySections, type StorySection } from "./catalog-sections"
 
 export function CatalogNavigation({
   component,
   stateId,
-  view,
+  section,
   query,
+  pageFilter,
   onQueryChange,
+  onPageFilterChange,
   onNavigate,
   hrefFor,
 }: {
   component: string
-  stateId: string
-  view: string
+  stateId?: string
+  section?: StorySection
   query: string
+  pageFilter: string
   onQueryChange: (query: string) => void
+  onPageFilterChange: (page: string) => void
   onNavigate: (entry: CatalogMetadata, state?: string) => void
   hrefFor: (entry: CatalogMetadata, state?: string) => string
 }) {
-  const [expanded, setExpanded] = useState<
-    Record<string, { open: boolean; selection: string }>
-  >({})
-  const active = useRef<HTMLAnchorElement>(null)
-  useEffect(() => {
-    active.current?.scrollIntoView({ block: "nearest" })
-  }, [component, stateId, view])
-  const matches = entries.filter((entry) =>
-    `${entry.name} ${symbolOf(entry)} ${entry.group} ${entry.states.map((s) => s.name).join(" ")}`
-      .toLowerCase()
-      .includes(query.trim().toLowerCase())
-  )
-  function link(entry: CatalogMetadata, name: string, state?: string) {
-    const selected =
-      component === entry.id &&
-      (state ? view === "canvas" && stateId === state : view === "docs")
-    return (
-      <a
-        key={state ?? "docs"}
-        ref={selected ? active : undefined}
-        className="catalog-link"
-        aria-current={selected ? "page" : undefined}
-        href={hrefFor(entry, state)}
-        onClick={(event) => {
-          if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
-            return
-          event.preventDefault()
-          onNavigate(entry, state)
-        }}
-      >
-        {state ? (
-          <Diamond aria-hidden="true" size={12} />
-        ) : (
-          <FileText aria-hidden="true" size={13} />
-        )}
-        <span>{name}</span>
-      </a>
+  const selectionKey = `${component}:${section ?? ""}:${stateId ?? ""}`
+  const currentPath = () =>
+    entries.some(
+      (entry) => entry.id === component && entry.layer === "复合组件"
     )
+      ? [component, `${component}:${section ?? "normal"}`]
+      : []
+  const [expansion, setExpansion] = useState(() => ({
+    selectionKey,
+    groups: new Set(currentPath()),
+  }))
+  // Selection opens its path once. Presentation changes preserve manual collapse.
+  if (expansion.selectionKey !== selectionKey)
+    setExpansion({
+      selectionKey,
+      groups: new Set([...expansion.groups, ...currentPath()]),
+    })
+  const toggleGroup = (group: string) => {
+    setExpansion((previous) => {
+      const groups = new Set(previous.groups)
+      if (groups.has(group)) groups.delete(group)
+      else groups.add(group)
+      return { ...previous, groups }
+    })
   }
+  const pages = [...new Set(entries.flatMap((entry) => entry.pages))]
+  const matches = entries
+    .filter(
+      (entry) =>
+        (!pageFilter || entry.pages.includes(pageFilter)) &&
+        `${entry.name} ${entry.group} ${entry.layer}`
+          .toLowerCase()
+          .includes(query.trim().toLowerCase())
+    )
+    .sort((left, right) => left.order - right.order)
+  const basic = matches.filter((entry) => entry.layer === "基础组件")
+  const stories = matches.filter((entry) => entry.layer === "复合组件")
+  const pageEntries = matches.filter((entry) => entry.layer === "页面")
+  const link = (entry: CatalogMetadata) => (
+    <a
+      key={entry.id}
+      className="catalog-link"
+      aria-current={component === entry.id ? "page" : undefined}
+      href={hrefFor(entry)}
+      onClick={(event) => {
+        if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey)
+          return
+        event.preventDefault()
+        onNavigate(entry)
+      }}
+    >
+      {entry.name}
+    </a>
+  )
   return (
-    <nav className="catalog-navigation" aria-label="组件树">
+    <nav className="catalog-navigation" aria-label="组件目录">
       <div className="catalog-search">
-        <div className="catalog-search-heading">
-          <strong>组件</strong>
-          <span>{entries.length} 项</span>
+        <div className="catalog-page-filter" aria-label="关联页面筛选">
+          <span className="catalog-filter-label">关联页面</span>
+          <div className="catalog-filter-options">
+            {["", ...pages].map((page) => (
+              <Button
+                key={page}
+                size="xs"
+                variant={pageFilter === page ? "secondary" : "ghost"}
+                aria-pressed={pageFilter === page}
+                aria-label={page ? `筛选${page}组件` : "显示全部页面组件"}
+                onClick={() => onPageFilterChange(page)}
+              >
+                {page || "全部"}
+              </Button>
+            ))}
+          </div>
         </div>
         <InputGroup>
           <InputGroupAddon>
             <Search aria-hidden="true" />
           </InputGroupAddon>
           <InputGroupInput
-            aria-label="搜索组件"
-            placeholder="名称、组件或状态"
+            aria-label="搜索组件或用户故事"
+            placeholder="搜索组件或用户故事"
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
           />
@@ -109,90 +134,128 @@ export function CatalogNavigation({
             </InputGroupAddon>
           )}
         </InputGroup>
-        {!!query.trim() && (
-          <p className="catalog-search-count" role="status">
-            找到 {matches.length} 个组件
-          </p>
-        )}
       </div>
       <div className="catalog-tree-scroll">
-        {(["页面", "复合组件", "基础组件"] as const).map((layer) => {
-          const items = matches.filter((entry) => entry.layer === layer)
-          if (!items.length) return null
-          return (
-            <section key={layer}>
-              <h2 className="catalog-layer">
-                {layer}
-                <span>{items.length}</span>
-              </h2>
-              {[...new Set(items.map((entry) => entry.group))].map((group) => (
-                <div key={group}>
-                  <h3 className="catalog-group">{group}</h3>
-                  {items
-                    .filter((entry) => entry.group === group)
-                    .map((entry) => (
-                      <details
-                        key={`${entry.id}-${component}-${!!query}`}
-                        open={
-                          !!query.trim() ||
-                          (expanded[entry.id]?.selection === component
-                            ? expanded[entry.id]!.open
-                            : component === entry.id ||
-                              expanded[entry.id]?.open)
-                        }
-                        onToggle={(event) => {
-                          const open = event.currentTarget.open
-                          if (query.trim()) return
-                          setExpanded((old) =>
-                            old[entry.id]?.open === open &&
-                            old[entry.id]?.selection === component
-                              ? old
-                              : {
-                                  ...old,
-                                  [entry.id]: { open, selection: component },
-                                }
-                          )
-                        }}
-                      >
-                        <summary title={symbolOf(entry)}>
-                          <ChevronRight aria-hidden="true" size={14} />
-                          <span>{entry.name}</span>
-                          <small>{entry.states.length}</small>
-                        </summary>
-                        <div className="catalog-story-links">
-                          {link(entry, "组件概览")}
-                          {entry.states.map((state) =>
-                            link(entry, state.name, state.id)
-                          )}
-                        </div>
-                      </details>
-                    ))}
-                </div>
-              ))}
-            </section>
-          )
-        })}
+        {basic.length > 0 && (
+          <section aria-label="基础组件">
+            <h2 className="catalog-layer">基础组件</h2>
+            {[...new Set(basic.map((entry) => entry.group))].map((group) => (
+              <details
+                className="catalog-flow-group"
+                key={group}
+                open={basic.some(
+                  (entry) => entry.id === component && entry.group === group
+                )}
+              >
+                <summary className="catalog-group">
+                  <ChevronRight aria-hidden="true" />
+                  {group}
+                </summary>
+                {basic.filter((entry) => entry.group === group).map(link)}
+              </details>
+            ))}
+          </section>
+        )}
+        {stories.length > 0 && (
+          <section aria-label="复合组件用户故事">
+            <h2 className="catalog-layer">复合组件</h2>
+            {stories.map((entry) => (
+              <details
+                className="catalog-story-group"
+                key={entry.id}
+                open={expansion.groups.has(entry.id)}
+              >
+                <summary
+                  className="catalog-group"
+                  onClick={(event) => {
+                    event.preventDefault()
+                    event.currentTarget.focus()
+                    toggleGroup(entry.id)
+                  }}
+                >
+                  <ChevronRight aria-hidden="true" />
+                  {entry.group}
+                </summary>
+                {storySections.map((item) => (
+                  <details
+                    className="catalog-section-group"
+                    key={item.id}
+                    open={expansion.groups.has(`${entry.id}:${item.id}`)}
+                  >
+                    <summary
+                      key={item.id}
+                      className="catalog-group"
+                      onClick={(event) => {
+                        event.preventDefault()
+                        event.currentTarget.focus()
+                        toggleGroup(`${entry.id}:${item.id}`)
+                      }}
+                    >
+                      <ChevronRight aria-hidden="true" />
+                      {item.name}
+                    </summary>
+                    {entry.states
+                      .filter((state) => state.section === item.id)
+                      .map((state) => (
+                        <a
+                          key={state.id}
+                          className="catalog-link catalog-state-link"
+                          aria-current={
+                            entry.id === component && stateId === state.id
+                              ? "step"
+                              : undefined
+                          }
+                          href={hrefFor(entry, state.id)}
+                          onClick={(event) => {
+                            if (
+                              event.ctrlKey ||
+                              event.metaKey ||
+                              event.shiftKey ||
+                              event.altKey
+                            )
+                              return
+                            event.preventDefault()
+                            onNavigate(entry, state.id)
+                          }}
+                        >
+                          {state.name}
+                        </a>
+                      ))}
+                  </details>
+                ))}
+              </details>
+            ))}
+          </section>
+        )}
+        {pageEntries.length > 0 && (
+          <section aria-label="页面组件">
+            <h2 className="catalog-layer">页面</h2>
+            {pageEntries.map(link)}
+          </section>
+        )}
         {!matches.length && (
           <Empty role="status">
             <EmptyHeader>
               <EmptyMedia variant="icon">
                 <SearchX />
               </EmptyMedia>
-              <EmptyTitle>没有匹配的组件</EmptyTitle>
-              <EmptyDescription>换一个组件名称或状态关键词。</EmptyDescription>
+              <EmptyTitle>没有匹配项</EmptyTitle>
+              <EmptyDescription>可按组件名或用户故事搜索。</EmptyDescription>
             </EmptyHeader>
-            <EmptyContent>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => onQueryChange("")}
-              >
-                清除搜索
-              </Button>
-            </EmptyContent>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onQueryChange("")}
+            >
+              清除搜索
+            </Button>
           </Empty>
         )}
       </div>
+      <p className="catalog-navigation-footnote">
+        {basic.length} 基础组件 · {stories.length} 用户故事 ·{" "}
+        {pageEntries.length} 页面
+      </p>
     </nav>
   )
 }

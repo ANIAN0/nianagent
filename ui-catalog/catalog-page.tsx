@@ -1,4 +1,4 @@
-import { PanelsTopLeft, SearchX } from "lucide-react"
+import { SearchX } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Empty,
@@ -9,115 +9,134 @@ import {
 } from "@/components/ui/empty"
 import { CatalogNavigation } from "./catalog-navigation"
 import { CatalogDocs } from "./catalog-docs"
-import { CatalogOverview } from "./catalog-overview"
+import { CatalogStandard } from "./catalog-standard"
+import { CatalogComponentShell } from "./catalog-component-shell"
 import { CatalogPreviewFrame } from "./catalog-preview-frame"
 import { CatalogToolbar } from "./catalog-toolbar"
 import { CatalogLayout } from "./catalog-layout"
 import { useCatalogController } from "./use-catalog-controller"
+import { storySectionName } from "./catalog-sections"
 
 export function CatalogPage() {
   const controller = useCatalogController()
   const { selection, narrow, panel, setPanel, theme, width, height } =
     controller
   const { entry, state } = selection
-  const navigation = (
-    <CatalogNavigation
-      component={selection.component}
-      stateId={selection.stateId}
-      view={selection.view}
-      query={controller.query}
-      onQueryChange={controller.setQuery}
-      onNavigate={controller.navigate}
-      hrefFor={controller.hrefFor}
-    />
-  )
   const missing = (
     <Empty>
       <EmptyHeader>
         <EmptyMedia variant="icon">
           <SearchX />
         </EmptyMedia>
-        <EmptyTitle>{entry ? "没有这个状态" : "没有这个组件"}</EmptyTitle>
-        <EmptyDescription>
-          请从组件树选择可用项，或检查链接中的标识。
-        </EmptyDescription>
+        <EmptyTitle>此项不在当前目录</EmptyTitle>
+        <EmptyDescription>当前只创建首页输入框相关组件。</EmptyDescription>
       </EmptyHeader>
-      {entry ? (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => controller.navigate(entry)}
-        >
-          查看组件概览
-        </Button>
-      ) : narrow ? (
-        <Button variant="outline" size="sm" onClick={() => setPanel("tree")}>
-          打开组件树
-        </Button>
-      ) : null}
+      <Button variant="outline" size="sm" asChild>
+        <a href="/ui-catalog/">返回目录</a>
+      </Button>
     </Empty>
-  )
-  const preview = (
-    <main className="catalog-preview-panel" aria-label="组件预览">
-      <CatalogToolbar
-        key={`${selection.component}-${selection.stateId}-${selection.view}`}
-        controller={controller}
-      />
-      {!entry || (selection.view === "canvas" && !state) ? (
-        missing
-      ) : selection.view === "docs" ? (
-        <CatalogOverview
-          key={entry.id}
-          entry={entry}
-          theme={theme}
-          revision={controller.revision}
-          stateId={selection.stateId}
-          onInspectState={controller.inspectState}
-          onNavigate={controller.navigate}
-          hrefFor={controller.hrefFor}
-        />
-      ) : (
-        <div className="catalog-canvas">
-          <div className="catalog-canvas-label">
-            <PanelsTopLeft aria-hidden="true" /> {state!.name}
-            <span>
-              {width} × {height}
-            </span>
-          </div>
-          <CatalogPreviewFrame
-            key={`${controller.previewUrl}-${controller.revision}`}
-            mode="canvas"
-            src={controller.previewUrl}
-            title={`${entry.name} · ${state!.name}`}
-            initialHeight={height}
-            width={width}
-            height={height}
-          />
-        </div>
-      )}
-    </main>
-  )
-  const docs = entry ? (
-    <CatalogDocs
-      key={entry.id}
-      entry={entry}
-      stateId={selection.stateId}
-      onNavigate={controller.navigate}
-      hrefFor={controller.hrefFor}
-    />
-  ) : (
-    <aside className="catalog-scroll" aria-label="组件文档">
-      {missing}
-    </aside>
   )
   return (
     <CatalogLayout
       narrow={narrow}
       panel={panel}
       onPanelChange={setPanel}
-      navigation={navigation}
-      preview={preview}
-      docs={docs}
+      navigation={
+        <CatalogNavigation
+          component={selection.component}
+          stateId={selection.selectedStateId}
+          section={selection.section}
+          query={controller.query}
+          pageFilter={controller.pageFilter}
+          onPageFilterChange={controller.setPageFilter}
+          onQueryChange={controller.setQuery}
+          onNavigate={controller.navigate}
+          hrefFor={controller.hrefFor}
+        />
+      }
+      preview={
+        <main className="catalog-preview-panel" aria-label="组件展示">
+          {entry && (
+            <header className="catalog-entry-heading">
+              <p className="catalog-eyebrow">
+                {entry.layer} /{" "}
+                {selection.section
+                  ? storySectionName(selection.section)
+                  : entry.group}
+              </p>
+              <div className="catalog-heading-row">
+                <h1>{entry.name}</h1>
+                {entry.pages.map((page) => (
+                  <Button
+                    key={page}
+                    size="xs"
+                    variant="outline"
+                    aria-label={`按${page}筛选组件`}
+                    onClick={() => controller.setPageFilter(page)}
+                  >
+                    {page}
+                  </Button>
+                ))}
+              </div>
+              {entry.description && <p>{entry.description}</p>}
+            </header>
+          )}
+          {!entry ? (
+            missing
+          ) : entry.stage === "structure" ? (
+            <CatalogComponentShell section={selection.section} />
+          ) : (
+            <>
+              <CatalogToolbar
+                key={selection.component}
+                controller={controller}
+              />
+              {selection.view === "canvas" && !state ? (
+                missing
+              ) : selection.view === "docs" ? (
+                <CatalogStandard
+                  entry={entry}
+                  section={selection.section}
+                  onNavigate={controller.navigate}
+                  hrefFor={controller.hrefFor}
+                />
+              ) : (
+                <div className="catalog-canvas">
+                  <div className="catalog-canvas-label">
+                    <strong>{state!.name}</strong>
+                    <span>
+                      {width} × {height} · {theme === "dark" ? "深色" : "浅色"}
+                    </span>
+                  </div>
+                  <CatalogPreviewFrame
+                    key={controller.previewUrl + controller.revision}
+                    mode="canvas"
+                    src={controller.previewUrl}
+                    title={entry.name + " · " + state!.name}
+                    initialHeight={height}
+                    width={width}
+                    height={height}
+                  />
+                </div>
+              )}
+            </>
+          )}
+        </main>
+      }
+      docs={
+        entry ? (
+          <CatalogDocs
+            key={entry.id}
+            entry={entry}
+            stateId={selection.selectedStateId}
+            section={selection.section}
+            onNavigate={controller.navigate}
+            hrefFor={controller.hrefFor}
+          />
+        ) : (
+          <aside className="catalog-scroll">{missing}</aside>
+        )
+      }
     />
   )
 }

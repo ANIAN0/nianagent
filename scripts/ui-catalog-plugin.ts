@@ -348,22 +348,28 @@ function extractMetadata(file: string, root: string): CatalogMetadata {
   const invalid = (field: string): never => {
     throw new Error(`${file}: 展示字段 ${field} 无效`)
   }
-  for (const field of [
-    "id",
-    "name",
-    "layer",
-    "group",
-    "source",
-    "description",
-    "boundary",
-  ] as const) {
+  for (const field of ["id", "name", "layer", "group", "source"] as const) {
     if (typeof metadata[field] !== "string" || !metadata[field].trim())
       invalid(field)
   }
   if (!/^[a-z0-9][a-z0-9-]*$/.test(metadata.id))
     invalid("id（仅小写字母、数字和连字符）")
-  if (!["基础组件", "复合组件", "页面"].includes(metadata.layer))
+  if (!["基础组件", "复合组件", "组合验证", "页面"].includes(metadata.layer))
     invalid("layer")
+  if (!["structure", "content"].includes(metadata.stage)) invalid("stage")
+  if (!Number.isFinite(metadata.order)) invalid("order")
+  if (
+    !Array.isArray(metadata.pages) ||
+    !metadata.pages.length ||
+    !metadata.pages.every((page) => typeof page === "string" && page.trim())
+  )
+    invalid("pages")
+  for (const field of ["description", "boundary"] as const)
+    if (
+      typeof metadata[field] !== "string" ||
+      (metadata.stage === "content" && !metadata[field].trim())
+    )
+      invalid(field)
   for (const field of [
     "inputs",
     "events",
@@ -384,9 +390,43 @@ function extractMetadata(file: string, root: string): CatalogMetadata {
     metadata.viewport.height <= 0
   )
     invalid("viewport")
-  if (!Array.isArray(metadata.states) || !metadata.states.length)
+  if (
+    !Array.isArray(metadata.states) ||
+    (metadata.stage === "content" && !metadata.states.length)
+  )
     invalid("states")
+  if (
+    !Array.isArray(metadata.standards) ||
+    (metadata.stage === "content" && !metadata.standards.length)
+  )
+    invalid("standards")
+  if (
+    metadata.stage === "structure" &&
+    (metadata.standards.length ||
+      metadata.states.length ||
+      metadata.inputs.length ||
+      metadata.events.length ||
+      metadata.description ||
+      metadata.boundary)
+  )
+    invalid("structure（目录确认阶段不填组件内容）")
+  const standards = new Set<string>()
+  for (const standard of metadata.standards) {
+    for (const field of ["id", "name", "rule", "reason", "check"] as const)
+      if (typeof standard?.[field] !== "string" || !standard[field].trim())
+        invalid(`standards.${field}`)
+    if (standards.has(standard.id)) invalid(`standards.${standard.id}（重复）`)
+    standards.add(standard.id)
+  }
   const states = new Set<string>()
+  if (
+    metadata.story &&
+    (!metadata.story.goal ||
+      !metadata.story.result ||
+      !Array.isArray(metadata.story.preconditions) ||
+      !metadata.story.preconditions.length)
+  )
+    invalid("story")
   for (const state of metadata.states) {
     if (!state || typeof state !== "object" || Array.isArray(state))
       invalid("states（状态必须是对象）")
@@ -396,7 +436,26 @@ function extractMetadata(file: string, root: string): CatalogMetadata {
     }
     if (states.has(state.id)) invalid(`states.${state.id}（重复）`)
     states.add(state.id)
+    if (!["normal", "exception", "states"].includes(state.section))
+      invalid(`states.${state.id}.section`)
+    if (
+      !Array.isArray(state.steps) ||
+      !state.steps.length ||
+      !state.steps.every((step) => typeof step === "string" && step.trim())
+    )
+      invalid(`states.${state.id}.steps`)
+    if (state.knownIssue !== undefined && typeof state.knownIssue !== "string")
+      invalid(`states.${state.id}.knownIssue`)
   }
+  if (
+    metadata.stage === "content" &&
+    metadata.layer === "复合组件" &&
+    (!metadata.story ||
+      ["normal", "exception", "states"].some(
+        (section) => !metadata.states.some((state) => state.section === section)
+      ))
+  )
+    invalid("story / 三栏目覆盖")
   if (
     metadata.props !== undefined &&
     (!Array.isArray(metadata.props) ||

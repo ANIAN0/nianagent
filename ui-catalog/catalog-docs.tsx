@@ -1,5 +1,5 @@
 import { ArrowUpRight } from "lucide-react"
-import { Badge } from "@/components/ui/badge"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { CatalogSource } from "./catalog-source"
 import {
   consumersOf,
@@ -7,84 +7,118 @@ import {
   symbolOf,
   type CatalogMetadata,
 } from "./catalog"
+import { storySectionName, type StorySection } from "./catalog-sections"
 
 export function CatalogDocs({
   entry,
   stateId,
+  section,
   onNavigate,
   hrefFor,
 }: {
   entry: CatalogMetadata
   stateId?: string
+  section?: StorySection
   onNavigate: (entry: CatalogMetadata, state?: string) => void
   hrefFor: (entry: CatalogMetadata, state?: string) => string
 }) {
-  const state = entry.states.find((candidate) => candidate.id === stateId)
+  const state = entry.states.find((item) => item.id === stateId)
+  if (entry.stage === "structure")
+    return (
+      <aside className="catalog-scroll catalog-docs" aria-label="组件结构信息">
+        <p className="catalog-eyebrow">结构信息</p>
+        <h2>{entry.name}</h2>
+        <dl className="catalog-structure-info">
+          <div>
+            <dt>层级</dt>
+            <dd>{entry.layer}</dd>
+          </div>
+          <div>
+            <dt>关联页面</dt>
+            <dd>{entry.pages.join("、")}</dd>
+          </div>
+          <div>
+            <dt>{section ? "用户故事" : "功能分组"}</dt>
+            <dd>{entry.group}</dd>
+          </div>
+          {section && (
+            <div>
+              <dt>当前栏目</dt>
+              <dd>{storySectionName(section)}</dd>
+            </div>
+          )}
+          <div>
+            <dt>当前阶段</dt>
+            <dd>组件空壳</dd>
+          </div>
+        </dl>
+      </aside>
+    )
   return (
-    <aside className="catalog-scroll catalog-docs" aria-label="组件文档">
-      <div className="catalog-docs-heading">
-        <p className="catalog-eyebrow">组件文档</p>
-        <Badge variant="outline">{entry.layer}</Badge>
-      </div>
+    <aside className="catalog-scroll catalog-docs" aria-label="实现契约">
+      <p className="catalog-eyebrow">实现契约</p>
       <h2>{entry.name}</h2>
       <code className="catalog-docs-symbol">{symbolOf(entry)}</code>
-      <p>{entry.description}</p>
-      <h3>使用边界</h3>
-      <p>{entry.boundary}</p>
+      <section>
+        <h3>职责与边界</h3>
+        <p>{entry.boundary}</p>
+      </section>
       {state && (
         <section className="catalog-docs-state">
-          <h3>当前状态 · {state.name}</h3>
-          <p>条件：{state.condition}</p>
-          <p>预期：{state.expected}</p>
+          <h3>核验 · {state.name}</h3>
+          <p>{state.condition}</p>
+          <ol>
+            {state.steps.map((step) => (
+              <li key={step}>{step}</li>
+            ))}
+          </ol>
+          <h4>通过条件</h4>
+          <p>{state.expected}</p>
+          {state.knownIssue ? (
+            <Alert variant="destructive">
+              <AlertTitle>未通过</AlertTitle>
+              <AlertDescription>{state.knownIssue}</AlertDescription>
+            </Alert>
+          ) : null}
         </section>
       )}
-      <h3>参数</h3>
-      {entry.props ? (
-        <div className="catalog-table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>名称 / 类型</th>
-                <th>默认 / 约束</th>
-              </tr>
-            </thead>
-            <tbody>
-              {entry.props.map((prop) => (
-                <tr key={prop.name}>
-                  <td>
-                    <code>{prop.name}</code>
-                    <small>{prop.type}</small>
-                  </td>
-                  <td>
-                    {prop.default}
-                    <small>{prop.description}</small>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
+      <section>
+        <h3>输入约束</h3>
         <ul>
           {entry.inputs.map((input) => (
             <li key={input}>{input}</li>
           ))}
         </ul>
-      )}
-      {!!entry.events.length && (
+      </section>
+      {entry.props?.length ? (
         <section>
-          <h3>事件与交互</h3>
-          <ul>
-            {entry.events.map((event) => (
-              <li key={event}>{event}</li>
+          <h3>参数</h3>
+          <dl className="catalog-props">
+            {entry.props.map((prop) => (
+              <div key={prop.name}>
+                <dt>
+                  <code>{prop.name}</code> · {prop.type}
+                </dt>
+                <dd>
+                  {prop.description}；默认：{prop.default}
+                </dd>
+              </div>
             ))}
-          </ul>
+          </dl>
         </section>
-      )}
+      ) : null}
+      <section>
+        <h3>事件与数据归属</h3>
+        <ul>
+          {entry.events.map((event) => (
+            <li key={event}>{event}</li>
+          ))}
+        </ul>
+      </section>
       {(
         [
-          ["直接组成", dependenciesOf(entry)],
-          ["直接使用方", consumersOf(entry)],
+          ["组成组件", dependenciesOf(entry)],
+          ["使用方", consumersOf(entry)],
         ] as const
       ).map(([label, related]) => (
         <section key={label}>
@@ -116,16 +150,17 @@ export function CatalogDocs({
           </div>
           {!related.length && (
             <p>
-              {label === "直接组成"
-                ? "基础实现；交互原语由 Radix / HTML 提供。"
-                : entry.consumers.join("；")}
+              {(label === "组成组件"
+                ? entry.composition
+                : entry.consumers
+              ).join("；")}
             </p>
           )}
         </section>
       ))}
       <CatalogSource key={entry.id} entry={entry} />
       <p className="catalog-footnote">
-        组成关系从正式源码的直接导入生成。类型与完整 API 以源码为准。
+        组成链接由正式源码导入关系生成。类型以源码为准，设计预期以本项标准为准。
       </p>
     </aside>
   )

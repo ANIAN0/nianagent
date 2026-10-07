@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react"
 import { useTheme } from "@/components/theme-provider"
 import { readSelection, type CatalogMetadata } from "./catalog"
 import { buildCatalogHref, readViewportDimension } from "./catalog-controls"
+import type { StorySection } from "./catalog-sections"
 
 const locationEvent = "moon-catalog-location"
 const narrowMedia = window.matchMedia("(max-width: 959px)")
@@ -33,6 +34,7 @@ export function useCatalogController() {
   )
   const selection = readSelection(search)
   const params = new URLSearchParams(search)
+  const pageFilter = params.get("page") ?? ""
   const { theme, setTheme } = useTheme()
   const urlTheme = params.get("theme")
   const observedUrlTheme = useRef(urlTheme)
@@ -68,10 +70,11 @@ export function useCatalogController() {
     state: selection.stateId,
     theme: resolvedTheme,
   })
+  if (selection.section) previewParams.set("section", selection.section)
   const previewUrl = `./preview.html?${previewParams}`
 
   function hrefFor(entry: CatalogMetadata, state?: string) {
-    return buildCatalogHref(
+    const href = buildCatalogHref(
       entry,
       {
         component: selection.component,
@@ -82,10 +85,41 @@ export function useCatalogController() {
       },
       state
     )
+    const next = new URLSearchParams(href.slice(1))
+    if (pageFilter) next.set("page", pageFilter)
+    if (entry.layer === "复合组件")
+      next.set(
+        "section",
+        entry.states.find((item) => item.id === state)?.section ??
+          (entry.id === selection.component
+            ? (selection.section ?? "normal")
+            : "normal")
+      )
+    return `?${next}`
   }
   function navigate(entry: CatalogMetadata, state?: string) {
     updateLocation(new URLSearchParams(hrefFor(entry, state).slice(1)), false)
     setPanel("preview")
+  }
+  function hrefForSection(entry: CatalogMetadata, section: StorySection) {
+    const next = new URLSearchParams(hrefFor(entry).slice(1))
+    next.set("section", section)
+    next.delete("state")
+    next.set("view", "docs")
+    return `?${next}`
+  }
+  function navigateSection(entry: CatalogMetadata, section: StorySection) {
+    updateLocation(
+      new URLSearchParams(hrefForSection(entry, section).slice(1)),
+      false
+    )
+    setPanel("preview")
+  }
+  function setPageFilter(page: string) {
+    const next = new URLSearchParams(search)
+    if (page) next.set("page", page)
+    else next.delete("page")
+    updateLocation(next, false)
   }
   function setViewport(nextWidth: number, nextHeight: number) {
     const next = new URLSearchParams(search)
@@ -99,6 +133,11 @@ export function useCatalogController() {
     next.set("component", selection.component)
     next.set("view", "docs")
     next.set("state", stateId)
+    const section = selection.entry?.states.find(
+      (item) => item.id === stateId
+    )?.section
+    if (selection.entry?.layer === "复合组件" && section)
+      next.set("section", section)
     next.set("theme", resolvedTheme)
     updateLocation(next, true)
   }
@@ -111,7 +150,9 @@ export function useCatalogController() {
   function shareUrl() {
     const next = new URL(location.href)
     next.searchParams.set("component", selection.component)
-    next.searchParams.set("state", selection.stateId)
+    if (selection.selectedStateId)
+      next.searchParams.set("state", selection.selectedStateId)
+    else next.searchParams.delete("state")
     next.searchParams.set("view", selection.view)
     next.searchParams.set("theme", resolvedTheme)
     next.searchParams.set("width", String(width))
@@ -124,6 +165,8 @@ export function useCatalogController() {
     panel,
     setPanel,
     query,
+    pageFilter,
+    setPageFilter,
     setQuery,
     width,
     height,
@@ -135,6 +178,8 @@ export function useCatalogController() {
     toggleTheme,
     shareUrl,
     hrefFor,
+    hrefForSection,
+    navigateSection,
     inspectState,
     reset: () => setRevision((value) => value + 1),
   }

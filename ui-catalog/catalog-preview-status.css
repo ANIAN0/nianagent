@@ -1,0 +1,21 @@
+.catalog-preview-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  height: 100%;
+  padding: 24px;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 20px;
+  text-align: center;
+}
+.catalog-preview-status p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.catalog-standalone-status {
+  height: 100svh;
+}

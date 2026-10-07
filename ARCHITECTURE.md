@@ -16,11 +16,13 @@
 
 ## 消息材料
 
-`backend/materials.mjs` 统一负责材料准备、核对、恢复与预览。图片保存固定内容，普通文件保存真实绝对路径，Skill由Pi ResourceLoader发现并按本次选择固定正文、来源和相对参考目录。材料位于独立的`materials/`应用数据目录；移除草稿引用不会删除用户源文件，历史图片不依赖原工作目录仍存在。
+资源目录返回的 `MaterialDiagnostic` 由产生位置标记 `scope`：Pi Skill发现诊断为 `skills`，文件扫描限制及目录读取诊断为 `files`。候选入口按当前资源视图展示相应消息；整体请求失败继续归已有issue及重试，不按中文文案猜测诊断类型。这些诊断仅为读取响应，不写用户数据或改变Agent生命周期。
+
+`backend/materials.mjs` 统一负责材料准备、核对、恢复与预览。图片保存固定内容，普通文件保存真实绝对路径。当前空闲输入Skill为普通正文，由Pi ResourceLoader发现及公开prompt默认展开；旧Skill材料和队列仍保留固定正文、来源及相对参考目录兼容。材料位于独立的`materials/`应用数据目录；移除草稿引用不会删除用户源文件，历史图片不依赖原工作目录仍存在。
 
 `material-contract.mjs` 定义选择、准备、图片上载、资源目录、预览及恢复接口，目录和前端DTO从同一来源生成。单图最多8MiB，仅上载操作允许16MiB传输请求，其余请求维持1MiB；普通文件引用不会将整文件内联上传。系统多选沿用Tauri已有反向宿主能力，浏览器与原生窗口共用同一宿主。
 
-正式输入通过`MaterialServiceContext`接入。材料控制、候选列表、缩略图和内容预览分别维护，组件目录注入隔离服务替身。草稿整体由应用持久化，材料控制器只核对恢复的引用；异步准备按会话和工作目录归属，移除或切换后的迟到结果不能重添材料。发送前及队列交付前使用公开`resolveForPrompt`核对来源及模型图片能力，传给Pi的是实际图片、文件路径说明和所选Skill正文。`moon-materials`作为Pi自定义历史元数据保存原始用户文字与材料身份，页面不显示展开后的指令正文冒充用户输入。
+正式输入通过`MaterialServiceContext`接入。材料控制、候选列表、缩略图和内容预览分别维护，组件目录注入隔离服务替身。草稿整体由应用持久化，材料控制器只核对恢复的引用；异步准备按会话和工作目录归属，移除或切换后的迟到结果不能重添材料。空闲发送的`resolveForPrompt`仅核对文件/目录和模型图片能力，忽略旧Skill metadata，不预读或重写leading调用。原文和实际图片直接交公开Pi prompt；文件/目录路径说明通过内置公开`before_agent_start`钩子提供隐藏custom上下文。`message_start`记录本次实际user对象，在该对象正式append前写入`moon-request`与`moon-materials`（含纯Skill的空材料列表），成功append才确认接受。此绑定优先于旧队列文本兜底，结束、失败、handled清理原文绑定和路径上下文，不跨任务复用。页面实时及重开显示原文，不以展开正文冒充用户输入；队列仍使用既有固定材料协议。
 
 ## 模型配置模块
 
@@ -122,7 +124,7 @@ Pi 拥有工具注册、活动工具集与系统提示构造。内置目录来�
 
 `backend/conversations.mjs` 负责模型绑定、执行生命周期和前端快照。正式历史由 Pi 官方 SessionManager 在 `conversations/pi/` 写入 JSONL，Moon 不维护另一份消息数据库。恢复正文先读取并验证非空行 JSON、合法文件头、支持的版本和 cwd，再通过公开 parseSessionEntries 与 SessionManager.inMemory 恢复官方分支与内存迁移，不调用会修复空文件、追加换行或迁移磁盘的 open。截断和损坏历史明确拒绝且字节不变；合法 v1/v2、空行、未知类型对象条目及未带末尾换行保持兼容。读取不要求模型连接或工作目录仍存在，也不发起推理。开始新回复时才重新校验历史并交由公开 SessionManager.open 恢复持久管理器，沿同一 leaf 接续，格式迁移及换行修复由 Pi 负责；继续发送才检查工作区、模型、思考等级和工具配置。工作区与 cwd 创建后不可改变。
 
-发送使用客户端稳定请求 ID 和内容指纹。摘要中的启动边界不等于 Pi 接受；只有正式用户或续接项落盘、或持久队列接纳才能证明接受。传输核对仅查询原回执，不重试推理。前端成功清空输入前，后端确认 Pi 已接受用户消息；等待模型和工具完成不是发送应答的前提。接受后离开页面或取消读取不停止已开始工作；显式停止绑定当前 runId，并等待 Pi abort 保留实际结果。失败或中断且本轮 inputAccepted、有用户历史时，“继续上次回复”在原上下文中发送 Pi 自定义续接消息，不重新执行原始用户消息。未接受的预检失败须保留草稿重新发送，旧轮用户历史不能绕过本轮接受校验。
+发送使用客户端稳定请求 ID 和内容指纹。摘要中的启动边界不等于 Pi 接受；只有正式用户或续接项落盘、或持久队列接纳才能证明接受。公开Pi preflight回调handled则独立保存扩展领取回执，前端结算所属副本但`inputAccepted`仍为false，不宣称命令成功。传输核对仅查询原回执，不重试推理。等待模型和工具完成不是普通发送应答的前提。接受后离开页面或取消读取不停止已开始工作；显式停止绑定当前 runId，并等待 Pi abort 保留实际结果。失败或中断且本轮 inputAccepted、有用户历史时，“继续上次回复”在原上下文中发送 Pi 自定义续接消息，不重新执行原始用户消息。明确未接受的预检失败保留草稿，旧轮用户历史不能绕过本轮接受校验；未确认回执保副本只读核对。
 
 Pi 负责模型流、思考、工具调用、上下文及历史格式；Moon 将事件投影为可轮询快照，提供正文、思考、工具输入输出和真实状态。SDK 的事件与 agent 消息保持原始诊断供其原生重试、额度错误和上下文溢出分类；Moon 不修改共享 errorMessage。公开 SessionManager.appendMessage 在落盘边界复制含诊断的 assistant 消息，仅副本采用安全错误说明，保留官方消息历史且不保存外部响应中的原始诊断。DTO 与运行状态分别在展示边界脱敏，不引入自定义恢复分类器。输入草稿与服务快照分离，轮询失败保留已展示历史。正式入口接入文本、文件与图片材料、Skill 指令和待处理消息队列；它们沿同一个 Pi AgentSession 交付，组件库仅为这些正式控件提供隔离状态，不发起模型请求。
 
@@ -192,6 +194,8 @@ Home 拒绝回执保留原 OperationIssue，包括 code、recovery 和诊断。�
 
 临时图片上传失败的 File 由 upload-retry-sources 按实际 MaterialService 实例、SID、cwd、临时 preparing ID 保存在内存中，最多32项、128MiB、30分钟；过期、移除、成功或不可恢复故障释放。计时器仅弱引用该桶，不延长已替换服务寿命；正式固定图片不进入此表。File 不写DTO或浏览器持久存储，因此应用重启后不能凭空恢复文件内容；仍可核对的路径引用由正式材料服务处理。恢复进入 Conversation 后，原实例内的可恢复失败继续支持就地重试。
 
+use-composer-materials将本owner已结算的上传失败保留为本地结果；无绝对源的临时图片不查询未知后台记录，有File才可重试，丢源则保原原因并指引重新选择。materialRestore传递既有error字段；后端仅对failed命名空间、绝对source及非ready状态匹配的file/directory条目保原失败及retryable（包括false），不读取/准备、不授予固定身份；固定材料仍按服务记录核对。appendPreparedMaterials允许同source/type失败文件由重新选择返回的ready身份原位升级，保旧presentation；图片仍按固定ID匹配。预览effect以service/cwd/id/retry revision为读取边界，取消旧请求并拒绝旧服务结果，展示metadata不启动重读。
+
 
 ## 会话页面投影与输入恢复
 
@@ -200,7 +204,7 @@ Pi JSONL 是正式历史唯一来源。前端按权威 userTurnId 组织轮次�
 conversation-submission.ts 将发送副本与下一条可编辑草稿分离。prepared 原请求先持久化，下一稿成功保存后才记录 sending 并调用宿主；明确拒绝按请求身份恢复一次，结果未知只读 conversationReceiptRead，accepted 后再读当前快照。ACK 前再次持久保存最新草稿，写入/清理失败仍保留原副本与本机恢复入口；重开 prepared 仅恢复，不发模型。queue-edit-store.ts 独立持有按会话、消息项和原 revision 的文字/材料编辑稿，A→B→A 和重开不丢编辑；队列修改在会话锁内按原 CAS 重新核对材料，未知修改只查原项，不盲目采用最新版本重存。
 
 
-会话请求回执由 ConversationStore 在 index v1 的可选 requestReceipts 中维护，仅保存会话/请求身份、指纹、阶段和安全问题，不保存正文、材料或凭据。准备前先登记 preparing，started 与运行摘要原子提交；Pi 输入或持久队列才是 accepted 的依据。conversationReceiptRead 是只读接口，即使会话摘要尚未建立也能查询原请求；不会 activate 或发起推理。旧宿主 preparing 可确认准备已中断；启动后的历史缺失不能推断拒绝，保持 unknown。较旧的匹配成功 ACK 可以结算原副本，但不会覆盖较新显示快照。
+会话请求回执由 ConversationStore 在 index v1 的可选 requestReceipts 中维护，仅保存会话/请求身份、指纹、阶段和安全问题，不保存正文、材料或凭据。准备前先登记 preparing，started 与运行摘要原子提交；Pi 输入或持久队列才是 accepted 的依据，公开Pi明确handled回调另存终态。conversationReceiptRead 是只读接口，即使会话摘要尚未建立也能查询原请求；不会 activate 或发起推理。旧宿主 preparing 可确认准备已中断；started缺本次accepted/handled/rejected权威证据始终unknown，即使已有可读历史或handled落盘失败。finally不能把此类handled失败改成rejected，同ID不重执行。前端仅依据明确回执恢复拒绝，或结算accepted/handled副本；较旧匹配回执不覆盖较新显示快照。
 
 
 ## 当前入口与能力所有者
@@ -209,7 +213,7 @@ conversation-submission.ts 将发送副本与下一条可编辑草稿分离。pr
 |---|---|
 | 工作区选择 | WorkspaceService 保存身份/目录/选择；Tauri 打开系统目录选择器；Vite 只代理 |
 | 侧栏与搜索 | ConversationStore 保存摘要，目录 hook 读取；列表保留刷新失败前的数据与实际未读/运行状态 |
-| 首页发送 | Home controller 持有不可变原副本和下一稿；Pi/持久队列确认接受，未知只查原请求 |
+| 首页发送 | Home controller 持有不可变原副本和下一稿；Pi输入/持久队列确认accepted，Pi扩展领取另存handled，未知只查原请求 |
 | 完整对话输入 | 共享 policy/PromptInput/Toolbar；ConversationComposer 包含卡下交付和上下文，队列不搬移入口 |
 | 模型/MCP设置 | 各 editor controller 拥有候选、读取、测试和写入；业务存储与原回执属于 Node，不以页面猜提交 |
 | 材料与Skill | MaterialService 保存内容或来源；输入 owner 保存引用，Agent 实际读取由工具结果证明 |
@@ -246,9 +250,21 @@ OAuth 使用客户端原授权任务 ID，在初始化前登记。准备阶段�
 
 ## 正式源码与发布一致性
 
-宿主身份与发布使用同一递归正式源码范围：后端顶层 `.mjs` 与 `extensions/**/*.mjs`；测试、缓存与用户配置不参与。目录外链接拒绝，新增模块也改变宿主指纹。`package-backend.mjs` 检查部署文件集合及内容一致，防止浏览器读取新版前端却连接旧模块宿主。纯 schema/contract 不导入 Node业务、文件系统或存储依赖，接口目录可直接按需加载同一元数据。
+宿主使用显式协议版本 `moon-host-protocol-2` 判断接口兼容性，不扫描源码计算文件哈希。后端代码变化后需重启 dev 宿主；前端继续使用 Vite 热更新。`package-backend.mjs` 管理正式模块集合。纯 schema/contract 不导入 Node业务、文件系统或存储依赖，接口目录可直接按需加载同一元数据。
 
 
 ## 正文引用与目录材料
-`ComposerEditor` 使用Lexical纯文本、历史和原子引用节点。候选、混合粘贴及导航通过统一编辑/选区接口衔接；持久草稿保持正文+权威材料ID，临时DOM与HTML不作为发送契约。每个会话/工作目录创建独立编辑历史，撤销不能将旧工作目录材料恢复到另一稿。
-`MaterialService` 复用既有材料链路支持directory：catalog以相对路径/列直接子项，prepare仅保存工作区内真实目录身份，verify/restore核对来源，preview只列直接目录项，resolveForPrompt只交付路径而不递归读取。file/image/skill旧记录保持兼容，API目录从material-contract及conversation-contract生成。会话设置仍由SessionService拥有保存、revision和未知提交；扩展视图不复制会话候选或调用另一保存链路。
+`ComposerEditor` 使用Lexical纯文本、历史和文件/目录原子引用节点；Skill保留普通正文。候选、混合粘贴及导航通过统一编辑/选区接口衔接；持久草稿保持正文+权威材料ID，临时DOM与HTML不作为发送契约。每个会话/工作目录创建独立编辑历史，撤销不能将旧工作目录材料恢复到另一稿。引用同步使用`composer-editor-contract.ts`的已选token完整匹配，跳过backup等相似普通文字；当前实际ReferenceNode优先，紧邻标点不触发重复回填。删除最后一处节点解除材料，重复引用与Undo保持原身份；显式移除按节点身份清正文及材料，保留相邻标点。
+`MaterialService` 复用既有材料链路支持directory：catalog以相对路径/列直接子项，prepare仅保存工作区内真实目录身份，verify/restore核对来源，preview只列直接目录项，resolveForPrompt只交付路径而不递归读取。`material-catalog-sort.mjs`仅排序已验证候选：名称完全匹配、前缀、包含优先于路径包含，空查询与末尾/浏览目录优先；宿主最多扫描15000个目录项，排序后截60项，组件库复用该函数。file/image/skill旧记录保持兼容，API目录从material-contract及conversation-contract生成。前端文件/目录引用反馈为检查来源与可读性，不代表读取正文；后台仍按selected材料身份核对并交付路径，不自动解析普通@文字。Skill前端不再提交材料，正式空闲入口交公开Pi prompt默认解析；旧队列协议保持兼容。会话设置仍由SessionService拥有保存、revision和未知提交；扩展视图不复制会话候选或调用另一保存链路。
+
+
+## 会话执行链路（2026-10-05）
+
+- Pi SessionManager 是消息、分支和运行记录的唯一历史。首发先保存客户端原输入/下一稿，立即进入同一会话；Pi append 成功才确认接受，未知回执只读取。明确未接受时恢复首页输入，不合并到另一会话。
+- ConversationLive 使用现有HTTP/Tauri RPC的事件长连接（25秒心跳、30ms合并），新增 conversationFollow。消息按稳定ID替换，按order重建；epoch/baseVersion不一致或32个临时基线之外返回全量快照。订阅不持有写锁、取消不停止agent，也没有250ms全历史轮询。
+- Enter默认交付设置存于本地偏好；运行中 followUp 排队，steer 在Pi下个可用边界交付，Ctrl/Cmd+Enter反向。single/all控制交付数量，与Enter方式独立。停止和失败暂停队列。最终完成依据Pi prompt/自动续跑settlement，不以低层agent_end表示任务验收。
+- ConversationPermissions 独立保存会话策略，CAS更新且运行中锁定；SDK tool_call（含嵌套调用）检查规范化/realpath文件范围。工作区允许内置文件修改，外部文件、shell与扩展逐次审批；只读禁止修改与shell，完全访问需用户明确确认。审批按会话/运行/请求身份一次回答，停止、关闭或超时取消。这是工具策略，不是OS沙箱，可信扩展代码本身具有宿主权限，不能用cwd声称进程隔离。
+- ExtensionUIContext桥接confirm/select/input/editor/notify。终端自定义组件明确报不支持；审批通过增量订阅固定显示在输入区，toolCallId与runId共同关联待执行工具。普通notify只在已订阅会话收到新事件时短暂提示，历史读取不重播、不混入Pi消息。
+- /compact走既有Moon控制面板，空闲/skill走公开Pi prompt原生解析；运行/冷队列保留冻结材料兼容。只列出SDK实际注册的扩展命令，不复制TUI全部命令。已选择扩展命令仍使用公开ExtensionRunner handler/context及原命令回执；普通prompt被原生命令/input领取时使用发送handled回执。结果未知只按原ID核对，不生成假的用户消息、不重放副作用，会话切换类命令使用Moon正式入口。
+- 用量来自正式Pi assistant usage，统计按当前分支；本轮生成时长从message_start/end采集，排除工具/审批等待，速度为估算。总耗时包含等待；费用只显示Pi返回的已知正费率估算，零默认费率按未知处理。完成统计用Pi custom entry保存，冷恢复标注历史恢复。
+- 权威接口新增 conversationFollow、conversationPermissionRead/Set、conversationApprovalReply、conversationCommandRun/Read，文档与类型继续从backend契约生成。

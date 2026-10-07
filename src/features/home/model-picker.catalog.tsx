@@ -1,217 +1,150 @@
-import { useState } from "react"
-import type { CatalogEntry } from "../../../ui-catalog/catalog"
-import { ModelPicker, type ModelPickerCatalog } from "./model-picker"
-import { effectiveThinking } from "./model-thinking"
+import type { CatalogEntry } from "../../../ui-catalog/catalog-types"
+import { HomeStoryExample } from "../../../ui-catalog/fixtures/home-stories"
 
-type Mode =
-  | "available"
-  | "long"
-  | "empty"
-  | "loading"
-  | "error"
-  | "restart"
-  | "cancelled"
-  | "restricted"
-  | "no-reasoning"
-  | "unavailable"
-  | "locked"
-function Example({ mode = "available" }: { mode?: Mode }) {
-  const [status, setStatus] = useState<ModelPickerCatalog["status"]>(
-    mode === "loading"
-      ? "loading"
-      : ["error", "restart", "cancelled"].includes(mode)
-        ? "error"
-        : "ready"
-  )
-  const [notice, setNotice] = useState("")
-  const items =
-    mode === "empty"
-      ? []
-      : ["本地服务", "远程服务"].flatMap((connection, group) =>
-          Array.from({ length: mode === "long" ? 12 : 2 }, (_, index) => ({
-            value: `${group}/${index}`,
-            connection,
-            modelId: `model-${index}`,
-            name:
-              mode === "long"
-                ? `同名模型-超长服务版本标识-2026-October-Enterprise ${index}`
-                : `模型 ${index + 1}`,
-          }))
-        )
-  const [value, setValue] = useState(
-    mode === "empty" ? "" : mode === "unavailable" ? "已移除的模型" : "0/0"
-  )
-  const [thinking, setThinking] = useState("高")
-  const thinkingByModel = Object.fromEntries(
-    items.map((item) => [
-      item.value,
-      mode === "no-reasoning" ? [] : ["高", "最高"],
-    ])
-  )
-  return (
-    <div className="flex min-h-[500px] items-center justify-center p-6">
-      <div>
-        <ModelPicker
-          disabled={mode === "locked"}
-          disabledReason={
-            mode === "locked"
-              ? "当前工作仍在运行，停止后可更换模型与思考强度。"
-              : undefined
-          }
-          models={items.map((item) => item.value)}
-          value={value}
-          thinking={effectiveThinking(thinking, thinkingByModel[value])}
-          thinkingByModel={thinkingByModel}
-          catalog={{
-            items,
-            status,
-            error: "模型目录读取失败，请重新读取。",
-            issue:
-              status === "error"
-                ? {
-                    code:
-                      mode === "restart"
-                        ? "host_version"
-                        : mode === "cancelled"
-                          ? "cancelled"
-                          : "model_catalog",
-                    message:
-                      mode === "restart"
-                        ? "Moon 服务版本已更新，请重新启动 Moon。"
-                        : mode === "cancelled"
-                          ? "本次模型读取已取消。"
-                          : "模型目录暂时无法读取，当前选择已保留。",
-                    recovery: mode === "restart" ? "restart" : "reload",
-                    severity: mode === "cancelled" ? "info" : "error",
-                    details:
-                      mode === "restart"
-                        ? undefined
-                        : "演示：读取模型目录的请求未完成。",
-                  }
-                : undefined,
-            onRetry: () => {
-              setStatus("ready")
-              setNotice("已重新读取演示目录")
-            },
-            onOpenSettings: () => setNotice("已打开模型设置（演示导航）"),
-          }}
-          onChange={setValue}
-          onThinkingChange={setThinking}
-        />
-        <p role="status" className="mt-3 text-sm text-muted-foreground">
-          {notice ||
-            `当前选择：${value || "未选择"} ${effectiveThinking(thinking, thinkingByModel[value])}`}
-        </p>
-      </div>
-    </div>
-  )
-}
 export default {
   id: "model-picker",
-  name: "模型选择",
-  layer: "复合组件",
-  group: "工作输入",
+  name: "设置模型",
   source: "src/features/home/model-picker.tsx",
-  description:
-    "模型与思考共用两级菜单；按连接分组，方向键浏览、Enter或空格确认。入口复用Button composer变体/尺寸，与会话配置统一外观；名称宽度按工具栏空间收缩。",
+  group: "设置模型",
+  layer: "复合组件",
+  order: 102,
+  pages: ["首页"],
+  stage: "content",
+  description: "用户选择模型与该模型支持的思考强度，搜索和选择保持同一上下文。",
   boundary:
-    "页面提供目录状态、重试和设置导航；组件不读取后端。窗口移动、尺寸及可用高度变化时重新计算边界，子页内部滚动。",
+    "示例直接复用完整 HomeComposer，服务、草稿和浏览器存储只存在预览内存。演示到首页 onSubmit 回调结束，不模拟路由成功或 Agent 回复，不修改对话页面。 模型设置入口仅记录回调，不打开设置页或连接模型。",
+  story: {
+    goal: "选择将处理这条输入的模型，并设置有效的思考强度。",
+    preconditions: [
+      "演示连接提供文本模型和Vision模型。",
+      "思考等级和输入类型由模型目录提供。",
+    ],
+    result:
+      "草稿模型值、显示名和思考等级一致；换模型后等级合法，失效状态可恢复。",
+  },
+  standards: [
+    {
+      id: "U1",
+      name: "同级入口",
+      rule: "权限、模型和会话配置统一28px高、13px/20px、400字重、胶囊形状、左右8px/内部6px；权限在左，模型和会话配置在右。",
+      reason:
+        "同一工具栏的执行上下文选择必须有一致层级；位置延续用户已确认的权限区域。",
+      check:
+        "完整输入区及窄窗一起检查默认、悬停、展开、焦点和禁用；不能仅看孤立按钮。",
+    },
+    {
+      id: "U2",
+      name: "说明使用条件",
+      rule: "完整可读入口和短选项不增加重复Tooltip；只有图标、实际截断名称或不可用原因才补全。提示沿项目Tooltip规格。",
+      reason: "浮窗要补缺失信息；重复标签只制造遮挡和多套风格。",
+      check: "关闭与展开分别检查，不出现HTML title、双重浮窗或常驻正文说明。",
+    },
+    {
+      id: "G3",
+      name: "名称与图标",
+      rule: "模型名优先，思考说明先收缩；无真实身份图标不添加装饰，极窄入口显示模型短标签。菜单240–420px，读取错误至少320px且原因与动作分行；根/候选34px、13px/20px、右侧选中标记。ID供搜索，清除仅一个自定义按钮，点击后焦点/全列表恢复。",
+      reason: "对象身份比装饰图标更有价值；长名称不能挤走配置和发送。",
+      check: "长名称和窄窗检查；图标必须能解释真实对象。",
+    },
+    {
+      id: "G4",
+      name: "选择与搜索",
+      rule: "根菜单模型/思考分区，子级可返回；搜索筛选不改已选模型，只有确认才回写。",
+      reason: "焦点、搜索和选择不是同一动作。",
+      check: "搜索无匹配再清除，Esc退级，方向键移动后取消不改值。",
+    },
+  ],
   inputs: [
-    "models/value/labels；catalog：结构化身份、加载状态、issue和恢复回调；thinkingByModel：支持的等级；disabled/disabledReason：可聚焦读取的锁原因。",
+    "models:string[]；modelLabels显示名与value分离",
+    "modelThinking[model] 提供有效等级；modelInputs[model] 提供text/image能力",
+    "modelCatalog.items/status/error/onRetry/onOpenSettings",
   ],
   events: [
-    "超过4项提供按名称/ID/连接搜索；搜索后方向键进入选项、Enter确认，IME尾窗/Alt/重复Enter不确认。onChange、onThinkingChange仅确认时触发。",
+    "onChange(value) 选择模型；onThinkingChange(level) 改思考强度",
+    "catalog.onRetry只恢复目录；onOpenSettings是明确导航边界",
   ],
   composition: [
-    "Popover",
-    "Button",
-    "Separator",
-    "PickerOption",
-    "ThinkingPicker",
-    "OperationFeedback",
-    "RecoveryAction",
+    "ModelPicker / ThinkingPicker / Popover / InputGroup / PickerOption",
   ],
-  consumers: ["ComposerToolbar", "ConversationComposer"],
-  viewport: { width: 760, height: 650 },
+  consumers: ["首页输入工具栏"],
   states: [
     {
-      id: "locked",
-      name: "运行时锁定",
-      condition: "当前工作使用既定模型。",
+      id: "choose-model",
+      name: "模型与思考选择",
+      section: "normal",
+      condition: "文本模型默认已选；Vision可选。",
+      steps: [
+        "打开模型入口进入模型子菜单。",
+        "选择Vision，再打开思考子菜单选择高。",
+        "查看当前入口与提交时模型、thinking值。",
+        "用Esc关闭回正文。",
+      ],
       expected:
-        "模型与思考整体锁定；Tab 和悬停均能读取实际原因，不影响停止工作。",
-      render: () => <Example mode="locked" />,
+        "模型与思考合法且一致，子菜单焦点连贯，未确认的移动不改变草稿。",
+      render: () => <HomeStoryExample scenario="normal" />,
     },
     {
-      id: "available",
-      name: "选择与键盘",
-      condition: "两个连接，方向键浏览",
-      expected: "分组明确，上下不改选择，Enter确认，Esc退一级并回焦",
-      render: () => <Example />,
+      id: "search",
+      name: "搜索与无匹配恢复",
+      section: "normal",
+      condition: "五个演示模型可供筛选；超过四项时显示正式搜索控件。",
+      steps: [
+        "进入模型列表，搜索“不存在”。",
+        "核对无匹配而当前模型未变。",
+        "清空查询，选择Vision。",
+      ],
+      expected: "无匹配与没有配置模型区分；清除后恢复完整列表。",
+      render: () => <HomeStoryExample scenario="normal" />,
     },
     {
-      id: "long",
-      name: "长名与多模型",
-      condition: "24个跨连接同名长模型",
-      expected:
-        "模型子页默认聚焦搜索，按名称/ID/连接筛选；空结果明确；Check和身份可见；改变窗口可用高度后列表局部滚动。",
-      render: () => <Example mode="long" />,
+      id: "read-failure",
+      name: "读取失败与重试",
+      section: "exception",
+      condition: "模型目录处于error。",
+      steps: ["打开模型入口查看失败。", "重新读取，选择有效模型。"],
+      expected: "恢复动作属于模型菜单；失败不清空正文。",
+      render: () => <HomeStoryExample scenario="model-error" />,
     },
     {
       id: "empty",
-      name: "空目录",
-      condition: "无模型",
-      expected: "入口可开，可进入设置，无伪思考档位",
-      render: () => <Example mode="empty" />,
+      name: "没有模型",
+      section: "exception",
+      condition: "未配置模型。",
+      steps: [
+        "打开模型入口查看空状态。",
+        "点击设置模型入口，查看边界事件。",
+        "尝试发送。",
+      ],
+      expected: "清楚说明前置条件；设置入口有回调，不能发送至不存在的模型。",
+      render: () => <HomeStoryExample scenario="model-empty" />,
     },
     {
       id: "loading",
-      name: "正在读取",
-      condition: "目录读取中",
-      expected: "明确加载状态，保留当前选择",
-      render: () => <Example mode="loading" />,
+      name: "目录读取中",
+      section: "states",
+      condition: "模型列表等待演示解除。",
+      steps: [
+        "打开模型入口查看读取状态。",
+        "按Alt+Shift+R完成等待，再选择模型。",
+      ],
+      expected: "加载不伪装空集合；完成后菜单可操作。",
+      render: () => <HomeStoryExample scenario="model-pending" />,
     },
     {
-      id: "error",
-      name: "读取失败",
-      condition: "目录读取失败",
-      expected: "可重试并恢复，或进入设置",
-      render: () => <Example mode="error" />,
-    },
-    {
-      id: "restart",
-      name: "服务需重启",
-      condition: "目录请求返回host_version/restart。",
-      expected: "错误提供重启指导；不提供无效重新读取。当前选择保留。",
-      render: () => <Example mode="restart" />,
-    },
-    {
-      id: "cancelled",
-      name: "读取取消",
-      condition: "当前模型目录读取返回cancelled/info，允许用户重新读取。",
-      expected: "中性反馈，重新读取后恢复；不出现红色错误。",
-      render: () => <Example mode="cancelled" />,
-    },
-    {
-      id: "restricted",
-      name: "限定思考等级",
-      condition: "支持高与最高",
-      expected: "仅两档，方向键不提交",
-      render: () => <Example mode="restricted" />,
-    },
-    {
-      id: "no-reasoning",
-      name: "无思考能力",
-      condition: "等级为空",
-      expected: "无思考入口",
-      render: () => <Example mode="no-reasoning" />,
-    },
-    {
-      id: "unavailable",
-      name: "原选择失效",
-      condition: "模型被移除",
-      expected: "保留旧身份，提示修复，可选择其他模型",
-      render: () => <Example mode="unavailable" />,
+      id: "long-name",
+      name: "长模型名称",
+      section: "states",
+      condition: "显示名称长于常规情况。",
+      steps: [
+        "查看800px和390px完整工具栏。",
+        "打开模型菜单，检查完整名称与操作区。",
+      ],
+      expected: "名称、权限、配置、发送不重叠；截断信息按需补全。",
+      render: () => <HomeStoryExample scenario="model-long" />,
     },
   ],
+  viewport: {
+    width: 800,
+    height: 680,
+  },
 } satisfies CatalogEntry

@@ -1,0 +1,28 @@
+/** Only the preview document receives this storage; the application keeps its own. */
+export function installPreviewStorage() {
+  const create = (): Storage => {
+    const values = new Map<string, string>()
+    return {
+      get length() {
+        return values.size
+      },
+      clear: () => values.clear(),
+      getItem: (key) => values.get(String(key)) ?? null,
+      key: (index) => [...values.keys()][index] ?? null,
+      removeItem: (key) => {
+        values.delete(String(key))
+      },
+      setItem: (key, value) => {
+        values.set(String(key), String(value))
+      },
+    }
+  }
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: create(),
+  })
+  Object.defineProperty(window, "sessionStorage", {
+    configurable: true,
+    value: create(),
+  })
+}

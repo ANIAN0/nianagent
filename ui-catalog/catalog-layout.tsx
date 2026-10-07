@@ -48,9 +48,9 @@ export function CatalogLayout({
         >
           <div className="catalog-mobile-toolbar">
             <TabsList aria-label="组件库面板">
-              <TabsTrigger value="tree">组件</TabsTrigger>
-              <TabsTrigger value="preview">预览</TabsTrigger>
-              <TabsTrigger value="docs">文档</TabsTrigger>
+              <TabsTrigger value="tree">目录</TabsTrigger>
+              <TabsTrigger value="preview">组件</TabsTrigger>
+              <TabsTrigger value="docs">结构信息</TabsTrigger>
             </TabsList>
           </div>
           <div className="catalog-mobile">
@@ -83,15 +83,15 @@ export function CatalogLayout({
       ) : (
         <div className="catalog-desktop">
           <ResizablePanelGroup orientation="horizontal">
-            <ResizablePanel defaultSize="20%" minSize="15%">
+            <ResizablePanel defaultSize="18%" minSize="15%">
               {navigation}
             </ResizablePanel>
             <ResizableHandle withHandle />
-            <ResizablePanel defaultSize="55%" minSize="30%">
+            <ResizablePanel defaultSize="52%" minSize="30%">
               {preview}
             </ResizablePanel>
             <ResizableHandle withHandle />
-            <ResizablePanel defaultSize="25%" minSize="18%">
+            <ResizablePanel defaultSize="30%" minSize="22%">
               {docs}
             </ResizablePanel>
           </ResizablePanelGroup>

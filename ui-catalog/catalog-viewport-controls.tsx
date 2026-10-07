@@ -133,22 +133,24 @@ export function CatalogViewportControls({
           </SelectContent>
         </Select>
       </Field>
-      <DimensionInput
-        label="宽"
-        value={width}
-        axis="width"
-        onCommit={(next) => onChange(next, height)}
-      />
-      <span className="catalog-dimension-separator" aria-hidden="true">
-        ×
-      </span>
-      <DimensionInput
-        label="高"
-        value={height}
-        axis="height"
-        onCommit={(next) => onChange(width, next)}
-      />
-      <span className="catalog-viewport-unit">px</span>
+      <div className="catalog-dimensions">
+        <DimensionInput
+          label="宽"
+          value={width}
+          axis="width"
+          onCommit={(next) => onChange(next, height)}
+        />
+        <span className="catalog-dimension-separator" aria-hidden="true">
+          ×
+        </span>
+        <DimensionInput
+          label="高"
+          value={height}
+          axis="height"
+          onCommit={(next) => onChange(width, next)}
+        />
+        <span className="catalog-viewport-unit">px</span>
+      </div>
     </FieldGroup>
   )
 }

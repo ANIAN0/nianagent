@@ -1,12 +1,20 @@
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { ComposerToaster } from "@/components/composer/composer-notification"
-import { Button } from "@/components/ui/button"
 import { Component, useEffect, useState, type ReactNode } from "react"
 import { createRoot } from "react-dom/client"
 import { ThemeProvider } from "@/components/theme-provider"
 import { loadCatalogEntry } from "./catalog-loader"
 import type { CatalogEntry } from "./catalog-types"
+import { CatalogComponentShell } from "./catalog-component-shell"
+import { readStorySection } from "./catalog-sections"
 import "@/index.css"
+import { installPreviewStorage } from "./fixtures/memory-storage"
+import { CatalogPreviewStatus } from "./catalog-preview-status"
+
+installPreviewStorage()
+const embedded =
+  new URLSearchParams(location.search).get("embedded") === "1" &&
+  window.parent !== window
 
 function reportStatus(status: "ready" | "error", message?: string) {
   window.parent.postMessage(
@@ -15,29 +23,18 @@ function reportStatus(status: "ready" | "error", message?: string) {
   )
 }
 
-function PreviewError({
-  message,
-  onRetry,
-}: {
-  message: string
-  onRetry?: () => void
-}) {
+function PreviewError({ message }: { message: string }) {
   useEffect(() => {
     reportStatus("error", message)
   }, [message])
   return (
-    <main role="alert" className="p-6 text-sm">
-      <p>{message}</p>
-      <div className="mt-3 flex gap-3">
-        {onRetry && (
-          <Button variant="outline" size="sm" onClick={onRetry}>
-            重试载入
-          </Button>
-        )}
-        <Button variant="outline" size="sm" onClick={() => location.reload()}>
-          重新加载页面
-        </Button>
-      </div>
+    <main className="catalog-standalone-status" hidden={embedded}>
+      {!embedded && (
+        <CatalogPreviewStatus
+          error={message}
+          onRetry={() => location.reload()}
+        />
+      )}
     </main>
   )
 }
@@ -79,17 +76,40 @@ function PreviewSizeReporter() {
   return null
 }
 const params = new URLSearchParams(location.search)
-const component = params.get("component") ?? "home-page"
+const component = params.get("component") ?? "home-composer"
 const requestedState = params.get("state")
 
 function SelectedState({ entry }: { entry: CatalogEntry }) {
   const stateId = requestedState ?? entry.states[0]?.id ?? "default"
   const state = entry.states.find((item) => item.id === stateId)
+  const [released, setReleased] = useState(!embedded)
   useEffect(() => {
-    if (state) reportStatus("ready")
-  }, [state])
-  if (!state) return <PreviewError message={`找不到状态：${stateId}`} />
-  return state.render()
+    if (!embedded || (!state && entry.stage !== "structure")) return
+    // Block initial focus inside the child document, not only on its iframe.
+    const release = requestAnimationFrame(() => setReleased(true))
+    return () => cancelAnimationFrame(release)
+  }, [state, entry.stage])
+  useEffect(() => {
+    if (released && (state || entry.stage === "structure"))
+      reportStatus("ready")
+  }, [released, state, entry.stage])
+  if (!state && entry.stage !== "structure")
+    return <PreviewError message={`找不到状态：${stateId}`} />
+  return (
+    <div inert={!released} style={{ display: "contents" }}>
+      {entry.stage === "structure" ? (
+        <CatalogComponentShell
+          section={
+            entry.layer === "复合组件"
+              ? readStorySection(params.get("section"))
+              : undefined
+          }
+        />
+      ) : (
+        state!.render()
+      )}
+    </div>
+  )
 }
 
 function PreviewApplication() {
@@ -97,7 +117,6 @@ function PreviewApplication() {
     entry?: CatalogEntry
     error?: string
   }>({})
-  const [attempt, setAttempt] = useState(0)
   useEffect(() => {
     let active = true
     loadCatalogEntry(component).then(
@@ -114,21 +133,13 @@ function PreviewApplication() {
     return () => {
       active = false
     }
-  }, [attempt])
+  }, [])
   if (result.error)
-    return (
-      <PreviewError
-        message={`组件载入失败：${result.error}`}
-        onRetry={() => {
-          setResult({})
-          setAttempt((value) => value + 1)
-        }}
-      />
-    )
+    return <PreviewError message={`组件载入失败：${result.error}`} />
   if (!result.entry)
     return (
-      <main className="p-6 text-sm" role="status" aria-live="polite">
-        正在载入组件…
+      <main className="catalog-standalone-status" hidden={embedded}>
+        {!embedded && <CatalogPreviewStatus />}
       </main>
     )
   return (
