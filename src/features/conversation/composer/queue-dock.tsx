@@ -9,18 +9,13 @@ import {
   Trash2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "@/components/ui/popover"
 import type { HomeDraft, Material } from "@/features/home/home-types"
-import {
-  useComposerPanel,
-  useComposerPanelCloseAutoFocus,
-} from "@/features/home/composer-panel-context"
 import { MaterialPreviewDialog } from "@/features/materials/material-preview"
 import { QueueEditEditor } from "./queue-edit-editor"
+import { QueueAttachments } from "./queue-attachments"
+import { QueueActionHint } from "./queue-action-hint"
+import { SubmissionReceipt } from "@/components/feedback/submission-receipt"
+import type { ConversationSubmissionEchoValue } from "../conversation-submission"
 import { OperationFeedback } from "@/components/feedback/operation-feedback"
 import { RecoveryAction } from "@/components/feedback/recovery-action"
 import {
@@ -42,6 +37,11 @@ import {
 } from "../queue-edit-store"
 
 export type QueueDockProps = {
+  pendingSubmission?: Extract<ConversationSubmissionEchoValue, { kind: "send" }>
+  pending?: boolean
+  unconfirmed?: boolean
+  checking?: boolean
+  onCheckSubmission?: () => void
   sessionId?: string
   revision?: number
   retiredItems?: {
@@ -61,6 +61,7 @@ export type QueueDockProps = {
     editRequestId?: string
   }[]
   running: boolean
+  stopping?: boolean
   paused?: boolean
   waitingApproval?: boolean
   cwd?: string
@@ -93,46 +94,27 @@ export type QueueDockProps = {
 export function QueueDock(props: QueueDockProps) {
   return <QueueDockContent key={props.sessionId ?? "catalog"} {...props} />
 }
-function QueueMessagePreview({
-  itemId,
-  text,
-}: {
-  itemId: string
-  text: string
-}) {
-  const name = "queue-preview:" + itemId
-  const [open, setOpen] = useComposerPanel(name)
-  const closeAutoFocus = useComposerPanelCloseAutoFocus(name)
+function QueueMessagePreview({ text }: { text: string }) {
+  const flat = text.replace(/\s+/g, " ").trim()
+  const chars = Array.from(flat)
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          variant="ghost"
-          className="h-auto w-full min-w-0 justify-start p-0 text-left font-normal"
-          aria-label="查看排队消息全文"
-        >
-          <span className="truncate">{text || "附件消息"}</span>
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent
-        side="top"
-        className="w-96 max-w-[calc(100vw-32px)]"
-        aria-label="排队消息全文"
-        onCloseAutoFocus={closeAutoFocus}
-      >
-        <p className="moon-scrollbar max-h-[min(208px,var(--radix-popover-content-available-height))] overflow-auto text-sm leading-6 break-words whitespace-pre-wrap">
-          {text || "此消息只有附件。"}
-        </p>
-      </PopoverContent>
-    </Popover>
+    <span className="conversation-queue-preview">
+      {chars.length > 200 ? `${chars.slice(0, 200).join("")}…` : flat}
+    </span>
   )
 }
 function QueueDockContent({
+  pendingSubmission,
+  pending = false,
+  unconfirmed = false,
+  checking = false,
+  onCheckSubmission,
   sessionId,
   revision,
   retiredItems = [],
   items,
   running,
+  stopping = false,
   paused = false,
   waitingApproval = false,
   cwd = "",
@@ -141,7 +123,6 @@ function QueueDockContent({
   issue,
   issues = {},
   onCheck,
-  deliveryMode = "single",
   onEdit,
   onRemove,
   onSendNow,
@@ -205,7 +186,7 @@ function QueueDockContent({
     : editConfirmed
       ? undefined
       : (editing?.issue ??
-        (submitted && !submitted.acknowledged
+        (submitted && !submitted.acknowledged && !saving
           ? {
               code: "result_unknown",
               message:
@@ -296,12 +277,13 @@ function QueueDockContent({
       revision: editing.revision,
     }
     const captured = { ...editing, submitted: attempt, issue: undefined }
+    setSaving(true)
     if (!remember(captured)) {
       // Nothing crossed RPC; remove only the tentative submission marker.
       remember({ ...captured, submitted: undefined })
+      setSaving(false)
       return
     }
-    setSaving(true)
     try {
       await onEdit(
         captured.id,
@@ -365,11 +347,17 @@ function QueueDockContent({
       !!issues["queue-deliver:" + item.id] ||
       (!issue && !!item.error)
   )
-  const expanded = !collapsed || !!editing || rowProblems
-  if (!items.length && !editing && !preview && !issue && !storageIssue)
-    return null
+  const expanded =
+    !collapsed || !!editing || saving || rowProblems || unconfirmed
+  const rowCount = items.length + (pendingSubmission ? 1 : 0)
+  const [wasRowCount, setWasRowCount] = useState(rowCount)
+  if (wasRowCount !== rowCount) {
+    setWasRowCount(rowCount)
+    if (!rowCount) setCollapsed(true)
+  }
+  if (!rowCount && !editing && !preview && !issue && !storageIssue) return null
   const editor = editing && (
-    <div className="w-full py-2">
+    <div className="conversation-queue-edit">
       {!editingItem && (
         <p role="status" className="mb-2 text-xs text-muted-foreground">
           原消息已离开待处理列表，未保存的文字和材料保留在这里。
@@ -385,10 +373,7 @@ function QueueDockContent({
             </p>
             <div className="w-full min-w-0">
               <p className="text-xs text-muted-foreground">当前已保存的消息</p>
-              <QueueMessagePreview
-                itemId={`${editingItem.id}:current`}
-                text={editingItem.draft.text}
-              />
+              <QueueMessagePreview text={editingItem.draft.text} />
               {editingItem.draft.materials.length > 0 && (
                 <div className="flex flex-wrap gap-1">
                   {editingItem.draft.materials.map((material) => (
@@ -453,6 +438,7 @@ function QueueDockContent({
       )}
       {editError && (
         <OperationFeedback
+          notify={false}
           title={editUnknown ? "编辑保存结果待确认" : "未能保存排队修改"}
           {...editError}
           actions={
@@ -474,6 +460,7 @@ function QueueDockContent({
       )}
       {!editError && !editConfirmed && submitted && !saving && (
         <OperationFeedback
+          notify={false}
           title="正在核对保存结果"
           message="文字和材料已保留，读取到对应更新后结束编辑。"
           severity="info"
@@ -503,6 +490,7 @@ function QueueDockContent({
         ) && (
           <div className="p-3">
             <OperationFeedback
+              notify={false}
               title="待处理消息需要处理"
               {...issue}
               actions={
@@ -523,6 +511,7 @@ function QueueDockContent({
       {storageIssue && (
         <div className="p-3">
           <OperationFeedback
+            notify={false}
             title="编辑草稿需要处理"
             {...storageIssue}
             actions={
@@ -544,26 +533,12 @@ function QueueDockContent({
         </div>
       )}
       {editing && !editingItem && <div className="px-3">{editor}</div>}
-      {items.length > 0 && (
-        <p className="conversation-queue-mode" role="status">
-          {paused || !running
-            ? "已暂停，发送后继续处理"
-            : waitingApproval
-              ? "等待确认后处理"
-              : items.every((item) => item.delivery === "steer")
-                ? "补充将在下个可用边界处理"
-                : items.some((item) => item.delivery === "steer")
-                  ? "补充在可用边界处理，排队在工作结束后处理"
-                  : "当前工作结束后继续"}
-          <span>{deliveryMode === "all" ? "全部交付" : "逐条交付"}</span>
-        </p>
-      )}
-      {items.length > 1 && (
+      {rowCount > 1 && (
         <Button
           type="button"
           variant="ghost"
           className="conversation-queue-heading"
-          disabled={!!editing || busy || rowProblems}
+          disabled={!!editing || saving || rowProblems || unconfirmed}
           title={rowProblems ? "消息操作需要处理，列表保持展开" : undefined}
           aria-expanded={expanded}
           aria-controls={id}
@@ -571,8 +546,13 @@ function QueueDockContent({
         >
           <ListOrdered data-icon="inline-start" />
           <span>
-            {items.length} 条排队消息{rowProblems ? " · 有待处理问题" : ""}
+            {rowCount} 条排队消息{rowProblems ? " · 有待处理问题" : ""}
           </span>
+          {pendingSubmission && !expanded && (
+            <small className="conversation-queue-status">
+              {unconfirmed ? "待核对" : "正在发送"}
+            </small>
+          )}
           {expanded ? (
             <ChevronDown data-icon="inline-end" />
           ) : (
@@ -583,7 +563,7 @@ function QueueDockContent({
       <ul
         id={id}
         className="conversation-queue-list"
-        hidden={items.length > 1 && !expanded}
+        hidden={rowCount > 1 && !expanded}
       >
         {items.map((item) => {
           const removeIssue = issues["queue-remove:" + item.id]
@@ -594,130 +574,139 @@ function QueueDockContent({
           const deliveryUnknown =
             deliverIssue?.code === "result_unknown" ||
             deliverIssue?.recovery === "check"
+          const itemBusy =
+            busy ||
+            item.status === "dispatching" ||
+            removalUnknown ||
+            deliveryUnknown
+          const editDisabled =
+            itemBusy || !!editing || !!item.draft.materials.length
+          const actionDisabled = itemBusy || !!editing?.submitted
           return (
             <li key={item.id} className="flex-wrap">
               {editing?.id === item.id ? (
                 editor
               ) : (
                 <>
-                  {items.length === 1 && (
+                  {rowCount === 1 && (
                     <ListOrdered
                       className="conversation-queue-icon"
                       aria-hidden="true"
                     />
                   )}
+                  <QueueAttachments
+                    materials={item.draft.materials}
+                    cwd={cwd}
+                  />
                   <div className="conversation-queue-text">
-                    <QueueMessagePreview
-                      itemId={item.id}
-                      text={item.draft.text}
-                    />
-                    {(item.status === "dispatching" ||
-                      item.delivery === "steer") && (
-                      <small role="status">
-                        {waitingApproval
-                          ? item.delivery === "steer"
-                            ? "待补充 · 等待确认"
-                            : "排队 · 等待确认"
-                          : item.status === "dispatching"
-                            ? item.delivery === "steer"
-                              ? "待补充"
-                              : "正在交付"
-                            : "待补充"}
-                      </small>
-                    )}
+                    <QueueMessagePreview text={item.draft.text} />
                     {!issue && !deliverIssue && item.error && (
                       <OperationFeedback
+                        notify={false}
                         title="这条消息尚未交付"
                         message="请核对队列状态后继续处理。原消息和材料已保留。"
                         details={item.error}
                         severity="warning"
                       />
                     )}
-                    {!!item.draft.materials.length && (
-                      <div className="flex flex-wrap gap-1">
-                        {item.draft.materials.map((material) => (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-6 max-w-full text-xs"
-                            key={material.id}
-                            onClick={() => setPreview(material)}
-                          >
-                            <span className="truncate">{material.name}</span>
-                          </Button>
-                        ))}
-                      </div>
-                    )}
                   </div>
-                  <div className="flex shrink-0 gap-0.5">
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label="编辑排队消息"
-                      title="编辑"
-                      disabled={
-                        busy ||
-                        !!editing ||
-                        item.status === "dispatching" ||
-                        removalUnknown ||
-                        deliveryUnknown
+                  {(stopping ||
+                    item.status === "dispatching" ||
+                    item.delivery === "steer" ||
+                    paused ||
+                    !running ||
+                    waitingApproval) && (
+                    <small role="status" className="conversation-queue-status">
+                      {stopping
+                        ? "正在停止"
+                        : waitingApproval
+                          ? item.delivery === "steer"
+                            ? "待补充 · 等待确认"
+                            : "排队 · 等待确认"
+                          : paused || !running
+                            ? "已暂停"
+                            : item.status === "dispatching"
+                              ? item.delivery === "steer"
+                                ? "待补充"
+                                : "正在交付"
+                              : "待补充"}
+                    </small>
+                  )}
+                  <div className="conversation-queue-actions">
+                    <QueueActionHint
+                      content={
+                        item.draft.materials.length
+                          ? "包含文件或图片的消息不能编辑正文；可移除后重新发送。"
+                          : "编辑排队消息"
                       }
-                      onClick={() =>
-                        remember({
-                          sessionId: scope,
-                          id: item.id,
-                          revision,
-                          draft: structuredClone(item.draft),
-                          originalDraft: structuredClone(item.draft),
-                          originalStatus: item.status,
-                        })
-                      }
+                      disabled={editDisabled}
                     >
-                      <Pencil />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={running ? "立即发送" : "发送此消息"}
-                      title={
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label="编辑排队消息"
+                        className="conversation-queue-action"
+                        disabled={editDisabled}
+                        title={
+                          item.draft.materials.length
+                            ? "包含文件或图片的消息不能编辑正文。"
+                            : undefined
+                        }
+                        onClick={() =>
+                          remember({
+                            sessionId: scope,
+                            id: item.id,
+                            revision,
+                            draft: structuredClone(item.draft),
+                            originalDraft: structuredClone(item.draft),
+                            originalStatus: item.status,
+                          })
+                        }
+                      >
+                        <Pencil />
+                      </Button>
+                    </QueueActionHint>
+                    <QueueActionHint
+                      content="移除排队消息"
+                      disabled={actionDisabled}
+                    >
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="conversation-queue-action"
+                        aria-label="删除排队消息"
+                        disabled={actionDisabled}
+                        onClick={() => onRemove(item.id)}
+                      >
+                        <Trash2 />
+                      </Button>
+                    </QueueActionHint>
+                    <QueueActionHint
+                      content={
                         running
-                          ? "立即发送，补充当前工作"
+                          ? "补充当前工作，在下个可用边界处理"
                           : "发送此消息，继续处理"
                       }
-                      disabled={
-                        busy ||
-                        item.status === "dispatching" ||
-                        deliveryUnknown ||
-                        removalUnknown ||
-                        !!editing?.submitted
-                      }
-                      onClick={() => onSendNow(item.id)}
+                      disabled={actionDisabled}
                     >
-                      <Send />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label="删除排队消息"
-                      title="删除"
-                      disabled={
-                        busy ||
-                        item.status === "dispatching" ||
-                        removalUnknown ||
-                        deliveryUnknown ||
-                        !!editing?.submitted
-                      }
-                      onClick={() => onRemove(item.id)}
-                    >
-                      <Trash2 />
-                    </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="conversation-queue-action"
+                        aria-label={running ? "补充当前工作" : "发送此消息"}
+                        disabled={actionDisabled}
+                        onClick={() => onSendNow(item.id)}
+                      >
+                        <Send />
+                      </Button>
+                    </QueueActionHint>
                   </div>
                 </>
               )}
               {removeIssue && (
                 <div className="w-full">
                   <OperationFeedback
+                    notify={false}
                     title={
                       removalUnknown ? "移除结果待确认" : "未能移除这条消息"
                     }
@@ -745,6 +734,7 @@ function QueueDockContent({
               {deliverIssue && (
                 <div className="w-full">
                   <OperationFeedback
+                    notify={false}
                     title={
                       deliveryUnknown ? "交付结果待确认" : "未能交付这条消息"
                     }
@@ -772,6 +762,66 @@ function QueueDockContent({
             </li>
           )
         })}
+        {pendingSubmission && (
+          <li
+            className="conversation-queue-pending flex-wrap"
+            aria-label={unconfirmed ? "排队结果待核对" : "正在排队发送"}
+          >
+            {rowCount === 1 && (
+              <ListOrdered className="conversation-queue-icon" aria-hidden />
+            )}
+            <QueueAttachments
+              materials={pendingSubmission.draft.materials}
+              cwd={cwd}
+            />
+            <div className="conversation-queue-text">
+              <QueueMessagePreview text={pendingSubmission.draft.text} />
+            </div>
+            <span role="status" className="conversation-queue-status">
+              {unconfirmed ? "待核对" : pending ? "正在发送" : "等待接收"}
+            </span>
+            <div className="conversation-queue-actions">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="conversation-queue-action"
+                aria-label="编辑排队消息"
+                disabled
+              >
+                <Pencil />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="conversation-queue-action"
+                aria-label="删除排队消息"
+                disabled
+              >
+                <Trash2 />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="conversation-queue-action"
+                aria-label="补充当前工作"
+                disabled
+              >
+                <Send />
+              </Button>
+            </div>
+            {unconfirmed && (
+              <div className="conversation-queue-receipt">
+                <SubmissionReceipt
+                  checking={checking}
+                  onCheck={onCheckSubmission}
+                />
+              </div>
+            )}
+          </li>
+        )}
       </ul>
       <MaterialPreviewDialog
         material={preview}

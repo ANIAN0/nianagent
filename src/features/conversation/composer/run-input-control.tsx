@@ -1,6 +1,10 @@
 import { ChevronDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
+  useComposerPanel,
+  useComposerPanelCloseAutoFocus,
+} from "@/features/home/composer-panel-context"
+import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
@@ -16,8 +20,10 @@ export function RunInputControl({
   mode: BusyInputMode
   onChange: (mode: BusyInputMode) => void
 }) {
+  const [open, setOpen] = useComposerPanel("run-input")
+  const closeAutoFocus = useComposerPanelCloseAutoFocus("run-input")
   return (
-    <DropdownMenu>
+    <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
@@ -29,7 +35,7 @@ export function RunInputControl({
           <ChevronDown data-icon="inline-end" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="center">
+      <DropdownMenuContent align="start" onCloseAutoFocus={closeAutoFocus}>
         <DropdownMenuLabel>运行中发送方式</DropdownMenuLabel>
         <DropdownMenuRadioGroup
           value={mode}

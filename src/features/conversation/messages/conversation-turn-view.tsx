@@ -1,6 +1,6 @@
 import type { ReactNode } from "react"
 import { Marker, MarkerContent } from "@/components/ui/marker"
-import { Button } from "@/components/ui/button"
+import { ConversationTurnFeedback } from "../conversation-turn-feedback"
 import type {
   ConversationContentBlock,
   ConversationMessage,
@@ -18,6 +18,7 @@ import { ToolCall } from "./tool-call"
 import { ExecutionProcess } from "./execution-process"
 import { MessageAttachments } from "./message-attachments"
 import { MessageActions } from "./message-actions"
+import type { ConversationStatistics } from "@/features/models/model-contract.generated"
 import { useMessageEnvironment } from "./message-environment"
 
 export interface ConversationTurnRecord {
@@ -34,9 +35,8 @@ export function ConversationTurnView({
   forkFeedback,
   issueFeedback,
   stopFeedbackProvided = false,
-  onContinue,
-  continueDisabled,
   latest = true,
+  statistics,
   showActions = true,
   onRetry,
   onOpenAttachment,
@@ -54,9 +54,8 @@ export function ConversationTurnView({
   ) => ReactNode
   /** An authoritative feedback for this exact current run owns its stop reason. */
   stopFeedbackProvided?: boolean
-  onContinue?: () => void
-  continueDisabled?: boolean
   latest?: boolean
+  statistics?: ConversationStatistics
   showActions?: boolean
   onRetry?: () => void
   onOpenAttachment?: (attachment: MessageAttachment) => void
@@ -137,7 +136,9 @@ export function ConversationTurnView({
         tool.exitCode !== 0)
   ).length
   const showStoppedNotice =
-    tail?.status === "interrupted" && !tail.issue && !stopFeedbackProvided
+    tail?.status === "interrupted" &&
+    (!tail.issue || tail.issue.code === "cancelled") &&
+    !stopFeedbackProvided
   const hasResponse =
     process.length > 0 ||
     answer.length > 0 ||
@@ -164,6 +165,7 @@ export function ConversationTurnView({
             <ExecutionProcess
               occurrenceId={turn.id}
               running={!closed}
+              stopped={showStoppedNotice}
               toolCount={tools.length}
               failureCount={failures}
             >
@@ -201,26 +203,16 @@ export function ConversationTurnView({
             </Marker>
           )}
           {tail?.stopReason === "length" && (
-            <div className="conversation-length-notice">
-              <p className="conversation-message-feedback" role="status">
-                本次输出达到上限，回复可能尚未完整。
-              </p>
-              {onContinue && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={continueDisabled}
-                  onClick={onContinue}
-                >
-                  继续回复
-                </Button>
-              )}
-            </div>
+            <ConversationTurnFeedback
+              title="已达到输出 token 上限"
+              message="回答被截断，已有输出保留在对话中。发送“继续”可让模型接着输出。"
+              severity="warning"
+            />
           )}
           {showStoppedNotice && (
-            <p className="conversation-message-feedback" role="status">
-              本次执行已停止，已完成内容保留。
-            </p>
+            <span className="conversation-stopped" role="status">
+              已停止
+            </span>
           )}
           {turn.continued && (
             <p className="conversation-message-feedback">
@@ -232,9 +224,7 @@ export function ConversationTurnView({
               text={copyText}
               time={tail.time}
               model={tail.model}
-              status={tail.status}
-              stopReason={tail.stopReason}
-              continued={turn.continued}
+              statistics={statistics}
               onRetry={onRetry}
               onFork={onFork}
               forkDisabledReason={forkDisabledReason}

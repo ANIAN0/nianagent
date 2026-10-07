@@ -1,0 +1,181 @@
+.conversation-compaction-row {
+  padding: 2px 0;
+  color: var(--muted-foreground);
+}
+
+.conversation-compaction-trigger[data-slot="marker"] {
+  display: flex;
+  width: 100%;
+  height: 24px;
+  min-height: 24px;
+  gap: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  line-height: 24px;
+  text-align: left;
+  transition: color 100ms ease;
+}
+
+.conversation-compaction-trigger:not(:disabled) {
+  cursor: pointer;
+}
+
+.conversation-compaction-trigger:hover {
+  color: var(--foreground);
+}
+
+.conversation-compaction-trigger:not(:disabled):hover {
+  background: var(--muted);
+}
+
+.conversation-compaction-trigger:focus-visible {
+  outline: 1.5px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.conversation-compaction-leading[data-slot="marker-icon"] {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+}
+
+.conversation-compaction-leading[data-slot="marker-icon"] > svg {
+  grid-area: 1 / 1;
+  width: 14px;
+  height: 14px;
+}
+
+.conversation-compaction-disclosure-icon {
+  opacity: 0;
+}
+
+.conversation-compaction-trigger:not(:disabled):is(:hover, :focus-visible) .conversation-compaction-context-icon {
+  opacity: 0;
+}
+
+.conversation-compaction-trigger:not(:disabled):is(:hover, :focus-visible) .conversation-compaction-disclosure-icon {
+  opacity: 1;
+}
+
+.conversation-compaction-title {
+  flex: none;
+  font-weight: 400;
+}
+
+.conversation-compaction-separator {
+  flex: none;
+  width: 2px;
+  height: 2px;
+  margin: 0 8px;
+  border-radius: 1px;
+  background: var(--muted-foreground);
+}
+
+.conversation-compaction-summary[data-slot="marker-content"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-compaction-row[data-error] .conversation-compaction-summary,
+.conversation-compaction-row[data-error] .conversation-compaction-output {
+  color: var(--destructive);
+}
+
+.conversation-compaction-row:has(.conversation-compaction-body[data-state="open"]) > .conversation-compaction-trigger {
+  position: sticky;
+  top: 0;
+  z-index: 7;
+  border-radius: 0;
+  background: var(--background);
+}
+
+.conversation-compaction-body {
+  padding: 4px 0 4px 22px;
+  font-size: 13px;
+  line-height: 24px;
+}
+
+.conversation-compaction-body .conversation-markdown strong {
+  font-weight: 600;
+}
+
+.conversation-compaction-body .conversation-markdown :is(h1, h2, h3) {
+  font-weight: 700;
+}
+
+.conversation-compaction-body .conversation-markdown :is(h4, h5, h6) {
+  margin: 16px 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 24px;
+}
+
+.conversation-compaction-body .conversation-markdown :is(h1, h2, h3, h4, h5, h6) strong {
+  font-weight: inherit;
+}
+
+.conversation-compaction-body .conversation-markdown :is(h4, h5, h6):has(+ :is(ul, ol)) {
+  margin-bottom: 8px;
+}
+
+.conversation-compaction-body .conversation-markdown :is(h4, h5, h6) + :is(ul, ol) {
+  margin-top: 8px;
+}
+
+.conversation-compaction-body .conversation-markdown li {
+  margin: 0;
+}
+
+.conversation-compaction-body .conversation-markdown li:not(:first-child) {
+  margin-top: 6px;
+}
+
+.conversation-compaction-body .conversation-markdown li > p {
+  margin: 8px 0;
+}
+
+.conversation-compaction-body .conversation-markdown li > :is(ul, ol) {
+  margin-top: 4px;
+}
+
+.conversation-compaction-body .conversation-markdown > :first-child,
+.conversation-compaction-body .conversation-markdown li > :first-child {
+  margin-top: 0;
+}
+
+.conversation-compaction-body .conversation-markdown > :last-child,
+.conversation-compaction-body .conversation-markdown li > :last-child:not(.conversation-code-block) {
+  margin-bottom: 0;
+}
+
+.conversation-compaction-body .conversation-code-header {
+  top: 24px;
+}
+
+.conversation-compaction-output {
+  max-height: 260px;
+  margin: 0;
+  padding: 12px 16px;
+  overflow: auto;
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conversation-compaction-trigger[data-slot="marker"] {
+    transition: none;
+  }
+}

@@ -30,6 +30,8 @@ const labels = {
   failed: "失败",
   stopped: "已停止",
   "not-run": "未执行",
+  returned: "已返回",
+  unknown: "执行情况未知",
 }
 const kinds = {
   read: { label: "读取文件", icon: FileCode2 },
@@ -57,6 +59,31 @@ function inputTarget(tool: ConversationToolCall) {
     /* Old history can contain plain text parameters. */
   }
   return ""
+}
+
+function emptyResult(
+  tool: ConversationToolCall,
+  status: ConversationToolCall["status"]
+) {
+  if (tool.resultAvailability === "available") return "工具未提供文字输出。"
+  if (tool.resultAvailability === "partial")
+    return status === "running"
+      ? "工具正在执行，暂未提供文字输出。"
+      : "当前只有部分结果，未提供文字输出。"
+  if (tool.resultAvailability === "missing") {
+    if (status === "returned") return "工具已结束，但此记录未保存结果内容。"
+    if (status === "failed") return "此调用已记录失败，但结果内容未保存。"
+    if (status === "unknown") return "此记录无法确认是否执行，执行结果未记录。"
+    if (status === "not-run") return "此调用未执行。"
+    if (status === "stopped") return "执行已停止，此记录未保存结果内容。"
+    if (status === "running") return "等待工具结果…"
+    return "此记录未保存结果内容。"
+  }
+  // Older callers do not provide availability; absent text proves no more than that.
+  if (status === "running") return "等待工具结果…"
+  if (status === "not-run") return "此调用未执行。"
+  if (status === "unknown") return "此记录无法确认是否执行。"
+  return "工具未提供文字输出。"
 }
 
 export function ToolCall({
@@ -180,13 +207,7 @@ export function ToolCall({
                     ? full
                       ? tool.result
                       : lines.slice(0, 20).join("\n")
-                    : status === "running"
-                      ? "等待工具结果…"
-                      : status === "not-run"
-                        ? "此调用未执行。"
-                        : status === "stopped"
-                          ? "执行已停止，未返回结果。"
-                          : "此记录未保存结果内容。"}
+                    : emptyResult(tool, status)}
                 </div>
               }
             />
@@ -202,6 +223,11 @@ export function ToolCall({
                 ? "收起已保存内容"
                 : "展开已保存内容（" + lines.length + " 行）"}
             </Button>
+          )}
+          {tool.resultAvailability === "partial" && (
+            <p className="conversation-result-note">
+              当前显示部分输出；最终结果尚未提供。
+            </p>
           )}
           {tool.resultTruncated && (
             <p className="conversation-result-note">

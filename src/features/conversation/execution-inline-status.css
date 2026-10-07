@@ -1,0 +1,26 @@
+.execution-inline-retry[data-slot="marker"] {
+  align-items: flex-start;
+}
+.execution-inline-retry [data-slot="marker-icon"] {
+  color: var(--muted-foreground);
+}
+.execution-inline-retry-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--muted-foreground);
+}
+.execution-inline-retry-heading strong {
+  font-weight: 500;
+}
+.execution-inline-retry [role="timer"] {
+  font-variant-numeric: tabular-nums;
+}
+.execution-inline-retry-detail {
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--muted-foreground);
+}

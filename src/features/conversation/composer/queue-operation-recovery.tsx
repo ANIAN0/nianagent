@@ -38,6 +38,7 @@ export function QueueOperationRecovery({
     <div className="composer-queue-recovery" aria-label="原队列操作恢复">
       {storageIssue && (
         <OperationFeedback
+          notify={false}
           title="本机队列恢复记录需要处理"
           {...storageIssue}
           actions={
@@ -66,6 +67,7 @@ export function QueueOperationRecovery({
               : "发送排队消息"
         return (
           <OperationFeedback
+            notify={false}
             key={record.operationRequestId}
             title={active ? `正在处理${label}` : `${label}的原操作待核对`}
             message={

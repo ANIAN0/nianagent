@@ -1,4 +1,4 @@
-import { Info, RotateCcw } from "lucide-react"
+import { Database, RotateCcw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Popover,
@@ -12,8 +12,18 @@ import {
 } from "@/components/ui/tooltip"
 import { CopyButton } from "./copy-button"
 import { ForkAction } from "../controls/fork-action"
-import type { ConversationMessage } from "../conversation-types"
+import type { ConversationStatistics } from "@/features/models/model-contract.generated"
 import "./messages.css"
+
+function formatCompactTokens(value: number): string {
+  if (value >= 1_000_000) return `${Number((value / 1_000_000).toFixed(1))}M`
+  if (value >= 1_000) return `${Number((value / 1_000).toFixed(1))}K`
+  return String(value)
+}
+
+function formatExactTokens(value: number): string {
+  return value.toLocaleString("en-US")
+}
 
 export function MessageActions({
   text,
@@ -21,9 +31,7 @@ export function MessageActions({
   model,
   align = "start",
   running = false,
-  status,
-  stopReason,
-  continued,
+  statistics,
   onRetry,
   onFork,
   forkDisabledReason,
@@ -34,9 +42,7 @@ export function MessageActions({
   model?: string
   align?: "start" | "end"
   running?: boolean
-  status?: ConversationMessage["status"]
-  stopReason?: ConversationMessage["stopReason"]
-  continued?: boolean
+  statistics?: ConversationStatistics
   onRetry?: () => void
   onFork?: () => void
   forkDisabledReason?: string
@@ -45,20 +51,6 @@ export function MessageActions({
   const date = time === undefined ? undefined : new Date(time)
   const today = new Date()
   const sameDay = date?.toDateString() === today.toDateString()
-  const statusLabel =
-    stopReason === "length"
-      ? "达到输出上限"
-      : status === "interrupted" || stopReason === "aborted"
-        ? "已停止"
-        : status === "failed" || stopReason === "error"
-          ? "回复失败"
-          : status === "sending"
-            ? "正在提交"
-            : running || status === "streaming"
-              ? "正在输出"
-              : align === "end"
-                ? "已接收"
-                : "回复完成"
   const clock =
     date && !Number.isNaN(date.getTime()) ? (
       <time dateTime={date.toISOString()} title={date.toLocaleString("zh-CN")}>
@@ -76,7 +68,7 @@ export function MessageActions({
       {text.trim() && (
         <CopyButton text={text} label={running ? "复制当前内容" : "复制消息"} />
       )}
-      {(model || clock || status) && (
+      {statistics && (
         <Popover>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -84,40 +76,49 @@ export function MessageActions({
                 <Button
                   type="button"
                   variant="ghost"
-                  size="icon-sm"
-                  aria-label="消息信息"
+                  size="sm"
+                  aria-label="本轮用量"
+                  className="conversation-usage-pill"
                 >
-                  <Info />
+                  <Database className="size-4" />
+                  <span>用量 {formatCompactTokens(statistics.totalTokens)} token</span>
                 </Button>
               </PopoverTrigger>
             </TooltipTrigger>
-            <TooltipContent>消息信息</TooltipContent>
+            <TooltipContent>本轮用量</TooltipContent>
           </Tooltip>
           <PopoverContent
             align={align === "end" ? "end" : "start"}
             className="conversation-message-info"
           >
-            <h3>消息信息</h3>
+            <div className="conversation-message-info-title">
+              <h3>本轮用量</h3>
+              <span>{formatExactTokens(statistics.totalTokens)}</span>
+            </div>
+            <div className="conversation-message-info-rule" />
             <dl>
-              <dt>角色</dt>
-              <dd>{align === "end" ? "用户" : "Agent"}</dd>
-              {clock && (
-                <>
-                  <dt>时间</dt>
-                  <dd>{date!.toLocaleString("zh-CN")}</dd>
-                </>
-              )}
               {model && (
                 <>
                   <dt>模型</dt>
                   <dd>{model}</dd>
                 </>
               )}
-              <dt>状态</dt>
-              <dd>
-                {statusLabel}
-                {continued && " · 后续已继续回复"}
-              </dd>
+              {statistics.totalTokens > statistics.output && (
+                <>
+                  <dt>缓存命中</dt>
+                  <dd>
+                    {((statistics.cacheRead / (statistics.totalTokens - statistics.output)) * 100).toFixed(1)}%
+                  </dd>
+                </>
+              )}
+              <dt>未缓存输入</dt>
+              <dd>{formatExactTokens(statistics.input)} token</dd>
+              <dt>缓存读取</dt>
+              <dd>{formatExactTokens(statistics.cacheRead)} token</dd>
+              <dt>缓存写入</dt>
+              <dd>{formatExactTokens(statistics.cacheWrite)} token</dd>
+              <dt>输出</dt>
+              <dd>{formatExactTokens(statistics.output)} token</dd>
             </dl>
           </PopoverContent>
         </Popover>
@@ -133,7 +134,7 @@ export function MessageActions({
               disabled={running}
               onClick={onRetry}
             >
-              <RotateCcw />
+              <RotateCcw className="size-4" />
             </Button>
           </TooltipTrigger>
           <TooltipContent>

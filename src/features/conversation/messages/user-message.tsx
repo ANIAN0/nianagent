@@ -46,7 +46,6 @@ export function UserMessage({
             text={message.text}
             time={message.time}
             align="end"
-            status={message.status}
           />
         )}
       </MessageContent>

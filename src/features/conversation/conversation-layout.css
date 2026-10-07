@@ -87,6 +87,52 @@
   min-height: 0;
   min-width: 0;
 }
+.conversation-read-feedback {
+  flex: none;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px 12px;
+  width: 100%;
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 8px 16px 12px;
+}
+.conversation-read-feedback > .operation-status-message {
+  padding-top: 4px;
+}
+.conversation-read-recovery[data-slot="button"] {
+  font-size: 13px;
+}
+.conversation-read-empty[data-slot="empty"] {
+  min-height: 0;
+  overflow: auto;
+  justify-content: safe center;
+  gap: 20px;
+  padding: 32px 24px;
+}
+.conversation-read-empty [data-slot="empty-header"] {
+  max-width: 420px;
+  gap: 8px;
+}
+.conversation-read-empty [data-slot="empty-title"] {
+  font-size: 16px;
+  line-height: 24px;
+}
+.conversation-read-empty [data-slot="empty-description"] {
+  font-size: 13px;
+  line-height: 20px;
+}
+@media (max-width: 480px) {
+  .conversation-read-feedback {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+  .conversation-read-feedback > .conversation-read-recovery {
+    justify-self: start;
+    margin-left: 10px;
+  }
+}
 .conversation-input-seat {
   flex: 0 1 auto;
   min-height: 0;

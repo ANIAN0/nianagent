@@ -11,7 +11,10 @@ import {
 export type ConversationSubmissionEchoValue = {
   id: string
   stage?: "prepared" | "sending"
-} & ({ kind: "send"; draft: HomeDraft } | { kind: "retry" })
+} & (
+  | { kind: "send"; draft: HomeDraft; placement?: "transcript" | "queued" }
+  | { kind: "retry" }
+)
 
 export function conversationSubmissionEcho(
   value?: PendingSubmission
@@ -21,7 +24,12 @@ export function conversationSubmissionEcho(
   const identity = { id: value.id, stage: value.stage }
   return value.kind === "retry"
     ? { ...identity, kind: "retry" }
-    : { ...identity, kind: "send", draft: value.draft }
+    : {
+        ...identity,
+        kind: "send",
+        draft: value.draft,
+        placement: value.placement,
+      }
 }
 
 export function followingConversationDraft(original: HomeDraft): HomeDraft {

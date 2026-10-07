@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react"
+import { useState, type ReactNode, type Ref } from "react"
 import { Empty, EmptyHeader, EmptyDescription } from "@/components/ui/empty"
 import { ConversationHeader } from "./conversation-header"
 import {
@@ -7,11 +7,11 @@ import {
   type ConversationReadingPosition,
 } from "./conversation-list"
 import "./conversation-layout.css"
-import { OperationFeedback } from "@/components/feedback/operation-feedback"
-import { RecoveryAction } from "@/components/feedback/recovery-action"
+import { ConversationReadFeedback } from "./conversation-read-feedback"
 import type { FeedbackDescription } from "@/lib/operation-issue"
 
 export interface ConversationPageProps {
+  rootRef?: Ref<HTMLElement>
   viewKey: string
   title: string
   workspacePath?: string
@@ -22,6 +22,7 @@ export interface ConversationPageProps {
   notice?: ReactNode
   connectionMessage?: string
   onRetry?: () => void
+  retrying?: boolean
   onOpenSettings?: () => void
   headerLeading?: ReactNode
   headerActions?: ReactNode
@@ -38,6 +39,7 @@ export interface ConversationPageProps {
 }
 
 export function ConversationPage({
+  rootRef,
   viewKey,
   title,
   workspacePath,
@@ -48,6 +50,7 @@ export function ConversationPage({
   notice,
   connectionMessage,
   onRetry,
+  retrying = false,
   onOpenSettings,
   headerLeading,
   headerActions,
@@ -62,9 +65,32 @@ export function ConversationPage({
     () => new Map<string, ConversationReadingPosition>()
   )
   const positions = readingPositions ?? localPositions
-  const empty = state === "ready" && items.length === 0
+  const readFailure =
+    issue ??
+    (state === "error"
+      ? {
+          code: "conversation_read_failed",
+          message: error ?? "会话暂时无法读取，草稿已保留。",
+          recovery: "reload" as const,
+        }
+      : undefined)
+  const empty = state === "ready" && items.length === 0 && !readFailure
+  const readFeedback = readFailure ? (
+    <ConversationReadFeedback
+      issue={readFailure}
+      hasHistory={items.length > 0}
+      retrying={retrying}
+      onRetry={onRetry}
+      onOpenSettings={onOpenSettings}
+    />
+  ) : null
   return (
-    <section className="conversation-page" aria-label="会话视图">
+    <section
+      ref={rootRef}
+      className="conversation-page"
+      aria-label="会话视图"
+      data-conversation-session={viewKey}
+    >
       <ConversationHeader
         title={title}
         workspacePath={workspacePath}
@@ -79,12 +105,16 @@ export function ConversationPage({
       )}
       {notice && <div className="px-4 pb-2">{notice}</div>}
       <div className="conversation-body" data-empty={empty || undefined}>
+        {items.length > 0 && readFeedback}
         {!empty && (
           <div
             className="conversation-reading"
+            data-conversation-region="history"
             aria-busy={state === "loading" || undefined}
           >
-            {state === "ready" || items.length > 0 ? (
+            {readFailure && items.length === 0 ? (
+              readFeedback
+            ) : state === "ready" || items.length > 0 ? (
               <ConversationList
                 key={viewKey}
                 items={items}
@@ -94,37 +124,6 @@ export function ConversationPage({
                   onReadingPositionChange?.(viewKey, position)
                 }}
               />
-            ) : state === "error" ? (
-              <div className="mx-auto w-full max-w-3xl px-4 py-8">
-                <OperationFeedback
-                  title="会话无法读取"
-                  message={
-                    issue?.message ?? error ?? "会话暂时无法读取，草稿已保留。"
-                  }
-                  details={issue?.details}
-                  actions={
-                    <RecoveryAction
-                      issue={
-                        issue ?? {
-                          code: "conversation_read_failed",
-                          message: error ?? "会话暂时无法读取。",
-                          recovery: "reload",
-                        }
-                      }
-                      onRetry={onRetry}
-                      onReload={onRetry}
-                      onCheck={onRetry}
-                      onSettings={onOpenSettings}
-                      labels={{
-                        retry: "重新读取会话",
-                        reload: "重新读取会话",
-                        check: "核对会话状态",
-                        settings: "检查模型设置",
-                      }}
-                    />
-                  }
-                />
-              </div>
             ) : (
               <Empty role="status">
                 <EmptyHeader>
@@ -137,6 +136,7 @@ export function ConversationPage({
         {(state === "ready" || keepComposer) && (
           <div
             className="conversation-input-seat"
+            data-conversation-region="composer"
             data-question={Boolean(question) || undefined}
           >
             <div className="conversation-input-inner">

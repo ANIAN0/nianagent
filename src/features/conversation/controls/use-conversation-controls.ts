@@ -323,7 +323,16 @@ export function useConversationControls(
     return start(
       "compact",
       { focus },
-      (operationId) => service.compact(id, operationId, focus),
+      (operationId) => {
+        if (focus.trim())
+          throw new RpcRequestRejected("用法：/compact（不接受参数）。", {
+            code: "compact_arguments_unsupported",
+            summary: "用法：/compact（不接受参数）。",
+            recovery: "none",
+            severity: "error",
+          })
+        return service.compact(id, operationId, "")
+      },
       onStarted
     )
   }

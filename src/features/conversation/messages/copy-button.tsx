@@ -76,7 +76,11 @@ export function CopyButton({
               }
             }}
           >
-            {state === "copied" ? <Check /> : <Copy />}
+            {state === "copied" ? (
+              <Check className="size-4" />
+            ) : (
+              <Copy className="size-4" />
+            )}
           </Button>
         </TooltipTrigger>
         <TooltipContent>{description}</TooltipContent>

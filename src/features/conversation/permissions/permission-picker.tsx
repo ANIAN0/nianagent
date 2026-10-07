@@ -266,6 +266,7 @@ export function SessionPermissionControl({
           aria-label="会话权限恢复"
         >
           <OperationFeedback
+            notify={false}
             density="compact"
             title="权限设置待核对"
             {...issue}

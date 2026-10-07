@@ -41,6 +41,8 @@ export type PendingSubmission = {
 } & (
   | {
       kind: "send"
+      /** Frozen at submit time so a late response cannot move the echo to another work. */
+      placement?: "transcript" | "queued"
       input: Omit<RpcRequests["conversationSend"], "clientRequestId">
     }
   | {

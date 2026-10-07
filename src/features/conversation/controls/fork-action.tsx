@@ -29,7 +29,7 @@ export function ForkAction({
             disabled={pending || !!disabledReason}
             onClick={onFork}
           >
-            <GitBranch />
+            <GitBranch className="size-4" />
           </Button>
         </span>
       </TooltipTrigger>

@@ -58,6 +58,7 @@ export function ForkFeedback({
 
   return (
     <OperationFeedback
+      notify={false}
       title={title}
       message={message}
       details={completed ? undefined : feedback?.details}

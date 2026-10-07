@@ -19,9 +19,18 @@ export type ConversationToolCall = {
   occurrenceId?: string
   name: string
   source: string
-  status: "running" | "success" | "failed" | "stopped" | "not-run"
+  status:
+    | "running"
+    | "success"
+    | "failed"
+    | "stopped"
+    | "not-run"
+    | "returned"
+    | "unknown"
   input?: string
   result?: string
+  /** Actual result availability; an empty final result is still available. */
+  resultAvailability?: "available" | "partial" | "missing"
   exitCode?: number
   durationMs?: number
   target?: {

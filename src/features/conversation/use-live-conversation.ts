@@ -10,7 +10,10 @@ import {
   type ModelConnection,
 } from "@/features/models/model-types"
 import type { ConversationSnapshot } from "@/features/models/model-contract.generated"
-import { createConversationService } from "./conversation-service"
+import {
+  createConversationService,
+  type ConversationService,
+} from "./conversation-service"
 import { RpcRequestRejected } from "@/features/models/model-service"
 import { materialReference } from "@/features/materials/material-service"
 import { readConversationReceipt } from "./conversation-receipt"
@@ -45,6 +48,8 @@ import {
 
 export type ConversationActionIssue = FeedbackDescription & {
   action: "send" | "stop" | "retry" | "reconcile"
+  runId?: string
+  epoch?: string
 }
 type ActionKind =
   | ConversationActionIssue["action"]
@@ -119,8 +124,14 @@ export function resolveConversationModel(
 }
 
 /** Server snapshots and editing drafts are separate; polling never replaces input. */
-export function useLiveConversation(selectedId: string | undefined) {
-  const [service] = useState(createConversationService)
+export function useLiveConversation(
+  selectedId: string | undefined,
+  providedService?: ConversationService
+) {
+  // The service belongs to this hook owner; replacing it requires a new owner.
+  const [service] = useState(
+    () => providedService ?? createConversationService()
+  )
   const [restored] = useState(restoreConversationDrafts)
   const [restoredQueue] = useState(restoreQueueOperations)
   const queueRecoveries = useRef(
@@ -211,6 +222,9 @@ export function useLiveConversation(selectedId: string | undefined) {
   >({})
   const receiptCleanups = useRef(new Map<string, PendingSubmission>())
   const [pending, setPending] = useState<Record<string, boolean>>({})
+  const [stopRequests, setStopRequests] = useState<
+    Record<string, string | undefined>
+  >({})
   const [reload, setReload] = useState(0)
   const current = useRef(snapshots)
   const publishInputReceipt = useCallback((snapshot: ConversationSnapshot) => {
@@ -253,6 +267,7 @@ export function useLiveConversation(selectedId: string | undefined) {
   const requests = useRef(restored.requests)
   const locks = useRef(new Set<string>())
   const stopLocks = useRef(new Set<string>())
+  const unknownStops = useRef(new Set<string>())
   const mutations = useRef(new Map<string, number>())
   const publishQueueRecovery = useCallback(() => {
     const records = [...queueRecoveries.current.values()]
@@ -529,7 +544,15 @@ export function useLiveConversation(selectedId: string | undefined) {
         setReceiptIssues((all) => ({ ...all, [id]: undefined }))
         setActionIssues((all) => ({
           ...all,
-          [id]: all[id]?.code === "receipt_cleanup" ? undefined : all[id],
+          [id]:
+            all[id]?.code === "receipt_cleanup" ||
+            (resolvedOutcome === "accepted" &&
+              ["send", "retry", "reconcile"].includes(all[id]?.action ?? "") &&
+              ["result_unknown", "result_pending"].includes(
+                all[id]?.code ?? ""
+              ))
+              ? undefined
+              : all[id],
         }))
         return true
       } catch {
@@ -613,12 +636,21 @@ export function useLiveConversation(selectedId: string | undefined) {
       current.current = { ...current.current, [snapshot.id]: snapshot }
       setSnapshots(current.current)
       setReadIssues((all) => ({ ...all, [snapshot.id]: undefined }))
-      if (!["running", "stopping"].includes(snapshot.phase))
+      if (
+        previous?.runId !== snapshot.runId ||
+        previous?.epoch !== snapshot.epoch ||
+        snapshot.phase !== "running"
+      ) {
+        if (previous)
+          unknownStops.current.delete(
+            `${previous.id}:${previous.epoch}:${previous.runId}`
+          )
         setActionIssues((all) => ({
           ...all,
           [snapshot.id]:
             all[snapshot.id]?.action === "stop" ? undefined : all[snapshot.id],
         }))
+      }
       // Interrupted metadata without Pi input is not proof of rejection;
       // only the formal per-request lookup or an explicit RPC rejection is.
     },
@@ -1062,6 +1094,10 @@ export function useLiveConversation(selectedId: string | undefined) {
         {
           kind: "send",
           input,
+          placement:
+            current.current[id]?.phase === "running" && delivery === "followUp"
+              ? "queued"
+              : "transcript",
           signature: JSON.stringify([
             "send",
             draftSignature(draft),
@@ -1084,6 +1120,22 @@ export function useLiveConversation(selectedId: string | undefined) {
         draftsRef.current = { ...draftsRef.current, [id]: prepared.draft }
         setDrafts(draftsRef.current)
         setDraftErrors((all) => ({ ...all, [id]: "" }))
+        setActionIssues((all) => {
+          const issue = all[id]
+          if (
+            !issue ||
+            !["send", "reconcile"].includes(issue.action) ||
+            issue.recovery === "check" ||
+            [
+              "result_unknown",
+              "result_pending",
+              "receipt_cleanup",
+              "queue_recovery_storage",
+            ].includes(issue.code)
+          )
+            return all
+          return { ...all, [id]: undefined }
+        })
         return submit(id, prepared.submission, signal)
       } catch (error) {
         // A local preparation failure never reached the host. Restore once and
@@ -1096,28 +1148,52 @@ export function useLiveConversation(selectedId: string | undefined) {
   }
   async function stop(id: string) {
     const snapshot = current.current[id]
-    if (!snapshot) return
-    const identity = `${id}:${snapshot.runId}`
-    if (stopLocks.current.has(identity)) return
+    if (!snapshot || snapshot.phase !== "running" || !snapshot.runId) return
+    const identity = `${id}:${snapshot.epoch}:${snapshot.runId}`
+    if (stopLocks.current.has(identity) || unknownStops.current.has(identity))
+      return
     stopLocks.current.add(identity)
-    mutations.current.set(id, (mutations.current.get(id) ?? 0) + 1)
-    const mutation = mutations.current.get(id)
+    setStopRequests((all) => ({ ...all, [id]: identity }))
+    setActionIssues((all) =>
+      all[id]?.action === "stop" ? { ...all, [id]: undefined } : all
+    )
+    const ownsRun = () => {
+      const latest = current.current[id]
+      return (
+        latest?.epoch === snapshot.epoch &&
+        latest.runId === snapshot.runId &&
+        latest.phase === "running"
+      )
+    }
     try {
       accept(await service.stop(id, snapshot.runId))
-      if (mutations.current.get(id) === mutation)
+      unknownStops.current.delete(identity)
+      if (ownsRun())
         setActionIssues((all) => ({
           ...all,
           [id]: all[id]?.action === "stop" ? undefined : all[id],
         }))
     } catch (error) {
-      if (mutations.current.get(id) === mutation)
+      if (ownsRun()) {
+        const issue = feedbackFromError(error)
+        if (["result_unknown", "result_pending"].includes(issue.code))
+          unknownStops.current.add(identity)
         setActionIssues((all) => ({
           ...all,
-          [id]: { ...feedbackFromError(error), action: "stop" },
+          [id]: {
+            ...issue,
+            action: "stop",
+            runId: snapshot.runId,
+            epoch: snapshot.epoch,
+          },
         }))
+      }
       throw error
     } finally {
       stopLocks.current.delete(identity)
+      setStopRequests((all) =>
+        all[id] === identity ? { ...all, [id]: undefined } : all
+      )
     }
   }
   async function retry(
@@ -1213,6 +1289,21 @@ export function useLiveConversation(selectedId: string | undefined) {
       ])
     ),
     pending,
+    stopPending: Object.fromEntries(
+      Object.entries(stopRequests).map(([id, identity]) => [
+        id,
+        identity === `${id}:${snapshots[id]?.epoch}:${snapshots[id]?.runId}` &&
+          snapshots[id]?.phase === "running",
+      ])
+    ),
+    stopUnconfirmed: Object.fromEntries(
+      Object.values(snapshots).map((snapshot) => [
+        snapshot.id,
+        unknownStops.current.has(
+          `${snapshot.id}:${snapshot.epoch}:${snapshot.runId}`
+        ),
+      ])
+    ),
     send,
     stop,
     retry,
@@ -1281,6 +1372,26 @@ export function useLiveConversation(selectedId: string | undefined) {
             return service.read(id)
           }
           if (!submission) return service.read(id)
+          // A restored unknown request may not have an in-memory action issue.
+          // Keep its same recovery visible while inspecting, without exposing
+          // an unknown prompt during an ordinary first submission.
+          setActionIssues((all) =>
+            all[id]
+              ? all
+              : {
+                  ...all,
+                  [id]: {
+                    action: "reconcile",
+                    code: "result_pending",
+                    message:
+                      submission.kind === "retry"
+                        ? "继续请求结果待核对。"
+                        : "发送结果待核对。",
+                    recovery: "check",
+                    severity: "warning",
+                  },
+                }
+          )
           const receipt = await readConversationReceipt(
             service,
             id,

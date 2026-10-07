@@ -31,6 +31,7 @@ import type { ContextUsageProps } from "./context-usage"
 import { ComposerAuxiliaryBar } from "./composer-auxiliary-bar"
 import { useComposerMaterials } from "@/features/materials/use-composer-materials"
 import { OperationFeedback } from "@/components/feedback/operation-feedback"
+import { NotificationToast } from "@/components/ui/notification-toast"
 import type { FeedbackDescription } from "@/lib/operation-issue"
 import type { ConversationStatistics } from "@/features/models/model-contract.generated"
 import type { BusyInputMode } from "./run-input-control"
@@ -54,8 +55,10 @@ export type ConversationComposerProps = {
   workspacePath: string
   running?: boolean
   stopping?: boolean
+  stopUnconfirmed?: boolean
   blocked?: boolean
   blockedReason?: string
+  compactDisabledReason?: string
   dock?: ReactNode
   interaction?: ReactNode
   feedback?: ReactNode
@@ -82,42 +85,23 @@ export function ConversationComposer({
   workspacePath,
   running = false,
   stopping = false,
+  stopUnconfirmed = false,
   blocked = false,
   blockedReason,
+  compactDisabledReason,
   dock,
   interaction,
   feedback,
   queueRecovery,
   context,
   statistics,
-  deliveryMode = "single",
-  queuedCount = 0,
   modeIssue,
-  modeDisabledReason,
   modeChecking,
   onCheckMode,
-  onDeliveryModeChange,
   onChange,
   onSubmit,
   onStop,
 }: ConversationComposerProps) {
-  const [busyInputMode, setBusyInputMode] = useState<BusyInputMode>(() => {
-    try {
-      return localStorage.getItem("moon.busy-input.v1") === "steer"
-        ? "steer"
-        : "followUp"
-    } catch {
-      return "followUp"
-    }
-  })
-  function changeBusyInputMode(mode: BusyInputMode) {
-    setBusyInputMode(mode)
-    try {
-      localStorage.setItem("moon.busy-input.v1", mode)
-    } catch {
-      /* Session preference remains usable. */
-    }
-  }
   const draft = useMemo(
     () =>
       editableComposerDraft({
@@ -183,9 +167,10 @@ export function ConversationComposer({
       : running || stopping
         ? "当前工作结束后才能执行压缩命令；这条命令不会进入排队消息。"
         : blocked
-          ? "请先完成当前操作，再打开压缩面板。命令草稿会继续保留。"
-          : ""
+          ? blockedReason || "当前操作尚未完成。"
+          : compactDisabledReason || ""
   const materialsDisabled =
+    !!interaction ||
     data.materialsEnabled === false ||
     stopping ||
     blocked ||
@@ -218,6 +203,7 @@ export function ConversationComposer({
   const messageValid =
     eligibility.canSend && !stopping && !blocked && (!running || allowQueue)
   const valid =
+    !interaction &&
     !materialController.choosing &&
     (compactCommand
       ? !compactBlockedReason
@@ -225,6 +211,16 @@ export function ConversationComposer({
         ? messageValid && !running && draft.materials.length === 0
         : messageValid)
   const materialFailure = materialController.feedback
+  const sendDisabledReason =
+    eligibility.hasDraft && !valid && !running && !stopping
+      ? blocked
+        ? blockedReason || "当前操作尚未完成，请完成或核对后发送。"
+        : compactBlockedReason ||
+          eligibility.reason ||
+          (extensionCommand && draft.materials.length > 0
+            ? "扩展命令不能同时附带材料，请移除材料后执行。"
+            : undefined)
+      : undefined
   function submit(alternate = false) {
     if (valid)
       onSubmit(
@@ -234,13 +230,7 @@ export function ConversationComposer({
           modelLabel:
             data.modelLabels?.[draft.model] ?? draft.modelLabel ?? draft.model,
         },
-        running
-          ? alternate
-            ? busyInputMode === "followUp"
-              ? "steer"
-              : "followUp"
-            : busyInputMode
-          : "followUp"
+        running && alternate ? "steer" : "followUp"
       )
   }
   const configurationDisabledReason = stopping
@@ -258,8 +248,11 @@ export function ConversationComposer({
         ? "当前运行不支持排队，工作结束后可添加下一条消息的材料。"
         : undefined
   return (
-    <ComposerPanelProvider>
-      <div className="conversation-composer">
+    <ComposerPanelProvider inactive={!!interaction}>
+      <div
+        className="conversation-composer"
+        data-approval-active={!!interaction || undefined}
+      >
         {interaction && (
           <div className="conversation-composer-interaction">{interaction}</div>
         )}
@@ -290,15 +283,8 @@ export function ConversationComposer({
                 <PromptInput
                   key={`${sessionId}:${workspacePath}`}
                   inputRef={inputRef}
-                  variant="docked"
+                  variant="hero"
                   ariaLabel="对话消息"
-                  placeholder={
-                    running
-                      ? allowQueue
-                        ? "写下一项任务，或补充当前工作的要求"
-                        : "可以先写下一条消息，回复结束后发送"
-                      : "描述你要做的事"
-                  }
                   value={draft.text}
                   materials={draft.materials}
                   referenceIdentities={materialController.referenceIdentities}
@@ -379,6 +365,7 @@ export function ConversationComposer({
                       allowQueue={allowQueue}
                       running={running}
                       stopping={stopping}
+                      stopUnconfirmed={stopUnconfirmed}
                       hasDraft={eligibility.hasDraft}
                       command={
                         compactCommand
@@ -387,8 +374,9 @@ export function ConversationComposer({
                             ? "extension"
                             : undefined
                       }
-                      delivery={busyInputMode}
+                      delivery="followUp"
                       disabled={blocked || !valid}
+                      disabledReason={sendDisabledReason}
                       onStop={onStop}
                     />
                   }
@@ -397,11 +385,25 @@ export function ConversationComposer({
             </Field>
           </FieldGroup>
         </form>
-        {compactBlockedReason && (
-          <p role="status" className="mt-2 text-xs text-muted-foreground">
-            {compactBlockedReason}
-          </p>
-        )}
+        {eligibility.hasDraft &&
+          eligibility.reasonKind === "model" &&
+          !running &&
+          !stopping &&
+          !blocked &&
+          !compactCommand &&
+          !["loading", "error"].includes(
+            data.modelCatalog?.status ?? "ready"
+          ) && (
+            <NotificationToast
+              tone="warning"
+              trigger={draft.model}
+              message={
+                draft.model
+                  ? "当前所选模型不可用，请在模型菜单中重新选择。"
+                  : "尚未选择模型，请先在模型菜单中选择可用模型。"
+              }
+            />
+          )}
         {materialFailure && (
           <OperationFeedback
             title={
@@ -437,25 +439,11 @@ export function ConversationComposer({
         )}
         <ComposerAuxiliaryBar
           statistics={statistics}
-          busyInputMode={busyInputMode}
-          onBusyInputModeChange={changeBusyInputMode}
           recovery={queueRecovery}
           context={context}
-          deliveryMode={deliveryMode}
-          queuedCount={queuedCount}
-          onDeliveryModeChange={onDeliveryModeChange}
           modeIssue={modeIssue}
           onCheckMode={onCheckMode}
           modeChecking={modeChecking}
-          modeDisabledReason={
-            modeDisabledReason ??
-            (stopping
-              ? "正在停止，停止完成后可修改交付方式。"
-              : blocked
-                ? blockedReason ||
-                  "当前操作尚未完成，请完成或核对后修改交付方式。"
-                : undefined)
-          }
         />
       </div>
     </ComposerPanelProvider>
