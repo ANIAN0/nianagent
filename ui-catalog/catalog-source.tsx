@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { ChevronRight, FileCode } from "lucide-react"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { OperationFeedback } from "@/components/feedback/operation-feedback"
 import { Button } from "@/components/ui/button"
 import { loadSource, type CatalogMetadata } from "./catalog"
 
@@ -55,10 +55,11 @@ export function CatalogSource({
         </summary>
         {open &&
           (result.error ? (
-            <Alert variant="destructive">
-              <AlertTitle>源码读取失败</AlertTitle>
-              <AlertDescription>
-                {result.error}
+            <OperationFeedback
+              title="源码读取失败"
+              message={result.error}
+              notify={false}
+              actions={
                 <Button
                   variant="outline"
                   size="sm"
@@ -69,8 +70,8 @@ export function CatalogSource({
                 >
                   重试
                 </Button>
-              </AlertDescription>
-            </Alert>
+              }
+            />
           ) : result.source === null ? (
             <p className="catalog-source-loading" role="status">
               正在读取源码…

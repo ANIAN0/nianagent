@@ -1,5 +1,6 @@
 import { createRoot } from "react-dom/client"
 import { ThemeProvider } from "@/components/theme-provider"
+import { NotificationToaster } from "@/components/ui/notification-toast"
 import { CatalogPage } from "./catalog-page"
 import "@/index.css"
 import "./catalog.css"
@@ -13,5 +14,6 @@ root.render(
     defaultTheme={theme === "dark" ? "dark" : "light"}
   >
     <CatalogPage />
+    <NotificationToaster />
   </ThemeProvider>
 )

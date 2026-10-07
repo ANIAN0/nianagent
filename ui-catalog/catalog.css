@@ -139,6 +139,30 @@ details[open] > .catalog-group svg {
 .catalog-group:hover {
   color: var(--primary);
 }
+.catalog-group-link {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.catalog-group-link:hover {
+  text-decoration: underline;
+}
+.catalog-journey-plan .catalog-journey-steps,
+.catalog-planning-components {
+  padding-left: 20px;
+  margin: 16px 0;
+  overflow-wrap: anywhere;
+}
+.catalog-journey-steps {
+  list-style: decimal;
+}
+.catalog-planning-components {
+  list-style: disc;
+}
+.catalog-journey-steps li + li,
+.catalog-planning-components li + li {
+  margin-top: 12px;
+}
 .catalog-group:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
@@ -387,7 +411,7 @@ details[open] > .catalog-group svg {
   gap: 8px;
 }
 .catalog-state-example > p,
-.catalog-state-example > [data-slot="alert"] {
+.catalog-state-example > .operation-status-message {
   margin-top: 12px;
 }
 .catalog-state-example p,
@@ -527,7 +551,7 @@ details[open] > .catalog-group svg {
   padding: 16px 0;
   border-block: 1px solid var(--border);
 }
-.catalog-docs-state [data-slot="alert"] {
+.catalog-docs-state .operation-status-message {
   margin-top: 16px;
 }
 .catalog-footnote {

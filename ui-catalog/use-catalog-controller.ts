@@ -34,7 +34,7 @@ export function useCatalogController() {
   )
   const selection = readSelection(search)
   const params = new URLSearchParams(search)
-  const pageFilter = params.get("page") ?? ""
+  const pageFilter = selection.pageFilter
   const { theme, setTheme } = useTheme()
   const urlTheme = params.get("theme")
   const observedUrlTheme = useRef(urlTheme)
@@ -52,6 +52,12 @@ export function useCatalogController() {
   const [panel, setPanel] = useState("preview")
   const [query, setQuery] = useState("")
   const [revision, setRevision] = useState(0)
+  useEffect(() => {
+    const current = new URLSearchParams(location.search)
+    if (current.get("page") !== "对话") return
+    current.set("page", "会话")
+    updateLocation(current, true)
+  }, [search])
   useEffect(() => {
     if (urlTheme !== observedUrlTheme.current) {
       // Navigation wins over the previous rendered theme, including browser Back.

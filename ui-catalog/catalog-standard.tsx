@@ -1,6 +1,6 @@
 import { ArrowUpRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { StatusMessage } from "@/components/feedback/status-message"
 import type { CatalogMetadata } from "./catalog"
 import { storySectionName, type StorySection } from "./catalog-sections"
 
@@ -98,10 +98,11 @@ export function CatalogStandard({
                 {state.expected}
               </p>
               {state.knownIssue && (
-                <Alert variant="destructive">
-                  <AlertTitle>当前差异</AlertTitle>
-                  <AlertDescription>{state.knownIssue}</AlertDescription>
-                </Alert>
+                <StatusMessage
+                  title="当前差异"
+                  message={state.knownIssue}
+                  role="group"
+                />
               )}
             </section>
           ))}

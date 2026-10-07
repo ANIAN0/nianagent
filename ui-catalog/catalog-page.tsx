@@ -16,6 +16,7 @@ import { CatalogToolbar } from "./catalog-toolbar"
 import { CatalogLayout } from "./catalog-layout"
 import { useCatalogController } from "./use-catalog-controller"
 import { storySectionName } from "./catalog-sections"
+import { associatedPagesOf } from "./catalog"
 
 export function CatalogPage() {
   const controller = useCatalogController()
@@ -29,7 +30,9 @@ export function CatalogPage() {
           <SearchX />
         </EmptyMedia>
         <EmptyTitle>此项不在当前目录</EmptyTitle>
-        <EmptyDescription>当前只创建首页输入框相关组件。</EmptyDescription>
+        <EmptyDescription>
+          请在目录中选择已登记的组件或用户故事。
+        </EmptyDescription>
       </EmptyHeader>
       <Button variant="outline" size="sm" asChild>
         <a href="/ui-catalog/">返回目录</a>
@@ -52,6 +55,8 @@ export function CatalogPage() {
           onQueryChange={controller.setQuery}
           onNavigate={controller.navigate}
           hrefFor={controller.hrefFor}
+          onNavigateSection={controller.navigateSection}
+          hrefForSection={controller.hrefForSection}
         />
       }
       preview={
@@ -66,7 +71,7 @@ export function CatalogPage() {
               </p>
               <div className="catalog-heading-row">
                 <h1>{entry.name}</h1>
-                {entry.pages.map((page) => (
+                {associatedPagesOf(entry).map((page) => (
                   <Button
                     key={page}
                     size="xs"
@@ -84,7 +89,7 @@ export function CatalogPage() {
           {!entry ? (
             missing
           ) : entry.stage === "structure" ? (
-            <CatalogComponentShell section={selection.section} />
+            <CatalogComponentShell entry={entry} section={selection.section} />
           ) : (
             <>
               <CatalogToolbar

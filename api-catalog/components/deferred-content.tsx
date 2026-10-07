@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react"
 import { Button } from "@/components/ui/button"
+import { OperationFeedback } from "@/components/feedback/operation-feedback"
 
 function ResolvedContent({
   children,
@@ -38,17 +39,31 @@ class LoadingBoundary extends Component<
   render() {
     if (this.state.error)
       return (
-        <div className="api-deferred-error" role="alert">
-          <p>{this.props.label}载入失败，当前草稿仍保留。</p>
-          <Button variant="outline" size="sm" onClick={this.props.onRetry}>
-            重新载入
-          </Button>
-          {this.props.onDismiss && (
-            <Button variant="ghost" size="sm" onClick={this.props.onDismiss}>
-              关闭
-            </Button>
-          )}
-        </div>
+        <OperationFeedback
+          title={`${this.props.label}载入失败`}
+          message={
+            this.props.label.includes("调试")
+              ? "当前草稿仍保留，请重新载入。"
+              : "请重新载入。"
+          }
+          notify={false}
+          actions={
+            <>
+              <Button variant="outline" size="sm" onClick={this.props.onRetry}>
+                重新载入
+              </Button>
+              {this.props.onDismiss && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={this.props.onDismiss}
+                >
+                  关闭
+                </Button>
+              )}
+            </>
+          }
+        />
       )
     return this.props.children
   }

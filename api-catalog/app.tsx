@@ -2,7 +2,7 @@ import { memo, useCallback, useMemo, useRef, useState } from "react"
 import { isTauri } from "@tauri-apps/api/core"
 import { FlaskConical } from "lucide-react"
 import { useTheme } from "@/components/theme-provider"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { OperationFeedback } from "@/components/feedback/operation-feedback"
 import { Button } from "@/components/ui/button"
 import {
   Empty,
@@ -147,15 +147,16 @@ export function ApiCatalogApp() {
               }
             />
           ) : page.error ? (
-            <Alert variant="destructive">
-              <AlertTitle>接口文档载入失败</AlertTitle>
-              <AlertDescription>
-                {page.error}
+            <OperationFeedback
+              title="接口文档载入失败"
+              message={page.error}
+              notify={false}
+              actions={
                 <Button variant="outline" onClick={page.retry}>
                   重新载入
                 </Button>
-              </AlertDescription>
-            </Alert>
+              }
+            />
           ) : !definition || !draft || !page.documentation ? (
             <div
               role="status"
@@ -184,18 +185,21 @@ export function ApiCatalogApp() {
                 id="api-catalog-debug"
               >
                 {debugOpen && page.contractError ? (
-                  <Alert variant="destructive">
-                    <AlertTitle>调试契约载入失败</AlertTitle>
-                    <AlertDescription>
-                      {page.contractError}
-                      <Button variant="outline" onClick={page.retry}>
-                        重新载入
-                      </Button>
-                      <Button variant="ghost" onClick={closeDebug}>
-                        收起调试
-                      </Button>
-                    </AlertDescription>
-                  </Alert>
+                  <OperationFeedback
+                    title="调试契约载入失败"
+                    message={page.contractError}
+                    notify={false}
+                    actions={
+                      <>
+                        <Button variant="outline" onClick={page.retry}>
+                          重新载入
+                        </Button>
+                        <Button variant="ghost" onClick={closeDebug}>
+                          收起调试
+                        </Button>
+                      </>
+                    }
+                  />
                 ) : debugOpen && !page.contract ? (
                   <div className="api-deferred-loading" role="status">
                     正在载入调试契约…

@@ -85,9 +85,11 @@ function SelectedState({ entry }: { entry: CatalogEntry }) {
   const [released, setReleased] = useState(!embedded)
   useEffect(() => {
     if (!embedded || (!state && entry.stage !== "structure")) return
-    // Block initial focus inside the child document, not only on its iframe.
-    const release = requestAnimationFrame(() => setReleased(true))
-    return () => cancelAnimationFrame(release)
+    // Child mount effects run while inert. Do not wait for a paint: the parent
+    // keeps this iframe hidden until we report ready, which can suspend rAF.
+    // A microtask still defers the update out of the effect body and runs
+    // before the next paint, so the hidden iframe cannot stall readiness.
+    queueMicrotask(() => setReleased(true))
   }, [state, entry.stage])
   useEffect(() => {
     if (released && (state || entry.stage === "structure"))
@@ -99,6 +101,7 @@ function SelectedState({ entry }: { entry: CatalogEntry }) {
     <div inert={!released} style={{ display: "contents" }}>
       {entry.stage === "structure" ? (
         <CatalogComponentShell
+          entry={entry}
           section={
             entry.layer === "复合组件"
               ? readStorySection(params.get("section"))

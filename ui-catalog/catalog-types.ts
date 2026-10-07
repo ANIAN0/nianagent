@@ -12,7 +12,19 @@ export type CatalogEntry = {
   source: string
   description: string
   boundary: string
-  story?: { goal: string; preconditions: string[]; result: string }
+  story?: {
+    goal: string
+    preconditions: string[]
+    result: string
+    /** Planning journeys are documentation, never executable preview states. */
+    journeys?: {
+      section: StorySection
+      name: string
+      start: string
+      steps: { action: string; feedback: string }[]
+      end: string
+    }[]
+  }
   standards: {
     id: string
     name: string

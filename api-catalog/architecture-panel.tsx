@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { OperationFeedback } from "@/components/feedback/operation-feedback"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { loadArchitecture } from "./catalog-data"
@@ -31,10 +31,11 @@ export default function ArchitecturePanel({ module }: { module: string }) {
   }, [revision])
   if (error)
     return (
-      <Alert variant="destructive">
-        <AlertTitle>无法载入架构说明</AlertTitle>
-        <AlertDescription>
-          {error}
+      <OperationFeedback
+        title="无法载入架构说明"
+        message={error}
+        notify={false}
+        actions={
           <Button
             variant="outline"
             onClick={() => {
@@ -44,8 +45,8 @@ export default function ArchitecturePanel({ module }: { module: string }) {
           >
             重新载入
           </Button>
-        </AlertDescription>
-      </Alert>
+        }
+      />
     )
   if (!content)
     return (

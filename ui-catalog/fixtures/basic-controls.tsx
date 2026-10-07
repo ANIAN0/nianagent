@@ -1,14 +1,6 @@
 import { useId, useState, type ReactNode } from "react"
 import { HomeStoryExample } from "./home-stories"
-import {
-  Check,
-  ChevronDown,
-  FileText,
-  Plus,
-  Search,
-  X,
-  TriangleAlert,
-} from "lucide-react"
+import { Check, ChevronDown, FileText, Plus, Search, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
@@ -91,7 +83,7 @@ import {
   AttachmentTrigger,
 } from "@/components/ui/attachment"
 import { Separator } from "@/components/ui/separator"
-import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
+import { OperationFeedback } from "@/components/feedback/operation-feedback"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Empty,
@@ -732,13 +724,14 @@ export function BasicControlExample({
       break
     case "alert":
       content = (
-        <Alert variant={mode === "error" ? "destructive" : "default"}>
-          <TriangleAlert />
-          <AlertTitle>
-            {mode === "error" ? "配置未能保存" : "目录不可用"}
-          </AlertTitle>
-          <AlertDescription>
-            {mode === "error" ? "候选改动已保留。" : "请重新选择可用工作目录。"}
+        <OperationFeedback
+          title={mode === "error" ? "配置未能保存" : "目录不可用"}
+          message={
+            mode === "error" ? "候选改动已保留。" : "请重新选择可用工作目录。"
+          }
+          severity={mode === "error" ? "error" : "warning"}
+          notify={false}
+          actions={
             <Button
               variant="outline"
               size="sm"
@@ -746,8 +739,8 @@ export function BasicControlExample({
             >
               {mode === "error" ? "重试" : "选择目录"}
             </Button>
-          </AlertDescription>
-        </Alert>
+          }
+        />
       )
       break
     case "skeleton":

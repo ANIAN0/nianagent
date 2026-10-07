@@ -427,6 +427,43 @@ function extractMetadata(file: string, root: string): CatalogMetadata {
       !metadata.story.preconditions.length)
   )
     invalid("story")
+  if (metadata.story?.journeys !== undefined) {
+    if (
+      metadata.stage !== "structure" ||
+      !Array.isArray(metadata.story.journeys) ||
+      !metadata.story.journeys.length
+    )
+      invalid("story.journeys（仅结构阶段的规划旅程）")
+    const journeyNames = new Set<string>()
+    for (const journey of metadata.story.journeys) {
+      if (
+        !["normal", "exception", "states"].includes(journey.section) ||
+        ![journey.name, journey.start, journey.end].every(
+          (value) => typeof value === "string" && value.trim()
+        ) ||
+        !Array.isArray(journey.steps) ||
+        !journey.steps.length ||
+        !journey.steps.every((step) =>
+          [step.action, step.feedback].every(
+            (value) => typeof value === "string" && value.trim()
+          )
+        )
+      )
+        invalid("story.journeys")
+      const key = `${journey.section}:${journey.name}`
+      if (journeyNames.has(key)) invalid(`story.journeys.${key}（重复）`)
+      journeyNames.add(key)
+    }
+    if (
+      ["normal", "exception", "states"].some(
+        (section) =>
+          !metadata.story!.journeys!.some(
+            (journey) => journey.section === section
+          )
+      )
+    )
+      invalid("story.journeys（三栏目覆盖）")
+  }
   for (const state of metadata.states) {
     if (!state || typeof state !== "object" || Array.isArray(state))
       invalid("states（状态必须是对象）")

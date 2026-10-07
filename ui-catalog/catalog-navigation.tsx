@@ -1,5 +1,5 @@
 import { Search, X, SearchX, ChevronRight } from "lucide-react"
-import { useState } from "react"
+import { Fragment, useState } from "react"
 import { Button } from "@/components/ui/button"
 import {
   Empty,
@@ -14,7 +14,7 @@ import {
   InputGroupButton,
   InputGroupInput,
 } from "@/components/ui/input-group"
-import { entries, type CatalogMetadata } from "./catalog"
+import { associatedPagesOf, entries, type CatalogMetadata } from "./catalog"
 import { storySections, type StorySection } from "./catalog-sections"
 
 export function CatalogNavigation({
@@ -27,6 +27,8 @@ export function CatalogNavigation({
   onPageFilterChange,
   onNavigate,
   hrefFor,
+  onNavigateSection,
+  hrefForSection,
 }: {
   component: string
   stateId?: string
@@ -37,6 +39,8 @@ export function CatalogNavigation({
   onPageFilterChange: (page: string) => void
   onNavigate: (entry: CatalogMetadata, state?: string) => void
   hrefFor: (entry: CatalogMetadata, state?: string) => string
+  onNavigateSection: (entry: CatalogMetadata, section: StorySection) => void
+  hrefForSection: (entry: CatalogMetadata, section: StorySection) => string
 }) {
   const selectionKey = `${component}:${section ?? ""}:${stateId ?? ""}`
   const currentPath = () =>
@@ -63,11 +67,11 @@ export function CatalogNavigation({
       return { ...previous, groups }
     })
   }
-  const pages = [...new Set(entries.flatMap((entry) => entry.pages))]
+  const pages = [...new Set(entries.flatMap(associatedPagesOf))]
   const matches = entries
     .filter(
       (entry) =>
-        (!pageFilter || entry.pages.includes(pageFilter)) &&
+        (!pageFilter || associatedPagesOf(entry).includes(pageFilter)) &&
         `${entry.name} ${entry.group} ${entry.layer}`
           .toLowerCase()
           .includes(query.trim().toLowerCase())
@@ -75,6 +79,14 @@ export function CatalogNavigation({
     .sort((left, right) => left.order - right.order)
   const basic = matches.filter((entry) => entry.layer === "基础组件")
   const stories = matches.filter((entry) => entry.layer === "复合组件")
+  const primaryStories = stories.filter(
+    (entry) => entry.pages.includes("会话") && !entry.pages.includes("首页")
+  )
+  const sharedStories = stories.filter(
+    (entry) => !primaryStories.includes(entry)
+  )
+  const orderedStories =
+    pageFilter === "会话" ? [...primaryStories, ...sharedStories] : stories
   const pageEntries = matches.filter((entry) => entry.layer === "页面")
   const link = (entry: CatalogMetadata) => (
     <a
@@ -159,53 +171,98 @@ export function CatalogNavigation({
         {stories.length > 0 && (
           <section aria-label="复合组件用户故事">
             <h2 className="catalog-layer">复合组件</h2>
-            {stories.map((entry) => (
-              <details
-                className="catalog-story-group"
-                key={entry.id}
-                open={expansion.groups.has(entry.id)}
-              >
-                <summary
-                  className="catalog-group"
-                  onClick={(event) => {
-                    event.preventDefault()
-                    event.currentTarget.focus()
-                    toggleGroup(entry.id)
-                  }}
+            {orderedStories.map((entry, index) => (
+              <Fragment key={entry.id}>
+                {pageFilter === "会话" &&
+                  sharedStories.length > 0 &&
+                  index === primaryStories.length && (
+                    <h3 className="catalog-layer">共享故事 · 沿用首页</h3>
+                  )}
+                <details
+                  className="catalog-story-group"
+                  key={entry.id}
+                  open={expansion.groups.has(entry.id)}
                 >
-                  <ChevronRight aria-hidden="true" />
-                  {entry.group}
-                </summary>
-                {storySections.map((item) => (
-                  <details
-                    className="catalog-section-group"
-                    key={item.id}
-                    open={expansion.groups.has(`${entry.id}:${item.id}`)}
+                  <summary
+                    className="catalog-group"
+                    onClick={(event) => {
+                      event.preventDefault()
+                      event.currentTarget.focus()
+                      toggleGroup(entry.id)
+                    }}
                   >
-                    <summary
+                    <ChevronRight aria-hidden="true" />
+                    {entry.stage === "structure" ? (
+                      <a
+                        className="catalog-group-link"
+                        href={hrefFor(entry)}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          if (
+                            event.ctrlKey ||
+                            event.metaKey ||
+                            event.shiftKey ||
+                            event.altKey
+                          )
+                            return
+                          event.preventDefault()
+                          onNavigate(entry)
+                        }}
+                      >
+                        {entry.group}
+                      </a>
+                    ) : (
+                      entry.group
+                    )}
+                  </summary>
+                  {storySections.map((item) => (
+                    <details
+                      className="catalog-section-group"
                       key={item.id}
-                      className="catalog-group"
-                      onClick={(event) => {
-                        event.preventDefault()
-                        event.currentTarget.focus()
-                        toggleGroup(`${entry.id}:${item.id}`)
-                      }}
+                      open={expansion.groups.has(`${entry.id}:${item.id}`)}
                     >
-                      <ChevronRight aria-hidden="true" />
-                      {item.name}
-                    </summary>
-                    {entry.states
-                      .filter((state) => state.section === item.id)
-                      .map((state) => (
+                      <summary
+                        key={item.id}
+                        className="catalog-group"
+                        onClick={(event) => {
+                          event.preventDefault()
+                          event.currentTarget.focus()
+                          toggleGroup(`${entry.id}:${item.id}`)
+                        }}
+                      >
+                        <ChevronRight aria-hidden="true" />
+                        {entry.stage === "structure" ? (
+                          <a
+                            className="catalog-group-link"
+                            href={hrefForSection(entry, item.id)}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              if (
+                                event.ctrlKey ||
+                                event.metaKey ||
+                                event.shiftKey ||
+                                event.altKey
+                              )
+                                return
+                              event.preventDefault()
+                              onNavigateSection(entry, item.id)
+                            }}
+                          >
+                            {item.name}
+                          </a>
+                        ) : (
+                          item.name
+                        )}
+                      </summary>
+                      {entry.stage === "structure" && (
                         <a
-                          key={state.id}
                           className="catalog-link catalog-state-link"
                           aria-current={
-                            entry.id === component && stateId === state.id
+                            entry.id === component && section === item.id
                               ? "step"
                               : undefined
                           }
-                          href={hrefFor(entry, state.id)}
+                          href={hrefForSection(entry, item.id)}
                           onClick={(event) => {
                             if (
                               event.ctrlKey ||
@@ -215,15 +272,43 @@ export function CatalogNavigation({
                             )
                               return
                             event.preventDefault()
-                            onNavigate(entry, state.id)
+                            onNavigateSection(entry, item.id)
                           }}
                         >
-                          {state.name}
+                          查看旅程
                         </a>
-                      ))}
-                  </details>
-                ))}
-              </details>
+                      )}
+                      {entry.states
+                        .filter((state) => state.section === item.id)
+                        .map((state) => (
+                          <a
+                            key={state.id}
+                            className="catalog-link catalog-state-link"
+                            aria-current={
+                              entry.id === component && stateId === state.id
+                                ? "step"
+                                : undefined
+                            }
+                            href={hrefFor(entry, state.id)}
+                            onClick={(event) => {
+                              if (
+                                event.ctrlKey ||
+                                event.metaKey ||
+                                event.shiftKey ||
+                                event.altKey
+                              )
+                                return
+                              event.preventDefault()
+                              onNavigate(entry, state.id)
+                            }}
+                          >
+                            {state.name}
+                          </a>
+                        ))}
+                    </details>
+                  ))}
+                </details>
+              </Fragment>
             ))}
           </section>
         )}
@@ -253,8 +338,11 @@ export function CatalogNavigation({
         )}
       </div>
       <p className="catalog-navigation-footnote">
-        {basic.length} 基础组件 · {stories.length} 用户故事 ·{" "}
-        {pageEntries.length} 页面
+        {basic.length} 基础组件 ·{" "}
+        {pageFilter === "会话"
+          ? `${primaryStories.length} 用户故事 · ${sharedStories.length} 共享故事`
+          : `${stories.length} 用户故事`}{" "}
+        · {pageEntries.length} 页面
       </p>
     </nav>
   )

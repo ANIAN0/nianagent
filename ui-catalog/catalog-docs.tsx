@@ -1,9 +1,10 @@
 import { ArrowUpRight } from "lucide-react"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { StatusMessage } from "@/components/feedback/status-message"
 import { CatalogSource } from "./catalog-source"
 import {
   consumersOf,
   dependenciesOf,
+  associatedPagesOf,
   symbolOf,
   type CatalogMetadata,
 } from "./catalog"
@@ -35,7 +36,7 @@ export function CatalogDocs({
           </div>
           <div>
             <dt>关联页面</dt>
-            <dd>{entry.pages.join("、")}</dd>
+            <dd>{associatedPagesOf(entry).join("、")}</dd>
           </div>
           <div>
             <dt>{section ? "用户故事" : "功能分组"}</dt>
@@ -49,9 +50,66 @@ export function CatalogDocs({
           )}
           <div>
             <dt>当前阶段</dt>
-            <dd>组件空壳</dd>
+            <dd>结构梳理 · 待逐项设计与验收</dd>
           </div>
         </dl>
+        <section>
+          <h3>组件组合映射</h3>
+          <p>这些正式组件承载本故事的后续完善，不表示已完成设计或组合验收。</p>
+          <ul>
+            {entry.composition.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </section>
+        {(
+          [
+            ["已识别的导入依赖", dependenciesOf(entry)],
+            ["已识别的使用方", consumersOf(entry)],
+          ] as const
+        ).map(([label, related]) => (
+          <section key={label}>
+            <h3>{label}</h3>
+            <div className="catalog-relations">
+              {related.map((item) => (
+                <a
+                  key={item.id}
+                  href={hrefFor(item)}
+                  onClick={(event) => {
+                    if (
+                      event.metaKey ||
+                      event.ctrlKey ||
+                      event.shiftKey ||
+                      event.altKey
+                    )
+                      return
+                    event.preventDefault()
+                    onNavigate(item)
+                  }}
+                >
+                  <span>
+                    {item.name}
+                    <small>{symbolOf(item)}</small>
+                  </span>
+                  <ArrowUpRight aria-hidden="true" size={14} />
+                </a>
+              ))}
+            </div>
+            {!related.length && <p>当前登记关系中未识别到此项。</p>}
+          </section>
+        ))}
+        <section>
+          <h3>正式使用方映射</h3>
+          <ul>
+            {entry.consumers.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </section>
+        <CatalogSource key={entry.id} entry={entry} />
+        <p className="catalog-footnote">
+          导入链接只覆盖已登记并被源码扫描识别的关系，不代表完整组件树。规划旅程在中间区域阅读。
+        </p>
       </aside>
     )
   return (
@@ -75,10 +133,11 @@ export function CatalogDocs({
           <h4>通过条件</h4>
           <p>{state.expected}</p>
           {state.knownIssue ? (
-            <Alert variant="destructive">
-              <AlertTitle>未通过</AlertTitle>
-              <AlertDescription>{state.knownIssue}</AlertDescription>
-            </Alert>
+            <StatusMessage
+              title="未通过"
+              message={state.knownIssue}
+              role="group"
+            />
           ) : null}
         </section>
       )}
@@ -115,10 +174,30 @@ export function CatalogDocs({
           ))}
         </ul>
       </section>
+      {entry.composition.length > 0 && (
+        <section>
+          <h3>正式组件组合映射</h3>
+          <ul>
+            {entry.composition.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {entry.consumers.length > 0 && (
+        <section>
+          <h3>正式使用方映射</h3>
+          <ul>
+            {entry.consumers.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </section>
+      )}
       {(
         [
-          ["组成组件", dependenciesOf(entry)],
-          ["使用方", consumersOf(entry)],
+          ["已识别的导入依赖", dependenciesOf(entry)],
+          ["已识别的使用方", consumersOf(entry)],
         ] as const
       ).map(([label, related]) => (
         <section key={label}>
@@ -148,19 +227,12 @@ export function CatalogDocs({
               </a>
             ))}
           </div>
-          {!related.length && (
-            <p>
-              {(label === "组成组件"
-                ? entry.composition
-                : entry.consumers
-              ).join("；")}
-            </p>
-          )}
+          {!related.length && <p>当前登记关系中未识别到此项。</p>}
         </section>
       ))}
       <CatalogSource key={entry.id} entry={entry} />
       <p className="catalog-footnote">
-        组成链接由正式源码导入关系生成。类型以源码为准，设计预期以本项标准为准。
+        正式映射来自本项登记；导入链接仅覆盖已登记且被源码扫描识别的关系，不代表完整组件树。类型以源码为准，设计预期以本项标准为准。
       </p>
     </aside>
   )
