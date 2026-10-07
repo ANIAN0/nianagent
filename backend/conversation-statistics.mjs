@@ -22,10 +22,26 @@ export function conversationStatistics(state) {
     cacheWrite: 0,
     totalTokens: 0,
     toolCalls: 0,
+    turns: 0,
+    steps: 0,
   }
   let cost = 0
+  let sawUser = false
+  let turnHasAssistant = false
   for (const entry of state.manager.getBranch()) {
-    if (entry.type !== "message" || entry.message.role !== "assistant") continue
+    if (entry.type !== "message") continue
+    if (entry.message.role === "user") {
+      sawUser = true
+      turnHasAssistant = false
+    }
+    if (entry.message.role !== "assistant") continue
+    totals.steps += 1
+    // A turn is a user round answered by an assistant; an assistant-led
+    // branch without a preceding user message must not count as a round.
+    if (sawUser && !turnHasAssistant) {
+      totals.turns += 1
+      turnHasAssistant = true
+    }
     const message = entry.message,
       usage = message.usage
     totals.toolCalls += (message.content || []).filter(

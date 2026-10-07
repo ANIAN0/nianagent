@@ -26,14 +26,17 @@ const tool = obj(
     id: str("Pi toolCallId"),
     name: str("工具名称"),
     source: str("工具来源"),
-    status: str("实际执行状态", {
-      enum: ["running", "success", "failed", "stopped", "not-run"],
+    status: str("工具发生的实际状态；returned仅有结束证据而缺结果，不代表成功；unknown缺少可确认结论；not-run须有明确未执行证据，缺记录不作此证据", {
+      enum: ["running", "success", "failed", "stopped", "not-run", "returned", "unknown"],
     }),
     input: str("序列化工具输入"),
     result: str("实际工具结果"),
+    resultAvailability: str("当前投影的结果可用事实：available有真实最终结果（可为空、图片或截断，不保证已落盘）；partial仅有工具更新的部分结果；missing无可用结果。正式投影总提供，省略仅兼容未提供此事实的旧调用方，不能由空文本推断", {
+      enum: ["available", "partial", "missing"],
+    }),
     exitCode: {
       type: "integer",
-      description: "Pi shell 实际退出码，0 是成功；未返回时省略，不从文本推断",
+      description: "Pi shell 实际退出码，0仅说明命令正常退出，不证明任务达成或结果正文已保存；未返回时省略，不从文本推断",
     },
     durationMs: {
       type: "number",
@@ -438,7 +441,7 @@ export const conversationOperations = {
     condition:
       "不触发推理；每 200–300ms 轮询，失败保留旧画面；epoch 改变时接纳新宿主快照。读取不标记已读，不迁移或修复磁盘 JSONL。非空行 JSON 损坏、文件头无效、工作目录不匹配或历史版本过新时明确拒绝，原文件不改写。",
     effect:
-      "通过 Pi 官方内存 SessionManager 恢复合法历史及分支；v1/v2 只在内存迁移，缺少末尾换行不补写；正式发送才交由 Pi 打开持久化历史并迁移。模型配置或工作目录被移除仍可查看已存消息。完整historyIndex与有序thinking/text/tool/image块来自Pi；工具差异来自正式details，图片进入既有材料缓存并只传材料引用，不反复传base64。runtime仅表示当前执行阶段；context是Pi估算，重启统计标记restored。shell可含实际exitCode/durationMs，缺失不推断。",
+      "通过 Pi 官方内存 SessionManager 恢复合法历史及分支；v1/v2 只在内存迁移，缺少末尾换行不补写；正式发送才交由 Pi 打开持久化历史并迁移。模型配置或工作目录被移除仍可查看已存消息。完整historyIndex与有序thinking/text/tool/image块来自Pi；工具差异来自正式details，图片进入既有材料缓存并只传材料引用，不反复传base64。runtime仅表示当前执行阶段；context是Pi估算，重启统计标记restored。工具状态与resultAvailability独立；真实结果和结束进度优先，缺正文的shell结束记录非0保failed、0或仅耗时为returned，没有结果、进度或对应停止证据时为unknown，缺记录不判not-run。shell可含实际exitCode/durationMs，不补造输出、不自动重跑、不改写旧历史。",
     errors:
       "会话不存在、历史不存在或无法读取、历史 JSON 或文件头损坏、工作目录元数据不匹配、历史版本高于当前 Pi 支持版本；失败不会覆盖原历史。",
     example: { sessionId: "sample-session" },

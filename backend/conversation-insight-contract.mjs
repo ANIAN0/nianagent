@@ -25,6 +25,8 @@ export const insightSchemas = {
       cacheWrite: n("Pi缓存写tokens"),
       totalTokens: n("Pi会话tokens总和"),
       toolCalls: n("正式分支工具调用数"),
+      turns: n("正式Pi分支中有assistant消息的用户轮次数"),
+      steps: n("正式Pi分支assistant消息数，含工具调用步骤"),
       durationMs: n("本轮总耗时，包含工具与等待"),
       modelDurationMs: n("本轮模型消息生成耗时，不含工具与审批"),
       outputTokens: n("本轮Pi output tokens，未返回usage时省略"),

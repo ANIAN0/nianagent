@@ -15,6 +15,11 @@ import {
 } from "node:fs/promises"
 import { basename, dirname, join, resolve } from "node:path"
 import { MaterialService } from "../materials.mjs"
+import {
+  connectDirectoryHost,
+  acceptDirectoryReply,
+  closeDirectoryHost,
+} from "../native-directory.mjs"
 const image = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgaPj/HwAEggJ/59habAAAAABJRU5ErkJggg==",
   "base64"
@@ -786,6 +791,77 @@ test("an oversized path image keeps its permanent preparation reason after resta
     assert.equal(reselected.status, "ready", reselected.error)
     assert.equal(reselected.type, "image")
     assert.notEqual(reselected.id, failed.id)
+  } finally {
+    await cleanupFixture(f.directory)
+  }
+})
+
+test("materialChoose returns native pickFiles selections prepared for later use", async (t) => {
+  const f = await fixture()
+  try {
+    const first = join(f.cwd, "chosen 一.md")
+    const second = join(f.cwd, "chosen-two.md")
+    await writeFile(first, "FIRST_CHOSEN_CONTENT")
+    await writeFile(second, "SECOND_CHOSEN_CONTENT")
+    let sent
+    connectDirectoryHost((message) => {
+      sent = message
+    })
+    t.after(closeDirectoryHost)
+    const choosing = f.service.choose("session", f.cwd)
+    // choose 先解析 cwd 再打开原生窗口，等待宿主请求发出。
+    for (let i = 0; i < 200 && !sent; i++)
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    assert.ok(sent, "native pickFiles request was not sent")
+    assert.equal(sent.capability, "pickFiles")
+    assert.equal(
+      acceptDirectoryReply({
+        operation: "$hostReply",
+        id: sent.id,
+        result: [first, second],
+      }),
+      true
+    )
+    const chosen = await choosing
+    assert.equal(chosen.length, 2)
+    assert.ok(chosen.every((item) => item.status === "ready"), JSON.stringify(chosen))
+    assert.deepEqual(
+      chosen.map((item) => item.source),
+      [await realpath(first), await realpath(second)]
+    )
+    // 已选材料可直接进入后续 restore/prepare 流程（materialPrepare 语义）。
+    assert.deepEqual(await f.service.restore("session", f.cwd, chosen), chosen)
+    assert.equal(
+      (await f.service.preview(f.cwd, chosen[0].id)).content,
+      "FIRST_CHOSEN_CONTENT"
+    )
+    assert.deepEqual(
+      (await f.service.prepare("session", f.cwd, [first])).map((item) => item.id),
+      [chosen[0].id]
+    )
+  } finally {
+    await cleanupFixture(f.directory)
+  }
+})
+
+test("materialChoose cancel returns an empty array without saving", async (t) => {
+  const f = await fixture()
+  try {
+    let sent
+    connectDirectoryHost((message) => {
+      sent = message
+    })
+    t.after(closeDirectoryHost)
+    const choosing = f.service.choose("session", f.cwd)
+    for (let i = 0; i < 200 && !sent; i++)
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    assert.ok(sent, "native pickFiles request was not sent")
+    assert.equal(sent.capability, "pickFiles")
+    assert.equal(
+      acceptDirectoryReply({ operation: "$hostReply", id: sent.id, result: null }),
+      true
+    )
+    assert.deepEqual(await choosing, [])
   } finally {
     await cleanupFixture(f.directory)
   }

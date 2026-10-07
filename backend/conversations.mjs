@@ -740,6 +740,7 @@ export class ConversationService {
           ...call,
           status: "running",
           result: "",
+          resultAvailability: "missing",
         })
     }
     if (event.type === "tool_execution_update") {
@@ -749,6 +750,7 @@ export class ConversationService {
           ...call,
           status: "running",
           result: excerpt(textOf(event.partialResult?.content)),
+          resultAvailability: event.partialResult ? "partial" : "missing",
         })
     }
     if (event.type === "tool_execution_end") {
@@ -779,6 +781,7 @@ export class ConversationService {
                 ? "failed"
                 : "success",
           result: excerpt(textOf(event.result?.content)),
+          resultAvailability: event.result ? "available" : "missing",
           ...metadata,
         })
     }
@@ -1141,6 +1144,8 @@ export class ConversationService {
                       : {}),
                   }),
             }
+            const finalProgress = progress?.resultAvailability === "available"
+            const shellEnded = Object.keys(metadata).length > 0
             const status = result
               ? result.isError &&
                 cancellation.stoppedCalls.has(part) &&
@@ -1150,8 +1155,23 @@ export class ConversationService {
                     (metadata.exitCode !== undefined && metadata.exitCode !== 0)
                   ? "failed"
                   : "success"
-              : progress?.status ||
-                (cancellation.stoppedCalls.has(part) ? "stopped" : "not-run")
+              : finalProgress
+                ? progress.status
+                : shellEnded
+                  ? metadata.exitCode !== undefined && metadata.exitCode !== 0
+                    ? "failed"
+                    : "returned"
+                  : progress?.status ||
+                    (cancellation.stoppedCalls.has(part) ? "stopped" : "unknown")
+            // A missing ToolResultMessage can coexist with a durable shell-end
+            // marker. Keep that end/exit fact without inventing output or a
+            // successful outcome. Old stopReason or absent events do not prove
+            // that a tool was never dispatched.
+            const resultAvailability = result
+              ? "available"
+              : finalProgress
+                ? "available"
+                : progress?.resultAvailability || "missing"
             const target = toolTarget(part, state.record.cwd)
             const details = projectedDetails(result)
             const artifact = fileArtifact(part, target, status)
@@ -1164,6 +1184,7 @@ export class ConversationService {
               name: part.name,
               source: this.models.mcp?.toolSource(part.name) || this.models.extensions?.toolSource(part.name, result) || "Pi",
               status,
+              resultAvailability,
               input: JSON.stringify(part.arguments, null, 2) || "{}",
               ...(result ? projectedResult(result) : { result: progress?.result || "" }),
               occurrenceId: stableEntryIds && call?.key ? call.key : toolOccurrenceKey(id, index),

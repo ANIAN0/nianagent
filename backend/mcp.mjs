@@ -692,20 +692,23 @@ export function nestedMcpTools(result, data, call, sourceOf) {
         name: nested.name,
         source: detail?.source || sourceOf(nested.name) || "MCP",
         status:
-          nested.status === "ok"
-            ? "success"
-            : nested.status === "error"
+          typeof detail?.isError === "boolean"
+            ? detail.isError
               ? "failed"
-              : "not-run",
+              : "success"
+            : nested.status === "ok"
+              ? "success"
+              : nested.status === "error"
+                ? "failed"
+                : "unknown",
         input:
           nested.arguments !== undefined
             ? JSON.stringify(nested.arguments, null, 2)
             : "Pi 未记录完整输入（超出记录限制）。",
-        result:
-          detail?.result ??
-          (nested.error
-            ? "MCP 调用失败；此旧记录未提供完整结果。"
-            : "此记录未保存嵌套调用的结果。"),
+        // An end verdict and its displayed result are independent facts. The
+        // SDK's unfinished record was already started; it is not a not-run fact.
+        result: typeof detail?.result === "string" ? detail.result : "",
+        resultAvailability: typeof detail?.result === "string" ? "available" : "missing",
         ...(Number.isFinite(nested.durationMs)
           ? { durationMs: nested.durationMs }
           : {}),
