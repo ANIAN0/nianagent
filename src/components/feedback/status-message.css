@@ -1,0 +1,51 @@
+.operation-status-message[data-slot="marker"] {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+  padding: 2px 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--muted-foreground);
+}
+.operation-status-message > .operation-status-dot {
+  position: relative;
+  width: 10px;
+  height: 10px;
+  margin-top: 5px;
+  color: var(--destructive);
+}
+.operation-status-message > [data-slot="marker-content"] {
+  overflow-wrap: anywhere;
+}
+.operation-status-dot::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.operation-status-title {
+  margin-right: 6px;
+  color: var(--destructive);
+  font-weight: 600;
+}
+.operation-status-message[data-severity="warning"] > .operation-status-dot,
+.operation-status-message[data-severity="warning"] .operation-status-title {
+  color: var(--status-warning);
+}
+.operation-status-message[data-severity="info"] > .operation-status-dot,
+.operation-status-message[data-severity="info"] .operation-status-title {
+  color: var(--muted-foreground);
+}
+.operation-status-code {
+  max-width: 10rem;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+@media (max-width: 480px) {
+  .operation-status-code {
+    max-width: 6rem;
+  }
+}

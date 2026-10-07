@@ -1,0 +1,28 @@
+.submission-receipt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px 8px;
+  margin-top: 8px;
+  min-width: 0;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 20px;
+}
+.submission-receipt-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.submission-receipt-dot {
+  width: 5px;
+  height: 5px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--status-warning);
+}
+.submission-receipt-check {
+  font-size: 13px;
+  font-weight: 400;
+}

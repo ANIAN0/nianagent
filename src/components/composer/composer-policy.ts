@@ -99,7 +99,7 @@ export function composerDisplayMaterials(
   )
 }
 
-/** Ordinary conversations keep one primary action; a valid next draft also exposes a quiet Stop. */
+/** DSH ordinary-session policy: Stop for empty/blocked drafts, Send for actionable input. */
 export function composerPrimaryAction({
   running = false,
   stopping = false,

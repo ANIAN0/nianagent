@@ -9,6 +9,7 @@ import {
 import { MaterialPreviewDialog } from "@/features/materials/material-preview"
 import { InlineReferenceHint } from "./inline-reference-hint"
 import { ReferenceStatusDialog } from "./reference-status-dialog"
+import { useComposerPanelInactive } from "@/features/home/composer-panel-context"
 import {
   createEditor,
   $getRoot,
@@ -282,6 +283,12 @@ export type ComposerEditorProps = {
 }
 export function ComposerEditor(props: ComposerEditorProps) {
   const [preview, setPreview] = useState<Material | null>(null)
+  const inactive = useComposerPanelInactive()
+  const [wasInactive, setWasInactive] = useState(inactive)
+  if (wasInactive !== inactive) {
+    setWasInactive(inactive)
+    if (inactive) setPreview(null)
+  }
   // Stable initial markup makes saved text accessible before Lexical mounts.
   // Subsequent DOM updates belong exclusively to Lexical.
   const [initialText] = useState(props.value)

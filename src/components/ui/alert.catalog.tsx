@@ -4,15 +4,15 @@ import { BasicControlExample } from "../../../ui-catalog/fixtures/basic-controls
 export default {
   id: "alert",
   name: "提示",
-  source: "src/components/ui/alert.tsx",
+  source: "src/components/feedback/operation-feedback.tsx",
   group: "内容与反馈",
   layer: "基础组件",
   order: 28,
   pages: ["首页"],
   stage: "content",
-  description: "在操作所属区域说明需要处理的警告或错误。",
+  description: "操作异常使用共享Toast；持续状态和恢复动作留在所属操作区域。",
   boundary:
-    "普通完成信息交给Sonner；不在首页正文上方常驻系统状态，不重复材料局部错误。",
+    "终态事实使用DSH行内状态；短暂通知使用NotificationToast，不使用旧版红黄底Alert。示例显示静态状态和真实恢复回调，Toast见对应基础组件。",
   standards: [
     {
       id: "Q1",
@@ -29,13 +29,12 @@ export default {
       check: "失败后恢复不丢输入，重复点击不产生多次写入。",
     },
   ],
-  inputs: [
-    "variant: default / destructive",
-    "Title / Description；必要时加真实恢复动作",
-  ],
+  inputs: ["title / message / severity / actions；静态记录可用notify=false"],
   events: ["恢复事件继续原操作，保留候选与输入"],
   composition: [
-    "直接复用 src/components/ui/alert.tsx；示例只管理布局、受控值与演示事件。",
+    "OperationFeedback · src/components/feedback/operation-feedback.tsx",
+    "NotificationToast · src/components/ui/notification-toast.tsx",
+    "StatusMessage · src/components/feedback/status-message.tsx",
   ],
   consumers: ["首页输入区及其选择、配置、材料相关复合组件"],
   states: [

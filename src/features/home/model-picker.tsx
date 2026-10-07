@@ -158,8 +158,21 @@ export function ModelPicker({
       ? feedbackFromError(catalog.error, "模型目录未能读取，请重新读取。")
       : undefined)
   const displayName = selected?.name ?? labels?.[value] ?? value
-  const unavailable = !!value && !models.includes(value)
-  const currentThinking = value && !unavailable ? thinking : ""
+  const modelAvailable = !!value && models.includes(value)
+  const unavailable =
+    !!value &&
+    !modelAvailable &&
+    catalog?.status !== "loading" &&
+    catalog?.status !== "error"
+  const stateLabel =
+    catalog?.status === "loading"
+      ? "读取中"
+      : catalog?.status === "error"
+        ? "读取失败"
+        : unavailable
+          ? "不可用"
+          : undefined
+  const currentThinking = modelAvailable ? thinking : ""
   const placeholder =
     catalog?.status === "loading"
       ? "正在读取模型…"
@@ -196,10 +209,20 @@ export function ModelPicker({
   }
   const triggerButton = (
     <HoverHint
-      content={disabled ? disabledReason : title}
+      content={
+        disabled
+          ? disabledReason
+          : unavailable
+            ? `${title}：当前模型不可用，请重新选择。`
+            : catalog?.status === "error"
+              ? `${title}：${failure?.message ?? "模型目录未能读取，请打开模型菜单重新读取。"}`
+              : title
+      }
       disabled={disabled}
       label="选择模型"
-      onlyWhenTruncated={disabled ? false : ".moon-composer-model-name"}
+      onlyWhenTruncated={
+        disabled || stateLabel ? false : ".moon-composer-model-name"
+      }
       suppressed={open || catalog?.status === "loading"}
     >
       <PopoverTrigger asChild>
@@ -210,15 +233,17 @@ export function ModelPicker({
           variant="composer"
           size="composer"
           className="moon-composer-model-trigger moon-composer-selector"
-          aria-label={`选择模型，当前为 ${title}`}
+          aria-label={`选择模型，当前为 ${title}${value && stateLabel ? `，${stateLabel}` : ""}`}
         >
           <span className="moon-composer-model-short" aria-hidden="true">
             模型
           </span>
           <span className="moon-composer-model-name">
             {displayName || placeholder}
-            {unavailable ? " · 不可用" : ""}
           </span>
+          {value && stateLabel && (
+            <span className="moon-composer-model-state">{stateLabel}</span>
+          )}
           {currentThinking && (
             <span className="moon-composer-thinking">{currentThinking}</span>
           )}
@@ -341,7 +366,7 @@ export function ModelPicker({
           {catalog?.status === "error" && failure && (
             <div className="p-1.5">
               <OperationFeedback
-                density="compact"
+                notify={false}
                 title={
                   failure.code === "cancelled"
                     ? "模型读取已取消"
@@ -402,7 +427,7 @@ export function ModelPicker({
                 </Button>
               )}
               {!!value &&
-                !unavailable &&
+                modelAvailable &&
                 (!thinkingByModel || !!thinkingByModel[value]?.length) && (
                   <Button
                     data-picker-item

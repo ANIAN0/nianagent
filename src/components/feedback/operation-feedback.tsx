@@ -1,8 +1,8 @@
-import type { ReactNode } from "react"
-import { useState } from "react"
-import { CircleAlert, ChevronDown, Info, TriangleAlert } from "lucide-react"
-import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
+import { useState, type ReactNode } from "react"
+import { ChevronDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { NotificationToast } from "@/components/ui/notification-toast"
+import { StatusMessage } from "./status-message"
 import {
   Collapsible,
   CollapsibleContent,
@@ -12,98 +12,86 @@ import {
 function FeedbackDetails({ details }: { details: string }) {
   const [open, setOpen] = useState(false)
   return (
-    <Collapsible open={open} onOpenChange={setOpen}>
+    <Collapsible
+      open={open}
+      onOpenChange={setOpen}
+      data-open={open}
+      className="min-w-0 data-[open=true]:basis-full"
+    >
       <CollapsibleTrigger asChild>
-        <Button type="button" variant="ghost" size="sm">
+        <Button type="button" variant="ghost" size="xs">
           {open ? "收起诊断详情" : "诊断详情"}
           <ChevronDown data-icon="inline-end" />
         </Button>
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <pre className="max-h-40 overflow-auto pt-2 text-xs wrap-break-word whitespace-pre-wrap text-muted-foreground">
+        <pre className="max-h-40 overflow-auto pt-2 text-xs [overflow-wrap:anywhere] whitespace-pre-wrap text-muted-foreground">
           {details}
         </pre>
       </CollapsibleContent>
     </Collapsible>
   )
 }
-
-/** Presentation only. The owning field, row, form or run supplies its recovery. */
+/** Transient failure copy plus durable recovery at the operation's own entry. */
 export function OperationFeedback({
   title,
   message,
+  code,
   details,
   severity = "error",
   actions,
-  density = "default",
+  notify = true,
 }: {
   title: string
   message: string
+  code?: string
   details?: string
   severity?: "error" | "warning" | "info"
   actions?: ReactNode
+  /** Compatibility only: there is one shared feedback presentation. */
   density?: "default" | "compact"
+  /**
+   * notify 默认 true：通知路径走共享 Toast（短暂提示后淡出）。
+   * 静态记录与已打开的恢复/状态面板须显式传 notify={false}（打开时不重播通知，
+   * 见 DESIGN.md“恢复面板和静态记录用notify=false”）；相关调用方补传
+   * notify={false} 的改动归属会话/首页批次，不在此文件改任何调用方。
+   */
+  notify?: boolean
 }) {
-  const Icon =
-    severity === "error"
-      ? CircleAlert
-      : severity === "warning"
-        ? TriangleAlert
-        : Info
-  if (density === "compact")
-    return (
-      <Alert variant="compact" role={severity === "error" ? "alert" : "status"}>
-        <Icon
-          aria-hidden="true"
-          className={
-            severity === "error"
-              ? "text-destructive"
-              : severity === "warning"
-                ? "text-status-warning"
-                : "text-muted-foreground"
-          }
-        />
-        <div className="flex min-w-0 flex-col items-start gap-1">
-          <span className="w-full min-w-0 [overflow-wrap:anywhere]">
-            {message || title}
-          </span>
-          {actions && (
-            <div className="flex w-full flex-wrap items-center gap-1">
-              {actions}
-            </div>
-          )}
-          {details && (
-            <div className="w-full">
-              <FeedbackDetails key={`${title}:${details}`} details={details} />
-            </div>
-          )}
-        </div>
-      </Alert>
-    )
+  const notification = notify && severity !== "info"
   return (
-    <Alert
-      variant={
-        severity === "error"
-          ? "destructive"
-          : severity === "warning"
-            ? "warning"
-            : "default"
-      }
-      role={severity === "error" ? "alert" : "status"}
-    >
-      <Icon aria-hidden="true" />
-      <AlertTitle>{title}</AlertTitle>
-      <AlertDescription>
-        <div className="flex flex-col gap-2">
-          <p>{message}</p>
-          {actions && (
-            <div className="flex flex-wrap items-center gap-2">{actions}</div>
+    <>
+      {notification ? (
+        <NotificationToast
+          message={`${message || title}${code ? ` (${code})` : ""}`}
+          tone={severity}
+        />
+      ) : (
+        <StatusMessage
+          title={title}
+          message={message}
+          code={code}
+          severity={severity}
+        />
+      )}
+      {(actions || details || notification) && (
+        <div
+          className="flex min-w-0 flex-wrap items-center gap-2"
+          role="group"
+          aria-label={`${title}：${message}`}
+        >
+          {notification && (
+            <span className="text-[13px] leading-5 text-muted-foreground">
+              {title}
+              {message ? `：${message}` : ""}
+            </span>
           )}
+          {actions}
           {details && (
             <FeedbackDetails key={`${title}:${details}`} details={details} />
           )}
         </div>
-      </AlertDescription>
-    </Alert>
+      )}
+    </>
   )
 }

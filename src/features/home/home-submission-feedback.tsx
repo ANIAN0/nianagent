@@ -16,6 +16,7 @@ export function HomeSubmissionFeedback({
 }) {
   return (
     <OperationFeedback
+      notify={false}
       title={pending ? "正在完成草稿交接" : "首页提交需要处理"}
       message={message}
       severity={variant === "default" ? "info" : "warning"}

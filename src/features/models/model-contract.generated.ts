@@ -395,13 +395,22 @@ export type ConversationChatTool = {
   name: string
   /** 工具来源 */
   source: string
-  /** 实际执行状态 */
-  status: "running" | "success" | "failed" | "stopped" | "not-run"
+  /** 工具发生的实际状态；returned仅有结束证据而缺结果，不代表成功；unknown缺少可确认结论；not-run须有明确未执行证据，缺记录不作此证据 */
+  status:
+    | "running"
+    | "success"
+    | "failed"
+    | "stopped"
+    | "not-run"
+    | "returned"
+    | "unknown"
   /** 序列化工具输入 */
   input: string
   /** 实际工具结果 */
   result: string
-  /** Pi shell 实际退出码，0 是成功；未返回时省略，不从文本推断 */
+  /** 当前投影的结果可用事实：available有真实最终结果（可为空、图片或截断，不保证已落盘）；partial仅有工具更新的部分结果；missing无可用结果。正式投影总提供，省略仅兼容未提供此事实的旧调用方，不能由空文本推断 */
+  resultAvailability?: "available" | "partial" | "missing"
+  /** Pi shell 实际退出码，0仅说明命令正常退出，不证明任务达成或结果正文已保存；未返回时省略，不从文本推断 */
   exitCode?: number
   /** Pi shell 实际 wall_time_seconds 换算为毫秒；未返回时省略 */
   durationMs?: number
@@ -834,6 +843,10 @@ export type ConversationStatistics = {
   totalTokens: number
   /** 正式分支工具调用数 */
   toolCalls: number
+  /** 正式Pi分支中有assistant消息的用户轮次数 */
+  turns?: number
+  /** 正式Pi分支assistant消息数，含工具调用步骤 */
+  steps?: number
   /** 本轮总耗时，包含工具与等待 */
   durationMs?: number
   /** 本轮模型消息生成耗时，不含工具与审批 */

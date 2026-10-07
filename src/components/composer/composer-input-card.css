@@ -29,10 +29,6 @@
   line-height: 24px;
   min-height: 52px;
 }
-.moon-composer-input .moon-composer-prompt[data-composer-variant="docked"] {
-  padding-top: 4px;
-  min-height: 36px;
-}
 .moon-composer-toolbar[data-slot="input-group-addon"] {
   display: flex;
   flex-wrap: wrap;
@@ -85,6 +81,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.moon-composer-model-state {
+  flex: none;
+  font-size: 13px;
+  color: var(--muted-foreground);
 }
 @container (max-width: 560px) {
   .moon-composer-toolbar-leading,
@@ -163,13 +164,6 @@
 }
 .moon-composer-input[data-workspace-missing="true"] {
   cursor: pointer;
-}
-.moon-composer-input .moon-composer-blocker {
-  width: 100%;
-  padding: 10px 16px 0;
-  color: var(--muted-foreground);
-  font-size: 12px;
-  line-height: 18px;
 }
 .moon-composer-prompt[data-command-hint="skill"]:not([data-composing="true"])
   > p:last-child::after {

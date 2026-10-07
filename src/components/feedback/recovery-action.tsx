@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button"
+import type { ReactNode } from "react"
 import type { FeedbackDescription } from "@/lib/operation-issue"
 
 type RecoveryCommand = "retry" | "reload" | "check" | "settings"
@@ -11,7 +12,8 @@ export type RecoveryActionProps = {
   disabled?: boolean
   className?: string
   labels?: Partial<Record<RecoveryCommand, string>>
-  variant?: "outline" | "ghost"
+  variant?: "outline" | "ghost" | "link" | "default"
+  icon?: ReactNode
 }
 
 /** A recovery names its actual action; a restart never becomes another request. */
@@ -25,6 +27,7 @@ export function RecoveryAction({
   className,
   labels,
   variant = "outline",
+  icon,
 }: RecoveryActionProps) {
   const recovery =
     issue.recovery ?? (onRetry ? "retry" : onReload ? "reload" : "none")
@@ -53,11 +56,14 @@ export function RecoveryAction({
     <Button
       type="button"
       variant={variant}
-      size={variant === "ghost" ? "xs" : "sm"}
+      size={
+        variant === "default" ? "default" : variant === "ghost" ? "xs" : "sm"
+      }
       className={className}
       disabled={disabled}
       onClick={command.run}
     >
+      {icon}
       {labels?.[recovery] ?? command.label}
     </Button>
   )

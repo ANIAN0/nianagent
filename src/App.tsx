@@ -427,6 +427,8 @@ export default function App() {
                             setReadReceiptRetry((value) => value + 1)
                           }
                           pending={chat.pending[selected]}
+                          stopPending={chat.stopPending[selected]}
+                          stopUnconfirmed={chat.stopUnconfirmed[selected]}
                           data={data}
                           draft={currentDraft}
                           positions={positions}

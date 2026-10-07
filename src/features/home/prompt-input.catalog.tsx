@@ -8,7 +8,7 @@ export default {
   group: "输入文本消息",
   layer: "复合组件",
   order: 104,
-  pages: ["首页", "对话"],
+  pages: ["首页", "会话"],
   stage: "content",
   description: "用户从空稿输入文字、换行和提交，等待或失败时原输入有明确归属。",
   boundary:
@@ -32,7 +32,8 @@ export default {
       name: "占位与输入语义",
       rule: "占位为“描述你想完成的工作，/ 选择命令或 Skill，@ 引用文件”；占位不进入数据。普通 @ 和句内 / 是正文，未选择的符号不猜测成材料；开头命令仍校验。IME期间不误发送；Shift+Enter换行，候选开启时Enter优先选择。",
       reason: "占位说明可用动作，不能成为默认消息或静态提示行。",
-      check: "核对 @Override 整句、句内 /usr 关闭候选后的完整正文，以及候选Enter、未知开头命令和已选材料门禁。",
+      check:
+        "核对 @Override 整句、句内 /usr 关闭候选后的完整正文，以及候选Enter、未知开头命令和已选材料门禁。",
     },
     {
       id: "T3",
@@ -147,7 +148,8 @@ export default {
       id: "delayed-recovery-owner",
       name: "恢复只属于原首页所有者",
       section: "exception",
-      condition: "两个正式首页使用不同会话和工作目录；切换后原首页inactive并隐藏。",
+      condition:
+        "两个正式首页使用不同会话和工作目录；切换后原首页inactive并隐藏。",
       steps: [
         "输入原稿并发送，等待时写新稿，按Alt+Shift+R冻结拒绝结果。",
         "点击“切换演示所有者”，在notes的新任务输入另一份文字并保留正文焦点。",
@@ -169,7 +171,8 @@ export default {
         "按Alt+Shift+R交付，核对自动检查使用原副本恢复最新A+B及选区。",
         "再次按快捷键重放，核对不重复合并，home.submit仍一次。",
       ],
-      expected: "自动检查不发送，明确拒绝应用时读取最新稿，不采用冻结时的旧合稿。",
+      expected:
+        "自动检查不发送，明确拒绝应用时读取最新稿，不采用冻结时的旧合稿。",
       render: () => <HomeStoryExample scenario="send-recovery-auto-pending" />,
     },
     {
@@ -180,11 +183,14 @@ export default {
       steps: [
         "输入原稿发送，等待事件出现三次home.check且自动核对结束。",
         "输入新稿A，按Alt+Shift+R冻结结果；继续输入B。",
-        "从发送位置核对原消息入口打开原文，点击“检查发送状态”；手动第4次读取保持等待。",
+        "从输入卡外的原提交入口打开原文，点击“检查发送状态”；手动第4次读取保持等待。",
         "返回正文放置中段光标或选区，按Alt+Shift+R交付旧拒绝，再重放同一通知。",
       ],
-      expected: "手动检查持有请求前原副本，恢复最新稿且不重复发送；打开原文与检查仍是正式组合。",
-      render: () => <HomeStoryExample scenario="send-recovery-manual-pending" />,
+      expected:
+        "手动检查持有请求前原副本，恢复最新稿且不重复发送；打开原文与检查仍是正式组合。",
+      render: () => (
+        <HomeStoryExample scenario="send-recovery-manual-pending" />
+      ),
     },
     {
       id: "conversation-idle",
@@ -209,7 +215,8 @@ export default {
         "核对conversation.submit包含完整正文与交付方式，停止入口仍可达。",
         "清空后输入句内/usr，关闭候选再提交；未知开头命令继续受原运行门禁约束。",
       ],
-      expected: "普通文字可以进入运行中的交付回调，命令、材料和停止行为保持；不模拟队列接收。",
+      expected:
+        "普通文字可以进入运行中的交付回调，命令、材料和停止行为保持；不模拟队列接收。",
       render: () => (
         <HomeStoryExample consumer="conversation" conversationRunning />
       ),
@@ -269,7 +276,7 @@ export default {
       section: "exception",
       condition: "原提交结果未知，演示只通过核对释放原副本。",
       steps: [
-        "输入第一条并发送，发送位置显示核对原消息，不新增气泡或横向条。点击查看原提交，核对中的原文也可读。",
+        "输入第一条并发送，原提交核对入口位于输入卡外，发送位置保留正常箭头。点击查看原提交，核对中的原文也可读。",
         "在正文写第二条，自动核对结束后原副本仍保留。",
         "在演示区点击模拟接收原提交，再打开核对入口点击检查发送状态。",
         "检查副本释放，第二条保留，home.submit仍只有一次。",

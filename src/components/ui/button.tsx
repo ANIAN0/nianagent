@@ -8,6 +8,12 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
+        insight:
+          "font-normal text-muted-foreground tabular-nums hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset active:not-aria-[haspopup]:translate-y-0 aria-expanded:bg-muted aria-expanded:text-foreground",
+        approval:
+          "bg-[var(--approval-action-fill)] text-[var(--approval-action-ink)] hover:bg-[var(--approval-action-hover)] active:not-aria-[haspopup]:translate-y-0 disabled:opacity-40",
+        "approval-reject":
+          "border-[0.5px] border-[var(--approval-button-border)] bg-transparent text-foreground hover:border-transparent hover:bg-[var(--approval-reject-hover)] hover:text-[var(--approval-reject-ink)] active:not-aria-[haspopup]:translate-y-0 disabled:opacity-40",
         default:
           "bg-primary-strong text-primary-foreground hover:bg-primary-strong/90",
         send: "bg-send-fill text-send-ink hover:bg-send-hover",
@@ -26,6 +32,9 @@ const buttonVariants = cva(
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {
+        insight:
+          "h-[22px] max-w-full gap-1.5 rounded-full px-2 text-xs leading-5 [&_svg:not([class*='size-'])]:size-3.5",
+        approval: "h-9 rounded-xl px-3.5 text-sm leading-[22px] font-normal",
         default:
           "h-8 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
         xs: "h-6 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",

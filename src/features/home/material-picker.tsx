@@ -440,7 +440,7 @@ function MaterialPickerContent({
                   group: "内置命令",
                   name: "压缩上下文 · /compact",
                   description: allowCompact
-                    ? "填入命令，再打开压缩面板；不会发送给模型"
+                    ? "填入 /compact，提交后直接压缩当前上下文；命令不接受参数"
                     : "新会话尚无上下文，请先打开已有会话",
                   disabled: !allowCompact,
                   icon: Terminal,

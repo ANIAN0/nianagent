@@ -29,8 +29,8 @@ export default {
     },
   ],
   inputs: [
-    "variant: default / outline / ghost / composer / send",
-    "size: default / sm / composer / icon；disabled 阻止操作",
+    "variant: default / outline / ghost / composer / insight / send / approval / approval-reject；insight 为会话用量入口，悬停及展开使用局部底色、按下不位移、内侧焦点圈。",
+    "size: default / sm / composer / insight（22px、12px/20px统计入口、圆形边角）/ icon / approval（36px审批动作）；disabled 阻止操作",
     "asChild 由调用方保留按钮或链接语义",
   ],
   events: ["onClick 只触发一次动作；提交期间由业务禁用重复调用"],

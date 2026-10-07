@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { LoaderCircle, Copy, CircleCheck } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { OperationFeedback } from "@/components/feedback/operation-feedback"
 import { Input } from "@/components/ui/input"
 import {
   Field,
@@ -124,9 +125,7 @@ export function SubscriptionAuthorization({
         </DialogHeader>
         <div className="flex flex-col gap-4 text-sm">
           {error ? (
-            <p role="alert" className="text-destructive">
-              {error}
-            </p>
+            <OperationFeedback title="授权未完成" message={error} />
           ) : step === "device" ? (
             <>
               <p>在服务授权页面输入设备码。</p>

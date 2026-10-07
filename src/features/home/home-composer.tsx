@@ -866,6 +866,26 @@ export function HomeComposer({
           className="min-w-0 border-0 p-0"
         >
           <ComposerPanelProvider inactive={inactive || acceptedSubmission}>
+            {!acceptedSubmission &&
+              (!submitting ||
+                checking ||
+                autoChecking ||
+                recoveringSubmission) &&
+              (pendingCopy || unknownSubmission) && (
+                <HomeSubmissionEcho
+                  key={`${sessionId}:${workspacePath}:${pendingCopy?.clientRequestId ?? "unconfirmed"}`}
+                  submission={pendingCopy}
+                  workspacePath={workspacePath}
+                  inactive={inactive}
+                  recovering={recoveringSubmission}
+                  checking={autoChecking || checking}
+                  issue={submissionFailure}
+                  onSettings={data.modelCatalog?.onOpenSettings}
+                  onCheck={
+                    onCheckSubmission ? () => void checkSubmission() : undefined
+                  }
+                />
+              )}
             <FieldGroup>
               <Field>
                 <ComposerInputCard
@@ -910,50 +930,6 @@ export function HomeComposer({
                         : undefined
                   }
                 >
-                  {(configFailure || saveError) && (
-                    <div className="moon-composer-blocker" role="alert">
-                      {configFailure && (
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span>{configFailure.message}</span>
-                          <RecoveryAction
-                            issue={configFailure}
-                            onReload={() =>
-                              setConfigRevision((value) => value + 1)
-                            }
-                            onRetry={() =>
-                              setConfigRevision((value) => value + 1)
-                            }
-                            onCheck={() =>
-                              setConfigRevision((value) => value + 1)
-                            }
-                            onSettings={data.modelCatalog?.onOpenSettings}
-                            labels={{ reload: "重新读取配置" }}
-                          />
-                        </div>
-                      )}
-                      {saveError && (
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span>草稿未保存：{saveError}</span>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="xs"
-                            onClick={() => {
-                              try {
-                                draftStore?.write(latestDraft.current)
-                                setSaveError("")
-                                acknowledgeRestoration(latestDraft.current)
-                              } catch {
-                                /* keep original draft */
-                              }
-                            }}
-                          >
-                            重试保存
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  )}
                   <PromptInput
                     key={`${sessionId}:${workspacePath}`}
                     inputRef={inputRef}
@@ -989,31 +965,6 @@ export function HomeComposer({
                     onChange={(text) => change({ text })}
                     onSubmit={submit}
                   />
-                  {eligibility.hasDraft &&
-                    eligibility.reason &&
-                    !["query", "materials", "image"].includes(
-                      eligibility.reasonKind ?? ""
-                    ) && (
-                      <div className="moon-composer-blocker" role="status">
-                        {eligibility.reason}
-                        {!eligibility.modelAvailable && (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="xs"
-                            onClick={() =>
-                              anchorRef.current
-                                ?.querySelector<HTMLButtonElement>(
-                                  '[aria-label^="选择模型"]'
-                                )
-                                ?.click()
-                            }
-                          >
-                            选择模型
-                          </Button>
-                        )}
-                      </div>
-                    )}
                   <SelectedMaterials
                     inlineReferences
                     key={`${sessionId}:${workspacePath}:${inactive || acceptedSubmission ? "inactive" : "active"}`}
@@ -1039,30 +990,6 @@ export function HomeComposer({
                     }
                   />
                   <ComposerToolbar
-                    sendControl={
-                      !acceptedSubmission &&
-                      (!submitting ||
-                        checking ||
-                        autoChecking ||
-                        recoveringSubmission) &&
-                      (pendingCopy || unknownSubmission) ? (
-                        <HomeSubmissionEcho
-                          key={`${sessionId}:${workspacePath}:${pendingCopy?.clientRequestId ?? "unconfirmed"}`}
-                          submission={pendingCopy}
-                          workspacePath={workspacePath}
-                          inactive={inactive}
-                          recovering={recoveringSubmission}
-                          checking={autoChecking || checking}
-                          issue={submissionFailure}
-                          onSettings={data.modelCatalog?.onOpenSettings}
-                          onCheck={
-                            onCheckSubmission
-                              ? () => void checkSubmission()
-                              : undefined
-                          }
-                        />
-                      ) : undefined
-                    }
                     disabled={acceptedSubmission || inactive}
                     configurationDisabled={
                       submitting || unknownSubmission || acceptedSubmission
@@ -1131,6 +1058,74 @@ export function HomeComposer({
           </ComposerPanelProvider>
         </fieldset>
       </form>
+      {eligibility.hasDraft &&
+        eligibility.reasonKind === "model" &&
+        !inactive &&
+        !acceptedSubmission &&
+        !submitting &&
+        !pendingCopy &&
+        !unknownSubmission &&
+        !configLoading &&
+        !configFailure &&
+        !saveError &&
+        !unsupportedCompact &&
+        !!workspacePath &&
+        !["loading", "error"].includes(
+          data.modelCatalog?.status ?? "ready"
+        ) && (
+          <ComposerNotification
+            tone="warning"
+            trigger={draft.model}
+            message={
+              draft.model
+                ? "当前所选模型不可用，请在模型菜单中重新选择。"
+                : "尚未选择模型，请先在模型菜单中选择可用模型。"
+            }
+          />
+        )}
+      {configFailure && (
+        <ComposerNotification
+          message={configFailure.message}
+          trigger={configFailure}
+          error
+          persistent
+          actions={
+            <RecoveryAction
+              issue={configFailure}
+              onReload={() => setConfigRevision((value) => value + 1)}
+              onRetry={() => setConfigRevision((value) => value + 1)}
+              onCheck={() => setConfigRevision((value) => value + 1)}
+              onSettings={data.modelCatalog?.onOpenSettings}
+              labels={{ reload: "重新读取配置" }}
+            />
+          }
+        />
+      )}
+      {saveError && (
+        <ComposerNotification
+          message={`草稿未保存：${saveError}`}
+          error
+          persistent
+          actions={
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              onClick={() => {
+                try {
+                  draftStore?.write(latestDraft.current)
+                  setSaveError("")
+                  acknowledgeRestoration(latestDraft.current)
+                } catch {
+                  /* Keep the draft and its recovery available. */
+                }
+              }}
+            >
+              重试保存
+            </Button>
+          }
+        />
+      )}
       {submissionFeedback}
       {!submissionFeedback &&
         submissionFailure &&

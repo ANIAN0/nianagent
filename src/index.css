@@ -66,7 +66,21 @@
 }
 
 :root {
+  --toast-background: #22252b;
+  --toast-foreground: #f7f8fa;
+  --toast-warning: #eab308;
+  --toast-action: #91baff;
   --moon-composer-radius: 20px;
+  --approval-border: rgb(247 173 49);
+  --approval-warning: rgb(245 158 11);
+  --approval-strip: rgb(254 245 231);
+  --approval-surface: #fff;
+  --approval-action-fill: rgb(15 17 21);
+  --approval-action-ink: #fff;
+  --approval-action-hover: rgb(67 69 74);
+  --approval-button-border: rgb(0 0 0 / 12%);
+  --approval-reject-hover: rgb(236 19 19 / 5%);
+  --approval-reject-ink: rgb(236 19 19);
   --image-preview-overlay: rgb(10 12 18 / 88%);
   --image-preview-foreground: #f5f7fb;
   color-scheme: light;
@@ -114,6 +128,14 @@
 }
 
 .dark {
+  --approval-strip: rgb(39 36 31);
+  --approval-surface: rgb(44 44 46);
+  --approval-action-fill: rgb(249 250 251);
+  --approval-action-ink: rgb(15 17 21);
+  --approval-action-hover: rgb(235 238 242);
+  --approval-button-border: rgb(255 255 255 / 16%);
+  --approval-reject-hover: rgb(242 90 90 / 15%);
+  --approval-reject-ink: rgb(242 90 90);
   color-scheme: dark;
   --background: #12151d;
   --foreground: #edf0f5;
