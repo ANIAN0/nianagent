@@ -11,7 +11,6 @@
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
     "backend:package": "node scripts/package-backend.mjs",
-    "test:backend": "node --test --test-concurrency=3 backend/tests/*.test.mjs",
     "desktop:build": "pnpm tauri build --config src-tauri/tauri.production.conf.json",
     "contract:generate": "node scripts/generate-model-contract.mjs",
     "contract:check": "node scripts/generate-model-contract.mjs --check"
