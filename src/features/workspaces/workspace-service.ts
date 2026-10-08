@@ -1,9 +1,6 @@
 import { createContext } from "react"
-import { modelCall } from "@/features/models/model-service"
-import type {
-  WorkspaceList,
-  WorkspaceRecord,
-} from "@/features/models/model-contract.generated"
+import { rpcCall } from "@/lib/rpc/client"
+import type { WorkspaceList, WorkspaceRecord } from "@/contracts/rpc.generated"
 
 export type WorkspaceService = {
   list: (signal?: AbortSignal) => Promise<WorkspaceList>
@@ -17,10 +14,10 @@ export const WorkspaceServiceContext = createContext<
 >(undefined)
 export function createWorkspaceService(): WorkspaceService {
   return {
-    list: (signal) => modelCall("workspaceList", {}, signal),
-    add: (path, signal) => modelCall("workspaceAdd", { path }, signal),
-    select: (id, signal) => modelCall("workspaceSelect", { id }, signal),
-    get: (id, signal) => modelCall("workspaceGet", { id }, signal),
-    choose: (signal) => modelCall("workspaceChoose", {}, signal),
+    list: (signal) => rpcCall("workspaceList", {}, signal),
+    add: (path, signal) => rpcCall("workspaceAdd", { path }, signal),
+    select: (id, signal) => rpcCall("workspaceSelect", { id }, signal),
+    get: (id, signal) => rpcCall("workspaceGet", { id }, signal),
+    choose: (signal) => rpcCall("workspaceChoose", {}, signal),
   }
 }

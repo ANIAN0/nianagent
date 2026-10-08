@@ -1,11 +1,11 @@
-import type { HomeDraft, Material } from "./home-types"
+import type { ComposerDraft, Material } from "@/lib/composer/types"
 import {
   homeDraftSignature,
   type HomeSubmission,
 } from "@/features/conversation/conversation-draft-store"
 import { sameMaterial } from "@/features/materials/material-service"
 
-export type HomeDraftRecovery = { draft: HomeDraft; merged: boolean }
+export type HomeDraftRecovery = { draft: ComposerDraft; merged: boolean }
 
 export function homeDraftRecoveryKey(submission: HomeSubmission) {
   return JSON.stringify([
@@ -27,7 +27,7 @@ function joinText(first: string, second: string) {
   return `${first}\n\n${second}`
 }
 
-export function followingHomeDraft(submitted: HomeDraft): HomeDraft {
+export function followingHomeDraft(submitted: ComposerDraft): ComposerDraft {
   const following = { ...structuredClone(submitted), text: "", materials: [] }
   delete following.homeRecoveryKey
   delete following.homeTransferId
@@ -37,7 +37,7 @@ export function followingHomeDraft(submitted: HomeDraft): HomeDraft {
 /** A definitive refusal restores the original and preserves anything written meanwhile. */
 export function recoverRejectedHomeDraft(
   submission: HomeSubmission,
-  following: HomeDraft
+  following: ComposerDraft
 ): HomeDraftRecovery {
   const original = submission.originalDraft ?? submission.draft
   const recoveryKey = homeDraftRecoveryKey(submission)
@@ -68,9 +68,9 @@ export function recoverRejectedHomeDraft(
 /** Preserve another conversation draft while adopting this homepage's next message once. */
 export function adoptFollowingHomeDraft(
   submission: HomeSubmission,
-  following: HomeDraft,
-  existing?: HomeDraft
-): HomeDraft {
+  following: ComposerDraft,
+  existing?: ComposerDraft
+): ComposerDraft {
   if (existing?.homeTransferId === submission.sessionId) return existing
   const original = submission.draft
   const existingIsOriginal =

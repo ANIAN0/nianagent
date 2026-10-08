@@ -7,7 +7,7 @@ import { PermissionServiceContext } from "@/features/conversation/permissions/pe
 import { MaterialServiceContext } from "@/features/materials/material-service"
 import { ExtensionServiceContext } from "@/features/extensions/extension-service"
 import { CommandServiceContext } from "@/features/conversation/controls/command-service"
-import type { HomeData } from "@/features/home/home-types"
+import type { ComposerData } from "@/lib/composer/types"
 import type { ModelConnection } from "@/features/models/model-types"
 import { notifyComposer } from "@/components/composer/composer-notification"
 import { Button } from "@/components/ui/button"
@@ -76,7 +76,7 @@ export function ConversationReadingExample({
   useEffect(() => () => environment.dispose(), [environment])
   const snapshot = chat.snapshots[environment.id]
   const draft = chat.drafts[environment.id] ?? environment.draft
-  const data = useMemo<HomeData>(
+  const data = useMemo<ComposerData>(
     () => ({
       workspaces: [
         {

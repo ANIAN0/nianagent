@@ -8,7 +8,7 @@ export type MaterialThumbnailStatus = "idle" | "loading" | "ready" | "failed"
 export function useMaterialThumbnail(
   id: string,
   cwd: string,
-  enabled: boolean,
+  enabled: boolean
 ) {
   const service = useContext(MaterialServiceContext)
   const target = useRef<HTMLDivElement>(null)
@@ -72,7 +72,7 @@ export function useMaterialThumbnail(
         previous.service === service &&
         previous.enabled === enabled
           ? { key, service, enabled, status: "failed" }
-          : previous,
+          : previous
       ),
   }
 }

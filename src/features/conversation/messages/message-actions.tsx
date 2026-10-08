@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/tooltip"
 import { CopyButton } from "./copy-button"
 import { ForkAction } from "../controls/fork-action"
-import type { ConversationStatistics } from "@/features/models/model-contract.generated"
+import type { ConversationStatistics } from "@/contracts/rpc.generated"
 import "./messages.css"
 
 function formatCompactTokens(value: number): string {
@@ -81,7 +81,9 @@ export function MessageActions({
                   className="conversation-usage-pill"
                 >
                   <Database className="size-4" />
-                  <span>用量 {formatCompactTokens(statistics.totalTokens)} token</span>
+                  <span>
+                    用量 {formatCompactTokens(statistics.totalTokens)} token
+                  </span>
                 </Button>
               </PopoverTrigger>
             </TooltipTrigger>
@@ -107,7 +109,12 @@ export function MessageActions({
                 <>
                   <dt>缓存命中</dt>
                   <dd>
-                    {((statistics.cacheRead / (statistics.totalTokens - statistics.output)) * 100).toFixed(1)}%
+                    {(
+                      (statistics.cacheRead /
+                        (statistics.totalTokens - statistics.output)) *
+                      100
+                    ).toFixed(1)}
+                    %
                   </dd>
                 </>
               )}

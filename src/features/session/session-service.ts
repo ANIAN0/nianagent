@@ -1,10 +1,10 @@
 import { createContext } from "react"
-import { modelCall } from "@/features/models/model-service"
+import { rpcCall } from "@/lib/rpc/client"
 import type {
   SessionCatalog,
   SessionConfiguration,
   RpcRequests,
-} from "@/features/models/model-contract.generated"
+} from "@/contracts/rpc.generated"
 
 export type SessionService = {
   catalog: (cwd: string, signal?: AbortSignal) => Promise<SessionCatalog>
@@ -22,10 +22,9 @@ export const SessionServiceContext = createContext<SessionService | undefined>(
 )
 export function createSessionService(): SessionService {
   return {
-    catalog: (cwd, signal) => modelCall("sessionCatalog", { cwd }, signal),
-    read: (sessionId, signal) =>
-      modelCall("sessionRead", { sessionId }, signal),
-    apply: (input, signal) => modelCall("sessionApply", input, signal),
+    catalog: (cwd, signal) => rpcCall("sessionCatalog", { cwd }, signal),
+    read: (sessionId, signal) => rpcCall("sessionRead", { sessionId }, signal),
+    apply: (input, signal) => rpcCall("sessionApply", input, signal),
   }
 }
 

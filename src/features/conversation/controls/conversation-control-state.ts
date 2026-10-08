@@ -1,5 +1,5 @@
-import type { ConversationControlOperation } from "@/features/models/model-contract.generated"
-import { RpcRequestRejected } from "@/features/models/model-service"
+import type { ConversationControlOperation } from "@/contracts/rpc.generated"
+import { RpcRequestRejected } from "@/lib/rpc/client"
 import { feedbackFromError } from "@/lib/operation-issue"
 
 export type ConversationControlAction = "compact" | "fork" | "check" | "cancel"

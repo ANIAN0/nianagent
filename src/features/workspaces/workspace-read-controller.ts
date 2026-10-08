@@ -1,4 +1,4 @@
-import type { WorkspaceList } from "@/features/models/model-contract.generated"
+import type { WorkspaceList } from "@/contracts/rpc.generated"
 
 type ReadEvents = {
   onPending: (pending: boolean) => void

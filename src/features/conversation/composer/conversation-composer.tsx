@@ -1,5 +1,6 @@
+import { useComposerAnchor } from "@/lib/composer/use-composer-anchor"
 import { type ComposerEditorElement } from "@/components/composer/composer-editor-contract"
-import { effectiveThinking } from "@/features/home/model-thinking"
+import { effectiveThinking } from "@/lib/composer/model-thinking"
 import "./composer.css"
 import {
   useLayoutEffect,
@@ -16,16 +17,16 @@ import {
   removeComposerMaterial,
 } from "@/features/materials/composer-material-edit"
 import { Button } from "@/components/ui/button"
-import { ComposerToolbar } from "@/features/home/composer-toolbar"
-import { PromptInput } from "@/features/home/prompt-input"
+import { ComposerToolbar } from "@/components/composer/composer-toolbar"
+import { PromptInput } from "@/components/composer/prompt-input"
 import {
   composerDraftEligibility,
   composerDisplayMaterials,
   editableComposerDraft,
 } from "@/components/composer/composer-policy"
-import { SelectedMaterials } from "@/features/home/selected-materials"
-import { ComposerPanelProvider } from "@/features/home/composer-panel-context"
-import type { HomeData, HomeDraft } from "@/features/home/home-types"
+import { SelectedMaterials } from "@/components/composer/selected-materials"
+import { ComposerPanelProvider } from "@/components/composer/composer-panel-context"
+import type { ComposerData, ComposerDraft } from "@/lib/composer/types"
 import { ConversationSendControl } from "./conversation-send-control"
 import type { ContextUsageProps } from "./context-usage"
 import { ComposerAuxiliaryBar } from "./composer-auxiliary-bar"
@@ -33,7 +34,7 @@ import { useComposerMaterials } from "@/features/materials/use-composer-material
 import { OperationFeedback } from "@/components/feedback/operation-feedback"
 import { NotificationToast } from "@/components/ui/notification-toast"
 import type { FeedbackDescription } from "@/lib/operation-issue"
-import type { ConversationStatistics } from "@/features/models/model-contract.generated"
+import type { ConversationStatistics } from "@/contracts/rpc.generated"
 import type { BusyInputMode } from "./run-input-control"
 
 export type ConversationComposerProps = {
@@ -41,7 +42,7 @@ export type ConversationComposerProps = {
   allowQueue?: boolean
   sessionId?: string
   data: Pick<
-    HomeData,
+    ComposerData,
     | "models"
     | "modelLabels"
     | "modelThinking"
@@ -51,7 +52,7 @@ export type ConversationComposerProps = {
     | "materialsEnabled"
     | "tools"
   >
-  draft: HomeDraft
+  draft: ComposerDraft
   workspacePath: string
   running?: boolean
   stopping?: boolean
@@ -65,15 +66,11 @@ export type ConversationComposerProps = {
   queueRecovery?: ReactNode
   context?: ContextUsageProps
   statistics?: ConversationStatistics
-  deliveryMode?: "single" | "all"
-  queuedCount?: number
   modeIssue?: FeedbackDescription
-  modeDisabledReason?: string
   modeChecking?: boolean
   onCheckMode?: () => void
-  onDeliveryModeChange?: (mode: "single" | "all") => void | Promise<unknown>
-  onChange: (draft: HomeDraft) => void
-  onSubmit: (draft: HomeDraft, delivery?: BusyInputMode) => void
+  onChange: (draft: ComposerDraft) => void
+  onSubmit: (draft: ComposerDraft, delivery?: BusyInputMode) => void
   onStop: () => void
 }
 export function ConversationComposer({
@@ -113,10 +110,10 @@ export function ConversationComposer({
       }),
     [rawDraft, data.modelThinking]
   )
-  const anchorRef = useRef<HTMLDivElement>(null)
+  const { anchorRef, anchorNode, bindAnchor } = useComposerAnchor()
   const [formMinimum, setFormMinimum] = useState(80)
   useLayoutEffect(() => {
-    const card = anchorRef.current
+    const card = anchorNode
     if (!card) return
     const addons = Array.from(
       card.querySelectorAll<HTMLElement>(
@@ -146,12 +143,12 @@ export function ConversationComposer({
     addons.forEach((addon) => observer.observe(addon))
     measureMinimum()
     return () => observer.disconnect()
-  }, [draft.materials.length])
+  }, [draft.materials.length, anchorNode])
   const latest = useRef(draft)
   useLayoutEffect(() => {
     latest.current = draft
   }, [draft])
-  function change(patch: Partial<HomeDraft>) {
+  function change(patch: Partial<ComposerDraft>) {
     const next = editableComposerDraft({ ...latest.current, ...patch })
     latest.current = next
     onChange(next)
@@ -178,7 +175,7 @@ export function ConversationComposer({
   const materialController = useComposerMaterials({
     sessionId,
     cwd: workspacePath,
-    anchorRef,
+    anchorNode,
     materials: draft.materials,
     disabled: materialsDisabled,
     onPasteText: (text, start, end) =>
@@ -271,7 +268,7 @@ export function ConversationComposer({
           <FieldGroup>
             <Field>
               <ComposerInputCard
-                ref={anchorRef}
+                ref={bindAnchor}
                 className="conversation-input-card"
                 dropActive={materialController.dropActive}
                 dropDisabledReason={

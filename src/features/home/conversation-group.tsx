@@ -3,7 +3,7 @@ import { ConversationItem } from "./conversation-item"
 import { ChevronDown, FolderOpen, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import type { Workspace, Conversation } from "./home-types"
+import type { Workspace, Conversation } from "@/lib/composer/types"
 export type ConversationGroupProps = {
   workspace: Workspace
   conversations: Conversation[]

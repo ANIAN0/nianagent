@@ -51,8 +51,12 @@ export default {
       id: "compact",
       name: "紧凑搜索与清除",
       section: "states",
-      condition: "InputGroupInput显式使用compact，完整组合搜索图标、输入与清除。",
-      steps: ["在390px与常规视口输入read，核对14px/20px与32px高度。", "点击清除，再输入搜索词；Tab切换输入和清除按钮。"],
+      condition:
+        "InputGroupInput显式使用compact，完整组合搜索图标、输入与清除。",
+      steps: [
+        "在390px与常规视口输入read，核对14px/20px与32px高度。",
+        "点击清除，再输入搜索词；Tab切换输入和清除按钮。",
+      ],
       expected: "compact透传正式Input，图标与文字居中；清除只改变查询。",
       render: () => <BasicControlExample kind="input-group" mode="compact" />,
     },

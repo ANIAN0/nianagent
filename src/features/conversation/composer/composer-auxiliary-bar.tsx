@@ -8,7 +8,7 @@ import {
 } from "./context-usage"
 import type { ReactNode } from "react"
 import { RunStatistics, readRunStatistics } from "./run-statistics"
-import type { ConversationStatistics } from "@/features/models/model-contract.generated"
+import type { ConversationStatistics } from "@/contracts/rpc.generated"
 import "./composer.css"
 
 export type ComposerAuxiliaryBarProps = {

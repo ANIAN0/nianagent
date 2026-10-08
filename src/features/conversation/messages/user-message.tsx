@@ -42,11 +42,7 @@ export function UserMessage({
           </span>
         )}
         {showActions && (
-          <MessageActions
-            text={message.text}
-            time={message.time}
-            align="end"
-          />
+          <MessageActions text={message.text} time={message.time} align="end" />
         )}
       </MessageContent>
     </Message>

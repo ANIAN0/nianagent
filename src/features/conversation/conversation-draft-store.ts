@@ -1,5 +1,5 @@
-import type { HomeDraft } from "@/features/home/home-types"
-import type { RpcRequests } from "@/features/models/model-contract.generated"
+import type { ComposerDraft } from "@/lib/composer/types"
+import type { RpcRequests } from "@/contracts/rpc.generated"
 import type { FeedbackDescription } from "@/lib/operation-issue"
 import {
   followingHomeDraft,
@@ -18,23 +18,23 @@ export type HomeSubmission = {
   /** Recovery phase is persisted before crossing a side-effect boundary. */
   stage?: "prepared" | "sending" | "rejected" | "accepted"
   cwd?: string
-  draft: HomeDraft
-  originalDraft?: HomeDraft
+  draft: ComposerDraft
+  originalDraft?: ComposerDraft
   /** Versioned separation between the immutable copy and the next editable input. */
   followingDraft?: true
-  transfer?: { draft: HomeDraft; signature: string }
+  transfer?: { draft: ComposerDraft; signature: string }
   signatures: string[]
 }
 export type HomeDraftCache = {
   key: number
   workspaceId?: string
-  draft?: HomeDraft
+  draft?: ComposerDraft
   issue?: FeedbackDescription
 }
 export type PendingSubmission = {
   signature: string
   id: string
-  draft: HomeDraft
+  draft: ComposerDraft
   stage?: "prepared" | "sending" | "accepted" | "rejected"
   /** Written with the original receipt before a model request can begin. */
   followingDraft?: true
@@ -50,7 +50,7 @@ export type PendingSubmission = {
       input: Omit<RpcRequests["conversationRetry"], "clientRequestId">
     }
 )
-export function draftSignature(draft: HomeDraft) {
+export function draftSignature(draft: ComposerDraft) {
   return JSON.stringify([
     draft.workspaceId,
     draft.text.trim(),
@@ -59,7 +59,7 @@ export function draftSignature(draft: HomeDraft) {
     draft.thinking,
   ])
 }
-function storedDraft(draft: HomeDraft): HomeDraft {
+function storedDraft(draft: ComposerDraft): ComposerDraft {
   return {
     ...draft,
     materials: draft.materials.map((item) => {
@@ -70,7 +70,7 @@ function storedDraft(draft: HomeDraft): HomeDraft {
   }
 }
 export function restoreConversationDrafts() {
-  const drafts: Record<string, HomeDraft> = {}
+  const drafts: Record<string, ComposerDraft> = {}
   const requests = new Map<string, PendingSubmission>()
   try {
     for (let index = 0; index < localStorage.length; index++) {
@@ -107,7 +107,7 @@ export function restoreConversationDrafts() {
   }
   return { drafts, requests }
 }
-export function saveConversationDraft(id: string, draft: HomeDraft) {
+export function saveConversationDraft(id: string, draft: ComposerDraft) {
   localStorage.setItem(prefix + id, JSON.stringify(storedDraft(draft)))
 }
 export function saveConversationRequest(id: string, value?: PendingSubmission) {
@@ -124,7 +124,7 @@ export function saveConversationRequest(id: string, value?: PendingSubmission) {
     )
   else localStorage.removeItem(requestPrefix + id)
 }
-function readHomeDraft(workspaceId: string): Partial<HomeDraft> {
+function readHomeDraft(workspaceId: string): Partial<ComposerDraft> {
   const value = JSON.parse(
     localStorage.getItem(homePrefix + workspaceId) || "null"
   )
@@ -133,14 +133,14 @@ function readHomeDraft(workspaceId: string): Partial<HomeDraft> {
     throw new Error("无法核对已保存的首页草稿。")
   return value
 }
-export function restoreHomeDraft(workspaceId: string): Partial<HomeDraft> {
+export function restoreHomeDraft(workspaceId: string): Partial<ComposerDraft> {
   try {
     return readHomeDraft(workspaceId)
   } catch {
     return {}
   }
 }
-export function saveHomeDraft(draft: HomeDraft) {
+export function saveHomeDraft(draft: ComposerDraft) {
   localStorage.setItem(
     homePrefix + draft.workspaceId,
     JSON.stringify(storedDraft(draft))
@@ -149,7 +149,7 @@ export function saveHomeDraft(draft: HomeDraft) {
 export function clearHomeDraft(workspaceId: string) {
   localStorage.removeItem(homePrefix + workspaceId)
 }
-export function homeDraftSignature(draft: HomeDraft) {
+export function homeDraftSignature(draft: ComposerDraft) {
   return JSON.stringify([
     draftSignature(draft),
     draft.session.toolIds,
@@ -157,13 +157,13 @@ export function homeDraftSignature(draft: HomeDraft) {
   ])
 }
 export function bindHomeDraftIdentity(
-  draft: HomeDraft,
+  draft: ComposerDraft,
   createId: () => string
-): HomeDraft {
+): ComposerDraft {
   return draft.sessionId ? draft : { ...draft, sessionId: createId() }
 }
 export function createHomeSubmission(
-  draft: HomeDraft,
+  draft: ComposerDraft,
   original = draft
 ): HomeSubmission {
   if (!draft.sessionId) throw new Error("首页提交缺少会话身份。")
@@ -179,7 +179,7 @@ export function createHomeSubmission(
   }
 }
 export function matchesHomeSubmission(
-  candidate: Partial<HomeDraft>,
+  candidate: Partial<ComposerDraft>,
   submission: HomeSubmission
 ) {
   return (
@@ -189,7 +189,9 @@ export function matchesHomeSubmission(
     typeof candidate.thinking === "string" &&
     !!candidate.session &&
     candidate.sessionId === submission.sessionId &&
-    submission.signatures.includes(homeDraftSignature(candidate as HomeDraft))
+    submission.signatures.includes(
+      homeDraftSignature(candidate as ComposerDraft)
+    )
   )
 }
 export function acceptHomeDraftCache(
@@ -222,7 +224,7 @@ export function saveHomeSubmission(submission: HomeSubmission) {
 /** No model request may start until both the original copy and next draft are durable. */
 export function prepareHomeSubmission(
   submission: HomeSubmission,
-  following: HomeDraft
+  following: ComposerDraft
 ) {
   saveHomeDraft(submission.originalDraft ?? submission.draft)
   saveHomeSubmission(submission)
@@ -238,7 +240,7 @@ export function prepareHomeSubmission(
 
 export function recoverRejectedHomeSubmission(
   submission: HomeSubmission,
-  editing?: HomeDraft
+  editing?: ComposerDraft
 ) {
   const current = editing ?? readHomeDraft(submission.draft.workspaceId)
   const recovery = recoverRejectedHomeDraft(submission, {
@@ -252,7 +254,7 @@ export function recoverRejectedHomeSubmission(
 /** Freeze one handoff snapshot so cleanup retries cannot duplicate the next message. */
 export function recordHomeTransfer(
   submission: HomeSubmission,
-  editing?: HomeDraft
+  editing?: ComposerDraft
 ): HomeSubmission {
   if (submission.transfer) {
     if (hasPreparingHomeMaterials(submission.transfer.draft))
@@ -322,14 +324,15 @@ export function finishHomeSubmission(
     current.sessionId === submission.sessionId &&
     typeof current.text === "string" &&
     Array.isArray(current.materials) &&
-    homeDraftSignature(current as HomeDraft) === submission.transfer.signature
+    homeDraftSignature(current as ComposerDraft) ===
+      submission.transfer.signature
   if (matches || transferredCurrent) {
     try {
       clearHomeDraft(submission.draft.workspaceId)
     } catch {
       // Some storage policies reject removal while allowing a normal update.
       saveHomeDraft({
-        ...(current as HomeDraft),
+        ...(current as ComposerDraft),
         text: "",
         materials: [],
         sessionId: undefined,
@@ -337,7 +340,7 @@ export function finishHomeSubmission(
     }
   } else if (current.sessionId === submission.sessionId) {
     // A changed draft belongs to the next homepage session, not the accepted one.
-    saveHomeDraft({ ...(current as HomeDraft), sessionId: undefined })
+    saveHomeDraft({ ...(current as ComposerDraft), sessionId: undefined })
   }
   beforeForget?.()
   removeHomeSubmission(submission.sessionId)

@@ -26,7 +26,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
-import type { Workspace } from "./home-types"
+import type { Workspace } from "@/lib/composer/types"
 
 export type WorkspacePickerProps = {
   workspaces: Workspace[]

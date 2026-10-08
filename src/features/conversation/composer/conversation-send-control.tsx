@@ -43,12 +43,12 @@ export function ConversationSendControl({
       : action === "stop"
         ? "停止执行"
         : action === "queue"
-            ? delivery === "steer"
-              ? "补充当前工作"
-              : "排队发送"
-            : command === "extension"
-              ? "执行扩展命令"
-              : "发送"
+          ? delivery === "steer"
+            ? "补充当前工作"
+            : "排队发送"
+          : command === "extension"
+            ? "执行扩展命令"
+            : "发送"
   const primaryStops = action === "stop" || action === "stopping"
   const primaryDisabled =
     action === "stopping" ||

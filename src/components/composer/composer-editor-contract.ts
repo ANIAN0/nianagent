@@ -1,4 +1,4 @@
-import type { Material } from "@/features/home/home-types"
+import type { Material } from "@/lib/composer/types"
 
 /** Selection seam shared by candidates, focus and mixed paste. */
 export type ComposerEditorElement = HTMLDivElement & {

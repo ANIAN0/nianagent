@@ -1,13 +1,13 @@
 import { useState } from "react"
 import { AppShell } from "./app-shell"
 import { HomeComposer } from "./home-composer"
-import type { HomeData, SubmitWork } from "./home-types"
+import type { ComposerData, SubmitWork } from "@/lib/composer/types"
 
 export function HomePage({
   data,
   onSubmit,
 }: {
-  data: HomeData
+  data: ComposerData
   onSubmit: SubmitWork
 }) {
   const [draft, setDraft] = useState<{ key: number; workspaceId?: string }>({

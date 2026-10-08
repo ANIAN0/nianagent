@@ -71,14 +71,18 @@ export function CompactionRow({
             <span className="conversation-compaction-title">{title}</span>
             <span className="conversation-compaction-separator" aria-hidden />
             <MarkerContent
-              className={`conversation-compaction-summary${running ? " shimmer" : ""}`}
+              className={`conversation-compaction-summary${running ? "shimmer" : ""}`}
             >
               {summary}
             </MarkerContent>
           </button>
         </Marker>
       </CollapsibleTrigger>
-      {running && <span className="sr-only" role="status">正在压缩…</span>}
+      {running && (
+        <span className="sr-only" role="status">
+          正在压缩…
+        </span>
+      )}
       {expandable && (
         <CollapsibleContent className="conversation-compaction-body">
           {children}

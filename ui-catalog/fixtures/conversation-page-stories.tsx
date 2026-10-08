@@ -8,7 +8,7 @@ import { PermissionServiceContext } from "@/features/conversation/permissions/pe
 import { MaterialServiceContext } from "@/features/materials/material-service"
 import { ExtensionServiceContext } from "@/features/extensions/extension-service"
 import { CommandServiceContext } from "@/features/conversation/controls/command-service"
-import type { HomeData } from "@/features/home/home-types"
+import type { ComposerData } from "@/lib/composer/types"
 import type { ModelConnection } from "@/features/models/model-types"
 import { notifyComposer } from "@/components/composer/composer-notification"
 import { Button } from "@/components/ui/button"
@@ -75,7 +75,7 @@ export function ConversationPageExample({
   useEffect(() => () => environment.dispose(), [environment])
   const snapshot = chat.snapshots[selected]
   const draft = chat.drafts[selected] ?? environment.draftFor(selected)
-  const data = useMemo<HomeData>(
+  const data = useMemo<ComposerData>(
     () => ({
       workspaces: [
         {
@@ -196,9 +196,6 @@ export function ConversationPageExample({
                     onSaveDraft={() => chat.saveDraft(selected)}
                     onReconcile={() => action(chat.reconcile(selected))}
                     onCleanReceipt={() => chat.cleanReceipt(selected)}
-                    onQueueMode={(mode) =>
-                      chat.queueMode(selected, mode).catch(() => undefined)
-                    }
                     onQueueEdit={(
                       itemId,
                       text,

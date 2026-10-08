@@ -14,8 +14,8 @@ import {
 import {
   useComposerPanel,
   useComposerPanelCloseAutoFocus,
-} from "@/features/home/composer-panel-context"
-import type { ConversationSnapshot } from "@/features/models/model-contract.generated"
+} from "@/components/composer/composer-panel-context"
+import type { ConversationSnapshot } from "@/contracts/rpc.generated"
 
 export type ContextUsageProps = Partial<
   NonNullable<ConversationSnapshot["context"]>

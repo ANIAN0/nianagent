@@ -65,7 +65,7 @@ export default {
   ],
   inputs: [
     "当前会话、运行、宿主快照与停止请求等待状态。",
-    "保留的 HomeDraft、待处理队列及消息终态。",
+    "保留的 ComposerDraft、待处理队列及消息终态。",
   ],
   events: [
     "点击或双 Esc 调用当前运行的 stop 服务。",

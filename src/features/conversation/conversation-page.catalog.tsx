@@ -68,8 +68,8 @@ export default {
   inputs: [
     "ConversationSnapshot：会话消息、运行阶段、审批、队列、控制操作、压缩记录、来源与上下文读数。",
     "ConversationService：读取、跟随、回执、发送、停止、继续与队列操作；示例显式提供内存替身。",
-    "HomeDraft：与服务快照独立的下一稿与材料；完整正式输入区仍可编辑。",
-    "HomeData：模型目录、工作区与工具配置。",
+    "ComposerDraft：与服务快照独立的下一稿与材料；完整正式输入区仍可编辑。",
+    "ComposerData：模型目录、工作区与工具配置。",
     "readingPositions：当前窗口按会话保存的阅读位置；离开返回保留。",
     "queueRecoveryRecords / queueIssues / queueOriginalRetryAllowed：原队列操作恢复标识与所属回执。",
   ],

@@ -9,9 +9,9 @@ import {
 import { ConversationGroup } from "./conversation-group"
 import { ConversationListFeedback } from "./conversation-list-feedback"
 import type { HistoryState } from "@/features/conversation/conversation-catalog-service"
-import type { HomeData, Conversation } from "./home-types"
+import type { ComposerData, Conversation } from "@/lib/composer/types"
 export type ConversationHistoryProps = {
-  data: Pick<HomeData, "conversations" | "workspaces">
+  data: Pick<ComposerData, "conversations" | "workspaces">
   activeConversationId?: string
   onNew?: (workspaceId: string) => void
   onSelect: (conversation: Conversation) => void

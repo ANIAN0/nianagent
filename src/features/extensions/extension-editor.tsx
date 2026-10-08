@@ -1,8 +1,5 @@
-import {
-  retainConfigurationAttempt,
-  finishConfigurationAttempt,
-  recheckConfigurationRecoveryStore,
-} from "@/features/models/configuration-recovery-store"
+import { useRetainedWrite } from "@/lib/operations/use-retained-write"
+import { recheckConfigurationRecoveryStore } from "@/lib/operations/configuration-recovery-store"
 import {
   useCallback,
   useEffect,
@@ -24,12 +21,12 @@ import { RecoveryAction } from "@/components/feedback/recovery-action"
 import {
   SettingsConfirmDialog,
   type SettingsConfirmation,
-} from "@/features/models/settings-confirmation"
+} from "@/components/operations/settings-confirmation"
 import {
   readSettingsWriteReceipt,
   unknownWrite,
   writeIsUnknown,
-} from "@/features/models/settings-write-recovery"
+} from "@/lib/operations/settings-write-recovery"
 import {
   feedbackFromError,
   type FeedbackDescription,
@@ -93,13 +90,35 @@ export function ExtensionEditor({
   const [busy, setBusy] = useState<"save" | "check">()
   const [waiting, setWaiting] = useState(false)
   const [confirmation, setConfirmation] = useState<SettingsConfirmation>()
-  const attempt = useRef<Attempt | null>(retained?.attempt ?? null)
   const request = useRef<AbortController | null>(null)
   const latest = useRef({ enabled, configuration })
   useLayoutEffect(() => {
     latest.current = { enabled, configuration }
   }, [enabled, configuration])
-  const [hasUnresolved, setHasUnresolved] = useState(!!retained)
+  const attempt = useRef<Attempt | null>(retained?.attempt ?? null)
+  const { hasUnresolved, remember, clearAttempt } = useRetainedWrite<
+    ExtensionService,
+    Attempt,
+    Retained
+  >({
+    submitted: attempt,
+    service,
+    recordKey: descriptor.id,
+    records: unresolved,
+    identity: (a) => ({
+      operation: a.operation,
+      operationRequestId: a.operationRequestId,
+      targetId: a.targetId,
+      revision: a.configuration.revision,
+    }),
+    snapshot: (attempt: Attempt, issue) => ({
+      attempt,
+      descriptor: baseline,
+      ...latest.current,
+      issue,
+    }),
+  })
+
   const dirty =
     enabled !== baseline.enabled || configuration !== baseline.configuration
   const pending = hasUnresolved
@@ -120,41 +139,6 @@ export function ExtensionEditor({
   function recoverStorage() {
     if (service.evidence === "demo" || recheckConfigurationRecoveryStore())
       setFailure(undefined)
-  }
-  function remember(current: Attempt, issue: FeedbackDescription) {
-    retainConfigurationAttempt(
-      {
-        operation: current.operation,
-        operationRequestId: current.operationRequestId,
-        targetId: current.targetId,
-        revision: current.configuration.revision,
-      },
-      service.evidence === "demo"
-    )
-    let records = unresolved.get(service)
-    if (!records) {
-      records = new Map()
-      unresolved.set(service, records)
-    }
-    records.set(descriptor.id, {
-      attempt: current,
-      descriptor: baseline,
-      ...latest.current,
-      issue,
-    })
-    setHasUnresolved(true)
-  }
-  function clearAttempt() {
-    const current = attempt.current
-    if (current)
-      finishConfigurationAttempt(
-        current.operation,
-        current.operationRequestId,
-        service.evidence === "demo"
-      )
-    attempt.current = null
-    unresolved.get(service)?.delete(descriptor.id)
-    setHasUnresolved(false)
   }
   const leave = useCallback(
     (action: () => void) => {

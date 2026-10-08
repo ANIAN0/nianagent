@@ -1,12 +1,12 @@
-import type { HomeDraft } from "./home-types"
+import type { ComposerDraft } from "@/lib/composer/types"
 import type { HomeDraftCache } from "@/features/conversation/conversation-draft-store"
 import { feedbackFromError } from "@/lib/operation-issue"
 
-export type RetainedHomeView = { key: number; draft: HomeDraft }
+export type RetainedHomeView = { key: number; draft: ComposerDraft }
 export type RetainedHomeViews = Record<number, RetainedHomeView>
 
 export function hasPreparingHomeMaterials(
-  draft: Partial<HomeDraft> | undefined
+  draft: Partial<ComposerDraft> | undefined
 ) {
   return !!draft?.materials?.some((item) => item.status === "preparing")
 }
@@ -14,7 +14,7 @@ export function hasPreparingHomeMaterials(
 /** Keep the same operation owner until its already-started preparations settle. */
 export function retainPreparingHomeView(
   previous: RetainedHomeViews,
-  draft: HomeDraft,
+  draft: ComposerDraft,
   key: number,
   submitted: boolean,
   activeSelection = false,
@@ -35,7 +35,7 @@ export function retainPreparingHomeView(
 /** A retained hidden owner must never replace another visible Home's cache. */
 export function changeOwnedHomeCache(
   previous: HomeDraftCache,
-  draft: HomeDraft,
+  draft: ComposerDraft,
   key: number
 ) {
   return previous.key === key ? { ...previous, draft } : previous

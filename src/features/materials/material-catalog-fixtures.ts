@@ -1,7 +1,7 @@
 import type {
   MaterialReference,
   MaterialPreview,
-} from "@/features/models/model-contract.generated"
+} from "@/contracts/rpc.generated"
 import type { MaterialService } from "./material-service"
 export const sampleImageData =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgaPj/HwAEggJ/59habAAAAABJRU5ErkJggg=="

@@ -1,6 +1,6 @@
 import { HoverHint } from "@/components/feedback/hover-hint"
 import { Circle, LoaderCircle } from "lucide-react"
-import type { ConversationStatus } from "./home-types"
+import type { ConversationStatus } from "@/lib/composer/types"
 
 export const conversationStatusLabels: Record<ConversationStatus, string> = {
   idle: "空闲",

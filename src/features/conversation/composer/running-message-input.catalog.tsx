@@ -56,7 +56,7 @@ export default {
   ],
   inputs: [
     "运行快照、权威队列及原请求回执。",
-    "当前会话 HomeDraft、现有模型和材料资格。",
+    "当前会话 ComposerDraft、现有模型和材料资格。",
     "固定默认 Enter 排队、Ctrl/Cmd+Enter 补充；现有宿主队列及原操作恢复。",
   ],
   events: [

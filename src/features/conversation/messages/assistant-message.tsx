@@ -34,6 +34,7 @@ export function AssistantMessage({
   return (
     <ConversationTurnView
       turn={{
+        revision: 1,
         id: message.userTurnId ?? message.id,
         historyIndex: message.historyIndex ?? 0,
         messages: [message],

@@ -1,4 +1,5 @@
-import type { HomeData, Material, SubmitWork } from "./home-types"
+import { catalogMaterial } from "@/features/materials/catalog-material"
+import type { ComposerData, Material, SubmitWork } from "@/lib/composer/types"
 export const workspaces = [
   { id: "moon", name: "moon", path: "H:/workspace/moon" },
   { id: "notes", name: "个人笔记", path: "H:/workspace/notes" },
@@ -33,23 +34,23 @@ export const conversations = [
 ]
 export const models = ["GPT-5.6 Terra", "DeepSeek V3.2", "Claude Sonnet 4.5"]
 export const materials: Material[] = [
-  { id: "readme", name: "README.md", kind: "附件" },
-  { id: "design", name: "首页设计.png", kind: "附件" },
-  {
+  catalogMaterial({ id: "readme", name: "README.md", kind: "附件" }),
+  catalogMaterial({ id: "design", name: "首页设计.png", kind: "附件" }),
+  catalogMaterial({
     id: "review",
     name: "代码审查",
     kind: "Skill",
     description: "检查项目调用路径、正确性与边界情况",
-  },
-  {
+  }),
+  catalogMaterial({
     id: "writing",
     name: "文档整理",
     kind: "Skill",
     description: "整理文档结构、术语与引用依据",
-  },
+  }),
 ]
 
-export const homeData: HomeData = {
+export const homeData: ComposerData = {
   workspaces,
   conversations,
   models,

@@ -8,8 +8,7 @@ import { ConnectionFields } from "./connection-fields"
 import { ModelDirectory, DiscoveredModels } from "./model-directory"
 import { ModelEditor } from "./model-editor"
 import { PiAuthorization } from "./pi-authorization"
-import { SubscriptionAuthorization } from "./subscription-authorization"
-import { SettingsConfirmDialog } from "./settings-confirmation"
+import { SettingsConfirmDialog } from "@/components/operations/settings-confirmation"
 import {
   blankModel,
   type ModelConnection,
@@ -17,7 +16,7 @@ import {
   type ModelService,
 } from "./model-types"
 
-export type LeaveGuard = (action: () => void) => void
+import type { LeaveGuard } from "@/lib/navigation/leave-guard"
 export type ConnectionEditorProps = {
   initial: ModelConnection
   connections: ModelConnection[]
@@ -530,7 +529,7 @@ export function ConnectionEditor({
           void action?.()
         }}
       />
-      {oauth && service.auth && (
+      {oauth && (
         <PiAuthorization
           connection={draft}
           service={service}
@@ -540,14 +539,6 @@ export function ConnectionEditor({
             setOauth(false)
             onClose()
           }}
-        />
-      )}
-      {oauth && !service.auth && (
-        <SubscriptionAuthorization
-          name={draft.name}
-          service={service}
-          onComplete={updateAccount}
-          onClose={() => setOauth(false)}
         />
       )}
     </div>

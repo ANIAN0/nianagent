@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react"
 import { notifyComposer } from "@/components/composer/composer-notification"
-import type { ConversationSnapshot } from "@/features/models/model-contract.generated"
+import type { ConversationSnapshot } from "@/contracts/rpc.generated"
 
 /** SDK notifications are transient. Loading history establishes a baseline. */
 export function useConversationNotifications(

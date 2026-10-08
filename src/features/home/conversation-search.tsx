@@ -19,7 +19,7 @@ import {
   InputGroupInput,
   InputGroupButton,
 } from "@/components/ui/input-group"
-import type { Conversation, HomeData } from "./home-types"
+import type { Conversation, ComposerData } from "@/lib/composer/types"
 import { ConversationListFeedback } from "./conversation-list-feedback"
 import { ConversationStatusMark } from "./conversation-status-mark"
 import type { HistoryState } from "@/features/conversation/conversation-catalog-service"
@@ -28,7 +28,7 @@ import { useComposerKeyboard } from "@/components/composer/composer-keymap"
 import type { FeedbackDescription } from "@/lib/operation-issue"
 
 export type ConversationSearchProps = {
-  data: Pick<HomeData, "conversations" | "workspaces">
+  data: Pick<ComposerData, "conversations" | "workspaces">
   open: boolean
   onOpenChange: (open: boolean) => void
   onSelect: (item: Conversation) => void

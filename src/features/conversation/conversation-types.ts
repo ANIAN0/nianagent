@@ -1,8 +1,8 @@
-import type { HomeDraft } from "../home/home-types"
+import type { ComposerDraft } from "@/lib/composer/types"
 import type {
   MaterialReference,
   OperationIssue,
-} from "../models/model-contract.generated"
+} from "@/contracts/rpc.generated"
 
 export type MessageAttachment = {
   id: string
@@ -46,7 +46,7 @@ export type ConversationToolCall = {
   resultTruncated?: boolean
   resultLength?: number
   details?: { diff?: string; patch?: string; firstChangedLine?: number }
-  presentation?: import("../models/model-contract.generated").ExtensionPresentation
+  presentation?: import("@/contracts/rpc.generated").ExtensionPresentation
   images?: MaterialReference[]
   artifact?: {
     path: string
@@ -112,12 +112,12 @@ export type ConversationSession = {
   title: string
   workspaceId: string
   messages: ConversationMessage[]
-  draft: HomeDraft
+  draft: ComposerDraft
   phase: "idle" | "running" | "stopping" | "waiting"
   loadState: "ready" | "loading" | "error"
   error?: string
   connectionMessage?: string
-  queue: { id: string; draft: HomeDraft }[]
+  queue: { id: string; draft: ComposerDraft }[]
   questions?: ConversationQuestion[]
   questionDraft?: QuestionDraft
 }

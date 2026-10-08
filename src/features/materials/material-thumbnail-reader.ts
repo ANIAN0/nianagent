@@ -1,9 +1,9 @@
-import type { MaterialPreview } from "@/features/models/model-contract.generated"
+import type { MaterialPreview } from "@/contracts/rpc.generated"
 
 /** Decode only host-prepared bytes; no remote URL or caller path is accepted. */
 export function readMaterialThumbnail(
   preview: MaterialPreview,
-  signal: AbortSignal,
+  signal: AbortSignal
 ): Promise<string> {
   if (signal.aborted)
     return Promise.reject(new DOMException("Cancelled", "AbortError"))
@@ -53,7 +53,7 @@ export function readMaterialThumbnail(
         finish(undefined, url)
       } catch (error) {
         finish(
-          error instanceof Error ? error : new Error("图片缩略图未能生成。"),
+          error instanceof Error ? error : new Error("图片缩略图未能生成。")
         )
       }
     }

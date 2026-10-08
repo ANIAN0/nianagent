@@ -1,14 +1,14 @@
 import { createContext } from "react"
-import { modelCall } from "@/features/models/model-service"
-import type { ConversationPermission } from "@/features/models/model-contract.generated"
+import { rpcCall } from "@/lib/rpc/client"
+import type { ConversationPermission } from "@/contracts/rpc.generated"
 export const createPermissionService = () => ({
   read: (sessionId: string, signal?: AbortSignal) =>
-    modelCall("conversationPermissionRead", { sessionId }, signal),
+    rpcCall("conversationPermissionRead", { sessionId }, signal),
   set: (
     permission: ConversationPermission,
     mode: ConversationPermission["mode"]
   ) =>
-    modelCall("conversationPermissionSet", {
+    rpcCall("conversationPermissionSet", {
       sessionId: permission.sessionId,
       revision: permission.revision,
       mode,
@@ -19,7 +19,7 @@ export const createPermissionService = () => ({
     runId: string,
     value: string
   ) =>
-    modelCall("conversationApprovalReply", {
+    rpcCall("conversationApprovalReply", {
       sessionId,
       approvalId,
       runId,

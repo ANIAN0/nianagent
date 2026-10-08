@@ -1,8 +1,5 @@
-import {
-  retainConfigurationAttempt,
-  finishConfigurationAttempt,
-  recheckConfigurationRecoveryStore,
-} from "./configuration-recovery-store"
+import { useRetainedWrite } from "@/lib/operations/use-retained-write"
+import { recheckConfigurationRecoveryStore } from "@/lib/operations/configuration-recovery-store"
 import {
   useCallback,
   useEffect,
@@ -14,7 +11,7 @@ import {
   feedbackFromError,
   type FeedbackDescription,
 } from "@/lib/operation-issue"
-import type { SettingsConfirmation } from "./settings-confirmation"
+import type { SettingsConfirmation } from "@/components/operations/settings-confirmation"
 import {
   connectionErrors,
   type ModelConnection,
@@ -25,8 +22,9 @@ import {
   readSettingsWriteReceipt,
   unknownWrite,
   writeIsUnknown,
-} from "./settings-write-recovery"
-import type { LeaveGuard, ConnectionEditorProps } from "./connection-editor"
+} from "@/lib/operations/settings-write-recovery"
+import type { ConnectionEditorProps } from "./connection-editor"
+import type { LeaveGuard } from "@/lib/navigation/leave-guard"
 
 export type ModelCheckState = {
   text: string
@@ -114,12 +112,33 @@ export function useConnectionEditor({
   const [providerLoad, setProviderLoad] = useState(0)
   const form = useRef<HTMLFormElement>(null)
   const request = useRef<AbortController | null>(null)
-  const submitted = useRef<SaveAttempt | null>(retained?.attempt ?? null)
   const latest = useRef({ draft, baseline })
   useLayoutEffect(() => {
     latest.current = { draft, baseline }
   }, [draft, baseline])
-  const [hasUnresolved, setHasUnresolved] = useState(!!retained)
+  const submitted = useRef<SaveAttempt | null>(retained?.attempt ?? null)
+  const { hasUnresolved, remember, clearAttempt } = useRetainedWrite<
+    ModelService,
+    SaveAttempt,
+    RetainedSave
+  >({
+    submitted: submitted,
+    service,
+    recordKey: initial.id,
+    records: retainedSaves,
+    identity: (a) => ({
+      operation: a.operation,
+      operationRequestId: a.operationRequestId,
+      targetId: a.targetId,
+      revision: a.connection.revision,
+    }),
+    snapshot: (attempt: SaveAttempt, issue) => ({
+      attempt,
+      ...structuredClone(latest.current),
+      issue,
+    }),
+  })
+
   const dirty = JSON.stringify(draft) !== JSON.stringify(baseline)
   const errors = attempted ? connectionErrors(draft, connections, testing) : {}
   const active = connections.some((value) => value.id === initial.id)
@@ -156,40 +175,6 @@ export function useConnectionEditor({
   function recoverStorage() {
     if (service.evidence === "demo" || recheckConfigurationRecoveryStore())
       setSaveFailure(undefined)
-  }
-  function remember(attempt: SaveAttempt, issue: FeedbackDescription) {
-    retainConfigurationAttempt(
-      {
-        operation: attempt.operation,
-        operationRequestId: attempt.operationRequestId,
-        targetId: attempt.targetId,
-        revision: attempt.connection.revision,
-      },
-      service.evidence === "demo"
-    )
-    let records = retainedSaves.get(service)
-    if (!records) {
-      records = new Map()
-      retainedSaves.set(service, records)
-    }
-    records.set(initial.id, {
-      attempt,
-      ...structuredClone(latest.current),
-      issue,
-    })
-    setHasUnresolved(true)
-  }
-  function clearAttempt() {
-    const current = submitted.current
-    if (current)
-      finishConfigurationAttempt(
-        current.operation,
-        current.operationRequestId,
-        service.evidence === "demo"
-      )
-    submitted.current = null
-    retainedSaves.get(service)?.delete(initial.id)
-    setHasUnresolved(false)
   }
   useEffect(() => {
     if (!service.providers || draft.kind !== "subscription") return

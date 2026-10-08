@@ -1,4 +1,4 @@
-import type { Material } from "@/features/home/home-types"
+import type { Material } from "@/lib/composer/types"
 
 /** Only a leading command is a command claim; unselected inline tokens are text. */
 export function unresolvedComposerQuery(

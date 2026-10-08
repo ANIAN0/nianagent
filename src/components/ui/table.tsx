@@ -7,7 +7,7 @@ const tableVariants = cva("w-full caption-bottom", {
     variant: {
       default: "text-sm",
       compact:
-        "text-[13px] leading-5 [&_[data-slot=table-head]]:h-8 [&_[data-slot=table-head]]:text-xs [&_[data-slot=table-head]]:leading-[18px] [&_[data-slot=table-head]]:text-muted-foreground [&_[data-slot=table-cell]]:px-2 [&_[data-slot=table-cell]]:py-3 [&_[data-slot=table-cell]]:whitespace-normal [&_[data-slot=table-cell]]:break-words [&_[data-slot=table-cell]:has([role=checkbox])]:pr-2",
+        "text-[13px] leading-5 [&_[data-slot=table-cell]]:px-2 [&_[data-slot=table-cell]]:py-3 [&_[data-slot=table-cell]]:break-words [&_[data-slot=table-cell]]:whitespace-normal [&_[data-slot=table-cell]:has([role=checkbox])]:pr-2 [&_[data-slot=table-head]]:h-8 [&_[data-slot=table-head]]:text-xs [&_[data-slot=table-head]]:leading-[18px] [&_[data-slot=table-head]]:text-muted-foreground",
     },
   },
   defaultVariants: { variant: "default" },
@@ -103,7 +103,8 @@ function TableCell({
       data-variant={variant}
       className={cn(
         "p-2 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0",
-        variant === "secondary" && "text-xs leading-[18px] text-muted-foreground",
+        variant === "secondary" &&
+          "text-xs leading-[18px] text-muted-foreground",
         className
       )}
       {...props}

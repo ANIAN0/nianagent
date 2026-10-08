@@ -1,6 +1,6 @@
 // Captured Pi entry IDs, timestamps (from stable message IDs), tool results and edit diff.
 // Data comes from the approved 2026-10-04 path audit; paths are replaced for an isolated catalog service.
-import type { ConversationChatMessage } from "@/features/models/model-contract.generated"
+import type { ConversationChatMessage } from "@/contracts/rpc.generated"
 
 export const capturedConversationPaths = {
   tenTools: [

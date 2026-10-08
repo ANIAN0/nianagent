@@ -1,7 +1,7 @@
 import { LoaderCircle } from "lucide-react"
 import { OperationFeedback } from "@/components/feedback/operation-feedback"
 import { Button } from "@/components/ui/button"
-import type { ConversationControlOperation } from "@/features/models/model-contract.generated"
+import type { ConversationControlOperation } from "@/contracts/rpc.generated"
 import { feedbackFromError } from "@/lib/operation-issue"
 import type { ConversationControlAction } from "./use-conversation-controls"
 

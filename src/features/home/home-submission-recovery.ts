@@ -1,4 +1,4 @@
-import type { ConversationSnapshot } from "@/features/models/model-contract.generated"
+import type { ConversationSnapshot } from "@/contracts/rpc.generated"
 
 /** Only an authoritative receipt can reject a send; reconciliation itself is read-only. */
 export async function reconcileHomeRequest(

@@ -1,4 +1,4 @@
-import type { ConversationStatus } from "../home/home-types"
+import type { ConversationStatus } from "@/lib/composer/types"
 import type { ConversationSession } from "./conversation-types"
 
 export function conversationReadVersion(session: ConversationSession) {

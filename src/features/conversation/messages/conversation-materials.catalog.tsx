@@ -34,7 +34,8 @@ export default {
       name: "附件尺寸与截断",
       rule: "文件附件宽240px、最小高64px、16px圆角、28px文件图标；单图最长边240px不放大；长名截断但保留完整名称入口（悬停标题）。",
       reason: "材料在消息流中只占必要空间，图片不被拉伸失真。",
-      check: "核对画廊场景文件卡与图片尺寸；长文件名以省略号截断且悬停显示全名。",
+      check:
+        "核对画廊场景文件卡与图片尺寸；长文件名以省略号截断且悬停显示全名。",
     },
     {
       id: "preview-return",
@@ -66,8 +67,13 @@ export default {
       name: "混合材料可预览",
       section: "normal",
       condition: "用户消息带一张图片与一个长名文件，回复已结束。",
-      expected: "图片按最长边240px呈现，文件卡240px宽、28px图标、长名截断；点击附件打开受控预览，标题保留完整文件名、来源可见。",
-      steps: ["打开图片附件核对完整内容", "打开文件附件核对标题与来源", "关闭预览回到原消息"],
+      expected:
+        "图片按最长边240px呈现，文件卡240px宽、28px图标、长名截断；点击附件打开受控预览，标题保留完整文件名、来源可见。",
+      steps: [
+        "打开图片附件核对完整内容",
+        "打开文件附件核对标题与来源",
+        "关闭预览回到原消息",
+      ],
       knownIssue:
         "隔离材料服务不返回文件正文，文件预览如实显示来源与无法读取状态；原文读取在正式服务连接时可用。",
       render: () => <ConversationReadingExample scenario="materials-gallery" />,
@@ -77,17 +83,29 @@ export default {
       name: "材料不可读保留来源",
       section: "exception",
       condition: "历史材料的源文件已移走，图片无法解码、文件内容缺失。",
-      expected: "图片显示失败占位与原因，文件卡不含伪造正文，两者都保留来源路径；其余消息不受影响。",
-      steps: ["核对图片失败态与来源", "核对文件卡来源与原因", "确认回复正文说明可用动作"],
-      render: () => <ConversationReadingExample scenario="materials-unreadable" />,
+      expected:
+        "图片显示失败占位与原因，文件卡不含伪造正文，两者都保留来源路径；其余消息不受影响。",
+      steps: [
+        "核对图片失败态与来源",
+        "核对文件卡来源与原因",
+        "确认回复正文说明可用动作",
+      ],
+      render: () => (
+        <ConversationReadingExample scenario="materials-unreadable" />
+      ),
     },
     {
       id: "materials-mixed",
       name: "混合材料与长名截断",
       section: "states",
       condition: "一条消息同时有图片与超长文件名，宽窄窗口下依次查看。",
-      expected: "长名以省略号截断但悬停保留完整名称入口；图片不被放大；关闭预览后回到原消息。",
-      steps: ["悬停文件卡核对完整名称", "核对图片最长边240px不放大", "关闭预览回到原消息"],
+      expected:
+        "长名以省略号截断但悬停保留完整名称入口；图片不被放大；关闭预览后回到原消息。",
+      steps: [
+        "悬停文件卡核对完整名称",
+        "核对图片最长边240px不放大",
+        "关闭预览回到原消息",
+      ],
       render: () => <ConversationReadingExample scenario="materials-gallery" />,
     },
   ],

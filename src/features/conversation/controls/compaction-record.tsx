@@ -1,8 +1,12 @@
-import type { ConversationCompaction } from "@/features/models/model-contract.generated"
+import type { ConversationCompaction } from "@/contracts/rpc.generated"
 import { MarkdownContent } from "../messages/markdown-content"
 import { CompactionRow } from "./compaction-row"
 
-export function CompactionRecord({ record }: { record: ConversationCompaction }) {
+export function CompactionRecord({
+  record,
+}: {
+  record: ConversationCompaction
+}) {
   const expandable = !!record.summary
   return (
     <CompactionRow

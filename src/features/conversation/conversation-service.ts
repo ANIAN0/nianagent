@@ -1,8 +1,8 @@
-import { modelCall } from "@/features/models/model-service"
+import { rpcCall } from "@/lib/rpc/client"
 import type {
   RpcRequests,
   ConversationSnapshot,
-} from "@/features/models/model-contract.generated"
+} from "@/contracts/rpc.generated"
 
 export function createConversationService() {
   return {
@@ -11,7 +11,7 @@ export function createConversationService() {
       operationRequestId: string,
       signal?: AbortSignal
     ) =>
-      modelCall(
+      rpcCall(
         "conversationQueueReceiptRead",
         { sessionId, operationRequestId },
         signal
@@ -21,19 +21,19 @@ export function createConversationService() {
       clientRequestId: string,
       signal?: AbortSignal
     ) =>
-      modelCall(
+      rpcCall(
         "conversationReceiptRead",
         { sessionId, clientRequestId },
         signal
       ),
     read: (sessionId: string, signal?: AbortSignal) =>
-      modelCall("conversationRead", { sessionId }, signal),
+      rpcCall("conversationRead", { sessionId }, signal),
     follow: async (
       sessionId: string,
       previous?: ConversationSnapshot,
       signal?: AbortSignal
     ) => {
-      const frame = await modelCall(
+      const frame = await rpcCall(
         "conversationFollow",
         {
           sessionId,
@@ -63,22 +63,22 @@ export function createConversationService() {
             messages: frame.order.map((id) => messages.get(id)!),
           }
       }
-      return modelCall("conversationRead", { sessionId }, signal)
+      return rpcCall("conversationRead", { sessionId }, signal)
     },
     send: (input: RpcRequests["conversationSend"], signal?: AbortSignal) =>
-      modelCall("conversationSend", input, signal),
+      rpcCall("conversationSend", input, signal),
     stop: (sessionId: string, runId: string) =>
-      modelCall("conversationStop", { sessionId, runId }),
+      rpcCall("conversationStop", { sessionId, runId }),
     retry: (input: RpcRequests["conversationRetry"]) =>
-      modelCall("conversationRetry", input),
+      rpcCall("conversationRetry", input),
     queueEdit: (input: RpcRequests["conversationQueueEdit"]) =>
-      modelCall("conversationQueueEdit", input),
+      rpcCall("conversationQueueEdit", input),
     queueRemove: (input: RpcRequests["conversationQueueRemove"]) =>
-      modelCall("conversationQueueRemove", input),
+      rpcCall("conversationQueueRemove", input),
     queueMode: (input: RpcRequests["conversationQueueMode"]) =>
-      modelCall("conversationQueueMode", input),
+      rpcCall("conversationQueueMode", input),
     queueDeliver: (input: RpcRequests["conversationQueueDeliver"]) =>
-      modelCall("conversationQueueDeliver", input),
+      rpcCall("conversationQueueDeliver", input),
   }
 }
 export type ConversationService = ReturnType<typeof createConversationService>

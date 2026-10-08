@@ -4,7 +4,7 @@ import type {
   ModelService,
   AuthState,
 } from "./model-types"
-import type { WriteReceipt, OperationIssue } from "./model-contract.generated"
+import type { WriteReceipt, OperationIssue } from "@/contracts/rpc.generated"
 import { connectionIssue, connectionErrors } from "./model-types"
 
 const model = (
@@ -606,19 +606,6 @@ export function createMockModelService(
         }
         return structuredClone(saved)
       },
-    },
-    async authorize(signal, response) {
-      await operation("authorize", signal)
-      if (!response?.confirmation) return { kind: "prompt" }
-      if (!response.scope) return { kind: "select" }
-      return {
-        kind: "complete",
-        account: {
-          name: "demo@example.invalid",
-          plan: "演示订阅",
-          loggedIn: true,
-        },
-      }
     },
   }
   return service

@@ -1,11 +1,11 @@
 import { homeData } from "../home/mock-data"
-import type { HomeDraft } from "../home/home-types"
+import type { ComposerDraft } from "@/lib/composer/types"
 import type {
   ConversationMessage,
   ConversationSession,
 } from "./conversation-types"
 
-export function emptyDraft(workspaceId = "moon"): HomeDraft {
+export function emptyDraft(workspaceId = "moon"): ComposerDraft {
   return {
     workspaceId,
     text: "",
@@ -116,11 +116,11 @@ const homeMessages = [
         read(
           "home-read-1",
           "src/features/home/home-composer.tsx",
-          "示例：输入与材料保存在 HomeDraft，发送前统一读取最新草稿。"
+          "示例：输入与材料保存在 ComposerDraft，发送前统一读取最新草稿。"
         ),
         read(
           "home-read-2",
-          "src/features/home/session-config.tsx",
+          "src/components/composer/session-config.tsx",
           "示例：面板维护候选工具列表，应用时提交，取消时丢弃。"
         ),
       ],
@@ -166,7 +166,7 @@ src/
       messages/                 # 消息、附件、执行过程
       composer/                 # 草稿、排队消息、问题表单
       conversation-page.tsx     # 阅读区与输入区布局
-      use-conversations.ts      # 会话状态与模拟服务
+      conversation-service.ts # 正式会话服务接口
   lib/                          # 与 UI 无关的共享函数
 \`\`\`
 

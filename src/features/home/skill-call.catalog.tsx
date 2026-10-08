@@ -47,7 +47,7 @@ export default {
   ],
   inputs: [
     "MaterialCatalog.skills 的名称、用途与搜索文本，仅用于候选",
-    "普通 /skill:name 与原文参数；HomeDraft 的非 Skill 材料保留",
+    "普通 /skill:name 与原文参数；ComposerDraft 的非 Skill 材料保留",
     "原命令校验、文件图片准备和模型兼容规则保持现有行为",
   ],
   events: [

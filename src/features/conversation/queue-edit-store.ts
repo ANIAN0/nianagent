@@ -1,10 +1,10 @@
-import type { HomeDraft } from "@/features/home/home-types"
+import type { ComposerDraft } from "@/lib/composer/types"
 import type { FeedbackDescription } from "@/lib/operation-issue"
 
 export type QueueEditSubmission = {
   /** Stable clientEditId sent to the host; a shared CAS revision alone is not a receipt. */
   token: string
-  draft: HomeDraft
+  draft: ComposerDraft
   revision?: number
   acknowledged?: boolean
 }
@@ -12,8 +12,8 @@ export type QueueEditRecord = {
   sessionId: string
   id: string
   revision?: number
-  draft: HomeDraft
-  originalDraft: HomeDraft
+  draft: ComposerDraft
+  originalDraft: ComposerDraft
   originalStatus?: "pending" | "dispatching" | "failed"
   submitted?: QueueEditSubmission
   issue?: FeedbackDescription
@@ -103,7 +103,7 @@ export function releaseQueueEditOwner(sessionId: string) {
   storageIssues.delete(sessionId)
   snapshots.delete(sessionId)
 }
-function copyDraft(value: HomeDraft): HomeDraft {
+function copyDraft(value: ComposerDraft): ComposerDraft {
   return {
     ...value,
     materials: value.materials.map((material) => {
@@ -113,7 +113,7 @@ function copyDraft(value: HomeDraft): HomeDraft {
     }),
   }
 }
-export function queueEditSignature(draft: HomeDraft) {
+export function queueEditSignature(draft: ComposerDraft) {
   return JSON.stringify([
     draft.text.trim(),
     draft.materials.map(({ id, type, source, status }) => [
@@ -124,9 +124,9 @@ export function queueEditSignature(draft: HomeDraft) {
     ]),
   ])
 }
-function validDraft(value: unknown): value is HomeDraft {
+function validDraft(value: unknown): value is ComposerDraft {
   if (!value || typeof value !== "object") return false
-  const draft = value as Partial<HomeDraft>
+  const draft = value as Partial<ComposerDraft>
   return (
     typeof draft.text === "string" &&
     typeof draft.model === "string" &&

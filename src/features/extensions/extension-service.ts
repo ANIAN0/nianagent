@@ -1,12 +1,12 @@
 import { createContext } from "react"
-import { modelCall } from "@/features/models/model-service"
+import { rpcCall } from "@/lib/rpc/client"
 import type {
   ExtensionDescriptor,
   RpcRequests,
   WriteReceipt,
-} from "@/features/models/model-contract.generated"
+} from "@/contracts/rpc.generated"
 
-export type { ExtensionDescriptor } from "@/features/models/model-contract.generated"
+export type { ExtensionDescriptor } from "@/contracts/rpc.generated"
 export type ExtensionConfiguration = Omit<
   RpcRequests["extensionConfigure"],
   "operationRequestId"
@@ -34,9 +34,9 @@ export const ExtensionServiceContext = createContext<ExtensionService | null>(
 /** The same formal transport and operation identity as other application configuration. */
 export function createExtensionService(): ExtensionService {
   return {
-    list: (signal) => modelCall("extensionList", {}, signal),
+    list: (signal) => rpcCall("extensionList", {}, signal),
     configure: (value, signal, operationRequestId) =>
-      modelCall(
+      rpcCall(
         "extensionConfigure",
         {
           ...value,
@@ -45,6 +45,6 @@ export function createExtensionService(): ExtensionService {
         signal
       ),
     readWriteReceipt: (operation, operationRequestId, signal) =>
-      modelCall("writeReceiptRead", { operation, operationRequestId }, signal),
+      rpcCall("writeReceiptRead", { operation, operationRequestId }, signal),
   }
 }

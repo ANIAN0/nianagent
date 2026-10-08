@@ -1,5 +1,5 @@
-import type { ConversationSnapshot } from "@/features/models/model-contract.generated"
-import type { OperationIssue } from "@/features/models/model-contract.generated"
+import type { ConversationSnapshot } from "@/contracts/rpc.generated"
+import type { OperationIssue } from "@/contracts/rpc.generated"
 import type { ConversationService } from "./conversation-service"
 
 export type ConversationReceipt = {

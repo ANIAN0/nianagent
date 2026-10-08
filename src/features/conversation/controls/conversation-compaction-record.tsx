@@ -1,4 +1,4 @@
-import type { ConversationCompaction } from "@/features/models/model-contract.generated"
+import type { ConversationCompaction } from "@/contracts/rpc.generated"
 import { CompactionRecord } from "./compaction-record"
 
 export function ConversationCompactionRecord({

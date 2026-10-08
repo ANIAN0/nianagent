@@ -1,9 +1,9 @@
 import { useContext, useEffect, useState } from "react"
-import type { Material } from "@/features/home/home-types"
+import type { Material } from "@/lib/composer/types"
 import type {
   ConversationCommand,
   MaterialDiagnostic,
-} from "@/features/models/model-contract.generated"
+} from "@/contracts/rpc.generated"
 import { MaterialServiceContext } from "./material-service"
 import {
   feedbackFromError,

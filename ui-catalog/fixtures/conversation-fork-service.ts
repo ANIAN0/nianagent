@@ -5,15 +5,15 @@ import type { PermissionService } from "@/features/conversation/permissions/perm
 import type { SessionService } from "@/features/session/session-service"
 import type { MaterialService } from "@/features/materials/material-service"
 import type { ExtensionService } from "@/features/extensions/extension-service"
-import { RpcRequestRejected } from "@/features/models/model-service"
+import { RpcRequestRejected } from "@/lib/rpc/client"
 import type {
   ConversationChatMessage,
   ConversationControlOperation,
   ConversationSnapshot,
   SessionCatalog,
   SessionConfiguration,
-} from "@/features/models/model-contract.generated"
-import type { HomeDraft } from "@/features/home/home-types"
+} from "@/contracts/rpc.generated"
+import type { ComposerDraft } from "@/lib/composer/types"
 
 export type ForkScenario =
   | "fork-created"
@@ -463,7 +463,7 @@ export function createForkEnvironment(scenario: ForkScenario) {
     run: rejectExecution,
     read: rejectExecution,
   }
-  const draftFor = (sessionId: string): HomeDraft => ({
+  const draftFor = (sessionId: string): ComposerDraft => ({
     sessionId,
     workspaceId,
     text: "",

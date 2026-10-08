@@ -1,5 +1,5 @@
-import { ConfigurationRecoveryPanel } from "@/features/models/configuration-recovery-panel"
-import { useConfigurationRecoveries } from "@/features/models/configuration-recovery-store"
+import { ConfigurationRecoveryPanel } from "@/components/operations/configuration-recovery-panel"
+import { useConfigurationRecoveries } from "@/lib/operations/configuration-recovery-store"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Puzzle } from "lucide-react"
 import { Button } from "@/components/ui/button"

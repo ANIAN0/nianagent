@@ -4,6 +4,7 @@ import type {
 } from "./conversation-types"
 
 export interface ProjectedConversationTurn {
+  revision: number
   id: string
   user?: ConversationMessage
   messages: ConversationMessage[]
@@ -18,9 +19,10 @@ export interface ProjectedConversationTurn {
 /** A Pi assistant entry is a step. Only a user input starts a visible turn. */
 export function projectConversationTurns(
   messages: readonly ConversationMessage[],
+  previous: readonly ProjectedConversationTurn[] = []
 ): ProjectedConversationTurn[] {
   const ordered = messages.every(
-    (message) => message.historyIndex !== undefined,
+    (message) => message.historyIndex !== undefined
   )
     ? [...messages].sort((a, b) => a.historyIndex! - b.historyIndex!)
     : [...messages]
@@ -29,14 +31,15 @@ export function projectConversationTurns(
     ordered.flatMap((message) =>
       message.inputKind === "continuation" && message.continuationOf
         ? [message.continuationOf]
-        : [],
-    ),
+        : []
+    )
   )
   const byUser = new Map<string, ProjectedConversationTurn>()
   let current: ProjectedConversationTurn | undefined
   ordered.forEach((message, index) => {
     if (message.role === "user") {
       current = {
+        revision: 1,
         id: message.userTurnId || message.id,
         user: message,
         messages: [],
@@ -51,6 +54,7 @@ export function projectConversationTurns(
     if (turn) turn.messages.push(message)
     else {
       current = {
+        revision: 1,
         id: message.userTurnId || `history-${message.id}`,
         messages: [message],
         historyIndex: message.historyIndex ?? index,
@@ -59,7 +63,19 @@ export function projectConversationTurns(
       byUser.set(current.id, current)
     }
   })
+  const previousTurns = new Map(previous.map((turn) => [turn.id, turn]))
   return turns.map((turn) => {
+    const prior = previousTurns.get(turn.id)
+    // 增量传输保持消息引用；未改变的轮次复用分析结果和 revision。
+    if (
+      prior &&
+      prior.user === turn.user &&
+      prior.historyIndex === turn.historyIndex &&
+      prior.continued === continued.has(turn.id) &&
+      prior.messages.length === turn.messages.length &&
+      prior.messages.every((message, index) => message === turn.messages[index])
+    )
+      return prior
     const tail = turn.messages.at(-1)
     const completedRuns = new Set<string>()
     const recoveredAttemptIds = new Set<string>()
@@ -84,6 +100,7 @@ export function projectConversationTurns(
     }
     return {
       ...turn,
+      revision: (prior?.revision ?? 0) + 1,
       tail,
       response:
         tail && tail.stopReason !== "toolUse" ? messageText(tail) : undefined,
@@ -93,8 +110,17 @@ export function projectConversationTurns(
   })
 }
 
+/** 缓存仅保留当前分支，随页面 owner 释放；历史数据继续来自宿主。 */
+export function createConversationTurnProjector() {
+  let previous: ProjectedConversationTurn[] = []
+  return (messages: readonly ConversationMessage[]) => {
+    previous = projectConversationTurns(messages, previous)
+    return previous
+  }
+}
+
 export function messageBlocks(
-  message: ConversationMessage,
+  message: ConversationMessage
 ): ConversationContentBlock[] {
   if (message.blocks?.length) return message.blocks
   // Compatibility is only for existing catalogs/history. New DTO blocks are

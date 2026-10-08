@@ -53,7 +53,10 @@ export default {
       name: "紧凑筛选字段",
       section: "states",
       condition: "显式variant=compact，用于32px筛选栏；默认规格不变。",
-      steps: ["在390px与常规视口输入搜索词。", "检查14px/20px文字与32px高度、聚焦和选择文字。"],
+      steps: [
+        "在390px与常规视口输入搜索词。",
+        "检查14px/20px文字与32px高度、聚焦和选择文字。",
+      ],
       expected: "紧凑字号在不同视口保持一致，输入行为与default相同。",
       render: () => <BasicControlExample kind="input" mode="compact" />,
     },

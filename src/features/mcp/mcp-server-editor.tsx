@@ -21,8 +21,8 @@ import {
 } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
-import { SettingsConfirmDialog } from "@/features/models/settings-confirmation"
-import type { LeaveGuard } from "@/features/models/connection-editor"
+import { SettingsConfirmDialog } from "@/components/operations/settings-confirmation"
+import type { LeaveGuard } from "@/lib/navigation/leave-guard"
 import { McpTransportFields } from "./mcp-transport-fields"
 import { McpTestResult } from "./mcp-test-result"
 import {

@@ -28,7 +28,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog"
-import { SettingsConfirmDialog } from "./settings-confirmation"
+import { SettingsConfirmDialog } from "@/components/operations/settings-confirmation"
 import { thinkingLevels, thinkingNames } from "./model-types"
 import { modelErrors, type ModelDefinition, type ModelApi } from "./model-types"
 

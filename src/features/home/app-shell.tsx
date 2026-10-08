@@ -11,9 +11,9 @@ import {
 } from "@/components/ui/dialog"
 import { HomeSidebar } from "./home-sidebar"
 import { ConversationSearch } from "./conversation-search"
-import type { HomeData, Conversation } from "./home-types"
+import type { ComposerData, Conversation } from "@/lib/composer/types"
 import type { HistoryState } from "@/features/conversation/conversation-catalog-service"
-import { useNavigationBoundary } from "./navigation-boundary"
+import { useNavigationBoundary } from "@/lib/navigation/navigation-boundary"
 
 export function AppShell({
   data,
@@ -27,7 +27,7 @@ export function AppShell({
   onHistoryRetry,
   children,
 }: {
-  data: HomeData
+  data: ComposerData
   activeConversationId?: string
   onNew: (workspaceId?: string) => void
   onSelectConversation: (conversation: Conversation) => void

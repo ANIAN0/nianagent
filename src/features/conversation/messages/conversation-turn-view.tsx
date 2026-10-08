@@ -18,7 +18,7 @@ import { ToolCall } from "./tool-call"
 import { ExecutionProcess } from "./execution-process"
 import { MessageAttachments } from "./message-attachments"
 import { MessageActions } from "./message-actions"
-import type { ConversationStatistics } from "@/features/models/model-contract.generated"
+import type { ConversationStatistics } from "@/contracts/rpc.generated"
 import { useMessageEnvironment } from "./message-environment"
 
 export interface ConversationTurnRecord {

@@ -6,11 +6,11 @@ import { cn } from "@/lib/utils"
 import { PrimaryNavigation } from "./primary-navigation"
 import { ConversationHistory } from "./conversation-history"
 import { UserMenu } from "./user-menu"
-import type { HomeData, Conversation } from "./home-types"
+import type { ComposerData, Conversation } from "@/lib/composer/types"
 import type { HistoryState } from "@/features/conversation/conversation-catalog-service"
 
 export type HomeSidebarProps = {
-  data: Pick<HomeData, "conversations" | "workspaces">
+  data: Pick<ComposerData, "conversations" | "workspaces">
   activeConversationId?: string
   onSelectConversation?: (conversation: Conversation) => void
   collapsed?: boolean

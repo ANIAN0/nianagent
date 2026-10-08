@@ -1,8 +1,5 @@
-import {
-  retainConfigurationAttempt,
-  finishConfigurationAttempt,
-  recheckConfigurationRecoveryStore,
-} from "@/features/models/configuration-recovery-store"
+import { useRetainedWrite } from "@/lib/operations/use-retained-write"
+import { recheckConfigurationRecoveryStore } from "@/lib/operations/configuration-recovery-store"
 import {
   useCallback,
   useEffect,
@@ -15,9 +12,9 @@ import {
   readSettingsWriteReceipt,
   unknownWrite,
   writeIsUnknown,
-} from "@/features/models/settings-write-recovery"
-import type { SettingsConfirmation } from "@/features/models/settings-confirmation"
-import type { LeaveGuard } from "@/features/models/connection-editor"
+} from "@/lib/operations/settings-write-recovery"
+import type { SettingsConfirmation } from "@/components/operations/settings-confirmation"
+import type { LeaveGuard } from "@/lib/navigation/leave-guard"
 import {
   blankMcpConfiguration,
   type McpConfiguration,
@@ -82,53 +79,37 @@ export function useMcpEditor({
   const [waitingToLeave, setWaitingToLeave] = useState(false)
   const [confirm, setConfirm] = useState<SettingsConfirmation>()
   const controller = useRef<AbortController | null>(null)
-  const submitted = useRef<SaveAttempt | null>(retained?.attempt ?? null)
   const latestBaseline = useRef({ original, revision })
   useLayoutEffect(() => {
     latestBaseline.current = { original, revision }
   }, [original, revision])
-  const [hasUnresolved, setHasUnresolved] = useState(!!retained)
-  function recoverStorage() {
-    if (service.evidence === "demo" || recheckConfigurationRecoveryStore())
-      setSaveFailure(undefined)
-  }
-  function remember(
-    attempt: SaveAttempt,
-    issue: ReturnType<typeof feedbackFromError>
-  ) {
-    retainConfigurationAttempt(
-      {
-        operation: attempt.operation,
-        operationRequestId: attempt.operationRequestId,
-        targetId: attempt.targetId,
-        revision: attempt.revision,
-      },
-      service.evidence === "demo"
-    )
-    let records = retainedSaves.get(service)
-    if (!records) {
-      records = new Map()
-      retainedSaves.set(service, records)
-    }
-    records.set(recordKey, {
+  const submitted = useRef<SaveAttempt | null>(retained?.attempt ?? null)
+  const { hasUnresolved, remember, clearAttempt } = useRetainedWrite<
+    McpService,
+    SaveAttempt,
+    RetainedSave
+  >({
+    submitted: submitted,
+    service,
+    recordKey,
+    records: retainedSaves,
+    identity: (a) => ({
+      operation: a.operation,
+      operationRequestId: a.operationRequestId,
+      targetId: a.targetId,
+      revision: a.revision,
+    }),
+    snapshot: (attempt: SaveAttempt, issue) => ({
       attempt,
       value: structuredClone(latestValue.current),
       ...latestBaseline.current,
       issue,
-    })
-    setHasUnresolved(true)
-  }
-  function clearAttempt() {
-    const current = submitted.current
-    if (current)
-      finishConfigurationAttempt(
-        current.operation,
-        current.operationRequestId,
-        service.evidence === "demo"
-      )
-    submitted.current = null
-    retainedSaves.get(service)?.delete(recordKey)
-    setHasUnresolved(false)
+    }),
+  })
+
+  function recoverStorage() {
+    if (service.evidence === "demo" || recheckConfigurationRecoveryStore())
+      setSaveFailure(undefined)
   }
   const validName = /^[a-zA-Z0-9_-]{1,64}$/.test(value.name)
   const validTimeout =

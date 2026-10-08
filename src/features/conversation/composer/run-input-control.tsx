@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button"
 import {
   useComposerPanel,
   useComposerPanelCloseAutoFocus,
-} from "@/features/home/composer-panel-context"
+} from "@/components/composer/composer-panel-context"
 import {
   DropdownMenu,
   DropdownMenuTrigger,

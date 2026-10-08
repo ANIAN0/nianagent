@@ -5,10 +5,7 @@ import type { PermissionService } from "@/features/conversation/permissions/perm
 import type { SessionService } from "@/features/session/session-service"
 import type { MaterialService } from "@/features/materials/material-service"
 import type { ExtensionService } from "@/features/extensions/extension-service"
-import {
-  RpcRequestRejected,
-  RpcTransportError,
-} from "@/features/models/model-service"
+import { RpcRequestRejected, RpcTransportError } from "@/lib/rpc/client"
 import type {
   ConversationApproval,
   ConversationChatMessage,
@@ -21,8 +18,8 @@ import type {
   RpcRequests,
   SessionCatalog,
   SessionConfiguration,
-} from "@/features/models/model-contract.generated"
-import type { HomeDraft } from "@/features/home/home-types"
+} from "@/contracts/rpc.generated"
+import type { ComposerDraft } from "@/lib/composer/types"
 import { createExtensionFixtureService } from "./extensions"
 
 export type ConversationPageScenario =
@@ -1664,7 +1661,7 @@ export function createConversationPageEnvironment(
       return structuredClone(operation)
     },
   }
-  const draftFor = (sessionId: string): HomeDraft => ({
+  const draftFor = (sessionId: string): ComposerDraft => ({
     sessionId,
     workspaceId,
     text: "",

@@ -1,14 +1,14 @@
-import { modelCall } from "@/features/models/model-service"
+import { rpcCall } from "@/lib/rpc/client"
 export function createConversationControlService() {
   return {
     compact: (sessionId: string, operationId: string, focus: string) =>
-      modelCall("conversationCompact", { sessionId, operationId, focus }),
+      rpcCall("conversationCompact", { sessionId, operationId, focus }),
     read: (sessionId: string, operationId: string, signal?: AbortSignal) =>
-      modelCall("conversationControlRead", { sessionId, operationId }, signal),
+      rpcCall("conversationControlRead", { sessionId, operationId }, signal),
     cancel: (sessionId: string, operationId: string) =>
-      modelCall("conversationCompactCancel", { sessionId, operationId }),
+      rpcCall("conversationCompactCancel", { sessionId, operationId }),
     fork: (sessionId: string, operationId: string, entryId: string) =>
-      modelCall("conversationFork", { sessionId, operationId, entryId }),
+      rpcCall("conversationFork", { sessionId, operationId, entryId }),
   }
 }
 export type ConversationControlService = ReturnType<

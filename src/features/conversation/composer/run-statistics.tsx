@@ -6,11 +6,11 @@ import {
   PopoverContent,
 } from "@/components/ui/popover"
 import { Separator } from "@/components/ui/separator"
-import type { ConversationStatistics } from "@/features/models/model-contract.generated"
+import type { ConversationStatistics } from "@/contracts/rpc.generated"
 import {
   useComposerPanel,
   useComposerPanelCloseAutoFocus,
-} from "@/features/home/composer-panel-context"
+} from "@/components/composer/composer-panel-context"
 import "./composer.css"
 
 const valid = (value?: number): value is number =>

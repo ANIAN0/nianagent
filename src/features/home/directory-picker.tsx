@@ -16,7 +16,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog"
-import type { Workspace } from "./home-types"
+import type { Workspace } from "@/lib/composer/types"
 export type DirectoryPickerProps = {
   allowCreate?: boolean
   open: boolean

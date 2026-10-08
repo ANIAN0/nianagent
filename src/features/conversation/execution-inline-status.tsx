@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { Timer } from "lucide-react"
 import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker"
-import type { ConversationSnapshot } from "@/features/models/model-contract.generated"
+import type { ConversationSnapshot } from "@/contracts/rpc.generated"
 import "./execution-inline-status.css"
 
 function RetryWait({ deadline }: { deadline?: number }) {
@@ -47,7 +47,11 @@ export function ExecutionInlineStatus({
         <Timer />
       </MarkerIcon>
       <MarkerContent>
-        <div className="execution-inline-retry-heading" role="status" aria-atomic="true">
+        <div
+          className="execution-inline-retry-heading"
+          role="status"
+          aria-atomic="true"
+        >
           <strong>
             {runtime.retrySource === "compaction"
               ? "等待重试上下文压缩"

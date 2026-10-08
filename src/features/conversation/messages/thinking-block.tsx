@@ -23,7 +23,7 @@ export function ThinkingBlock({
   const [open, setOpen] = useMessageDisclosure(
     occurrenceId,
     "thinking",
-    defaultOpen,
+    defaultOpen
   )
   const summary = thinkingSummary(text, running)
   if (!text.trim()) return null

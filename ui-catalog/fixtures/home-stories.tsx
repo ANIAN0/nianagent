@@ -10,7 +10,11 @@ import {
   type HomeComposerProps,
 } from "@/features/home/home-composer"
 import { ConversationComposer } from "@/features/conversation/composer/conversation-composer"
-import type { HomeData, HomeDraft, Material } from "@/features/home/home-types"
+import type {
+  ComposerData,
+  ComposerDraft,
+  Material,
+} from "@/lib/composer/types"
 import type {
   HomeDraftStore,
   HomeSubmission,
@@ -39,7 +43,7 @@ import type {
   SessionCatalog,
   SessionConfiguration,
   ConversationPermission,
-} from "@/features/models/model-contract.generated"
+} from "@/contracts/rpc.generated"
 import { Button } from "@/components/ui/button"
 import { sortMaterialCatalogFiles } from "../../backend/material-catalog-sort.mjs"
 import { createExtensionFixtureService } from "./extensions"
@@ -276,8 +280,8 @@ function createEnvironment(mode: HomeScenario) {
   let released = false
   const listeners = new Set<() => void>()
   const events: { operation: string; data: unknown }[] = []
-  const submissions: HomeDraft[] = []
-  const drafts = new Map<string, Partial<HomeDraft>>()
+  const submissions: ComposerDraft[] = []
+  const drafts = new Map<string, Partial<ComposerDraft>>()
   const configurations = new Map<string, SessionConfiguration>()
   const permissions = new Map<string, ConversationPermission>()
   const references = new Map<string, MaterialReference>()
@@ -304,7 +308,7 @@ function createEnvironment(mode: HomeScenario) {
       : tools
   let toolCatalogRevision = 0
   let instructionDiskRevision = 0
-  let unconfirmedDraft: HomeDraft | undefined
+  let unconfirmedDraft: ComposerDraft | undefined
   let recoverySubmission: HomeSubmission | undefined
   let recoveryMetadata: HomeDraftRecovery | undefined
   let recoveryPhase: "editing" | "captured" | "delivered" = "editing"
@@ -973,7 +977,10 @@ function createEnvironment(mode: HomeScenario) {
       record("dialog.preview.decode-failure-armed")
     },
     record,
-    prepareSubmission: (submission: HomeSubmission, following: HomeDraft) => {
+    prepareSubmission: (
+      submission: HomeSubmission,
+      following: ComposerDraft
+    ) => {
       // Capture the actual immutable Home copy, including its request identity.
       recoverySubmission ??= structuredClone(submission)
       draftStore.write(submission.originalDraft ?? submission.draft)
@@ -1058,7 +1065,7 @@ function createEnvironment(mode: HomeScenario) {
       record("workspace.select", { id })
       await delay(signal)
     },
-    submit: async (draft: HomeDraft, signal?: AbortSignal) => {
+    submit: async (draft: ComposerDraft, signal?: AbortSignal) => {
       record("home.submit", draft)
       if (mode === "send-recovery-pending" && !failures.has("recovery-send")) {
         await wait(signal)
@@ -1118,7 +1125,7 @@ function createEnvironment(mode: HomeScenario) {
         )
       ),
     seedLegacySkillDraft: (): Pick<
-      HomeDraft,
+      ComposerDraft,
       "text" | "model" | "materials"
     > => ({
       text: "/skill:review 检查原稿参数 @README.md 句内 /skill:plan 保留文字。",
@@ -1251,7 +1258,7 @@ export function HomeStoryExample({
   const scenarioTools = environment.tools
   const data = useMemo<
     Pick<
-      HomeData,
+      ComposerData,
       | "workspaces"
       | "models"
       | "modelLabels"
@@ -1354,18 +1361,20 @@ export function HomeStoryExample({
       tools: scenarioTools,
     }
   }, [environment, modelStatus, modelLoadingReleased, scenario, scenarioTools])
-  const [conversationDraft, setConversationDraft] = useState<HomeDraft>(() => ({
-    workspaceId: workspaces[0]!.id,
-    sessionId: seed.sessionId,
-    text: "",
-    materials: [],
-    model: "deepseek/demo",
-    thinking: "high",
-    session: {
-      toolIds: tools.map((tool) => tool.id),
-      instructionScope: "all",
-    },
-  }))
+  const [conversationDraft, setConversationDraft] = useState<ComposerDraft>(
+    () => ({
+      workspaceId: workspaces[0]!.id,
+      sessionId: seed.sessionId,
+      text: "",
+      materials: [],
+      model: "deepseek/demo",
+      thinking: "high",
+      session: {
+        toolIds: tools.map((tool) => tool.id),
+        instructionScope: "all",
+      },
+    })
+  )
   return (
     <SessionServiceContext value={environment.session}>
       <PermissionServiceContext value={environment.permission}>

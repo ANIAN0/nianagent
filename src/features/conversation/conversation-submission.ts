@@ -1,4 +1,4 @@
-import type { HomeDraft } from "@/features/home/home-types"
+import type { ComposerDraft } from "@/lib/composer/types"
 import { sameMaterial } from "@/features/materials/material-service"
 import {
   draftSignature,
@@ -12,7 +12,7 @@ export type ConversationSubmissionEchoValue = {
   id: string
   stage?: "prepared" | "sending"
 } & (
-  | { kind: "send"; draft: HomeDraft; placement?: "transcript" | "queued" }
+  | { kind: "send"; draft: ComposerDraft; placement?: "transcript" | "queued" }
   | { kind: "retry" }
 )
 
@@ -32,7 +32,9 @@ export function conversationSubmissionEcho(
       }
 }
 
-export function followingConversationDraft(original: HomeDraft): HomeDraft {
+export function followingConversationDraft(
+  original: ComposerDraft
+): ComposerDraft {
   return { ...structuredClone(original), text: "", materials: [] }
 }
 
@@ -56,10 +58,10 @@ export function resolvedConversationDraft(
   id: string,
   submission: PendingSubmission,
   outcome: "accepted" | "rejected",
-  editing: HomeDraft = submission.followingDraft
+  editing: ComposerDraft = submission.followingDraft
     ? followingConversationDraft(submission.draft)
     : submission.draft
-): HomeDraft {
+): ComposerDraft {
   if (submission.kind === "retry") return editing
   if (outcome === "accepted")
     return !submission.followingDraft &&
@@ -96,7 +98,7 @@ export function persistConversationResolution(
   id: string,
   submission: PendingSubmission,
   outcome: "accepted" | "rejected",
-  draft: HomeDraft
+  draft: ComposerDraft
 ) {
   saveConversationDraft(id, draft)
   const resolved = { ...submission, stage: outcome }

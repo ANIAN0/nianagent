@@ -74,7 +74,7 @@ export default {
     "ConversationSnapshot：轮次尾部 entryId、status、stopReason、forkable 与 historyNotice。",
     "ConversationSnapshot.control：forkDisabledReason、busy 与当前操作回执。",
     "ConversationSnapshot.lineage：来源会话标识、标题与来源回复标识（仅派生会话）。",
-    "HomeDraft：源与派生会话各自独立的空下一稿。",
+    "ComposerDraft：源与派生会话各自独立的空下一稿。",
   ],
   events: [
     "点击 ForkAction 调用 useConversationControls.fork(entryId)，经 ConversationControlService 提交原操作 ID。",

@@ -3,13 +3,13 @@ import type {
   ModelConnection,
   AuthState,
   WriteReceipt,
-} from "./model-contract.generated"
+} from "@/contracts/rpc.generated"
 export type {
   ModelApi,
   ModelDefinition,
   ModelConnection,
   AuthState,
-} from "./model-contract.generated"
+} from "@/contracts/rpc.generated"
 export const thinkingNames = {
   off: "关闭",
   minimal: "极少",
@@ -42,7 +42,7 @@ export type ModelService = {
     signal: AbortSignal
   ) => Promise<{ apiKey: string }>
   providers?: (signal: AbortSignal) => Promise<{ id: string; name: string }[]>
-  auth?: {
+  auth: {
     start(
       connection: ModelConnection,
       signal: AbortSignal,
@@ -79,13 +79,6 @@ export type ModelService = {
     model: ModelDefinition,
     signal: AbortSignal
   ): Promise<void>
-  authorize(
-    signal: AbortSignal,
-    response?: { confirmation?: string; scope?: string }
-  ): Promise<
-    | { kind: "prompt" | "select" }
-    | { kind: "complete"; account: NonNullable<ModelConnection["account"]> }
-  >
 }
 export function blankConnection(
   kind: ModelConnection["kind"]

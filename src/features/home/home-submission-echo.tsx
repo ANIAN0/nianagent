@@ -13,7 +13,7 @@ import { RecoveryAction } from "@/components/feedback/recovery-action"
 import { MaterialPreviewDialog } from "@/features/materials/material-preview"
 import type { HomeSubmission } from "@/features/conversation/conversation-draft-store"
 import type { FeedbackDescription } from "@/lib/operation-issue"
-import type { Material } from "./home-types"
+import type { Material } from "@/lib/composer/types"
 
 /** The original submission keeps its recovery outside the editable input. */
 export function HomeSubmissionEcho({
@@ -51,7 +51,11 @@ export function HomeSubmissionEcho({
   return (
     <>
       {!inactive && issue && !checking && (
-        <ComposerNotification message={message} trigger={issue} tone="warning" />
+        <ComposerNotification
+          message={message}
+          trigger={issue}
+          tone="warning"
+        />
       )}
       <SubmissionReceipt
         checking={checking}
@@ -59,11 +63,25 @@ export function HomeSubmissionEcho({
         onCheck={onCheck}
         actions={
           <>
-            {issue && ![undefined, "check", "retry", "reload"].includes(issue.recovery) && (
-              <RecoveryAction issue={issue} onSettings={onSettings} variant="ghost" disabled={inactive || checking} />
-            )}
+            {issue &&
+              ![undefined, "check", "retry", "reload"].includes(
+                issue.recovery
+              ) && (
+                <RecoveryAction
+                  issue={issue}
+                  onSettings={onSettings}
+                  variant="ghost"
+                  disabled={inactive || checking}
+                />
+              )}
             {submission && (
-              <Button type="button" variant="ghost" size="xs" disabled={inactive} onClick={() => setShowOriginal(true)}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                disabled={inactive}
+                onClick={() => setShowOriginal(true)}
+              >
                 {recovering ? "查看待恢复原输入" : "查看原提交"}
               </Button>
             )}

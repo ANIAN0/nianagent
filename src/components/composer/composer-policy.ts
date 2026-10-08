@@ -1,4 +1,8 @@
-import type { HomeData, HomeDraft, Material } from "@/features/home/home-types"
+import type {
+  ComposerData,
+  ComposerDraft,
+  Material,
+} from "@/lib/composer/types"
 import { unresolvedComposerQuery } from "./composer-draft-query.ts"
 import {
   fileReferenceFeedback,
@@ -11,7 +15,7 @@ type DraftBlock = {
 }
 
 /** Normalize an editable working copy, never an immutable submission or history. */
-export function editableComposerDraft(draft: HomeDraft): HomeDraft {
+export function editableComposerDraft(draft: ComposerDraft): ComposerDraft {
   const leading = draft.text.trimStart().match(/^\/([^\s]+)/u)?.[1]
   return {
     ...draft,
@@ -24,8 +28,8 @@ export function editableComposerDraft(draft: HomeDraft): HomeDraft {
 
 /** Shared draft admission facts. Page owners add their own durable operation gates. */
 export function composerDraftEligibility(
-  draft: Pick<HomeDraft, "text" | "model" | "materials" | "command">,
-  data: Pick<HomeData, "models" | "modelInputs">,
+  draft: Pick<ComposerDraft, "text" | "model" | "materials" | "command">,
+  data: Pick<ComposerData, "models" | "modelInputs">,
   ready: boolean,
   choosing = false
 ) {
@@ -83,7 +87,7 @@ export function composerDraftEligibility(
 export function composerDisplayMaterials(
   materials: Material[],
   model: string,
-  inputs?: HomeData["modelInputs"]
+  inputs?: ComposerData["modelInputs"]
 ) {
   return materials.map((item) =>
     item.type === "image" &&

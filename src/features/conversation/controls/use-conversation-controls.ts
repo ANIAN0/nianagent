@@ -5,7 +5,7 @@ import {
   useRef,
   useState,
 } from "react"
-import { RpcRequestRejected } from "@/features/models/model-service"
+import { RpcRequestRejected } from "@/lib/rpc/client"
 import { feedbackFromError } from "@/lib/operation-issue"
 import {
   createConversationControlService,
@@ -14,7 +14,7 @@ import {
 import type {
   ConversationControlOperation,
   ConversationSnapshot,
-} from "@/features/models/model-contract.generated"
+} from "@/contracts/rpc.generated"
 import {
   controlFailure,
   controlIsTerminal as terminal,

@@ -51,7 +51,8 @@ export default {
       id: "message-info",
       name: "本轮用量明细对齐DSH",
       rule: "用量入口触发点显示图标与聚合文案（用量 X token）；弹窗对齐DSH stat-dialog：标题行千分位总量无单位、下接0.5px分隔线，明细行数值右对齐，含模型、缓存命中、未缓存输入、缓存读取、缓存写入、输出（单位 token）；未记录字段省略，不显示时间、耗时、费用、角色与执行状态。",
-      reason: "核对一条回复的真实开销时与DSH用量对话框同构，不被推断或重复信息干扰。",
+      reason:
+        "核对一条回复的真实开销时与DSH用量对话框同构，不被推断或重复信息干扰。",
       check:
         "打开最新回复的信息弹窗，核对总量与分项逐条对应运行数据并检查标签不换行；无统计的轮次不显示入口。",
     },
@@ -91,7 +92,7 @@ export default {
   inputs: [
     "ConversationSnapshot：会话原输入、回复步骤、版本与执行状态。",
     "ConversationSnapshot.compactions：已保存摘要与所属历史位置；缺少DSH压缩计数时显示摘要可用性文案，不替用Pi压缩前总量。",
-    "HomeDraft：与服务快照独立的下一稿；完整正式输入区仍可编辑。",
+    "ComposerDraft：与服务快照独立的下一稿；完整正式输入区仍可编辑。",
     "ConversationService：owner初次挂载捕获的稳定依赖；默认正式工厂，示例显式提供内存替身。",
     "readingPositions：当前窗口按会话保存锚点、偏移和跟随状态。",
   ],

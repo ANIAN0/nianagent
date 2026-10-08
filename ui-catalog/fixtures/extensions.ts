@@ -2,7 +2,7 @@ import type {
   ExtensionDescriptor,
   ExtensionService,
 } from "@/features/extensions/extension-service"
-import type { WriteReceipt } from "@/features/models/model-contract.generated"
+import type { WriteReceipt } from "@/contracts/rpc.generated"
 
 export type ExtensionFixtureMode =
   "ready" | "empty" | "restart" | "unknown" | "pending"

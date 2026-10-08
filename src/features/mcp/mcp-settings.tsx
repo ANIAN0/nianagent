@@ -1,20 +1,20 @@
-import { ConfigurationRecoveryPanel } from "@/features/models/configuration-recovery-panel"
+import { ConfigurationRecoveryPanel } from "@/components/operations/configuration-recovery-panel"
 import {
   retainConfigurationAttempt,
   finishConfigurationAttempt,
   useConfigurationRecoveries,
-} from "@/features/models/configuration-recovery-store"
+} from "@/lib/operations/configuration-recovery-store"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { OperationFeedback } from "@/components/feedback/operation-feedback"
 import { RecoveryAction } from "@/components/feedback/recovery-action"
-import type { LeaveGuard } from "@/features/models/connection-editor"
-import { SettingsConfirmDialog } from "@/features/models/settings-confirmation"
+import type { LeaveGuard } from "@/lib/navigation/leave-guard"
+import { SettingsConfirmDialog } from "@/components/operations/settings-confirmation"
 import {
   readSettingsWriteReceipt,
   unknownWrite,
   writeIsUnknown,
-} from "@/features/models/settings-write-recovery"
+} from "@/lib/operations/settings-write-recovery"
 import {
   feedbackFromError,
   type FeedbackDescription,

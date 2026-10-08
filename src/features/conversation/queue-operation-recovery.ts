@@ -1,4 +1,4 @@
-import type { ConversationQueueOperationReceipt } from "@/features/models/model-contract.generated"
+import type { ConversationQueueOperationReceipt } from "@/contracts/rpc.generated"
 
 /** Only immutable routing metadata is retained; message content never enters this store. */
 export type QueueOperationRecord = Readonly<{

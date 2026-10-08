@@ -1,10 +1,10 @@
-import { modelCall } from "@/features/models/model-service"
+import { rpcCall } from "@/lib/rpc/client"
 import type {
   McpConfiguration,
   McpServer,
   McpTestResult,
   WriteReceipt,
-} from "@/features/models/model-contract.generated"
+} from "@/contracts/rpc.generated"
 export type { McpConfiguration, McpServer, McpTestResult }
 export type McpService = {
   evidence?: "demo"
@@ -34,19 +34,15 @@ export type McpService = {
 }
 export const createMcpService = (): McpService => ({
   readWriteReceipt: (operation, operationRequestId, signal) =>
-    modelCall("writeReceiptRead", { operation, operationRequestId }, signal),
-  list: (signal) => modelCall("mcpList", {}, signal),
+    rpcCall("writeReceiptRead", { operation, operationRequestId }, signal),
+  list: (signal) => rpcCall("mcpList", {}, signal),
   save: (configuration, revision, signal, operationRequestId) =>
-    modelCall(
-      "mcpSave",
-      { configuration, revision, operationRequestId },
-      signal
-    ),
+    rpcCall("mcpSave", { configuration, revision, operationRequestId }, signal),
   remove: async (name, revision, signal, operationRequestId) => {
-    await modelCall("mcpRemove", { name, revision, operationRequestId }, signal)
+    await rpcCall("mcpRemove", { name, revision, operationRequestId }, signal)
   },
   test: (configuration, cwd, signal) =>
-    modelCall("mcpTest", { configuration, cwd }, signal),
+    rpcCall("mcpTest", { configuration, cwd }, signal),
 })
 export const blankMcpConfiguration = (): McpConfiguration => ({
   name: "",

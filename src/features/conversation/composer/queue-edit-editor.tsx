@@ -1,3 +1,4 @@
+import { useComposerAnchor } from "@/lib/composer/use-composer-anchor"
 import { useLayoutEffect, useRef, type KeyboardEvent } from "react"
 import { Check, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -9,9 +10,9 @@ import {
 } from "@/components/ui/input-group"
 import { ComposerInputCard } from "@/components/composer/composer-input-card"
 import { useComposerKeyboard } from "@/components/composer/composer-keymap"
-import { MaterialPicker } from "@/features/home/material-picker"
-import { SelectedMaterials } from "@/features/home/selected-materials"
-import type { HomeDraft, Material } from "@/features/home/home-types"
+import { MaterialPicker } from "@/components/composer/material-picker"
+import { SelectedMaterials } from "@/components/composer/selected-materials"
+import type { ComposerDraft, Material } from "@/lib/composer/types"
 import { useComposerMaterials } from "@/features/materials/use-composer-materials"
 import {
   insertComposerText,
@@ -32,19 +33,19 @@ export function QueueEditEditor({
   onCancel,
   onRecover,
 }: {
-  draft: HomeDraft
+  draft: ComposerDraft
   sessionId: string
   cwd: string
   disabled: boolean
   pending: boolean
   canLeavePending?: boolean
   departed?: boolean
-  onChange: (draft: HomeDraft) => void
+  onChange: (draft: ComposerDraft) => void
   onSave: () => void
   onCancel: () => void
   onRecover?: (text: string, materials: Material[]) => void
 }) {
-  const anchorRef = useRef<HTMLDivElement>(null)
+  const { anchorRef, anchorNode, bindAnchor } = useComposerAnchor()
   const textRef = useRef<HTMLTextAreaElement>(null)
   const inline = !departed && draft.materials.length === 0
   useLayoutEffect(() => {
@@ -57,7 +58,7 @@ export function QueueEditEditor({
   useLayoutEffect(() => {
     latest.current = draft
   }, [draft])
-  const change = (patch: Partial<HomeDraft>) => {
+  const change = (patch: Partial<ComposerDraft>) => {
     const next = { ...latest.current, ...patch }
     latest.current = next
     onChange(next)
@@ -65,7 +66,7 @@ export function QueueEditEditor({
   const controller = useComposerMaterials({
     sessionId,
     cwd,
-    anchorRef,
+    anchorNode,
     materials: draft.materials,
     disabled,
     update: (apply) => change({ materials: apply(latest.current.materials) }),
@@ -98,7 +99,7 @@ export function QueueEditEditor({
   }
   if (inline)
     return (
-      <div className="conversation-queue-inline-editor">
+      <div ref={bindAnchor} className="conversation-queue-inline-editor">
         <Textarea
           ref={textRef}
           autoFocus
@@ -148,7 +149,7 @@ export function QueueEditEditor({
   return (
     <div className="conversation-queue-editor flex min-w-0 flex-col gap-2">
       <ComposerInputCard
-        ref={anchorRef}
+        ref={bindAnchor}
         dropActive={controller.dropActive}
         dropDisabledReason={disabled ? "当前暂不能修改材料" : undefined}
       >

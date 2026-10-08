@@ -93,7 +93,7 @@ export default {
   ],
   inputs: [
     "ConversationSnapshot：版本、运行反馈、有序消息块及每次工具调用的状态和结果可用事实。",
-    "HomeDraft：空的独立下一稿，经完整正式ConversationComposer编辑。",
+    "ComposerDraft：空的独立下一稿，经完整正式ConversationComposer编辑。",
     "稳定ConversationService与Session/Permission/Material/Extension/Command服务：示例全部显式隔离。",
     "MessageEnvironment：当前会话和块occurrence的展开选择；阅读位置沿当前窗口Map。",
   ],

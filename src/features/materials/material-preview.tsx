@@ -13,9 +13,9 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog"
-import type { MaterialPreview as Preview } from "@/features/models/model-contract.generated"
-import type { Material } from "@/features/home/home-types"
-import { useComposerPanelInactive } from "@/features/home/composer-panel-context"
+import type { MaterialPreview as Preview } from "@/contracts/rpc.generated"
+import type { Material } from "@/lib/composer/types"
+import { useComposerPanelInactive } from "@/components/composer/composer-panel-context"
 import { MaterialServiceContext } from "./material-service"
 import { MaterialImagePreview } from "./material-image-preview"
 

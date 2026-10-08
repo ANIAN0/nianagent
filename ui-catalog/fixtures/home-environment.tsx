@@ -3,7 +3,7 @@ import {
   PermissionServiceContext,
   type PermissionService,
 } from "@/features/conversation/permissions/permission-service"
-import type { ConversationPermission } from "@/features/models/model-contract.generated"
+import type { ConversationPermission } from "@/contracts/rpc.generated"
 
 /** Keep normal home controls visible without reading or writing user data. */
 export function HomeCatalogEnvironment({ children }: { children: ReactNode }) {

@@ -1,6 +1,6 @@
 import { HoverHint } from "@/components/feedback/hover-hint"
 import { Button } from "@/components/ui/button"
-import type { Conversation } from "./home-types"
+import type { Conversation } from "@/lib/composer/types"
 import {
   ConversationStatusMark,
   conversationStatusLabel,

@@ -10,7 +10,7 @@ export default {
     "ContextUsage · src/features/conversation/composer/context-usage.tsx",
     "ComposerAuxiliaryBar · src/features/conversation/composer/composer-auxiliary-bar.tsx",
     "RunStatistics · src/features/conversation/composer/run-statistics.tsx",
-    "ComposerPanelProvider · src/features/home/composer-panel-context.tsx",
+    "ComposerPanelProvider · src/components/composer/composer-panel-context.tsx",
     "Button / Popover / Tooltip / Separator · src/components/ui",
     "LiveConversationView / useLiveConversation · src/features/conversation",
   ],
@@ -91,10 +91,8 @@ export default {
       id: "unknown-reading",
       name: "用量未知与待更新",
       section: "exception",
-      condition:
-        "既有隔离服务可发布没有有效读数或等待更新的快照，不执行模型。",
-      expected:
-        "未知或待更新不显示0%；旧面板卸载，草稿及累计用量保留。",
+      condition: "既有隔离服务可发布没有有效读数或等待更新的快照，不执行模型。",
+      expected: "未知或待更新不显示0%；旧面板卸载，草稿及累计用量保留。",
       steps: [
         "打开上下文，再展开演示控制改为用量待更新；检查旧面板和比例入口消失。",
         "改为无对应读数，确认累计统计仍属于原会话，草稿仍可编辑。",

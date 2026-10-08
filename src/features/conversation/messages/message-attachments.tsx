@@ -144,7 +144,7 @@ function safeImageUrl(url?: string) {
     url &&
     (url.startsWith("blob:") ||
       (/^data:image\/(?:png|jpeg|gif|webp);base64,/i.test(url) &&
-        url.length <= 2_800_000)),
+        url.length <= 2_800_000))
   )
 }
 
@@ -160,7 +160,7 @@ function PreparedImageThumbnail({
   const { target, thumbnail, status, fail } = useMaterialThumbnail(
     id,
     cwd,
-    !!cwd,
+    !!cwd
   )
   return (
     <div ref={target} className="flex size-full items-center justify-center">
@@ -176,7 +176,7 @@ function PreparedImageThumbnail({
 
 function AttachmentImage({ url, name }: { url: string; name: string }) {
   const [status, setStatus] = useState<"loading" | "ready" | "failed">(
-    "loading",
+    "loading"
   )
   return (
     <>

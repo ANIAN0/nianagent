@@ -25,7 +25,8 @@ export default {
       name: "显式紧凑规格",
       rule: "default保持原14px正文、40px表头及单元格内距；compact为13px/20px正文、32px及12px/18px表头、单元格左右8px上下12px。secondary单元格和TableCellDescription为12px/18px。",
       reason: "业务页采用共享规格，其他默认表格不受新变体影响。",
-      check: "对比default与compact；在390px窗口查看长名称、说明和来源自然换行。",
+      check:
+        "对比default与compact；在390px窗口查看长名称、说明和来源自然换行。",
     },
   ],
   inputs: [
@@ -34,7 +35,9 @@ export default {
     "TableCellDescription承载次级说明；列宽、选择和动作由调用方提供",
   ],
   events: ["交互来自单元格内正式Checkbox与Button，Table本身不修改业务状态"],
-  composition: ["Table / TableHeader / TableBody / TableRow / TableHead / TableCell / TableCellDescription / Checkbox / Button"],
+  composition: [
+    "Table / TableHeader / TableBody / TableRow / TableHead / TableCell / TableCellDescription / Checkbox / Button",
+  ],
   consumers: ["ToolPicker", "模型连接与模型目录", "MCP服务列表"],
   states: [
     {
@@ -42,7 +45,10 @@ export default {
       name: "默认表格",
       section: "normal",
       condition: "未指定compact，保持现有默认规格。",
-      steps: ["勾选读取文件或点击名称。", "点击详情，核对演示事件；Tab切换交互。"],
+      steps: [
+        "勾选读取文件或点击名称。",
+        "点击详情，核对演示事件；Tab切换交互。",
+      ],
       expected: "表头和单元格同列，默认字号与间距不因新增compact改变。",
       render: () => <BasicControlExample kind="table" mode="normal" />,
     },
@@ -51,8 +57,12 @@ export default {
       name: "紧凑表格与长内容",
       section: "states",
       condition: "显式compact，完整四列表格含长名称、长来源和多行说明。",
-      steps: ["在常规和390px窗口核对名称、来源、说明换行和行高。", "勾选读取文件并点击详情，检查完整名称及可达操作。"],
-      expected: "正文13px/20px，次级说明12px/18px，行随内容增高；列轴、勾选和操作保持可达。",
+      steps: [
+        "在常规和390px窗口核对名称、来源、说明换行和行高。",
+        "勾选读取文件并点击详情，检查完整名称及可达操作。",
+      ],
+      expected:
+        "正文13px/20px，次级说明12px/18px，行随内容增高；列轴、勾选和操作保持可达。",
       render: () => <BasicControlExample kind="table" mode="compact" />,
     },
     {
@@ -61,7 +71,8 @@ export default {
       section: "states",
       condition: "default保留原单元格nowrap和表格局部横向滚动。",
       steps: ["在窄窗横向滚动表格。", "找到操作列并点击详情。"],
-      expected: "默认表格在自身容器横向滚动，不撑宽页面；未被compact换行规则覆盖。",
+      expected:
+        "默认表格在自身容器横向滚动，不撑宽页面；未被compact换行规则覆盖。",
       render: () => <BasicControlExample kind="table" mode="long" />,
     },
   ],

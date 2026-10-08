@@ -1,7 +1,7 @@
 import {
   retainConfigurationAttempt,
   finishConfigurationAttempt,
-} from "./configuration-recovery-store"
+} from "@/lib/operations/configuration-recovery-store"
 import { useEffect, useRef, useState } from "react"
 import { OperationFeedback } from "@/components/feedback/operation-feedback"
 import { RecoveryAction } from "@/components/feedback/recovery-action"

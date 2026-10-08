@@ -1,7 +1,7 @@
 import { createContext } from "react"
-import { modelCall } from "@/features/models/model-service"
-import type { MaterialReference } from "@/features/models/model-contract.generated"
-import type { Material } from "@/features/home/home-types"
+import { rpcCall } from "@/lib/rpc/client"
+import type { MaterialReference } from "@/contracts/rpc.generated"
+import type { Material } from "@/lib/composer/types"
 
 /** Thumbnail is a UI cache, never an upload or a caller-controlled path. */
 export function materialReference(value: Material): MaterialReference {
@@ -31,7 +31,7 @@ export function materialReference(value: Material): MaterialReference {
 export function createMaterialService() {
   return {
     choose: (sessionId: string, cwd: string, signal?: AbortSignal) =>
-      modelCall("materialChoose", { sessionId, cwd }, signal),
+      rpcCall("materialChoose", { sessionId, cwd }, signal),
     prepare: (
       sessionId: string,
       cwd: string,
@@ -39,32 +39,28 @@ export function createMaterialService() {
       signal?: AbortSignal,
       options?: { scope?: "selected" | "workspace" }
     ) =>
-      modelCall(
-        "materialPrepare",
-        { sessionId, cwd, paths, ...options },
-        signal
-      ),
+      rpcCall("materialPrepare", { sessionId, cwd, paths, ...options }, signal),
     upload: (
       sessionId: string,
       cwd: string,
       file: { name: string; mimeType: string; data: string },
       signal?: AbortSignal
-    ) => modelCall("materialUpload", { sessionId, cwd, ...file }, signal),
+    ) => rpcCall("materialUpload", { sessionId, cwd, ...file }, signal),
     catalog: (
       sessionId: string,
       cwd: string,
       query: string,
       signal?: AbortSignal
-    ) => modelCall("materialCatalog", { sessionId, cwd, query }, signal),
+    ) => rpcCall("materialCatalog", { sessionId, cwd, query }, signal),
     preview: (cwd: string, id: string, signal?: AbortSignal) =>
-      modelCall("materialPreview", { cwd, id }, signal),
+      rpcCall("materialPreview", { cwd, id }, signal),
     restore: (
       sessionId: string,
       cwd: string,
       materials: Material[],
       signal?: AbortSignal
     ) =>
-      modelCall(
+      rpcCall(
         "materialRestore",
         {
           sessionId,
@@ -94,9 +90,7 @@ export const MaterialServiceContext = createContext<MaterialService | null>(
 )
 
 export function materialsReady(materials: Material[]) {
-  return materials.every(
-    (item) => item.status === undefined || item.status === "ready"
-  )
+  return materials.every((item) => item.status === "ready")
 }
 export function sameMaterial(left: Material, right: Material) {
   return (

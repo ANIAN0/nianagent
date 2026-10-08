@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import type { Workspace } from "@/features/home/home-types"
+import type { Workspace } from "@/lib/composer/types"
 import { createWorkspaceService } from "./workspace-service"
 import { createWorkspaceReadController } from "./workspace-read-controller"
 import {

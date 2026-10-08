@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
-import { thinkingLabels } from "@/features/home/model-thinking"
-import type { HomeData } from "@/features/home/home-types"
+import { thinkingLabels } from "@/lib/composer/model-thinking"
+import type { ComposerData } from "@/lib/composer/types"
 import { createModelService } from "./model-service"
 import {
   feedbackFromError,
@@ -89,7 +89,7 @@ export function useModelCatalog(onOpenSettings: () => void) {
     (connection) => !connectionIssue(connection)
   )
   const data: Pick<
-    HomeData,
+    ComposerData,
     "models" | "modelLabels" | "modelThinking" | "modelCatalog" | "modelInputs"
   > = {
     models: usable.flatMap((connection) =>

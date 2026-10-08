@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { modelCall } from "@/features/models/model-service"
+import { rpcCall } from "@/lib/rpc/client"
 import type {
   ConversationSummary,
   ConversationFilter,
-} from "@/features/models/model-contract.generated"
-import type { Conversation } from "@/features/home/home-types"
+} from "@/contracts/rpc.generated"
+import type { Conversation } from "@/lib/composer/types"
 import {
   feedbackFromError,
   type FeedbackDescription,
@@ -28,10 +28,10 @@ export type ConversationCatalogService = {
 export function createConversationCatalogService(): ConversationCatalogService {
   return {
     list: (filter = {}, signal) =>
-      modelCall("conversationList", { filter }, signal),
-    info: (id, signal) => modelCall("conversationInfo", { id }, signal),
+      rpcCall("conversationList", { filter }, signal),
+    info: (id, signal) => rpcCall("conversationInfo", { id }, signal),
     markRead: (id, revision, signal) =>
-      modelCall("conversationMarkRead", { id, revision }, signal),
+      rpcCall("conversationMarkRead", { id, revision }, signal),
   }
 }
 const defaultService = createConversationCatalogService()

@@ -1,7 +1,7 @@
 import { File } from "lucide-react"
 import { MaterialThumbnail } from "@/features/materials/material-thumbnail"
 import { useMaterialThumbnail } from "@/features/materials/use-material-thumbnail"
-import type { Material } from "@/features/home/home-types"
+import type { Material } from "@/lib/composer/types"
 
 function QueueAttachment({
   material,

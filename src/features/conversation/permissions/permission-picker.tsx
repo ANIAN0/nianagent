@@ -35,12 +35,12 @@ import {
 import {
   useComposerPanel,
   useComposerPanelCloseAutoFocus,
-} from "@/features/home/composer-panel-context"
+} from "@/components/composer/composer-panel-context"
 import {
   feedbackFromError,
   type FeedbackDescription,
 } from "@/lib/operation-issue"
-import type { ConversationPermission } from "@/features/models/model-contract.generated"
+import type { ConversationPermission } from "@/contracts/rpc.generated"
 import { PermissionServiceContext } from "./permission-service"
 import "./permission-picker.css"
 export const permissionModes = [
@@ -85,7 +85,11 @@ export function PermissionPicker({
   const selected = permissionModes.find((item) => item.value === mode)!
   const busy = loading || saving
   const Icon = busy ? LoaderCircle : selected.icon
-  const label = saving ? "正在保存权限…" : loading ? "读取权限…" : selected.label
+  const label = saving
+    ? "正在保存权限…"
+    : loading
+      ? "读取权限…"
+      : selected.label
   const accessibleLabel = saving
     ? "正在保存会话权限"
     : loading

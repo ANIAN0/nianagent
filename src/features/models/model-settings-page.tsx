@@ -1,9 +1,9 @@
-import { ConfigurationRecoveryPanel } from "./configuration-recovery-panel"
+import { ConfigurationRecoveryPanel } from "@/components/operations/configuration-recovery-panel"
 import {
   retainConfigurationAttempt,
   finishConfigurationAttempt,
   useConfigurationRecoveries,
-} from "./configuration-recovery-store"
+} from "@/lib/operations/configuration-recovery-store"
 import "./model-settings.css"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { ArrowLeft } from "lucide-react"
@@ -14,16 +14,17 @@ import {
   type FeedbackDescription,
 } from "@/lib/operation-issue"
 import { ConnectionList } from "./connection-list"
-import { ConnectionEditor, type LeaveGuard } from "./connection-editor"
+import { ConnectionEditor } from "./connection-editor"
+import { type LeaveGuard } from "@/lib/navigation/leave-guard"
 import { McpSettings } from "@/features/mcp/mcp-settings"
 import type { McpService } from "@/features/mcp/mcp-service"
 import { AddConnectionDialog } from "./add-connection-dialog"
-import { SettingsConfirmDialog } from "./settings-confirmation"
+import { SettingsConfirmDialog } from "@/components/operations/settings-confirmation"
 import {
   readSettingsWriteReceipt,
   unknownWrite,
   writeIsUnknown,
-} from "./settings-write-recovery"
+} from "@/lib/operations/settings-write-recovery"
 import {
   blankConnection,
   credentialLabel,

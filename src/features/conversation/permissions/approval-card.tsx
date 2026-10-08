@@ -8,7 +8,7 @@ import { MarkerIcon } from "@/components/ui/marker"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { OperationFeedback } from "@/components/feedback/operation-feedback"
 import { RecoveryAction } from "@/components/feedback/recovery-action"
-import type { ConversationApproval } from "@/features/models/model-contract.generated"
+import type { ConversationApproval } from "@/contracts/rpc.generated"
 import { useApprovalReply } from "./use-approval-reply"
 import "./approval-card.css"
 

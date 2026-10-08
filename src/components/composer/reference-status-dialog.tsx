@@ -1,4 +1,4 @@
-import type { Material } from "@/features/home/home-types"
+import type { Material } from "@/lib/composer/types"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,

@@ -4,10 +4,7 @@ import type { createCommandService } from "@/features/conversation/controls/comm
 import type { PermissionService } from "@/features/conversation/permissions/permission-service"
 import type { SessionService } from "@/features/session/session-service"
 import type { MaterialService } from "@/features/materials/material-service"
-import {
-  RpcRequestRejected,
-  RpcTransportError,
-} from "@/features/models/model-service"
+import { RpcRequestRejected, RpcTransportError } from "@/lib/rpc/client"
 import type {
   ConversationSnapshot,
   ConversationApproval,
@@ -21,8 +18,8 @@ import type {
   RpcRequests,
   SessionConfiguration,
   SessionCatalog,
-} from "@/features/models/model-contract.generated"
-import type { HomeDraft } from "@/features/home/home-types"
+} from "@/contracts/rpc.generated"
+import type { ComposerDraft } from "@/lib/composer/types"
 import { createExtensionFixtureService } from "./extensions"
 
 export type IdleInputScenario =
@@ -225,10 +222,9 @@ export function createIdleInputEnvironment(scenario: IdleInputScenario) {
         permission: { sessionId, mode: "workspace", revision: 0 },
         control: {
           busy: false,
-          compactDisabledReason:
-            compactEnabled
-              ? ""
-              : "此场景不演示上下文压缩，请打开“提交 /compact 并查看结果”。",
+          compactDisabledReason: compactEnabled
+            ? ""
+            : "此场景不演示上下文压缩，请打开“提交 /compact 并查看结果”。",
           forkDisabledReason: "此输入示例不创建真实会话分支。",
         },
         queue: {
@@ -344,8 +340,8 @@ export function createIdleInputEnvironment(scenario: IdleInputScenario) {
       running: [...snapshots.values()].some(
         (value) => value.phase === "running"
       ),
-      compactActive: [...compactOperations.values()].some(
-        (value) => ["running", "cancelling", "unknown"].includes(value.status)
+      compactActive: [...compactOperations.values()].some((value) =>
+        ["running", "cancelling", "unknown"].includes(value.status)
       ),
       missingModels: [...missingModels],
       pendingKind: pending.values().next().value?.kind,
@@ -1466,7 +1462,9 @@ export function createIdleInputEnvironment(scenario: IdleInputScenario) {
         ["running", "stopping"].includes(snapshot.phase) ||
         snapshot.approvals?.length ||
         snapshot.queue?.items.length ||
-        [...pending.values()].some((value) => value.input.sessionId === sessionId)
+        [...pending.values()].some(
+          (value) => value.input.sessionId === sessionId
+        )
       )
         return rejectExecution()
       const now = new Date().toISOString()
@@ -1518,7 +1516,7 @@ export function createIdleInputEnvironment(scenario: IdleInputScenario) {
     },
     fork: rejectExecution,
   }
-  const draftFor = (sessionId: string): HomeDraft => ({
+  const draftFor = (sessionId: string): ComposerDraft => ({
     sessionId,
     workspaceId,
     text: "",
@@ -1807,7 +1805,8 @@ export function createIdleInputEnvironment(scenario: IdleInputScenario) {
       const record: ConversationCompaction = {
         id: recordId,
         time: now,
-        summary: "### 项目说明摘要\n\n- **用途**：说明项目解决的问题。\n- **启动方式**：保留开发命令与配置要求。\n- **目录职责**：按模块说明正式源码位置。\n\n这是隔离服务发布的示例摘要，原会话历史仍保留。",
+        summary:
+          "### 项目说明摘要\n\n- **用途**：说明项目解决的问题。\n- **启动方式**：保留开发命令与配置要求。\n- **目录职责**：按模块说明正式源码位置。\n\n这是隔离服务发布的示例摘要，原会话历史仍保留。",
         firstKeptEntryId: firstKept?.entryId ?? firstKept?.id ?? "",
         firstKeptHistoryIndex: firstKept?.historyIndex ?? -1,
         tokensBefore: snapshot.context?.usedTokens ?? -1,
