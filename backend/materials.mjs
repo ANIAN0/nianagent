@@ -1,11 +1,8 @@
+import { replaceJson } from "./atomic-file.mjs"
 import {
   access,
-  mkdir,
   readFile,
-  writeFile,
-  rename,
   open,
-  rm,
   realpath,
   stat,
   readdir,
@@ -20,7 +17,7 @@ import {
   extname,
   resolve,
 } from "node:path"
-import { createHash, randomUUID } from "node:crypto"
+import { createHash } from "node:crypto"
 import { pickNativeFiles } from "./native-directory.mjs"
 import { operationError } from "./operation-issue.mjs"
 import { sortMaterialCatalogFiles } from "./material-catalog-sort.mjs"
@@ -114,9 +111,10 @@ function imageType(data) {
   return ""
 }
 export class MaterialService {
-  constructor(directory, sessions) {
+  constructor(directory, sessions, commandCatalog = () => []) {
     this.directory = join(directory, "materials")
     this.sessions = sessions
+    this.commandCatalog = commandCatalog
   }
   reference(record) {
     return {
@@ -133,19 +131,9 @@ export class MaterialService {
     }
   }
   async save(record, signal) {
-    signal?.throwIfAborted()
-    await mkdir(this.directory, { recursive: true, mode: 0o700 })
-    const temporary = join(this.directory, `.${randomUUID()}.tmp`)
-    try {
-      await writeFile(temporary, JSON.stringify(record), {
-        mode: 0o600,
-        flag: "wx",
-      })
-      signal?.throwIfAborted()
-      await rename(temporary, join(this.directory, `${record.id}.json`))
-    } finally {
-      await rm(temporary, { force: true })
-    }
+    await replaceJson(join(this.directory, record.id + ".json"), record, {
+      signal,
+    })
     return this.reference(record)
   }
   async record(cwd, id) {
@@ -357,6 +345,7 @@ export class MaterialService {
         "Pi无法解码这张图片，请检查图片内容或重新选择。",
         "none"
       )
+    const originalData = data.toString("base64")
     // Keep the original for history; Pi's public preparation keeps inference
     // images within its documented provider-compatible dimensions/byte budget.
     return this.save(
@@ -368,8 +357,11 @@ export class MaterialService {
         type: "image",
         mimeType,
         bytes: data.length,
-        data: data.toString("base64"),
-        piImage,
+        data: originalData,
+        // 原图与 Pi 推理图完全一致时复用同一份数据；历史原图不可随缓存清理丢失。
+        ...(piImage.data === originalData && piImage.mimeType === mimeType
+          ? {}
+          : { piImage }),
       },
       signal
     )
@@ -594,7 +586,7 @@ export class MaterialService {
       files: sortedFiles,
       skills,
       diagnostics,
-      commands: this.sessions.commands?.catalog(sessionId) || [],
+      commands: this.commandCatalog(sessionId),
     }
   }
   async verify(record, sessionId, signal) {
@@ -768,7 +760,8 @@ export class MaterialService {
     cwd = await this.sessions.cwd(cwd)
     // Native idle prompts let Pi interpret the unmodified leading command.
     // The default remains the prepared protocol used by existing queues.
-    const command = !nativeSkills && text.match(/^\/skill:([^\s]+)(?:\s+([\s\S]*))?$/u)
+    const command =
+      !nativeSkills && text.match(/^\/skill:([^\s]+)(?:\s+([\s\S]*))?$/u)
     if (command) {
       const resources = await this.sessions.skillResources(
         cwd,
@@ -808,7 +801,11 @@ export class MaterialService {
       text = command[2] ?? ""
     }
     for (const material of materials) {
-      if (nativeSkills && (material.type === "skill" || material.kind === "Skill")) continue
+      if (
+        nativeSkills &&
+        (material.type === "skill" || material.kind === "Skill")
+      )
+        continue
       if (material.status !== "ready")
         throw new Error(`材料“${material.name}”尚未就绪，请重新选择或移除。`)
       const record = await this.record(cwd, material.id)

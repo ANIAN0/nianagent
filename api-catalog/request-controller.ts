@@ -3,7 +3,7 @@ import type {
   WriteReceipt,
   ConversationQueueOperationReceipt,
   RpcRequests,
-} from "../src/features/models/model-contract.generated"
+} from "@/contracts/rpc.generated"
 import type { operations } from "../backend/contract.mjs"
 import {
   feedbackFromError,

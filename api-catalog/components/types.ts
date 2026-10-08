@@ -1,5 +1,5 @@
 import type { operations, Schema } from "../../backend/contract.mjs"
-import type { ModelOperation } from "@/features/models/model-contract.generated"
+import type { ModelOperation } from "@/contracts/rpc.generated"
 
 export type { Schema, ModelOperation }
 export type OperationDefinition = (typeof operations)[ModelOperation]

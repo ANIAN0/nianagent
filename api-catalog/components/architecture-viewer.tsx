@@ -50,7 +50,7 @@ export function ArchitectureViewer({
         </div>
       </div>
       <p className="api-response-note">
-        来源 ARCHITECTURE.md · 数据归属、依赖与源码位置
+        来源：运行时服务注册及正式接口契约 · 数据归属、依赖与源码位置
       </p>
       <Tabs defaultValue="module" key={module}>
         <TabsList variant="line" aria-label="架构文档范围">
@@ -76,7 +76,7 @@ export function ArchitectureViewer({
               <EmptyHeader>
                 <EmptyTitle>架构文档没有同名章节</EmptyTitle>
                 <EmptyDescription>
-                  请在“架构全文”中查看相关模块职责，内容直接读取现有架构文件。
+                  请在“架构全文”中查看已注册模块及接口。
                 </EmptyDescription>
               </EmptyHeader>
             </Empty>

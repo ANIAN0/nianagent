@@ -31,12 +31,11 @@ function ensureInitialized() {
 async function initializeService() {
   // Publish the transport before loading Pi's large dependency graph. Tauri's
   // startup handshake must not wait for model libraries or user-data recovery.
-  const { ModelService } = await import("./models.mjs")
+  const { MoonServices } = await import("./services.mjs")
   if (closing) throw new Error("Moon 正在退出。")
-  const candidate = new ModelService(directory)
+  const candidate = new MoonServices(directory)
   service = candidate
   try {
-    await candidate.initialize()
     if (closing) throw new Error("Moon 正在退出。")
     return candidate
   } catch (error) {

@@ -1,4 +1,4 @@
-import type { ModelOperation } from "../src/features/models/model-contract.generated"
+import type { ModelOperation } from "../src/contracts/rpc.generated"
 export type Schema = {
   $ref?: string
   type?: string
@@ -46,3 +46,5 @@ export function assertSchema(
   value: unknown,
   path?: string
 ): void
+
+export function dispatchOperation(service: object, operation: string, input: unknown, signal?: AbortSignal): Promise<unknown>

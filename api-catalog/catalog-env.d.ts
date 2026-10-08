@@ -4,7 +4,7 @@ declare module "virtual:moon-api-index" {
 
 declare module "virtual:moon-api-docs" {
   export const operationDocs: Record<
-    import("../src/features/models/model-contract.generated").ModelOperation,
+    import("@/contracts/rpc.generated").ModelOperation,
     () => Promise<import("./catalog-data").OperationDocumentation>
   >
 }

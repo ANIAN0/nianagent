@@ -1,10 +1,12 @@
+import { replaceJson, withAcquiredLock } from "./atomic-file.mjs"
 import { assertSchema, schemas } from "./schema.mjs"
-import { mkdir, readFile, writeFile, rename, rm } from "node:fs/promises"
+import { mkdir, readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { randomUUID } from "node:crypto"
 import lockfile from "proper-lockfile"
 import { validateWriteReceipts } from "./write-receipts.mjs"
 import { validateAuthorizationRequests } from "./authorization-identity.mjs"
+import { compactWriteReceipts } from "./write-receipt-archive.mjs"
 
 // One atomic document owns connection metadata and Pi CredentialStore values.
 export class ModelStore {
@@ -110,23 +112,15 @@ export class ModelStore {
       realpath: false,
       retries: { retries: 30, minTimeout: 30, maxTimeout: 300 },
     })
-    const temporary = join(this.directory, `.models-${randomUUID()}.tmp`)
-    try {
+    return withAcquiredLock(unlock, async (committed) => {
       signal?.throwIfAborted()
       const data = await this.read()
+      await compactWriteReceipts(this, data, signal)
       const result = await change(data)
-      signal?.throwIfAborted()
-      await writeFile(temporary, JSON.stringify(data, null, 2), {
-        mode: 0o600,
-        flag: "wx",
-      })
-      signal?.throwIfAborted()
-      await rename(temporary, this.file)
+      await replaceJson(this.file, data, { signal, pretty: true })
+      committed()
       return result
-    } finally {
-      await rm(temporary, { force: true })
-      await unlock()
-    }
+    })
   }
   credentialStore(guard) {
     return {

@@ -124,7 +124,8 @@ export async function startRuntime(file, dispatch, publicFailure) {
     if (failures.length) {
       throw new AggregateError(
         [error, ...failures.map((result) => result.reason)],
-        "模型服务启动失败，临时资源清理失败。"
+        "模型服务启动失败，临时资源清理失败。",
+        { cause: error }
       )
     }
     throw error

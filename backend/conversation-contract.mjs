@@ -26,26 +26,45 @@ const tool = obj(
     id: str("Pi toolCallId"),
     name: str("工具名称"),
     source: str("工具来源"),
-    status: str("工具发生的实际状态；returned仅有结束证据而缺结果，不代表成功；unknown缺少可确认结论；not-run须有明确未执行证据，缺记录不作此证据", {
-      enum: ["running", "success", "failed", "stopped", "not-run", "returned", "unknown"],
-    }),
+    status: str(
+      "工具发生的实际状态；returned仅有结束证据而缺结果，不代表成功；unknown缺少可确认结论；not-run须有明确未执行证据，缺记录不作此证据",
+      {
+        enum: [
+          "running",
+          "success",
+          "failed",
+          "stopped",
+          "not-run",
+          "returned",
+          "unknown",
+        ],
+      }
+    ),
     input: str("序列化工具输入"),
     result: str("实际工具结果"),
-    resultAvailability: str("当前投影的结果可用事实：available有真实最终结果（可为空、图片或截断，不保证已落盘）；partial仅有工具更新的部分结果；missing无可用结果。正式投影总提供，省略仅兼容未提供此事实的旧调用方，不能由空文本推断", {
-      enum: ["available", "partial", "missing"],
-    }),
+    resultAvailability: str(
+      "当前投影的结果可用事实：available有真实最终结果（可为空、图片或截断，不保证已落盘）；partial仅有工具更新的部分结果；missing无可用结果。正式投影总提供，省略仅兼容未提供此事实的旧调用方，不能由空文本推断",
+      {
+        enum: ["available", "partial", "missing"],
+      }
+    ),
     exitCode: {
       type: "integer",
-      description: "Pi shell 实际退出码，0仅说明命令正常退出，不证明任务达成或结果正文已保存；未返回时省略，不从文本推断",
+      description:
+        "Pi shell 实际退出码，0仅说明命令正常退出，不证明任务达成或结果正文已保存；未返回时省略，不从文本推断",
     },
     durationMs: {
       type: "number",
       minimum: 0,
       description: "Pi shell 实际 wall_time_seconds 换算为毫秒；未返回时省略",
     },
-    occurrenceId: str("Pi assistant entryId与内容位置组成的调用身份；旧格式未持久迁移时使用稳定展示id，不冒充正式entryId；不以可重复的提供者toolCallId作为唯一键"),
+    occurrenceId: str(
+      "Pi assistant entryId与内容位置组成的调用身份；旧格式未持久迁移时使用稳定展示id，不冒充正式entryId；不以可重复的提供者toolCallId作为唯一键"
+    ),
     target: ref("ConversationToolTarget"),
-    resultLength: num("Pi工具文本结果在Moon展示截断前的字符数；不是源文件总长度"),
+    resultLength: num(
+      "Pi工具文本结果在Moon展示截断前的字符数；不是源文件总长度"
+    ),
     resultTruncated: {
       type: "boolean",
       description: "Pi结果本身或Moon展示结果发生截断；不能将展示文本当完整文件",
@@ -65,7 +84,10 @@ export const conversationRequestReceiptStorageSchema = obj(
     fingerprint: str("内部：冻结请求SHA-256；不保存正文或凭据", {
       pattern: "^[a-f0-9]{64}$",
     }),
-    status: str("preparing尚未提交启动；started与启动摘要原子提交；rejected明确未接受；handled由Pi公开回调确认已由扩展处理，不代表保存user消息", { enum: ["preparing", "started", "rejected", "handled"] }),
+    status: str(
+      "preparing尚未提交启动；started与启动摘要原子提交；rejected明确未接受；handled由Pi公开回调确认已由扩展处理，不代表保存user消息",
+      { enum: ["preparing", "started", "rejected", "handled"] }
+    ),
     ownerEpoch: str("登记准备的宿主身份；冷恢复不继续未完成准备", {
       minLength: 1,
     }),
@@ -83,31 +105,48 @@ export const conversationRequestReceiptStorageSchema = obj(
   ]
 )
 export const conversationSchemas = {
-  ConversationRequestReceipt: obj({
-    sessionId: id,
-    clientRequestId: id,
-    state: str("仅原请求的结论；accepted由正式Pi输入或已存队列证明，handled由明确保存的扩展处理回执证明；started缺权威证据始终unknown，不重发", { enum: ["accepted", "handled", "rejected", "unknown"] }),
-    issue: ref("OperationIssue"),
-  }, ["sessionId", "clientRequestId", "state"]),
-  ConversationToolTarget: obj({
-    kind: str("工具目标类型", { enum: ["file", "command"] }),
-    path: str("按Pi参数和会话cwd解析的请求路径；预览另经realpath及目录边界核验"),
-    displayPath: str("工作区内相对路径或完整外部路径"),
-    requestedPath: str("Pi工具原始路径参数"),
-    line: num("read请求的起始行，从1开始"),
-    lineCount: num("read请求的行数"),
-    command: str("Pi实际接收的命令参数"),
-    cwd: str("命令所属会话工作目录"),
-  }, ["kind"]),
-  ConversationToolDetails: obj({
-    diff: str("Pi edit实际成功结果的差异，不由模型正文或预计参数构造"),
-    patch: str("Pi edit实际成功结果的unified patch"),
-    firstChangedLine: num("Pi实际结果的首个改动行，从1开始"),
-  }, []),
+  ConversationRequestReceipt: obj(
+    {
+      sessionId: id,
+      clientRequestId: id,
+      state: str(
+        "仅原请求的结论；accepted由正式Pi输入或已存队列证明，handled由明确保存的扩展处理回执证明；started缺权威证据始终unknown，不重发",
+        { enum: ["accepted", "handled", "rejected", "unknown"] }
+      ),
+      issue: ref("OperationIssue"),
+    },
+    ["sessionId", "clientRequestId", "state"]
+  ),
+  ConversationToolTarget: obj(
+    {
+      kind: str("工具目标类型", { enum: ["file", "command"] }),
+      path: str(
+        "按Pi参数和会话cwd解析的请求路径；预览另经realpath及目录边界核验"
+      ),
+      displayPath: str("工作区内相对路径或完整外部路径"),
+      requestedPath: str("Pi工具原始路径参数"),
+      line: num("read请求的起始行，从1开始"),
+      lineCount: num("read请求的行数"),
+      command: str("Pi实际接收的命令参数"),
+      cwd: str("命令所属会话工作目录"),
+    },
+    ["kind"]
+  ),
+  ConversationToolDetails: obj(
+    {
+      diff: str("Pi edit实际成功结果的差异，不由模型正文或预计参数构造"),
+      patch: str("Pi edit实际成功结果的unified patch"),
+      firstChangedLine: num("Pi实际结果的首个改动行，从1开始"),
+    },
+    []
+  ),
   ConversationFileArtifact: obj({
     path: str("成功的Pi文件操作目标路径，打开时仍须核对当前磁盘及权限边界"),
     displayPath: str("可读的文件目标"),
-    operation: str("成功文件工具的实际操作；Pi无前像时只称write，不猜创建/覆盖", { enum: ["write", "edit"] }),
+    operation: str(
+      "成功文件工具的实际操作；Pi无前像时只称write，不猜创建/覆盖",
+      { enum: ["write", "edit"] }
+    ),
   }),
   ConversationChatTool: tool,
   ConversationRuntime: obj(
@@ -139,16 +178,26 @@ export const conversationSchemas = {
       historyIndex: {
         type: "integer",
         minimum: 0,
-        description: "在完整Pi分支中的位置，包含custom条目；pending位于branch.length，继续指令使用原custom_message位置",
+        description:
+          "在完整Pi分支中的位置，包含custom条目；pending位于branch.length，继续指令使用原custom_message位置",
       },
-      userTurnId: str("对应可见用户输入的稳定展示标识，用于聚合该输入之后的正式阶段；不是Pi fork锚点"),
+      userTurnId: str(
+        "对应可见用户输入的稳定展示标识，用于聚合该输入之后的正式阶段；不是Pi fork锚点"
+      ),
       inputKind: str("可见用户输入的正式类型；不按正文文案猜继续请求", {
         enum: ["continuation"],
       }),
-      continuationOf: str("可见继续指令所恢复的前一用户轮次；独立输入身份保留，便于标注历史attempt恢复关系"),
+      continuationOf: str(
+        "可见继续指令所恢复的前一用户轮次；独立输入身份保留，便于标注历史attempt恢复关系"
+      ),
       runId: str("Moon正式请求标记提供的运行归属；旧记录缺失时省略，不推测"),
-      stopReason: str("Pi正式assistant停止原因；length表示输出上限，不当作完整答案", { enum: ["stop", "length", "toolUse", "error", "aborted"] }),
-      activeBlockId: str("Pi当前仍在生成的内容块；结束的thinking不随整条消息继续显示运行态"),
+      stopReason: str(
+        "Pi正式assistant停止原因；length表示输出上限，不当作完整答案",
+        { enum: ["stop", "length", "toolUse", "error", "aborted"] }
+      ),
+      activeBlockId: str(
+        "Pi当前仍在生成的内容块；结束的thinking不随整条消息继续显示运行态"
+      ),
       forkable: {
         type: "boolean",
         description:
@@ -178,12 +227,15 @@ export const conversationSchemas = {
       tools: arr(ref("ConversationChatTool")),
       blocks: arr({
         anyOf: [
-          obj({
-            id: str("内容标识"),
-            type: { type: "string", enum: ["text"] },
-            text: str("文本"),
-            phase: str("此块是否仍在生成", { enum: ["running", "settled"] }),
-          }, ["id", "type", "text"]),
+          obj(
+            {
+              id: str("内容标识"),
+              type: { type: "string", enum: ["text"] },
+              text: str("文本"),
+              phase: str("此块是否仍在生成", { enum: ["running", "settled"] }),
+            },
+            ["id", "type", "text"]
+          ),
           obj({
             id: str("原始Pi内容位置生成的标识"),
             type: { type: "string", enum: ["thinking"] },
@@ -216,17 +268,23 @@ export const conversationSchemas = {
         cwd: str("真实工作目录"),
         version: num("当前宿主单调更新版本，结合 epoch 判断新宿主"),
         epoch: str("宿主启动标识"),
-        clientRequestId: str("最后提交启动的客户端请求标识；不是接受证明，未启动会话为空"),
+        clientRequestId: str(
+          "最后提交启动的客户端请求标识；不是接受证明，未启动会话为空"
+        ),
         inputAccepted: {
           type: "boolean",
           description:
             "仅在 Pi 持久化方法成功返回后确认本次用户消息（或继续指令）已接受；消息事件本身不代表保存成功。false不推断拒绝，须核对原回执；handled表示扩展领取输入，仍不伪造user保存。相同标识不重复执行。",
         },
-        inputDisposition: str("handled表示Pi公开入口确认扩展已处理本次输入；没有本次user接受证据，不能声称执行成功或重复提交", { enum: ["handled"] }),
+        inputDisposition: str(
+          "handled表示Pi公开入口确认扩展已处理本次输入；没有本次user接受证据，不能声称执行成功或重复提交",
+          { enum: ["handled"] }
+        ),
         runId: str("本次或最后一次运行标识"),
         canContinue: {
           type: "boolean",
-          description: "输入已接受且末次回复失败/停止或Pi length截断；继续是新的幂等可见指令，不重发原请求或自动执行旧工具",
+          description:
+            "输入已接受且末次回复失败/停止或Pi length截断；继续是新的幂等可见指令，不重发原请求或自动执行旧工具",
         },
         phase: str(
           "真实回复运行状态；completed 仅表示本轮运行结束，不代表用户任务验收成功",
@@ -277,7 +335,9 @@ export const conversationSchemas = {
         }),
         runtime: ref("ConversationRuntime"),
         notice: obj({
-          kind: str("非阻断执行提醒", { enum: ["compaction-failed", "input-handled"] }),
+          kind: str("非阻断执行提醒", {
+            enum: ["compaction-failed", "input-handled"],
+          }),
           message: str("安全说明；不把压缩失败等同任务失败"),
           occurredAt: str("提醒发生时的 ISO 时间"),
           runId: str("此提醒所属回复运行标识；新回复清除旧提醒"),
@@ -359,9 +419,12 @@ export const conversationOperations = {
     title: "只读核对原发送回执",
     input: ["sessionId", "clientRequestId"],
     result: "ConversationRequestReceipt",
-    condition: "按原sessionId/clientRequestId核对，不要求会话摘要已创建；同会话锁等待准备结束，不激活Pi或重发输入。没有登记的请求、未能保存明确拒绝的当前preparing、损坏/缺失的权威历史保持unknown；started摘要本身不表示accepted或rejected。",
-    effect: "index的preparing先于昂贵准备，started与启动摘要原子提交；明确拒绝及公开Pi入口的handled按本request单独保存。handled仅确认扩展领取本次输入，不代表命令成功或保存user。旧宿主的preparing证明未启动；accepted须有正式Pi用户输入/可见继续指令或持久队列证明，已接受的历史身份不随当前分支变化而消失。started无本次accepted/handled/rejected权威证据始终unknown，包括已有历史、缺首文件和handled保存失败，原ID不重执行。只返回身份与安全结论，不返回输入、材料或fingerprint，不改写历史或回执。",
-    errors: "回执索引或正式历史损坏、存储不可访问、请求已取消；错误不确认拒绝，不自动重复外部效果。",
+    condition:
+      "按原sessionId/clientRequestId核对，不要求会话摘要已创建；同会话锁等待准备结束，不激活Pi或重发输入。没有登记的请求、未能保存明确拒绝的当前preparing、损坏/缺失的权威历史保持unknown；started摘要本身不表示accepted或rejected。",
+    effect:
+      "index的preparing先于昂贵准备，started与启动摘要原子提交；明确拒绝及公开Pi入口的handled按本request单独保存。handled仅确认扩展领取本次输入，不代表命令成功或保存user。旧宿主的preparing证明未启动；accepted须有正式Pi用户输入/可见继续指令或持久队列证明，已接受的历史身份不随当前分支变化而消失。started无本次accepted/handled/rejected权威证据始终unknown，包括已有历史、缺首文件和handled保存失败，原ID不重执行。只返回身份与安全结论，不返回输入、材料或fingerprint，不改写历史或回执。",
+    errors:
+      "回执索引或正式历史损坏、存储不可访问、请求已取消；错误不确认拒绝，不自动重复外部效果。",
     example: { sessionId: "sample-session", clientRequestId: "sample-request" },
   },
   conversationSend: {

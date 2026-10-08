@@ -23,7 +23,12 @@ export function acceptDirectoryReply(message) {
           : "无法打开系统目录选择器，请重新打开 Moon 后重试。"
       )
     )
-  else if (message.result === null || typeof message.result === "string" || (Array.isArray(message.result) && message.result.every((path) => typeof path === "string")))
+  else if (
+    message.result === null ||
+    typeof message.result === "string" ||
+    (Array.isArray(message.result) &&
+      message.result.every((path) => typeof path === "string"))
+  )
     pending.finish(null, message.result)
   else pending.finish(new Error("系统目录选择器返回了无效路径。"))
   return true
@@ -62,5 +67,6 @@ function pickNative(capability, signal) {
     }
   })
 }
-export const pickNativeDirectory = (signal) => pickNative("pickDirectory", signal)
+export const pickNativeDirectory = (signal) =>
+  pickNative("pickDirectory", signal)
 export const pickNativeFiles = (signal) => pickNative("pickFiles", signal)

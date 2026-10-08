@@ -14,9 +14,11 @@ const resultText = (content) =>
 export function projectedResult(result) {
   const text = resultText(result?.content)
   return {
-    result: text.length > 32000 ? text.slice(0, 32000) + "\n[输出已截断]" : text,
+    result:
+      text.length > 32000 ? text.slice(0, 32000) + "\n[输出已截断]" : text,
     resultLength: text.length,
-    resultTruncated: text.length > 32000 || result?.details?.truncation?.truncated === true,
+    resultTruncated:
+      text.length > 32000 || result?.details?.truncation?.truncated === true,
   }
 }
 
@@ -36,7 +38,10 @@ export function projectedDetails(result) {
 export function toolTarget(part, cwd) {
   const input = part.arguments
   if (!input || typeof input !== "object") return undefined
-  if (["read", "edit", "write"].includes(part.name) && typeof input.path === "string") {
+  if (
+    ["read", "edit", "write"].includes(part.name) &&
+    typeof input.path === "string"
+  ) {
     // Match Pi's documented @/~/Unicode-space normalization. It is a requested
     // path; a realpath check remains mandatory before opening local content.
     let value = input.path.replace(/^@/, "").replace(/[\u00a0\u202f]/g, " ")
@@ -47,19 +52,31 @@ export function toolTarget(part, cwd) {
     return {
       kind: "file",
       path,
-      displayPath: local && !local.startsWith("..") && !isAbsolute(local) ? local : path,
+      displayPath:
+        local && !local.startsWith("..") && !isAbsolute(local) ? local : path,
       requestedPath: input.path,
-      ...(Number.isInteger(input.offset) && input.offset > 0 ? { line: input.offset } : {}),
-      ...(Number.isInteger(input.limit) && input.limit > 0 ? { lineCount: input.limit } : {}),
+      ...(Number.isInteger(input.offset) && input.offset > 0
+        ? { line: input.offset }
+        : {}),
+      ...(Number.isInteger(input.limit) && input.limit > 0
+        ? { lineCount: input.limit }
+        : {}),
     }
   }
-  if (["bash", "powershell"].includes(part.name) && typeof input.command === "string")
+  if (
+    ["bash", "powershell"].includes(part.name) &&
+    typeof input.command === "string"
+  )
     return { kind: "command", command: input.command, cwd }
   return undefined
 }
 
 export function fileArtifact(part, target, status) {
-  if (status !== "success" || target?.kind !== "file" || !["write", "edit"].includes(part.name))
+  if (
+    status !== "success" ||
+    target?.kind !== "file" ||
+    !["write", "edit"].includes(part.name)
+  )
     return undefined
   // Pi write itself has no creation/overwrite metadata. Missing facts stay
   // 'write'; existence observations and model prose cannot refine this fact.

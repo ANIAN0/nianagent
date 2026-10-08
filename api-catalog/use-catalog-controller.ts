@@ -6,10 +6,7 @@ import {
   operationIndex,
 } from "./catalog-data"
 import { createRequestController } from "./request-controller"
-import type {
-  ModelOperation,
-  RpcRequests,
-} from "@/features/models/model-contract.generated"
+import type { ModelOperation, RpcRequests } from "@/contracts/rpc.generated"
 
 export function useCatalogController(debugOperation: ModelOperation | null) {
   const [selection, setSelection] = useState(readLocation)
@@ -31,13 +28,9 @@ export function useCatalogController(debugOperation: ModelOperation | null) {
   const needsContract = needsDocs && debugOperation === selection.operation
   const [requests] = useState(() =>
     createRequestController(async (operation, input, signal) => {
-      const { modelCall } = await import("@/features/models/model-service")
+      const { rpcCall } = await import("@/lib/rpc/client")
       signal.throwIfAborted()
-      return modelCall(
-        operation,
-        input as RpcRequests[typeof operation],
-        signal
-      )
+      return rpcCall(operation, input as RpcRequests[typeof operation], signal)
     })
   )
   const drafts = useSyncExternalStore(requests.subscribe, requests.getSnapshot)

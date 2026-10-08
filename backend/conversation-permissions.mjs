@@ -1,11 +1,5 @@
-import {
-  mkdir,
-  readFile,
-  writeFile,
-  rename,
-  realpath,
-  unlink,
-} from "node:fs/promises"
+import { replaceJson } from "./atomic-file.mjs"
+import { readFile, realpath } from "node:fs/promises"
 import { resolve, relative, isAbsolute, dirname, join, sep } from "node:path"
 import { homedir } from "node:os"
 import { randomUUID } from "node:crypto"
@@ -72,18 +66,9 @@ export class ConversationPermissions {
       check(previous.revision === revision, "权限配置已变化，请重新读取。")
       const next = { sessionId, mode, revision: revision + 1 }
       assertSchema(schemas.ConversationPermission, next)
-      await mkdir(this.directory, { recursive: true })
-      const target = join(this.directory, `${sessionId}.json`),
-        temporary = `${target}.tmp`
-      try {
-        await writeFile(temporary, JSON.stringify(next), { mode: 0o600 })
-        signal?.throwIfAborted()
-        await rename(temporary, target)
-      } finally {
-        await unlink(temporary).catch((error) => {
-          if (error.code !== "ENOENT") throw error
-        })
-      }
+      await replaceJson(join(this.directory, sessionId + ".json"), next, {
+        signal,
+      })
       if (state) {
         state.permission = next
         this.conversations.touch(state)
@@ -203,7 +188,9 @@ export class ConversationPermissions {
                 ? "执行命令"
                 : "运行扩展工具",
             toolName: name,
-            ...(typeof event.toolCallId === "string" ? { toolCallId: event.toolCallId } : {}),
+            ...(typeof event.toolCallId === "string"
+              ? { toolCallId: event.toolCallId }
+              : {}),
             input: JSON.stringify(event.input, null, 2),
             message: target
               ? `允许此工具本次访问：${target}`

@@ -1,162 +1,44 @@
-import { mkdir, readFile } from "node:fs/promises"
-import { join, resolve, relative, isAbsolute } from "node:path"
-import { randomUUID, createHash } from "node:crypto"
-import { nestedMcpTools, mcpResultsIndex } from "./mcp.mjs"
+import { ConversationTranscript } from "./conversation-transcript.mjs"
+import { ConversationRun } from "./conversation-run.mjs"
+import { PiHistory } from "./pi-history.mjs"
+import { ConversationEvents } from "./conversation-events.mjs"
 import {
-  CURRENT_SESSION_VERSION,
-  parseSessionEntries,
-  SessionManager,
-} from "@earendil-works/pi-coding-agent"
+  requireValue,
+  providerId,
+  identity,
+  restoredIssue,
+  storageIssue,
+  queueFailure,
+  continuation,
+  acceptedInput,
+} from "./conversation-core.mjs"
+export { acceptedRequestIds } from "./conversation-core.mjs"
+
+import { join } from "node:path"
+import { randomUUID } from "node:crypto"
+
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai"
 import { ConversationQueue } from "./conversation-queue.mjs"
 import { ConversationControls } from "./conversation-controls.mjs"
 import { ConversationLive } from "./conversation-live.mjs"
 import { ConversationPermissions } from "./conversation-permissions.mjs"
 import { ConversationCommands } from "./conversation-commands.mjs"
-import {
-  conversationStatistics,
-  runStatisticsEvent,
-} from "./conversation-statistics.mjs"
-import { modelFailureIssue, publicFailure, operationError } from "./operation-issue.mjs"
-import { issueSchemas } from "./issue-contract.mjs"
-import { assertSchema, schemas } from "./schema.mjs"
-import { projectedResult, projectedDetails, toolTarget, fileArtifact } from "./conversation-projection.mjs"
+import { conversationStatistics } from "./conversation-statistics.mjs"
+import { publicFailure } from "./operation-issue.mjs"
 
-const requireValue = (value, message) => {
-  if (!value) throw new Error(message)
-}
-const textOf = (content) =>
-  typeof content === "string"
-    ? content
-    : (content || [])
-        .filter((part) => part.type === "text")
-        .map((part) => part.text)
-        .join("\n")
-const excerpt = (value, length = 32000) =>
-  value.length > length ? value.slice(0, length) + "\n[输出已截断]" : value
-const providerId = (connection) =>
-  connection.kind === "subscription"
-    ? connection.providerId
-    : `moon-${connection.id}`
-const selectionId = (connectionId, modelId) => `${connectionId}/${modelId}`
-const identity = (value) =>
-  requireValue(
-    typeof value === "string" &&
-      /^[a-zA-Z0-9_-]{1,128}$/.test(value) &&
-      !["__proto__", "constructor", "prototype"].includes(value),
-    "会话或请求标识无效。"
-  )
-// Provider bodies can echo credentials and request headers. Persist/display
-// only fixed diagnostics; Pi classifies recovery using its untouched originals.
-const errorText = (error) => runFailureIssue(error).summary
-// Run metadata is optional. Invalid or unsafe metadata must not become public
-// diagnostics or prevent reading the authoritative Pi messages.
-const restoredIssue = (value) => {
-  if (!value) return undefined
-  try {
-    assertSchema(issueSchemas.OperationIssue, value, "运行反馈")
-    if (
-      /https?:|Bearer|api[_-]?key|[A-Z]:[\\/]|\bat\s+\S+\(/i.test(
-        JSON.stringify(value)
-      )
-    )
-      return undefined
-    return structuredClone(value)
-  } catch {
-    return undefined
-  }
-}
-const storageIssue = (error, operation, summary, code) => {
-  const source =
-    error?.name === "QueueDispatchPersistenceError" && !error.issue
-      ? error.cause || new Error("本地存储操作失败。")
-      : error
-  const safe = publicFailure(source, operation).issue
-  return {
-    ...safe,
-    code:
-      code ||
-      (safe.code.startsWith("storage_") ? safe.code : "history_save_failed"),
-    summary,
-    recovery: "reload",
-  }
-}
-const runFailureIssue = (error) =>
-  error?.name === "QueueDispatchPersistenceError" && !error.issue
-    ? storageIssue(
-        error,
-        "conversationSend",
-        "待处理消息未能保存，消息保留且尚未发送。",
-        "queue_storage"
-      )
-    : modelFailureIssue(error)
-const queueFailure = (state, error, summary) => {
-  state.queueIssue = storageIssue(
-    error,
-    "conversationRead",
-    summary,
-    "queue_storage"
-  )
-  state.queueError = state.queueIssue.summary
-}
-const continuation =
-  "请继续完成上一条用户请求；保留已经完成的工作和工具结果，不要重复执行已经成功的操作。"
-export const acceptedRequestIds = (manager) => {
-  const accepted = new Set()
-  let precedingRequest
-  // Acceptance belongs to the whole append-only Pi history, even after the
-  // active leaf changes. A request marker alone is never input acceptance.
-  for (const entry of manager.getEntries()) {
-    if (entry.type === "custom" && entry.customType === "moon-request")
-      precedingRequest = entry.data?.clientRequestId
-    if ((entry.type === "message" && entry.message.role === "user") ||
-        (entry.type === "custom_message" && entry.customType === "moon-continuation")) {
-      if (precedingRequest) accepted.add(precedingRequest)
-      precedingRequest = undefined
-    }
-  }
-  return accepted
-}
-const acceptedInput = (manager, clientRequestId) => acceptedRequestIds(manager).has(clientRequestId)
-const shellResult = (result, name) => {
-  if (!["bash", "powershell"].includes(name)) return {}
-  const content = result?.structuredContent
-  if (!content || typeof content !== "object") return {}
-  return {
-    ...(Number.isInteger(content.exit_code)
-      ? { exitCode: content.exit_code }
-      : {}),
-    ...(Number.isFinite(content.wall_time_seconds) &&
-    content.wall_time_seconds >= 0
-      ? { durationMs: Math.round(content.wall_time_seconds * 1000) }
-      : {}),
-  }
-}
-const toolOccurrenceKey = (entryId, index) => JSON.stringify([entryId, index])
-const savedShellResult = (data) => ({
-  ...(Number.isInteger(data.exitCode) ? { exitCode: data.exitCode } : {}),
-  ...(Number.isFinite(data.durationMs) && data.durationMs >= 0
-    ? { durationMs: data.durationMs }
-    : {}),
-})
-const compactionReason = (reason) =>
-  reason === "overflow"
-    ? "上下文超过限制，Pi 正在压缩对话历史。"
-    : reason === "manual"
-      ? "Pi 正在压缩会话上下文。"
-      : "上下文接近上限，Pi 正在压缩历史。"
-const compactionErrorText = (message) =>
-  errorText(
-    String(message).replace(
-      /^(Auto-compaction failed|Context overflow recovery failed):\s*/i,
-      ""
-    )
-  )
+import { assertSchema, schemas } from "./schema.mjs"
 
 // Moon indexes conversations; Pi is the sole authority for transcript, context,
 // compaction, provider streaming, tool execution and the on-disk JSONL format.
 export class ConversationService {
-  constructor(directory, models, sessions, store, workspaces) {
+  constructor(
+    directory,
+    models,
+    sessions,
+    store,
+    workspaces,
+    initializeStore = () => store.initialize()
+  ) {
     this.directory = join(directory, "conversations", "pi")
     this.models = models
     this.sessions = sessions
@@ -167,11 +49,147 @@ export class ConversationService {
     this.epoch = randomUUID()
     this.version = Date.now()
     this.closed = false
-    this.queue = new ConversationQueue(directory, this)
-    this.controls = new ConversationControls(this, directory)
-    this.live = new ConversationLive(this)
-    this.permissions = new ConversationPermissions(directory, this)
-    this.commands = new ConversationCommands(directory, this)
+    const service = this
+    this.queue = new ConversationQueue(directory, {
+      epoch: this.epoch,
+      touch: this.touch.bind(this),
+      ensureOpen: this.ensureOpen.bind(this),
+      models: {
+        materials: {
+          resolveForPrompt: this.models.materials.resolveForPrompt.bind(
+            this.models.materials
+          ),
+        },
+        store: { read: this.models.store.read.bind(this.models.store) },
+      },
+      sessions: { exclusive: this.sessions.exclusive.bind(this.sessions) },
+      store: {
+        get: this.store.get.bind(this.store),
+        update: this.store.update.bind(this.store),
+      },
+      restore: this.restore.bind(this),
+      snapshot: this.snapshot.bind(this),
+      get closed() {
+        return service.closed
+      },
+      active: this.active,
+      start: this.start.bind(this),
+    })
+    this.controls = new ConversationControls(
+      {
+        historyNotice: this.historyNotice.bind(this),
+        store: {
+          get: this.store.get.bind(this.store),
+          list: this.store.list.bind(this.store),
+          create: this.store.create.bind(this.store),
+        },
+        ensureOpen: this.ensureOpen.bind(this),
+        restore: this.restore.bind(this),
+        sessions: {
+          exclusive: this.sessions.exclusive.bind(this.sessions),
+          active: this.sessions.active,
+          readExclusive: this.sessions.readExclusive.bind(this.sessions),
+          copyConfiguration: this.sessions.copyConfiguration.bind(
+            this.sessions
+          ),
+        },
+        selection: this.selection.bind(this),
+        touch: this.touch.bind(this),
+        persistence: this.persistence,
+        fileManager: this.fileManager.bind(this),
+        active: this.active,
+        directory: this.directory,
+      },
+      directory
+    )
+    this.live = new ConversationLive({
+      active: this.active,
+      read: this.read.bind(this),
+      ensureOpen: this.ensureOpen.bind(this),
+      epoch: this.epoch,
+      prepareMedia: this.prepareMedia.bind(this),
+      snapshot: this.snapshot.bind(this),
+    })
+    this.permissions = new ConversationPermissions(directory, {
+      sessions: {
+        identity: this.sessions.identity.bind(this.sessions),
+        exclusive: this.sessions.exclusive.bind(this.sessions),
+      },
+      active: this.active,
+      touch: this.touch.bind(this),
+      get closed() {
+        return service.closed
+      },
+    })
+    this.commands = new ConversationCommands(directory, {
+      initializeStore,
+      active: this.active,
+      sessions: {
+        active: this.sessions.active,
+        identity: this.sessions.identity.bind(this.sessions),
+        exclusive: this.sessions.exclusive.bind(this.sessions),
+      },
+      ensureOpen: this.ensureOpen.bind(this),
+      store: this.store,
+      restore: this.restore.bind(this),
+      activate: this.activate.bind(this),
+      selection: this.selection.bind(this),
+      permissions: this.permissions,
+      touch: this.touch.bind(this),
+    })
+
+    this.conversation_transcript = new ConversationTranscript({
+      persistence: this.persistence,
+      historyNotice: this.historyNotice.bind(this),
+      models: {
+        mcp: { toolSource: this.models.mcp.toolSource.bind(this.models.mcp) },
+        extensions: {
+          toolSource: this.models.extensions.toolSource.bind(
+            this.models.extensions
+          ),
+          presentation: this.models.extensions.presentation.bind(
+            this.models.extensions
+          ),
+        },
+      },
+    })
+
+    this.conversation_run = new ConversationRun({
+      sessions: this.sessions,
+      ensureOpen: this.ensureOpen.bind(this),
+      store: this.store,
+      epoch: this.epoch,
+      restore: this.restore.bind(this),
+      queue: this.queue,
+      persistence: this.persistence,
+      fileManager: this.fileManager.bind(this),
+      controls: this.controls,
+      touch: this.touch.bind(this),
+      lastStopReason: this.lastStopReason.bind(this),
+      transcript: this.transcript.bind(this),
+      workspaces: this.workspaces,
+      selection: this.selection.bind(this),
+      models: this.models,
+      permissions: this.permissions,
+      get closed() {
+        return service.closed
+      },
+      snapshot: this.snapshot.bind(this),
+      contextFeedback: this.contextFeedback.bind(this),
+      handledNotice: this.handledNotice.bind(this),
+      queuePending: this.queuePending.bind(this),
+    })
+
+    this.pi_history = new PiHistory({
+      persistence: this.persistence,
+      directory: this.directory,
+    })
+
+    this.conversation_events = new ConversationEvents({
+      queue: this.queue,
+      touch: this.touch.bind(this),
+      toolExecutionCall: this.toolExecutionCall.bind(this),
+    })
   }
   ensureOpen() {
     requireValue(!this.closed, "对话服务已关闭，请重新打开 Moon。")
@@ -204,158 +222,13 @@ export class ConversationService {
     return { connection, model, runtime, thinking }
   }
   safeHistory(manager, history = {}) {
-    // Pi must retain the original diagnostic for its retry/overflow decisions.
-    // Adapt only the public persistence boundary, leaving the event and agent
-    // message untouched while keeping raw provider diagnostics off disk.
-    const persistence = {
-      error: undefined,
-      onInput: undefined,
-      stableEntryIds: true,
-      migrationRequired: false,
-      assistantIssues: new Map(),
-      ...history,
-    }
-    this.persistence.set(manager, persistence)
-    for (const method of [
-      "appendMessage",
-      "appendCustomMessageEntry",
-      "appendCustomEntry",
-      "appendCompaction",
-    ]) {
-      const append = manager[method].bind(manager)
-      manager[method] = (...args) => {
-        // Pi updates its in-memory tree before attempting the disk write. Once
-        // a write fails, do not let a later append flush that uncertain tree.
-        if (persistence.error) throw persistence.error
-        let savedIssue
-        if (
-          method === "appendMessage" &&
-          args[0].role === "assistant" &&
-          args[0].errorMessage
-        ) {
-          savedIssue = runFailureIssue(args[0].errorMessage)
-          args[0] = {
-            ...args[0],
-            errorMessage: savedIssue.summary,
-          }
-        }
-        let id
-        const input =
-          method === "appendMessage" && args[0].role === "user"
-            ? persistence.beforeInput?.(args[0])
-            : undefined
-        try {
-          id = append(...args)
-        } catch (error) {
-          persistence.error = error
-          throw error
-        }
-        if (savedIssue && typeof id === "string")
-          persistence.assistantIssues.set(id, savedIssue)
-        if (
-          (method === "appendMessage" && args[0].role === "user") ||
-          (method === "appendCustomMessageEntry" &&
-            args[0] === "moon-continuation")
-        )
-          persistence.onInput?.(args[0], input)
-        return id
-      }
-    }
-    return manager
+    return this.pi_history.safeHistory(manager, history)
   }
   historyNotice(manager) {
-    const history = this.persistence.get(manager)
-    if (!history?.migrationRequired) return ""
-    return history.stableEntryIds
-      ? "旧格式历史仍需迁移，暂不能创建分支；继续发送一次消息后由 Pi 自动迁移。"
-      : "旧格式历史尚未保存稳定的消息标识，暂不能创建分支；继续发送一次消息后由 Pi 自动迁移。"
+    return this.pi_history.historyNotice(manager)
   }
-  async fileManager(record, persistent = false) {
-    await mkdir(this.directory, { recursive: true, mode: 0o700 })
-    if (!record.sessionFile)
-      return this.safeHistory(SessionManager.create(record.cwd, this.directory))
-    const file = resolve(record.sessionFile)
-    const within = relative(resolve(this.directory), file)
-    requireValue(
-      within && !within.startsWith("..") && !isAbsolute(within),
-      "会话文件不在应用数据目录内；未读取该文件。"
-    )
-    let content
-    try {
-      content = await readFile(file, "utf8")
-    } catch (error) {
-      // A first request can be accepted before Pi appends its first user message.
-      // Its durable index still protects the request ID; never replay it here.
-      if (
-        error.code === "ENOENT" &&
-        record.lastRequestId &&
-        !record.lastMessage
-      )
-        return this.safeHistory(
-          SessionManager.create(record.cwd, this.directory)
-        )
-      throw new Error("会话历史文件不存在或无法读取；原记录未覆盖。", {
-        cause: error,
-      })
-    }
-    // Opening an empty file makes Pi initialize it; opening a legacy file or
-    // one without its final newline can also repair it. Validate first, and
-    // reconstruct read-only history through Pi's public in-memory API instead.
-    try {
-      for (const line of content.split("\n")) {
-        if (!line.trim()) continue
-        const entry = JSON.parse(line)
-        requireValue(
-          entry &&
-            typeof entry === "object" &&
-            !Array.isArray(entry) &&
-            typeof entry.type === "string" &&
-            entry.type,
-          "invalid entry"
-        )
-      }
-    } catch (error) {
-      throw new Error("会话历史文件损坏；原文件未覆盖。", { cause: error })
-    }
-    const entries = parseSessionEntries(content)
-    const header = entries[0]
-    requireValue(
-      header?.type === "session" &&
-        typeof header.id === "string" &&
-        header.id.trim() &&
-        typeof header.timestamp === "string" &&
-        Number.isFinite(Date.parse(header.timestamp)) &&
-        typeof header.cwd === "string" &&
-        isAbsolute(header.cwd) &&
-        entries.slice(1).every((entry) => entry.type !== "session") &&
-        (header.version === undefined ||
-          (Number.isInteger(header.version) && header.version >= 1)),
-      "会话历史文件头损坏；原文件未覆盖。"
-    )
-    requireValue(
-      (header.version ?? 1) <= CURRENT_SESSION_VERSION,
-      "会话历史版本高于当前 Pi 支持版本；请升级后重试，原文件未覆盖。"
-    )
-    const sameCwd =
-      process.platform === "win32"
-        ? resolve(header.cwd).toLowerCase() ===
-          resolve(record.cwd).toLowerCase()
-        : resolve(header.cwd) === resolve(record.cwd)
-    requireValue(sameCwd, "会话文件的工作目录与记录不一致；原文件未覆盖。")
-    // Version migration and branch reconstruction remain Pi's responsibility.
-    // Writes may open the persistent manager only after this preflight check.
-    // Capture the source version before Pi's in-memory API migrates the entries.
-    // v1 migration creates random IDs that cannot identify the unchanged file.
-    const version = header.version ?? 1
-    return this.safeHistory(
-      persistent
-        ? SessionManager.open(file, this.directory, record.cwd)
-        : SessionManager.inMemory(record.cwd, undefined, entries),
-      {
-        stableEntryIds: persistent || version >= 2,
-        migrationRequired: !persistent && version < CURRENT_SESSION_VERSION,
-      }
-    )
+  fileManager(record, persistent = false) {
+    return this.pi_history.fileManager(record, persistent)
   }
   async restore(record, selected, signal) {
     const existing = this.active.get(record.id)
@@ -577,7 +450,8 @@ export class ConversationService {
   handledNotice(runId, occurredAt = new Date().toISOString()) {
     return {
       kind: "input-handled",
-      message: "扩展已处理此次输入，未生成本次用户消息。请查看扩展反馈；不要重复发送。",
+      message:
+        "扩展已处理此次输入，未生成本次用户消息。请查看扩展反馈；不要重复发送。",
       occurredAt,
       runId,
     }
@@ -604,624 +478,29 @@ export class ConversationService {
     }
   }
   toolHistory(branch) {
-    const calls = new Map()
-    const byPart = new Map()
-    const results = new Map()
-    const shellResults = new Map()
-    let batch = []
-    let runId
-    for (const entry of branch) {
-      if (entry.type === "custom" && entry.customType === "moon-request") {
-        runId = entry.data?.runId
-        batch = []
-      }
-      if (entry.type === "message" && entry.message.role === "assistant") {
-        batch = []
-        for (const [index, part] of (Array.isArray(entry.message.content)
-          ? entry.message.content
-          : []
-        ).entries()) {
-          if (part.type !== "toolCall") continue
-          const call = {
-            key: toolOccurrenceKey(entry.id, index),
-            entryId: entry.id,
-            index,
-            part,
-            runId,
-          }
-          calls.set(call.key, call)
-          byPart.set(part, call)
-          batch.push(call)
-        }
-      }
-      if (entry.type === "message" && entry.message.role === "toolResult") {
-        const result = entry.message
-        const call = batch.find(
-          (call) =>
-            call.part.id === result.toolCallId &&
-            call.part.name === result.toolName &&
-            !results.has(call.key)
-        )
-        if (call) results.set(call.key, result)
-      }
-      if (entry.type === "custom" && entry.customType === "moon-shell-result") {
-        const data = entry.data
-        if (!data || !["bash", "powershell"].includes(data.toolName)) continue
-        // New markers identify the exact official assistant entry and content
-        // position. Older markers bind where Pi appended them, within that
-        // assistant's tool batch; provider IDs need not be globally unique.
-        const call =
-          typeof data.callEntryId === "string" &&
-          Number.isInteger(data.callIndex)
-            ? calls.get(toolOccurrenceKey(data.callEntryId, data.callIndex))
-            : batch.find(
-                (call) =>
-                  call.part.id === data.toolCallId &&
-                  call.part.name === data.toolName &&
-                  !shellResults.has(call.key)
-              )
-        if (
-          call &&
-          call.part.id === data.toolCallId &&
-          call.part.name === data.toolName
-        )
-          shellResults.set(call.key, savedShellResult(data))
-      }
-    }
-    return { calls, byPart, results, shellResults }
+    return this.conversation_transcript.toolHistory(branch)
   }
   toolExecutionCall(state, event, starting = false) {
-    if (!starting) {
-      const active = [...state.toolProgress.entries()]
-        .reverse()
-        .find(
-          ([, progress]) =>
-            progress.status === "running" &&
-            progress.toolCallId === event.toolCallId &&
-            (!event.toolName || progress.name === event.toolName)
-        )
-      if (active) return { key: active[0], ...active[1] }
-    }
-    const candidates = [
-      ...this.toolHistory(state.manager.getBranch()).calls.values(),
-    ].filter(
-      (call) =>
-        call.runId === state.record.runId &&
-        call.part.id === event.toolCallId &&
-        call.part.name === event.toolName
-    )
-    const entryId = candidates.at(-1)?.entryId
-    const call = candidates.find(
-      (call) =>
-        call.entryId === entryId &&
-        (!starting || !state.toolProgress.has(call.key))
-    )
-    return (
-      call && {
-        key: call.key,
-        entryId: call.entryId,
-        index: call.index,
-        toolCallId: call.part.id,
-        name: call.part.name,
-      }
+    return this.conversation_transcript.toolExecutionCall(
+      state,
+      event,
+      starting
     )
   }
   event(state, event) {
-    runStatisticsEvent(state, event)
-    if (event.type === "message_start" && event.message.role === "user")
-      this.queue.inputStarted(state, event.message)
-    if (
-      ["message_start", "message_update"].includes(event.type) &&
-      event.message?.role === "assistant"
-    ) {
-      state.pending = event.message
-      const update = event.assistantMessageEvent
-      if (event.type === "message_start") state.pendingContentIndex = undefined
-      if (Number.isInteger(update?.contentIndex)) {
-        if (update.type.endsWith("_end")) {
-          if (state.pendingContentIndex === update.contentIndex)
-            state.pendingContentIndex = undefined
-        } else state.pendingContentIndex = update.contentIndex
-      }
-    }
-    if (event.type === "message_end") {
-      if (event.message.role === "assistant") {
-        state.pending = undefined
-        state.pendingContentIndex = undefined
-      }
-      // message_end precedes persistence. Only the successful append adapter
-      // may acknowledge input; a microtask runs even if the disk write failed.
-      queueMicrotask(() => this.touch(state))
-    }
-    if (event.type === "tool_execution_start") {
-      const call = this.toolExecutionCall(state, event, true)
-      if (call)
-        state.toolProgress.set(call.key, {
-          ...call,
-          status: "running",
-          result: "",
-          resultAvailability: "missing",
-        })
-    }
-    if (event.type === "tool_execution_update") {
-      const call = this.toolExecutionCall(state, event)
-      if (call)
-        state.toolProgress.set(call.key, {
-          ...call,
-          status: "running",
-          result: excerpt(textOf(event.partialResult?.content)),
-          resultAvailability: event.partialResult ? "partial" : "missing",
-        })
-    }
-    if (event.type === "tool_execution_end") {
-      const call = this.toolExecutionCall(state, event)
-      const metadata = shellResult(event.result, event.toolName)
-      if (call && Object.keys(metadata).length) {
-        // Pi emits structuredContent here, but its ToolResultMessage intentionally
-        // keeps only content/details. Persist the actual execution metadata with
-        // the public custom-entry API so settled results and restarts retain it.
-        state.manager.appendCustomEntry("moon-shell-result", {
-          toolCallId: event.toolCallId,
-          toolName: event.toolName,
-          callEntryId: call.entryId,
-          callIndex: call.index,
-          ...metadata,
-        })
-      }
-      if (call)
-        state.toolProgress.set(call.key, {
-          ...call,
-          status:
-            event.isError &&
-            state.stoppedToolCalls.has(call.key) &&
-            metadata.exitCode === undefined
-              ? "stopped"
-              : event.isError ||
-                  (metadata.exitCode !== undefined && metadata.exitCode !== 0)
-                ? "failed"
-                : "success",
-          result: excerpt(textOf(event.result?.content)),
-          resultAvailability: event.result ? "available" : "missing",
-          ...metadata,
-        })
-    }
-    this.executionEvent(state, event)
-    this.touch(state)
+    return this.conversation_events.event(state, event)
   }
   executionEvent(state, event) {
-    // Pi compact() awaits abort() before creating its compaction controller.
-    // A cancel accepted during that gap must abort once the controller exists,
-    // including idle manual compaction whose reply phase is already terminal.
-    if (
-      event.type === "compaction_start" &&
-      event.reason === "manual" &&
-      state.controlCancelRequested
-    )
-      state.session?.abortCompaction()
-    // Stop and terminal states take precedence over late SDK recovery events.
-    if (state.phase !== "running" || state.stopRequested) return
-    const stage = (phase, extra = {}) => {
-      state.runtime = { phase, updatedAt: new Date().toISOString(), ...extra }
-    }
-    const retry = (source) =>
-      stage("retrying", {
-        ...(Number.isInteger(event.attempt) && event.attempt >= 0
-          ? { attempt: event.attempt }
-          : {}),
-        ...(Number.isInteger(event.maxAttempts) && event.maxAttempts >= 0
-          ? { maxAttempts: event.maxAttempts }
-          : {}),
-        ...(Number.isFinite(event.delayMs) && event.delayMs >= 0
-          ? { retryAt: new Date(Date.now() + event.delayMs).toISOString() }
-          : {}),
-        reason: errorText(event.errorMessage || "模型请求失败"),
-        retrySource: source,
-      })
-    if (
-      ["agent_start", "turn_start", "message_start"].includes(event.type) &&
-      !state.compactionActive &&
-      (event.type !== "message_start" || event.message?.role === "assistant")
-    )
-      stage("responding")
-    if (event.type === "tool_execution_start")
-      stage("tool", event.toolName ? { toolName: event.toolName } : {})
-    if (event.type === "tool_execution_end") {
-      const activeTool = [...state.toolProgress.values()].find(
-        (tool) => tool.status === "running"
-      )
-      stage(
-        activeTool ? "tool" : "responding",
-        activeTool?.name ? { toolName: activeTool.name } : {}
-      )
-    }
-    if (event.type === "compaction_start") {
-      state.compactionActive = true
-      state.compactionReason = event.reason
-      stage("compacting", { reason: compactionReason(event.reason) })
-    }
-    if (event.type === "compaction_end") {
-      state.compactionActive = false
-      stage(
-        "responding",
-        event.errorMessage
-          ? { reason: compactionErrorText(event.errorMessage) }
-          : {}
-      )
-      if (event.errorMessage && !event.aborted)
-        state.notice = {
-          kind: "compaction-failed",
-          message: `上下文压缩未完成：${compactionErrorText(event.errorMessage)} 已生成的回复和工具结果已保留。`,
-          occurredAt: new Date().toISOString(),
-          runId: state.record.runId,
-        }
-    }
-    if (event.type === "auto_retry_start") retry("response")
-    if (event.type === "auto_retry_end") stage("responding")
-    if (event.type === "summarization_retry_scheduled") retry("compaction")
-    if (
-      event.type === "summarization_retry_attempt_start" ||
-      (event.type === "summarization_retry_finished" && state.compactionActive)
-    )
-      stage("compacting", {
-        reason: compactionReason(event.reason || state.compactionReason),
-      })
+    return this.conversation_events.executionEvent(state, event)
   }
   contextFeedback(state) {
-    if (!state.session) {
-      if (state.recoveredContext?.context)
-        return {
-          context: { ...state.recoveredContext.context, restored: true },
-        }
-      if (state.recoveredContext?.contextState) return state.recoveredContext
-      return {
-        contextState: {
-          status: "unavailable",
-          observedAt: new Date().toISOString(),
-          reason: "此历史尚未记录 Pi 上下文统计；继续对话后由 Pi 更新。",
-        },
-      }
-    }
-    const usage = state.session.getContextUsage()
-    const observedAt = new Date().toISOString()
-    if (
-      usage &&
-      Number.isFinite(usage.contextWindow) &&
-      usage.contextWindow > 0
-    ) {
-      if (Number.isFinite(usage.tokens) && usage.tokens >= 0)
-        return {
-          context: {
-            usedTokens: Math.round(usage.tokens),
-            contextWindow: usage.contextWindow,
-            source: "pi-context-estimate",
-            estimated: true,
-            observedAt,
-            restored: false,
-          },
-        }
-      return {
-        contextState: {
-          status: "awaiting-response",
-          contextWindow: usage.contextWindow,
-          observedAt,
-          reason:
-            "Pi 尚无法确定当前用量；历史压缩后需等待下一次模型回复更新统计。",
-        },
-      }
-    }
-    return {
-      contextState: {
-        status: "unavailable",
-        observedAt,
-        reason: "当前没有可用的 Pi 上下文统计，继续对话后更新。",
-      },
-    }
+    return this.conversation_transcript.contextFeedback(state)
   }
   cancellations(state, branch, history) {
-    const interrupted = new Set()
-    const stoppedCalls = new Set()
-    let runId
-    let lastAssistant
-    let calls = []
-    const mark = (toolIds = [], occurrences) => {
-      // Only the terminal reply of this explicitly interrupted run changes its
-      // display state; genuine failures earlier in the run or history remain.
-      if (["error", "aborted"].includes(lastAssistant?.stopReason))
-        interrupted.add(lastAssistant)
-      if (occurrences) {
-        for (const key of occurrences) {
-          const call = history.calls.get(key)
-          if (call?.runId === runId) stoppedCalls.add(call.part)
-        }
-      } else {
-        // Old stop markers contain provider IDs only. Bind each to the latest
-        // occurrence in that run, never an earlier failure sharing its ID.
-        // Actual successful/nonzero results still take precedence in the DTO.
-        for (const id of toolIds) {
-          const call = [...calls].reverse().find((part) => part.id === id)
-          if (call) stoppedCalls.add(call)
-        }
-      }
-    }
-    for (const entry of branch) {
-      if (entry.type === "custom" && entry.customType === "moon-request") {
-        runId = entry.data?.runId
-        lastAssistant = undefined
-        calls = []
-      }
-      if (entry.type === "message" && entry.message.role === "assistant") {
-        lastAssistant = entry.message
-        for (const part of Array.isArray(entry.message.content)
-          ? entry.message.content
-          : [])
-          if (part.type === "toolCall") calls.push(part)
-      }
-      if (
-        entry.type === "custom" &&
-        entry.customType === "moon-run-result" &&
-        entry.data?.runId === runId &&
-        entry.data.phase === "interrupted"
-      )
-        mark(
-          entry.data.stoppedToolIds,
-          Array.isArray(entry.data.stoppedToolCalls)
-            ? entry.data.stoppedToolCalls.map((call) =>
-                toolOccurrenceKey(call.entryId, call.index)
-              )
-            : undefined
-        )
-    }
-    // Live cancellation is authoritative before the durable terminal marker is
-    // appended. Restored history uses its own per-run markers, never current phase.
-    if (
-      state.stopRequested &&
-      runId === state.record.runId &&
-      ["stopping", "interrupted"].includes(state.phase)
-    )
-      mark([...state.stoppedToolIds], state.stoppedToolCalls)
-    return { interrupted, stoppedCalls }
+    return this.conversation_transcript.cancellations(state, branch, history)
   }
   transcript(state) {
-    const messages = []
-    const source = []
-    const branch = state.manager.getBranch()
-    const materialInputs = new WeakMap()
-    let nextMaterials
-    const history = this.toolHistory(branch)
-    const nestedResults = mcpResultsIndex(branch)
-    const cancellation = this.cancellations(state, branch, history)
-    const entriesByMessage = new Map()
-    const issuesByEntry = new Map(
-      this.persistence.get(state.manager)?.assistantIssues || []
-    )
-    const stableEntryIds =
-      this.persistence.get(state.manager)?.stableEntryIds !== false
-    let sourceRunId
-    branch.forEach((entry, historyIndex) => {
-      if (entry.type === "custom" && entry.customType === "moon-request")
-        sourceRunId = entry.data?.runId
-      if (entry.type === "message")
-        entriesByMessage.set(entry.message, {
-          ...(stableEntryIds ? { entryId: entry.id } : {}),
-          historyIndex,
-          ...(sourceRunId ? { runId: sourceRunId } : {}),
-        })
-    })
-    for (const entry of branch) {
-      if (
-        entry.type !== "custom" ||
-        entry.customType !== "moon-run-result" ||
-        typeof entry.data?.issueEntryId !== "string"
-      )
-        continue
-      const issue = restoredIssue(entry.data.issue)
-      if (issue) issuesByEntry.set(entry.data.issueEntryId, issue)
-    }
-    sourceRunId = undefined
-    for (const [historyIndex, entry] of branch.entries()) {
-      if (entry.type === "custom" && entry.customType === "moon-request")
-        {
-          nextMaterials = undefined
-          sourceRunId = entry.data?.runId
-        }
-      else if (entry.type === "custom" && entry.customType === "moon-materials")
-        nextMaterials = entry.data
-      else if (entry.type === "message") {
-        if (entry.message.role === "user" && nextMaterials) {
-          materialInputs.set(entry.message, nextMaterials)
-          nextMaterials = undefined
-        }
-        source.push(entry.message)
-      } else if (entry.type === "custom_message" && entry.display) {
-        const message = {
-          role: "user",
-          content: entry.content,
-          timestamp: Date.parse(entry.timestamp),
-        }
-        entriesByMessage.set(message, {
-          ...(stableEntryIds ? { entryId: entry.id } : {}),
-          historyIndex,
-          ...(sourceRunId ? { runId: sourceRunId } : {}),
-          ...(entry.customType === "moon-continuation" ? { inputKind: "continuation" } : {}),
-        })
-        source.push(message)
-      }
-    }
-    if (state.pending) {
-      entriesByMessage.set(state.pending, {
-        historyIndex: branch.length,
-        ...(state.record.runId ? { runId: state.record.runId } : {}),
-      })
-      source.push(state.pending)
-    }
-    const seen = new Map()
-    let userTurnId
-    for (const message of source) {
-      if (!["user", "assistant"].includes(message.role)) continue
-      const base = `${message.role}-${message.timestamp}`
-      const count = seen.get(base) || 0
-      seen.set(base, count + 1)
-      const id = `${base}-${count}`
-      const previousUserTurnId = userTurnId
-      if (message.role === "user") userTurnId = id
-      const live = message === state.pending
-      const item = {
-        id,
-        ...entriesByMessage.get(message),
-        ...(userTurnId ? { userTurnId } : {}),
-        ...(entriesByMessage.get(message)?.inputKind === "continuation" && previousUserTurnId
-          ? { continuationOf: previousUserTurnId } : {}),
-        role: message.role,
-        text: textOf(message.content),
-        time: new Date(message.timestamp).toISOString(),
-        status: live
-          ? "streaming"
-          : cancellation.interrupted.has(message) ||
-              message.stopReason === "aborted"
-            ? "interrupted"
-            : message.stopReason === "error"
-              ? "failed"
-              : "settled",
-      }
-      const prepared = materialInputs.get(message)
-      if (prepared && message.role === "user") {
-        item.text = prepared.text
-        item.materials = prepared.materials
-        item.attachments = prepared.materials.map((material) => ({
-          id: material.id,
-          name: material.name,
-          kind: material.type === "image" ? "image" : "file",
-          source: material.source,
-          materialType: material.type,
-        }))
-      }
-      if (message.role === "assistant") {
-        item.model = message.model || state.record.modelId
-        if (!live && ["stop", "length", "toolUse", "error", "aborted"].includes(message.stopReason))
-          item.stopReason = message.stopReason
-        if (live && Number.isInteger(state.pendingContentIndex))
-          item.activeBlockId = `${id}-${state.pendingContentIndex}`
-        item.forkable =
-          !!item.entryId &&
-          !this.historyNotice(state.manager) &&
-          !live &&
-          ["stop", "length"].includes(message.stopReason) &&
-          !message.content.some((part) => part.type === "toolCall")
-        const content = Array.isArray(message.content) ? message.content : []
-        const thinkingText = content
-          .filter((part) => part.type === "thinking")
-          .map((part) => part.thinking)
-          .join("\n")
-        if (thinkingText) item.thinking = { text: thinkingText }
-        const blocks = []
-        const tools = []
-        for (const [index, part] of content.entries()) {
-          const blockId = `${id}-${index}`
-          const phase = item.activeBlockId === blockId ? "running" : "settled"
-          if (part.type === "text")
-            blocks.push({ id: blockId, type: "text", text: part.text, phase })
-          if (part.type === "thinking")
-            blocks.push({ id: blockId, type: "thinking", text: part.thinking, phase })
-          if (part.type === "image" && state.mediaReferences?.has(part))
-            blocks.push({ id: blockId, type: "image", image: state.mediaReferences.get(part) })
-          if (part.type === "toolCall") {
-            const call = history.byPart.get(part)
-            const result = history.results.get(call?.key)
-            const progress =
-              call?.runId === state.record.runId
-                ? state.toolProgress.get(call.key)
-                : undefined
-            const metadata = {
-              ...history.shellResults.get(call?.key),
-              ...(result
-                ? shellResult(result, part.name)
-                : {
-                    ...(progress?.exitCode !== undefined
-                      ? { exitCode: progress.exitCode }
-                      : {}),
-                    ...(progress?.durationMs !== undefined
-                      ? { durationMs: progress.durationMs }
-                      : {}),
-                  }),
-            }
-            const finalProgress = progress?.resultAvailability === "available"
-            const shellEnded = Object.keys(metadata).length > 0
-            const status = result
-              ? result.isError &&
-                cancellation.stoppedCalls.has(part) &&
-                metadata.exitCode === undefined
-                ? "stopped"
-                : result.isError ||
-                    (metadata.exitCode !== undefined && metadata.exitCode !== 0)
-                  ? "failed"
-                  : "success"
-              : finalProgress
-                ? progress.status
-                : shellEnded
-                  ? metadata.exitCode !== undefined && metadata.exitCode !== 0
-                    ? "failed"
-                    : "returned"
-                  : progress?.status ||
-                    (cancellation.stoppedCalls.has(part) ? "stopped" : "unknown")
-            // A missing ToolResultMessage can coexist with a durable shell-end
-            // marker. Keep that end/exit fact without inventing output or a
-            // successful outcome. Old stopReason or absent events do not prove
-            // that a tool was never dispatched.
-            const resultAvailability = result
-              ? "available"
-              : finalProgress
-                ? "available"
-                : progress?.resultAvailability || "missing"
-            const target = toolTarget(part, state.record.cwd)
-            const details = projectedDetails(result)
-            const artifact = fileArtifact(part, target, status)
-            const presentation = this.models.extensions?.presentation(result, part.name)
-            const images = (Array.isArray(result?.content) ? result.content : [])
-              .filter((content) => content.type === "image" && state.mediaReferences?.has(content))
-              .map((content) => state.mediaReferences.get(content))
-            const tool = {
-              id: part.id,
-              name: part.name,
-              source: this.models.mcp?.toolSource(part.name) || this.models.extensions?.toolSource(part.name, result) || "Pi",
-              status,
-              resultAvailability,
-              input: JSON.stringify(part.arguments, null, 2) || "{}",
-              ...(result ? projectedResult(result) : { result: progress?.result || "" }),
-              occurrenceId: stableEntryIds && call?.key ? call.key : toolOccurrenceKey(id, index),
-              ...(target ? { target } : {}),
-              ...(details ? { details } : {}),
-              ...(artifact ? { artifact } : {}),
-              ...(presentation ? { presentation } : {}),
-              ...(images.length ? { images } : {}),
-              ...metadata,
-            }
-            tools.push(tool)
-            blocks.push({ id: `${id}-${index}`, type: "tool", tool })
-            for (const nested of nestedMcpTools(
-              result,
-              nestedResults,
-              call,
-              (name) => this.models.mcp?.toolSource(name)
-            )) {
-              tools.push(nested)
-              blocks.push({
-                id: `${id}-${index}-${nested.id}`,
-                type: "tool",
-                tool: nested,
-              })
-            }
-          }
-        }
-        if (tools.length) item.tools = tools
-        if (blocks.length) item.blocks = blocks
-        if (item.status === "failed")
-          item.issue =
-            issuesByEntry.get(item.entryId) ||
-            runFailureIssue(message.errorMessage || "模型请求失败。")
-      }
-      messages.push(item)
-    }
-    return messages
+    return this.conversation_transcript.transcript(state)
   }
   snapshot(state) {
     const record = state.record
@@ -1235,7 +514,9 @@ export class ConversationService {
       epoch: this.epoch,
       clientRequestId: record.lastRequestId || "",
       inputAccepted: state.inputAccepted,
-      ...(state.inputDisposition ? { inputDisposition: state.inputDisposition } : {}),
+      ...(state.inputDisposition
+        ? { inputDisposition: state.inputDisposition }
+        : {}),
       runId: record.runId || "",
       canContinue: this.canContinue(state),
       phase: state.phase,
@@ -1286,14 +567,10 @@ export class ConversationService {
     return this.live.remember(state, snapshot)
   }
   canContinue(state) {
-    if (!state.inputAccepted || state.entry.busy) return false
-    if (["failed", "interrupted"].includes(state.phase)) return true
-    return state.phase === "completed" && this.lastStopReason(state) === "length"
+    return this.conversation_transcript.canContinue(state)
   }
   lastStopReason(state) {
-    return [...state.manager.getBranch()].reverse().find(
-      (entry) => entry.type === "message" && entry.message.role === "assistant"
-    )?.message.stopReason
+    return this.conversation_transcript.lastStopReason(state)
   }
   async prepareMedia(state, signal, retryFailed = false) {
     if (!this.models.materials?.captureImage) return
@@ -1301,26 +578,42 @@ export class ConversationService {
     state.mediaTasks ||= new WeakMap()
     const pending = []
     const entries = state.manager.getBranch()
-    const source = entries.filter((entry) => entry.type === "message" && ["assistant", "toolResult"].includes(entry.message.role)).map((entry) => entry.message)
+    const source = entries
+      .filter(
+        (entry) =>
+          entry.type === "message" &&
+          ["assistant", "toolResult"].includes(entry.message.role)
+      )
+      .map((entry) => entry.message)
     if (state.pending) source.push(state.pending)
     for (const message of source) {
-      for (const [index, part] of (Array.isArray(message.content) ? message.content : []).entries()) {
+      for (const [index, part] of (Array.isArray(message.content)
+        ? message.content
+        : []
+      ).entries()) {
         if (part.type !== "image") continue
         const reference = state.mediaReferences.get(part)
-        if (reference && !(retryFailed && reference.status === "failed" && reference.retryable)) continue
+        if (
+          reference &&
+          !(retryFailed && reference.status === "failed" && reference.retryable)
+        )
+          continue
         let task = state.mediaTasks.get(part)
         if (!task) {
-          task = this.models.materials.captureImage(
-            state.record.cwd,
-            `Pi-${message.role}-${message.timestamp}-${index}`,
-            part.mimeType,
-            part.data,
-            signal
-          ).then((result) => {
-            const previous = state.mediaReferences.get(part)
-            state.mediaReferences.set(part, result)
-            if (JSON.stringify(previous) !== JSON.stringify(result)) this.touch(state)
-          })
+          task = this.models.materials
+            .captureImage(
+              state.record.cwd,
+              `Pi-${message.role}-${message.timestamp}-${index}`,
+              part.mimeType,
+              part.data,
+              signal
+            )
+            .then((result) => {
+              const previous = state.mediaReferences.get(part)
+              state.mediaReferences.set(part, result)
+              if (JSON.stringify(previous) !== JSON.stringify(result))
+                this.touch(state)
+            })
           state.mediaTasks.set(part, task)
           task.finally(() => state.mediaTasks.delete(part)).catch(() => {})
         }
@@ -1347,19 +640,32 @@ export class ConversationService {
     return this.sessions.exclusive(sessionId, async () => {
       this.ensureOpen()
       signal?.throwIfAborted()
-      const receipt = await this.store.request(sessionId, clientRequestId, signal)
+      const receipt = await this.store.request(
+        sessionId,
+        clientRequestId,
+        signal
+      )
       const record = await this.store.get(sessionId, signal)
-      const result = (state, issue) => ({ sessionId, clientRequestId, state,
-        ...(issue ? { issue } : {}) })
+      const result = (state, issue) => ({
+        sessionId,
+        clientRequestId,
+        state,
+        ...(issue ? { issue } : {}),
+      })
       let state
       if (record) {
         state = await this.restore(record, undefined, signal)
-        if (state.queue.items.some((item) => item.clientRequestId === clientRequestId))
+        if (
+          state.queue.items.some(
+            (item) => item.clientRequestId === clientRequestId
+          )
+        )
           return result("accepted")
         // Pi may have appended to its in-memory tree before a failing write.
         // Read disk rather than that uncertain tree when persistence failed.
         const manager = this.persistence.get(state.manager)?.error
-          ? await this.fileManager(record) : state.manager
+          ? await this.fileManager(record)
+          : state.manager
         if (acceptedInput(manager, clientRequestId)) return result("accepted")
       }
       if (receipt?.status === "handled") return result("handled")
@@ -1367,8 +673,10 @@ export class ConversationService {
         return result("rejected", restoredIssue(receipt.issue))
       const interrupted = {
         code: "request_not_accepted",
-        summary: "原请求尚未接受，准备过程已中断；原输入保留，可以使用新请求重新发送。",
-        recovery: "none", severity: "warning",
+        summary:
+          "原请求尚未接受，准备过程已中断；原输入保留，可以使用新请求重新发送。",
+        recovery: "none",
+        severity: "warning",
       }
       // A previous host's preparation cannot later execute. A current-host
       // preparing receipt whose rejection write failed remains unknown.
@@ -1444,636 +752,11 @@ export class ConversationService {
       signal
     )
   }
-  async start(input, signal) {
-    const state = await this.sessions.exclusive(input.sessionId, async () => {
-      this.ensureOpen()
-      signal?.throwIfAborted()
-      let record = await this.store.get(input.sessionId, signal)
-      const fingerprint = createHash("sha256")
-        .update(
-          JSON.stringify([
-            input.mode,
-            input.text,
-            input.connectionId,
-            input.modelId,
-            input.thinking,
-            input.materials ?? [],
-          ])
-        )
-        .digest("hex")
-      let tracked = false
-      const begin = async () => {
-        if (input.mode === "queue") return
-        const { receipt, created } = await this.store.beginRequest(
-          input.sessionId,
-          input.clientRequestId,
-          fingerprint,
-          this.epoch,
-          signal
-        )
-        if (!created && receipt.status === "started")
-          throw operationError(
-            "result_unknown",
-            "原请求已进入启动阶段，请先核对原回执；不会重新执行。",
-            "check"
-          )
-        tracked = true
-        if (!created)
-          throw operationError(
-            "request_not_accepted",
-            "原请求尚未接受，请保留输入并使用新请求重新发送。",
-            "none"
-          )
-      }
-      try {
-        if (record) {
-          requireValue(
-            !input.workspaceId || record.workspaceId === input.workspaceId,
-            "已有会话不能更换工作区。"
-          )
-          const restored = await this.restore(record, undefined, signal)
-          const storedReceipt = await this.store.request(
-            record.id, input.clientRequestId, signal
-          )
-          if (storedReceipt?.status === "handled") {
-            requireValue(storedReceipt.fingerprint === fingerprint,
-              "请求标识已经用于不同内容，请重新发送。")
-            return restored
-          }
-          const queuedReceipt = restored.queue.items.find(
-            (item) => item.clientRequestId === input.clientRequestId
-          )
-          if (queuedReceipt) {
-            await this.queue.enqueueReceipt(restored, input)
-            return restored
-          }
-          const accepted = restored.requests.get(input.clientRequestId)
-          if (accepted) {
-            requireValue(
-              accepted.fingerprint === fingerprint,
-              "请求标识已经用于不同内容，请重新发送。"
-            )
-            const manager = this.persistence.get(restored.manager)?.error
-              ? await this.fileManager(record)
-              : restored.manager
-            if (acceptedInput(manager, input.clientRequestId)) return restored
-            const receipt = await this.store.request(
-              record.id,
-              input.clientRequestId,
-              signal
-            )
-            if (
-              receipt?.status === "rejected" &&
-              receipt.fingerprint === fingerprint &&
-              record.lastRequestId === input.clientRequestId &&
-              ["failed", "interrupted"].includes(restored.phase)
-            )
-              return restored
-          }
-          await begin()
-          requireValue(!restored.controlBusy, "会话控制操作尚未完成，请稍候。")
-          requireValue(
-            !restored.commandRunning,
-            "当前扩展命令结束后才能发送消息。"
-          )
-          const unresolvedControl = this.controls.unresolvedReason(restored)
-          requireValue(!unresolvedControl, unresolvedControl)
-          if (restored.entry.busy && input.mode === "send") {
-            requireValue(
-              record.modelId ===
-                selectionId(input.connectionId, input.modelId) &&
-                record.thinking === input.thinking,
-              "运行中排队与补充沿用当前模型和思考强度；请等待结束后切换。"
-            )
-            await this.queue.enqueue(restored, input, signal)
-            if (input.delivery === "steer")
-              queueMicrotask(() => {
-                void this.queue.boundary(restored, "steer").catch((error) => {
-                  queueFailure(
-                    restored,
-                    error,
-                    "补充消息交付尚未完成，消息保留。"
-                  )
-                  this.touch(restored)
-                })
-              })
-            return restored
-          }
-          requireValue(
-            !restored.entry.busy,
-            "此会话正在执行，请先停止或等待完成。"
-          )
-          if (input.mode === "queue")
-            requireValue(
-              !restored.queue.paused &&
-                restored.queue.items.some((item) => item.status === "pending"),
-              "队列已暂停或没有可发送内容。"
-            )
-          if (input.mode === "retry") {
-            requireValue(
-              ["failed", "interrupted"].includes(restored.phase) ||
-                (restored.phase === "completed" &&
-                  this.lastStopReason(restored) === "length"),
-              "只有失败、中断或输出达到上限的回复可以继续。"
-            )
-            requireValue(
-              restored.inputAccepted &&
-                this.transcript(restored).some(
-                  (message) => message.role === "user"
-                ),
-              "上一请求尚未写入对话，请在输入框重新发送。"
-            )
-          }
-        } else {
-          requireValue(input.mode === "send", "会话不存在。")
-          await begin()
-        }
-        const workspace = await this.workspaces.get(
-          record?.workspaceId || input.workspaceId,
-          signal
-        )
-        requireValue(workspace, "工作区已移除，请重新添加目录。")
-        const cwd = await this.sessions.cwd(workspace.path || workspace.cwd)
-        requireValue(
-          !record || record.cwd === cwd,
-          "工作区路径已改变，请新建会话。"
-        )
-        const selected = await this.selection(
-          input.connectionId,
-          input.modelId,
-          input.thinking,
-          signal
-        )
-        input.preparedMaterials =
-          input.materials?.length ||
-          (input.mode !== "send" && input.text.startsWith("/skill:"))
-            ? await this.models.materials.resolveForPrompt({
-                sessionId: input.sessionId,
-                cwd,
-                materials: input.materials ?? [],
-                text: input.text,
-                model: selected.model,
-                nativeSkills: input.mode === "send",
-                signal,
-              })
-            : { textPrefix: "", images: [], displayMaterials: [] }
-        let config = await this.sessions.readExclusive(input.sessionId, signal)
-        if (this.sessions.refreshForRunExclusive)
-          await this.sessions.refreshForRunExclusive(input.sessionId, signal)
-        if (!config) {
-          const catalog = await this.sessions.catalog(cwd, signal)
-          config = await this.sessions.applyExclusive(
-            input.sessionId,
-            cwd,
-            catalog.defaults.toolIds,
-            catalog.defaults.instructionScope,
-            undefined,
-            signal
-          )
-        }
-        requireValue(config.cwd === cwd, "会话配置与工作区目录不一致。")
-        requireValue(
-          config.unavailableToolIds.length === 0,
-          "会话中有失效工具，请打开会话配置移除后再发送。"
-        )
-        signal?.throwIfAborted()
-        if (!record)
-          record = await this.store.create(
-            {
-              id: input.sessionId,
-              workspaceId: input.workspaceId,
-              cwd,
-              title: (
-                input.text.trim() ||
-                input.preparedMaterials.displayMaterials
-                  .map((item) => item.name)
-                  .join("、")
-              )
-                .replace(/\s+/g, " ")
-                .slice(0, 80),
-              sessionFile: "",
-              modelId: selectionId(input.connectionId, input.modelId),
-              thinking: input.thinking,
-            },
-            signal
-          )
-        const state = await this.restore(record, selected, signal)
-        const provider = providerId(selected.connection)
-        const registered =
-          selected.runtime.getRegisteredProviderConfig(provider)
-        if (registered)
-          state.session.modelRuntime.registerProvider(provider, registered)
-        const model = state.session.modelRuntime.getModel(
-          provider,
-          input.modelId
-        )
-        requireValue(model, "Pi 未找到所选模型。")
-        await state.session.setModel(model)
-        state.session.setThinkingLevel(input.thinking)
-        requireValue(
-          state.session.thinkingLevel === input.thinking,
-          "Pi 无法应用所选思考等级。"
-        )
-        signal?.throwIfAborted()
-        this.ensureOpen()
-        const runId = randomUUID()
-        state.permission = await this.permissions.read(input.sessionId, signal)
-        // Atomic index commit authorizes the run, but does not yet prove Pi input
-        // acceptance. After this boundary, caller cancellation cannot stop work;
-        // Stop identifies the committed run while receipt reads inspect Pi input.
-        state.record = await this.store.update(
-          record.id,
-          {
-            sessionFile: state.manager.getSessionFile() || "",
-            status: "running",
-            unread: false,
-            runId,
-            lastError: "",
-            modelId: selectionId(input.connectionId, input.modelId),
-            thinking: input.thinking,
-            lastRequestId: input.clientRequestId,
-            lastRequestFingerprint: fingerprint,
-          },
-          signal,
-          input.mode === "queue"
-            ? undefined
-            : {
-                clientRequestId: input.clientRequestId,
-                fingerprint,
-              }
-        )
-        const request = {
-          clientRequestId: input.clientRequestId,
-          fingerprint,
-          runId,
-        }
-        state.requests.set(input.clientRequestId, request)
-        state.inputAccepted = false
-        state.inputDisposition = undefined
-        state.issue = undefined
-        state.issueEntryId = undefined
-        if (this.closed) {
-          state.record = await this.store.update(
-            record.id,
-            {
-              status: "idle",
-              lastError: "应用关闭前请求尚未开始，请重新发送。",
-            },
-            undefined,
-            input.mode === "queue"
-              ? undefined
-              : {
-                  clientRequestId: input.clientRequestId,
-                  fingerprint,
-                  runId,
-                  outcome: "rejected",
-                  issue: {
-                    code: "request_not_accepted",
-                    summary: "应用关闭前原请求尚未接受，输入已保留。",
-                    recovery: "none",
-                    severity: "info",
-                  },
-                }
-          )
-          state.phase = "interrupted"
-          state.error = state.record.lastError
-          state.issue = {
-            code: "run_not_started",
-            summary: state.error,
-            recovery: "retry",
-            severity: "info",
-          }
-          return state
-        }
-        state.phase = "running"
-        state.command = undefined
-        state.runMetrics = {
-          startedAt: performance.now(),
-          modelDurationMs: 0,
-          outputTokens: 0,
-          hasUsage: false,
-        }
-        state.error = ""
-        state.issue = undefined
-        state.stopRequested = false
-        state.stoppedToolIds.clear()
-        state.stoppedToolCalls.clear()
-        state.entry.busy = true
-        state.pending = undefined
-        state.toolProgress.clear()
-        state.compactionActive = false
-        state.runtime = {
-          phase: "responding",
-          updatedAt: new Date().toISOString(),
-        }
-        state.notice = undefined
-        this.touch(state)
-        state.accepted = new Promise((resolve) => {
-          state.acceptedResolve = resolve
-        })
-        state.run = this.run(state, input)
-        return state
-      } catch (error) {
-        if (tracked) {
-          try {
-            await this.store.rejectRequest(
-              input.sessionId,
-              input.clientRequestId,
-              fingerprint,
-              publicFailure(error, "conversationSend").issue
-            )
-          } catch (storageError) {
-            throw operationError(
-              "result_unknown",
-              "请求尚未确认：准备结果未能保存，请先核对原回执，输入副本保留。",
-              "check",
-              publicFailure(storageError, "conversationReceiptRead").issue
-                .details
-            )
-          }
-        }
-        throw error
-      }
-    })
-    // Wait for Pi's public input-append boundary, not generation/tool completion.
-    // Installed Pi 1.0.0 flushes the first user entry before append returns.
-    // A startup commit alone is earlier; a missing file still cannot distinguish
-    // a crash before input append from loss of previously accepted history.
-    if (
-      state.queue.items.some(
-        (item) => item.clientRequestId === input.clientRequestId
-      )
-    )
-      return this.snapshot(state)
-    await state.accepted
-    return this.snapshot(state)
+  start(input, signal) {
+    return this.conversation_run.start(input, signal)
   }
-  async run(state, input) {
-    let failure
-    let failureEntryId
-    const manager = state.manager
-    const before = [manager.getHeader(), ...manager.getEntries()]
-    const beforeEntryIds = new Set(before.map((entry) => entry.id))
-    const nativePrompt = input.mode === "send" ? {
-      request: state.requests.get(input.clientRequestId),
-      text: input.text,
-      materials: input.preparedMaterials?.displayMaterials ?? [],
-      context: input.preparedMaterials?.textPrefix ?? "",
-      contextConsumed: false,
-      started: false,
-      handled: false,
-      message: undefined,
-    } : undefined
-    state.nativePrompt = nativePrompt
-    try {
-      if (!nativePrompt) {
-        state.manager.appendCustomEntry(
-          "moon-request",
-          state.requests.get(input.clientRequestId)
-        )
-        if (input.preparedMaterials?.displayMaterials.length)
-          state.manager.appendCustomEntry("moon-materials", {
-            clientRequestId: input.clientRequestId,
-            text: input.text,
-            materials: input.preparedMaterials.displayMaterials,
-          })
-      }
-      if (input.mode === "queue") await this.queue.seed(state)
-      else if (input.mode === "retry")
-        await state.session.sendCustomMessage(
-          {
-            customType: "moon-continuation",
-            content: continuation,
-            display: true,
-          },
-          { triggerTurn: true }
-        )
-      else {
-        if (state.stopRequested || this.closed) throw new Error("请求已停止。")
-        await state.session.prompt(
-          input.text || "请处理所附材料。",
-          {
-            images: input.preparedMaterials?.images ?? [],
-            preflightResult: (disposition) => {
-              if (disposition === "handled") {
-                nativePrompt.handled = true
-                return
-              }
-              if (state.stopRequested || this.closed)
-                throw new Error("请求已停止。")
-              if (disposition === "started") nativePrompt.started = true
-            },
-          }
-        )
-      }
-      const lastEntry = [...state.manager.getBranch()]
-        .reverse()
-        .find(
-          (entry) =>
-            entry.type === "message" &&
-            entry.message.role === "assistant" &&
-            !beforeEntryIds.has(entry.id)
-        )
-      const last = lastEntry?.message
-      if (last?.stopReason === "error") {
-        failure =
-          this.persistence
-            .get(state.manager)
-            ?.assistantIssues.get(lastEntry.id) ||
-          runFailureIssue(last.errorMessage || "模型请求失败。")
-        failureEntryId = lastEntry.id
-      }
-      if (last?.stopReason === "aborted") state.stopRequested = true
-    } catch (error) {
-      failure = runFailureIssue(error)
-    } finally {
-      // Keep only the terminal disposition locally. Never carry original text,
-      // user-object binding or path context into another input/queued turn.
-      state.nativePrompt = undefined
-      await this.sessions.exclusive(state.record.id, async () => {
-        const writeError = this.persistence.get(manager)?.error
-        if (writeError) {
-          failure = storageIssue(
-            writeError,
-            "conversationRead",
-            `会话历史未能保存。${publicFailure(writeError, "conversationRead").issue.summary}`
-          )
-          failureEntryId = undefined
-          state.unsubscribe?.()
-          state.session?.dispose()
-          state.session = undefined
-          this.sessions.active.delete(state.record.id)
-          state.toolProgress.clear()
-          try {
-            state.manager = await this.fileManager(state.record)
-            try {
-              await this.queue.reconcile(state)
-            } catch (error) {
-              queueFailure(
-                state,
-                error,
-                "历史已读取，但待处理消息状态未能保存。请检查文件占用后重新读取。"
-              )
-            }
-          } catch (error) {
-            // Preserve the file, including any partial write. A later read/send
-            // validates it again; never reuse Pi's uncertain in-memory entries.
-            state.manager = SessionManager.inMemory(
-              state.record.cwd,
-              undefined,
-              before
-            )
-            state.historyError = error
-            failure = {
-              ...failure,
-              code: "history_unreadable",
-              summary: `${failure.summary} 当前历史无法读取，原文件保留。`,
-            }
-          }
-        }
-        state.pending = undefined
-        if (state.runMetrics)
-          state.runMetrics.durationMs =
-            performance.now() - state.runMetrics.startedAt
-        state.runtime = undefined
-        state.compactionActive = false
-        state.phase = state.stopRequested
-          ? "interrupted"
-          : failure
-            ? "failed"
-            : "completed"
-        state.issue = failure
-        state.issueEntryId = failure ? failureEntryId : undefined
-        state.error = failure?.summary || ""
-        for (const progress of state.toolProgress.values())
-          if (progress.status === "running")
-            progress.status = state.stopRequested ? "stopped" : "failed"
-        const messages = this.transcript(state)
-        const lastMessage =
-          [...messages].reverse().find((message) => message.text)?.text || ""
-        try {
-          if (!writeError) {
-            state.recoveredContext = this.contextFeedback(state)
-            state.manager.appendCustomEntry("moon-context-usage", {
-              modelId: state.record.modelId,
-              feedback: state.recoveredContext,
-            })
-            state.manager.appendCustomEntry("moon-run-result", {
-              runId: state.record.runId,
-              phase: state.phase,
-              statistics: conversationStatistics(state),
-              error: state.error,
-              ...(state.issue ? { issue: state.issue } : {}),
-              ...(state.issue && failureEntryId
-                ? { issueEntryId: failureEntryId }
-                : {}),
-              ...(state.notice ? { notice: state.notice } : {}),
-              ...(state.stoppedToolIds.size
-                ? { stoppedToolIds: [...state.stoppedToolIds] }
-                : {}),
-              ...(state.stoppedToolCalls.size
-                ? {
-                    stoppedToolCalls: [...state.stoppedToolCalls].map((key) => {
-                      const [entryId, index] = JSON.parse(key)
-                      return { entryId, index }
-                    }),
-                  }
-                : {}),
-            })
-          }
-          state.record = await this.store.update(
-            state.record.id,
-            {
-              status: state.phase === "interrupted" ? "idle" : state.phase,
-              unread: true,
-              lastError: state.error,
-              lastMessage: lastMessage.slice(0, 2000),
-              sessionFile: writeError
-                ? state.record.sessionFile
-                : state.manager.getSessionFile() || "",
-            },
-            undefined,
-            nativePrompt?.handled
-              ? {
-                  clientRequestId: input.clientRequestId,
-                  fingerprint: nativePrompt.request.fingerprint,
-                  runId: state.record.runId,
-                  outcome: "handled",
-                }
-              : input.mode !== "queue" &&
-              !nativePrompt?.started &&
-              !state.inputAccepted &&
-              !writeError &&
-              !acceptedInput(manager, input.clientRequestId)
-              ? {
-                  clientRequestId: input.clientRequestId,
-                  fingerprint: state.requests.get(input.clientRequestId)
-                    ?.fingerprint,
-                  runId: state.record.runId,
-                  outcome: "rejected",
-                  issue: state.issue ?? {
-                    code: "request_not_accepted",
-                    summary: "原请求尚未接受，输入已保留。",
-                    recovery: "none",
-                    severity: "info",
-                  },
-                }
-              : undefined
-          )
-          if (nativePrompt?.handled) {
-            state.inputDisposition = "handled"
-            state.notice = this.handledNotice(state.record.runId, state.record.updatedAt)
-          }
-        } catch (error) {
-          state.phase = "failed"
-          state.issue = nativePrompt?.handled
-            ? {
-                ...publicFailure(error, "conversationReceiptRead").issue,
-                code: "result_unknown",
-                summary: "扩展输入的处理回执未能保存，请核对原回执；不要重复发送。",
-                recovery: "check",
-              }
-            : storageIssue(
-                error,
-                "conversationRead",
-                `回复已结束，但会话记录未能保存。${publicFailure(error, "conversationRead").issue.summary}`
-              )
-          state.error = state.issue.summary
-        }
-        state.entry.busy = false
-        if (state.phase !== "completed") {
-          try {
-            await this.queue.pause(state)
-          } catch (error) {
-            state.queue.paused = true
-            queueFailure(
-              state,
-              error,
-              "执行已停止，但待处理消息状态未能保存。消息保留，请检查文件占用后重新读取。"
-            )
-          }
-        } else if (
-          this.queuePending(state) &&
-          !state.queue.paused &&
-          !this.closed
-        )
-          queueMicrotask(() => {
-            void this.queue.resume(state).catch((error) => {
-              state.queue.paused = true
-              state.queueIssue = {
-                ...publicFailure(error, "conversationRead").issue,
-                code: "queue_resume_failed",
-                summary: "待处理消息暂时无法发送，请重新读取后继续。",
-                recovery: "reload",
-              }
-              state.queueError = state.queueIssue.summary
-              this.touch(state)
-            })
-          })
-        state.acceptedResolve?.()
-        this.touch(state)
-      })
-    }
+  run(state, input) {
+    return this.conversation_run.run(state, input)
   }
   async stop(sessionId, runId, signal) {
     identity(sessionId)
@@ -2172,8 +855,24 @@ export class ConversationService {
   queuePending(state) {
     return this.queue.pending(state)
   }
-  queueEdit(sessionId, itemId, text, revision, materials, signal, clientEditId) {
-    return this.queue.edit(sessionId, itemId, text, revision, materials, signal, clientEditId)
+  queueEdit(
+    sessionId,
+    itemId,
+    text,
+    revision,
+    materials,
+    signal,
+    clientEditId
+  ) {
+    return this.queue.edit(
+      sessionId,
+      itemId,
+      text,
+      revision,
+      materials,
+      signal,
+      clientEditId
+    )
   }
   queueRemove(...args) {
     return this.queue.remove(...args)

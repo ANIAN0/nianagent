@@ -1,12 +1,11 @@
 import type { ReactNode } from "react"
-import { ArrowUpRight, Download } from "lucide-react"
+import { ArrowUpRight } from "lucide-react"
 import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import designUrl from "../DESIGN.md?url"
 
 /** Owns only shell/panel presentation, so previews can inject isolated content. */
 export function CatalogLayout({
@@ -34,9 +33,6 @@ export function CatalogLayout({
         <div className="catalog-header-links">
           <a href="/">
             工作台 <ArrowUpRight aria-hidden="true" />
-          </a>
-          <a href={designUrl} download="DESIGN.md">
-            设计规范 <Download aria-hidden="true" />
           </a>
         </div>
       </header>

@@ -11,7 +11,9 @@ if (relative(root, output).replaceAll("\\", "/") !== "src-tauri/runtime")
 for (const directory of [resolve(root, "src-tauri"), output]) {
   try {
     if ((await lstat(directory)).isSymbolicLink())
-      throw new Error("Refusing to deploy through a linked backend output directory")
+      throw new Error(
+        "Refusing to deploy through a linked backend output directory"
+      )
   } catch (error) {
     if (error.code !== "ENOENT") throw error
   }
@@ -33,6 +35,10 @@ const result = spawnSync(
 )
 if (result.status !== 0) process.exit(result.status ?? 1)
 for (const file of sourceFiles) {
-  const [source, packaged] = await Promise.all([readFile(resolve(root, "backend", file)), readFile(resolve(output, file))])
-  if (!source.equals(packaged)) throw new Error(`Backend deployment omitted or changed ${file}`)
+  const [source, packaged] = await Promise.all([
+    readFile(resolve(root, "backend", file)),
+    readFile(resolve(output, file)),
+  ])
+  if (!source.equals(packaged))
+    throw new Error(`Backend deployment omitted or changed ${file}`)
 }

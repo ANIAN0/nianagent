@@ -14,7 +14,7 @@ import {
   writeRequestId,
   writeOperations,
 } from "./write-receipt-contract.mjs"
-import { schemas, object, ref, assertSchema } from "./schema.mjs"
+import { object, ref, assertSchema } from "./schema.mjs"
 export { schemas, assertSchema } from "./schema.mjs"
 // Authority for RPC names, required input fields, documentation and dispatch.
 export const operations = {
@@ -65,7 +65,8 @@ export const operations = {
       "无记录返回 null；恢复真实 Pi 会话和指令快照。保留保存的toolIds/revision；未知或依赖失效项列入unavailableToolIds，effectiveToolIds仅为实际可用活动集，允许用户取消失效项后重新应用。",
     errors:
       "配置文件损坏、工作目录失效；工具失效作为可编辑结果返回，不阻断读取。",
-    effect: "恢复内存会话，不发起推理、不写配置。Pi 默认系统提示与 Moon 宿主运行环境说明始终保留；项目指令范围不隐藏原生工作目录与工具路径语义。",
+    effect:
+      "恢复内存会话，不发起推理、不写配置。Pi 默认系统提示与 Moon 宿主运行环境说明始终保留；项目指令范围不隐藏原生工作目录与工具路径语义。",
     example: { sessionId: "sample-session" },
   },
   sessionApply: {
@@ -199,11 +200,14 @@ export const operations = {
   remove: {
     method: "remove",
     args: ["id", "revision", "$signal", "operationRequestId"],
-    request: object({
-      id: { type: "string", minLength: 1 },
-      revision: { type: "integer", minimum: 1 },
-      operationRequestId: writeRequestId,
-    }, ["id", "revision"]),
+    request: object(
+      {
+        id: { type: "string", minLength: 1 },
+        revision: { type: "integer", minimum: 1 },
+        operationRequestId: writeRequestId,
+      },
+      ["id", "revision"]
+    ),
     response: { type: "null" },
     condition:
       "必须带当前 revision；锁等待和提交前取消都保留连接、模型和凭据；提交后不可回滚。",
@@ -321,7 +325,8 @@ export const operations = {
     args: ["id"],
     request: object({ id: { type: "string", minLength: 1 } }),
     response: ref("AuthState"),
-    condition: "只读；任务最长10分钟，结束后状态保留5分钟。内部登录结束但原lease清理未settle时仍返回pending/stage=settling，客户端保留原ID；清理结束才公开complete/error/cancelled。清理失败附authorization_cleanup警告，原authCancel可核对并释放，不丢失恢复身份。",
+    condition:
+      "只读；任务最长10分钟，结束后状态保留5分钟。内部登录结束但原lease清理未settle时仍返回pending/stage=settling，客户端保留原ID；清理结束才公开complete/error/cancelled。清理失败附authorization_cleanup警告，原authCancel可核对并释放，不丢失恢复身份。",
     errors: "任务不存在或已过期。",
     title: "读取授权状态",
     input: ["id"],
@@ -354,7 +359,8 @@ export const operations = {
     response: { type: "null" },
     condition:
       "显式取消授权任务并等待结束；重复取消无副作用；已完成授权凭据不会自动退出。",
-    errors: "存储清理失败；原任务不可确认时返回authorization_unknown，不假称已取消。",
+    errors:
+      "存储清理失败；原任务不可确认时返回authorization_unknown，不假称已取消。",
     title: "取消授权",
     input: ["id"],
     result: "null",
@@ -368,11 +374,13 @@ export const operations = {
     response: ref("ModelConnection"),
     condition:
       "取消提交前可中止；Pi 删除凭据，连接和模型保留。已提交删除不回滚。宿主按provider独占完整SDK退出操作，finally结束才释放；此期间同provider新授权、再次退出、保存/删除拒绝，其他provider和只读目录可用。传输丢失只读list核对ModelConnection.accountOperationBusy：明确false仅证明原退出执行已结束，不证明退出成功；true继续等待，缺省旧宿主需重启。",
-    errors: "订阅连接不存在、授权执行或清理尚未结束、同提供者退出尚未结束、凭据写入/删除失败。",
+    errors:
+      "订阅连接不存在、授权执行或清理尚未结束、同提供者退出尚未结束、凭据写入/删除失败。",
     title: "退出订阅",
     input: ["id"],
     result: "ModelConnection",
-    effect: "Pi删除凭据并完成provider同步；正式订阅响应明确accountOperationBusy=true/false，返回退出结果时已释放原provider执行占用。",
+    effect:
+      "Pi删除凭据并完成provider同步；正式订阅响应明确accountOperationBusy=true/false，返回退出结果时已释放原provider执行占用。",
     example: { id: "连接ID" },
   },
 }
@@ -438,7 +446,8 @@ export const transportRecoveryByOperation = {
   conversationCommandRead: "reload",
 }
 for (const [name, definition] of Object.entries(operations)) {
-  if (!Object.hasOwn(transportRecoveryByOperation, name)) throw new Error(`Missing transport recovery contract: ${name}`)
+  if (!Object.hasOwn(transportRecoveryByOperation, name))
+    throw new Error(`Missing transport recovery contract: ${name}`)
   definition.transportRecovery = transportRecoveryByOperation[name]
   if (writeOperations.includes(name)) definition.writeReceipt = true
 }

@@ -94,7 +94,7 @@ export default {
         schema: [],
         messages: {
           native:
-          "需要补充说明时使用项目 Tooltip，无需补充时移除 title；HTML/Button title 会绕过统一外观与键盘说明。",
+            "需要补充说明时使用项目 Tooltip，无需补充时移除 title；HTML/Button title 会绕过统一外观与键盘说明。",
         },
       },
       create(context) {

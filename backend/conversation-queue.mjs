@@ -1,8 +1,14 @@
-import { mkdir, readFile, writeFile, rename, rm } from "node:fs/promises"
+import { replaceJson } from "./atomic-file.mjs"
+import { archiveReceipt, readArchivedReceipt } from "./receipt-archive.mjs"
+import { validateQueueOperationReceipts as validateArchivedQueueReceipts } from "./queue-operation-receipts.mjs"
+import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { createHash, randomUUID } from "node:crypto"
 import { publicFailure, operationError } from "./operation-issue.mjs"
-import { QueueOperationReceipts, validateQueueOperationReceipts } from "./queue-operation-receipts.mjs"
+import {
+  QueueOperationReceipts,
+  validateQueueOperationReceipts,
+} from "./queue-operation-receipts.mjs"
 
 const check = (value, message) => {
   if (!value) throw new Error(message)
@@ -134,7 +140,9 @@ export class ConversationQueue {
           typeof item.text === "string" &&
           item.text.length <= 100000 &&
           (item.editBaseRevision === undefined ||
-            (Number.isSafeInteger(item.editBaseRevision) && item.editBaseRevision >= 0 && item.editBaseRevision < queue.revision)) &&
+            (Number.isSafeInteger(item.editBaseRevision) &&
+              item.editBaseRevision >= 0 &&
+              item.editBaseRevision < queue.revision)) &&
           Array.isArray(item.materials) &&
           ["pending", "dispatching", "failed", "delivered", "removed"].includes(
             item.status
@@ -160,7 +168,45 @@ export class ConversationQueue {
     signal?.throwIfAborted()
     const queue = await this.document(sessionId)
     signal?.throwIfAborted()
-    return this.operationReceipts.present(sessionId, operationRequestId, queue.operationReceipts?.[operationRequestId])
+    return this.operationReceipts.present(
+      sessionId,
+      operationRequestId,
+      queue.operationReceipts?.[operationRequestId] ??
+        (await this.archivedReceipt(sessionId, operationRequestId))
+    )
+  }
+  archivedReceipt(sessionId, id) {
+    return readArchivedReceipt(
+      join(this.directory, "operation-receipts"),
+      [sessionId, id],
+      (value) => validateArchivedQueueReceipts({ [id]: value }, sessionId)
+    )
+  }
+  async compactReceipts(state, signal) {
+    const values = Object.values(state.queue.operationReceipts ?? {})
+    if (values.length <= 256) return
+    const saved = (await this.document(state.record.id)).operationReceipts ?? {}
+    const eligible = values.filter(
+      (receipt) =>
+        ["committed", "rejected"].includes(receipt.status) &&
+        JSON.stringify(saved[receipt.operationRequestId]) ===
+          JSON.stringify(receipt)
+    )
+    for (const receipt of eligible.slice(
+      0,
+      Math.min(64, values.length - 128)
+    )) {
+      const id = receipt.operationRequestId
+      await archiveReceipt(
+        join(this.directory, "operation-receipts"),
+        [state.record.id, id],
+        receipt,
+        (value) =>
+          validateArchivedQueueReceipts({ [id]: value }, state.record.id),
+        signal
+      )
+      delete state.queue.operationReceipts[id]
+    }
   }
   async reconcile(state) {
     const queue = state.queue
@@ -212,24 +258,15 @@ export class ConversationQueue {
     return this.serialize(state, () => this.write(state, signal))
   }
   async write(state, signal, onCommitted) {
-    const id = state.record.id
-    const data = JSON.stringify(state.queue, null, 2)
-    await mkdir(this.directory, { recursive: true, mode: 0o700 })
-    const temporary = join(this.directory, `.${id}-${randomUUID()}.tmp`)
-    let committed = false
-    try {
-      signal?.throwIfAborted()
-      await writeFile(temporary, data, { flag: "wx", mode: 0o600 })
-      signal?.throwIfAborted()
-      await rename(temporary, join(this.directory, `${id}.json`))
-      committed = true
-      onCommitted?.()
-      // This full authoritative write resolves only queue-storage feedback.
-      // A failure to start the Pi run still needs its own accepted run receipt.
-      this.clearFailure(state, "queue_storage")
-    } finally {
-      if (!committed) await rm(temporary, { force: true })
-    }
+    // 本次替换只提交队列文档；Pi 输入接收回执仍由执行协调器拥有。
+    await this.compactReceipts(state, signal)
+    await replaceJson(
+      join(this.directory, state.record.id + ".json"),
+      state.queue,
+      { signal, pretty: true }
+    )
+    onCommitted?.()
+    this.clearFailure(state, "queue_storage")
   }
   snapshot(state) {
     const queue = state.queue
@@ -239,10 +276,15 @@ export class ConversationQueue {
       mode: queue.mode,
       paused: queue.paused,
       acceptedRequestIds: queue.items.map((item) => item.clientRequestId),
-      retiredItems: queue.items.filter((item) => ["delivered", "removed"].includes(item.status))
+      retiredItems: queue.items
+        .filter((item) => ["delivered", "removed"].includes(item.status))
         .map((item) => ({
-          id: item.id, clientRequestId: item.clientRequestId, status: item.status,
-          ...(Number.isInteger(item.editBaseRevision) ? { editBaseRevision: item.editBaseRevision } : {}),
+          id: item.id,
+          clientRequestId: item.clientRequestId,
+          status: item.status,
+          ...(Number.isInteger(item.editBaseRevision)
+            ? { editBaseRevision: item.editBaseRevision }
+            : {}),
           ...(item.editRequestId ? { editRequestId: item.editRequestId } : {}),
         })),
       items: queue.items
@@ -287,9 +329,16 @@ export class ConversationQueue {
         state.queue.revision++
         commitReceipt?.(state.queue)
         writing = true
-        await this.write(state, signal, () => { committed = true })
+        await this.write(state, signal, () => {
+          committed = true
+        })
       } catch (error) {
-        if (committed) throw operationError("result_unknown", "队列动作已提交，但本次响应未完成，请核对原回执。", "check")
+        if (committed)
+          throw operationError(
+            "result_unknown",
+            "队列动作已提交，但本次响应未完成，请核对原回执。",
+            "check"
+          )
         // Pi can persist a dispatched user entry while this file write awaits IO.
         // Rolling that receipt back would resurrect an already delivered message.
         const delivered = new Set(
@@ -299,7 +348,9 @@ export class ConversationQueue {
         )
         const failedRevision = state.queue.revision
         state.queue = before
-        state.queue.revision = writing ? Math.max(before.revision + 1, failedRevision) : before.revision
+        state.queue.revision = writing
+          ? Math.max(before.revision + 1, failedRevision)
+          : before.revision
         for (const item of before.items)
           if (delivered.has(item.id)) item.status = "delivered"
         for (const [id, value] of state.queuePrepared) {
@@ -382,50 +433,94 @@ export class ConversationQueue {
       "提交标识已用于不同的队列内容。"
     )
   }
-  async mutate(sessionId, itemId, revision, change, signal, prepare, operationIdentity) {
+  async mutate(
+    sessionId,
+    itemId,
+    revision,
+    change,
+    signal,
+    prepare,
+    operationIdentity
+  ) {
     validId(sessionId)
     return this.conversations.sessions.exclusive(sessionId, async () => {
       let registeredBoundary = false
       try {
-      this.conversations.ensureOpen()
-      signal?.throwIfAborted()
-      const record = await this.conversations.store.get(sessionId, signal)
-      check(record, "会话不存在。")
-      const state = await this.conversations.restore(record, undefined, signal)
-      const action = async (commitReceipt) => {
-      check(
-        !state.controlBusy && state.phase !== "stopping",
-        "会话控制操作尚未结束，请稍候。"
-      )
-      check(state.queue.revision === revision, "队列已变化，请重新读取后操作。")
-      const item = itemId
-        ? state.queue.items.find((value) => value.id === itemId)
-        : undefined
-      if (itemId)
-        check(
-          item && ["pending", "failed"].includes(item.status),
-          "消息已经交付或开始处理，不能再修改。"
+        this.conversations.ensureOpen()
+        signal?.throwIfAborted()
+        const record = await this.conversations.store.get(sessionId, signal)
+        check(record, "会话不存在。")
+        const state = await this.conversations.restore(
+          record,
+          undefined,
+          signal
         )
-      // Revalidate edited materials under the same session/CAS lock. Preparation
-      // has no queue mutation, so failure or cancellation preserves the original.
-      const prepared = await prepare?.(state, item)
-      signal?.throwIfAborted()
-      await this.commit(state, (queue) => {
-        // Pi input receipts can advance this revision while preparation awaits
-        // IO, independently of the session configuration lock.
-        check(queue.revision === revision, "队列已变化，请重新读取后操作。")
-        const currentItem = itemId ? queue.items.find((value) => value.id === itemId) : undefined
-        if (itemId) check(currentItem && ["pending", "failed"].includes(currentItem.status), "消息已经交付或开始处理，不能再修改。")
-        change(queue, currentItem, prepared, state)
-      }, signal, commitReceipt)
-      return this.conversations.snapshot(state)
-      }
-      registeredBoundary = true
-      return operationIdentity ? this.operationReceipts.run(state, operationIdentity, signal, action, () => this.conversations.snapshot(state)) : action()
+        const action = async (commitReceipt) => {
+          check(
+            !state.controlBusy && state.phase !== "stopping",
+            "会话控制操作尚未结束，请稍候。"
+          )
+          check(
+            state.queue.revision === revision,
+            "队列已变化，请重新读取后操作。"
+          )
+          const item = itemId
+            ? state.queue.items.find((value) => value.id === itemId)
+            : undefined
+          if (itemId)
+            check(
+              item && ["pending", "failed"].includes(item.status),
+              "消息已经交付或开始处理，不能再修改。"
+            )
+          // Revalidate edited materials under the same session/CAS lock. Preparation
+          // has no queue mutation, so failure or cancellation preserves the original.
+          const prepared = await prepare?.(state, item)
+          signal?.throwIfAborted()
+          await this.commit(
+            state,
+            (queue) => {
+              // Pi input receipts can advance this revision while preparation awaits
+              // IO, independently of the session configuration lock.
+              check(
+                queue.revision === revision,
+                "队列已变化，请重新读取后操作。"
+              )
+              const currentItem = itemId
+                ? queue.items.find((value) => value.id === itemId)
+                : undefined
+              if (itemId)
+                check(
+                  currentItem &&
+                    ["pending", "failed"].includes(currentItem.status),
+                  "消息已经交付或开始处理，不能再修改。"
+                )
+              change(queue, currentItem, prepared, state)
+            },
+            signal,
+            commitReceipt
+          )
+          return this.conversations.snapshot(state)
+        }
+        registeredBoundary = true
+        return operationIdentity
+          ? this.operationReceipts.run(
+              state,
+              operationIdentity,
+              signal,
+              action,
+              () => this.conversations.snapshot(state)
+            )
+          : action()
       } catch (error) {
         // A duplicate original identity may already have committed before an
         // unreadable conversation prevents restoring the current snapshot.
-        if (operationIdentity?.operationRequestId && !registeredBoundary) throw operationError("result_unknown", "原队列操作尚待核对：会话状态暂时无法读取，请保留原身份并查询原回执。", "check", publicFailure(error, "conversationQueueReceiptRead").issue.details)
+        if (operationIdentity?.operationRequestId && !registeredBoundary)
+          throw operationError(
+            "result_unknown",
+            "原队列操作尚待核对：会话状态暂时无法读取，请保留原身份并查询原回执。",
+            "check",
+            publicFailure(error, "conversationQueueReceiptRead").issue.details
+          )
         throw error
       }
     })
@@ -461,12 +556,20 @@ export class ConversationQueue {
           // Only image validation needs the saved authoritative input capability.
           const stored = await this.conversations.models.store.read()
           const slash = state.record.modelId.indexOf("/")
-          const connection = stored.connections.find((value) => value.id === state.record.modelId.slice(0, slash))
-          model = connection?.models.find((value) => value.id === state.record.modelId.slice(slash + 1))
+          const connection = stored.connections.find(
+            (value) => value.id === state.record.modelId.slice(0, slash)
+          )
+          model = connection?.models.find(
+            (value) => value.id === state.record.modelId.slice(slash + 1)
+          )
         }
         return this.conversations.models.materials.resolveForPrompt({
-          sessionId, cwd: state.record.cwd, text, materials: selected,
-          model, signal,
+          sessionId,
+          cwd: state.record.cwd,
+          text,
+          materials: selected,
+          model,
+          signal,
         })
       }
     )
@@ -482,7 +585,12 @@ export class ConversationQueue {
       },
       signal,
       undefined,
-      { operation: "conversationQueueRemove", operationRequestId, itemId, revision }
+      {
+        operation: "conversationQueueRemove",
+        operationRequestId,
+        itemId,
+        revision,
+      }
     )
   }
   mode(sessionId, mode, revision, signal, operationRequestId) {
@@ -585,7 +693,7 @@ export class ConversationQueue {
             disposition === "queued",
             "消息未进入 Pi 队列，请检查已启用扩展。"
           )
-        } catch (error) {
+        } catch {
           state.session.clearQueue()
           await this.commit(state, (queue) => {
             queue.paused = true
@@ -681,10 +789,16 @@ export class ConversationQueue {
       },
       signal,
       undefined,
-      { operation: "conversationQueueDeliver", operationRequestId, itemId, revision }
+      {
+        operation: "conversationQueueDeliver",
+        operationRequestId,
+        itemId,
+        revision,
+      }
     )
     const state = this.conversations.active.get(sessionId)
-    if (!adopted || !state || this.conversations.closed || state.entry.busy) return snapshot
+    if (!adopted || !state || this.conversations.closed || state.entry.busy)
+      return snapshot
     // A user explicitly resumed an idle outbox. Start one SDK-owned run with all
     // selected user entries in SessionManager; no private Agent state mutation.
     void this.resume(state).catch((error) => {
@@ -727,49 +841,49 @@ export class ConversationQueue {
   }
   async seed(state) {
     await this.conversations.sessions.exclusive(state.record.id, async () => {
-    const steering = state.queue.items.filter(
-      (item) => item.status === "pending" && item.delivery === "steer"
-    )
-    const waiting = state.queue.items.filter(
-      (item) => item.status === "pending" && item.delivery === "followUp"
-    )
-    const batch = steering.length
-      ? steering
-      : state.queue.mode === "all"
-        ? waiting
-        : waiting.slice(0, 1)
-    const prepared = await this.prepare(state, batch)
-    check(prepared.length, "没有可交付的消息，请检查队列中的失败原因。")
-    try {
-      await this.commit(state, (queue) => {
-        queue.paused = false
-        prepared.forEach(({ item }) => {
-          item.status = "dispatching"
+      const steering = state.queue.items.filter(
+        (item) => item.status === "pending" && item.delivery === "steer"
+      )
+      const waiting = state.queue.items.filter(
+        (item) => item.status === "pending" && item.delivery === "followUp"
+      )
+      const batch = steering.length
+        ? steering
+        : state.queue.mode === "all"
+          ? waiting
+          : waiting.slice(0, 1)
+      const prepared = await this.prepare(state, batch)
+      check(prepared.length, "没有可交付的消息，请检查队列中的失败原因。")
+      try {
+        await this.commit(state, (queue) => {
+          queue.paused = false
+          prepared.forEach(({ item }) => {
+            item.status = "dispatching"
+          })
         })
-      })
-    } catch (error) {
-      throw new QueueDispatchPersistenceError("queue", error)
-    }
-    try {
-      state.record = await this.conversations.store.update(state.record.id, {
-        lastRequestId: prepared[0].item.clientRequestId,
-        lastRequestFingerprint: prepared[0].item.fingerprint,
-      })
-    } catch (error) {
-      throw new QueueDispatchPersistenceError("index", error)
-    }
-    for (const value of prepared) {
-      state.queuePrepared.set(value.item.id, value)
-      state.manager.appendMessage({
-        role: "user",
-        content: [
-          { type: "text", text: value.text },
-          ...value.materials.images,
-        ],
-        timestamp: Date.now(),
-      })
-    }
-    state.session.refreshContext()
+      } catch (error) {
+        throw new QueueDispatchPersistenceError("queue", error)
+      }
+      try {
+        state.record = await this.conversations.store.update(state.record.id, {
+          lastRequestId: prepared[0].item.clientRequestId,
+          lastRequestFingerprint: prepared[0].item.fingerprint,
+        })
+      } catch (error) {
+        throw new QueueDispatchPersistenceError("index", error)
+      }
+      for (const value of prepared) {
+        state.queuePrepared.set(value.item.id, value)
+        state.manager.appendMessage({
+          role: "user",
+          content: [
+            { type: "text", text: value.text },
+            ...value.materials.images,
+          ],
+          timestamp: Date.now(),
+        })
+      }
+      state.session.refreshContext()
     })
     // Only the claim and user-history commit hold the session lock. Generation
     // must run outside it so stop and subsequent queue actions remain available.

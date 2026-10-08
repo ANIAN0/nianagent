@@ -135,11 +135,14 @@ export const mcpOperations = {
     ...base,
     method: "mcp.remove",
     args: ["name", "revision", "$signal", "operationRequestId"],
-    request: object({
-      name: string("服务名", { minLength: 1 }),
-      revision: { type: "integer", minimum: 1 },
-      operationRequestId: writeRequestId,
-    }, ["name", "revision"]),
+    request: object(
+      {
+        name: string("服务名", { minLength: 1 }),
+        revision: { type: "integer", minimum: 1 },
+        operationRequestId: writeRequestId,
+      },
+      ["name", "revision"]
+    ),
     response: { type: "null" },
     title: "删除 MCP 服务",
     input: ["name", "revision"],

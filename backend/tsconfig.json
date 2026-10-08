@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": [
+      "node"
+    ],
+    "lib": [
+      "ES2023",
+      "DOM"
+    ],
+    "noFallthroughCasesInSwitch": true,
+    "strict": false
+  },
+  "include": [
+    "*.mjs",
+    "*.d.mts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}

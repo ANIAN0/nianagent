@@ -1,4 +1,4 @@
-import type { OperationIssue } from "@/features/models/model-contract.generated"
+import type { OperationIssue } from "@/contracts/rpc.generated"
 
 export type FeedbackDescription = {
   message: string

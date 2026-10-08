@@ -1,15 +1,9 @@
-import {
-  mkdir,
-  readFile,
-  writeFile,
-  rename,
-  rm,
-  realpath,
-  stat,
-} from "node:fs/promises"
-import { join, resolve, isAbsolute } from "node:path"
+import { mkdir, readFile, realpath, stat } from "node:fs/promises"
+import { compactWriteReceipts } from "./write-receipt-archive.mjs"
+import { replaceJson, withAcquiredLock } from "./atomic-file.mjs"
+import { join, resolve } from "node:path"
 import { homedir } from "node:os"
-import { createHash, randomUUID } from "node:crypto"
+import { createHash } from "node:crypto"
 import lockfile from "proper-lockfile"
 import {
   McpClient,
@@ -19,7 +13,7 @@ import {
 } from "@earendil-works/pi-mcp"
 import { MemoryOAuthStateStore } from "@earendil-works/pi-mcp/oauth"
 import { assertSchema, schemas } from "./schema.mjs"
-import { operationError, publicFailure } from "./operation-issue.mjs"
+import { operationError } from "./operation-issue.mjs"
 import { recordedWrite, validateWriteReceipts } from "./write-receipts.mjs"
 
 const check = (value, message) => {
@@ -373,47 +367,44 @@ export class McpService {
       realpath: false,
       retries: { retries: 30, minTimeout: 30, maxTimeout: 300 },
     })
-    const temporary = join(this.directory, `.mcp-${randomUUID()}.tmp`)
-    let committed = false
-    try {
+    return withAcquiredLock(unlock, async (committed) => {
       signal?.throwIfAborted()
       const document = await this.document()
-      const result = action(document)
-      await writeFile(temporary, JSON.stringify(document, null, 2), {
-        flag: "wx",
-        mode: 0o600,
-      })
-      signal?.throwIfAborted()
+      await compactWriteReceipts(this, document, signal)
+      const result = await action(document)
       check(!this.closed, "MCP 服务已关闭。")
-      await rename(temporary, this.file)
-      committed = true
+      await replaceJson(this.file, document, { signal, pretty: true })
+      committed()
       return result
-    } finally {
-      try {
-        try {
-          if (!committed) await rm(temporary, { force: true })
-        } finally {
-          await unlock()
-        }
-      } catch (error) {
-        if (committed)
-          throw operationError(
-            "result_unknown",
-            "配置已提交，但本次请求的收尾未完成。请先核对服务目录。",
-            "check",
-            publicFailure(error, "mcpSave").issue.details
-          )
-        throw error
-      }
+    })
+  }
+  receiptStore() {
+    return {
+      file: this.file,
+      read: () => this.document(),
+      update: (change, signal) => this.mutate(change, signal),
     }
   }
-  receiptStore() { return { read: () => this.document(), update: (change, signal) => this.mutate(change, signal) } }
   async save(configuration, revision, signal, operationRequestId) {
-    return recordedWrite({ store: this.receiptStore(), operation: "mcpSave", targetId: configuration.name, input: { configuration, revision }, requestId: operationRequestId, signal,
-      action: (commit) => this.saveConfiguration(configuration, revision, signal, commit),
+    return recordedWrite({
+      store: this.receiptStore(),
+      operation: "mcpSave",
+      targetId: configuration.name,
+      input: { configuration, revision },
+      requestId: operationRequestId,
+      signal,
+      action: (commit) =>
+        this.saveConfiguration(configuration, revision, signal, commit),
       replay: async () => {
-        const current = (await this.list(signal)).find((record) => record.configuration.name === configuration.name)
-        if (!current) throw operationError("write_already_committed", "原保存已完成，但服务后来已删除，请重新读取目录。", "reload")
+        const current = (await this.list(signal)).find(
+          (record) => record.configuration.name === configuration.name
+        )
+        if (!current)
+          throw operationError(
+            "write_already_committed",
+            "原保存已完成，但服务后来已删除，请重新读取目录。",
+            "reload"
+          )
         return current
       },
     })
@@ -460,8 +451,16 @@ export class McpService {
     return saved
   }
   async remove(name, revision, signal, operationRequestId) {
-    return recordedWrite({ store: this.receiptStore(), operation: "mcpRemove", targetId: name, input: { name, revision }, requestId: operationRequestId, signal,
-      action: (commit) => this.removeConfiguration(name, revision, signal, commit), replay: () => null,
+    return recordedWrite({
+      store: this.receiptStore(),
+      operation: "mcpRemove",
+      targetId: name,
+      input: { name, revision },
+      requestId: operationRequestId,
+      signal,
+      action: (commit) =>
+        this.removeConfiguration(name, revision, signal, commit),
+      replay: () => null,
     })
   }
   async removeConfiguration(name, revision, signal, commit) {
@@ -708,7 +707,8 @@ export function nestedMcpTools(result, data, call, sourceOf) {
         // An end verdict and its displayed result are independent facts. The
         // SDK's unfinished record was already started; it is not a not-run fact.
         result: typeof detail?.result === "string" ? detail.result : "",
-        resultAvailability: typeof detail?.result === "string" ? "available" : "missing",
+        resultAvailability:
+          typeof detail?.result === "string" ? "available" : "missing",
         ...(Number.isFinite(nested.durationMs)
           ? { durationMs: nested.durationMs }
           : {}),

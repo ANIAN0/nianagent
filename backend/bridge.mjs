@@ -165,14 +165,14 @@ export function modelBackendPlugin() {
         return requestRuntime(runtime, operation, input, signal)
       },
     }
-    server.middlewares.use("/api/models/", async (req, res, next) => {
+    server.middlewares.use("/api/models/", async (req, res) => {
       if (req.method !== "POST") {
         res.statusCode = 405
         res.end()
         return
       }
       const origin = req.headers.origin
-      let validOrigin = true
+      let validOrigin
       try {
         validOrigin = !origin || new URL(origin).host === req.headers.host
       } catch {

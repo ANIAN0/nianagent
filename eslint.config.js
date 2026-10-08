@@ -9,6 +9,14 @@ import moonUi from "./scripts/eslint-ui-consistency.mjs"
 export default defineConfig([
   globalIgnores(["dist", "src-tauri/runtime", "src-tauri/target", ".dev"]),
   {
+    files: ["backend/**/*.mjs", "scripts/**/*.mjs"],
+    extends: [js.configs.recommended],
+    languageOptions: { globals: globals.node },
+    rules: {
+      "no-unused-vars": ["error", { args: "after-used", argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
+    },
+  },
+  {
     files: ["**/*.{ts,tsx}"],
     extends: [
       js.configs.recommended,
@@ -38,7 +46,7 @@ export default defineConfig([
     },
   },
   {
-    files: ["src/features/home/composer-toolbar.tsx"],
+    files: ["src/components/composer/composer-toolbar.tsx"],
     rules: { "moon-ui/composer-css": "error" },
   },
 ])

@@ -20,6 +20,7 @@ struct Bridge {
     input: SharedInput,
     pending: Pending,
 }
+// 先关闭输入让后端自行收尾，再限时终止子进程；不能让退出无限等待。
 impl Drop for Bridge {
     fn drop(&mut self) {
         if let Ok(mut input) = self.input.lock() {
@@ -164,7 +165,8 @@ impl ModelBackend {
                                 if let Some(sender) = map.remove(id) {
                                     let result = if let Some(error) = value["error"].as_str() {
                                         let failure = if value["issue"].is_object() {
-                                            json!({"error": error, "issue": value["issue"]}).to_string()
+                                            json!({"error": error, "issue": value["issue"]})
+                                                .to_string()
                                         } else {
                                             error.to_string()
                                         };
@@ -197,6 +199,7 @@ impl ModelBackend {
         if pending.contains_key(request_id) {
             return Err("重复请求 ID。".into());
         }
+        // 先登记原请求再写入管道，避免极快回复找不到接收方；发送失败只撤回本身份。
         pending.insert(request_id.to_owned(), sender);
         let message = json!({"id":request_id,"operation":operation,"input":input});
         if write_message(&bridge.input, &message).is_err() {
@@ -205,6 +208,7 @@ impl ModelBackend {
         }
         Ok(receiver)
     }
+    // 取消本地等待不证明业务未执行；前端须继续用业务请求 ID 核对持久回执。
     fn cancel(&self, id: &str) {
         if let Ok(mut guard) = self.bridge.lock() {
             if let Some(bridge) = guard.as_mut() {
@@ -225,7 +229,11 @@ pub async fn model_request(
     operation: String,
     input: Value,
 ) -> Reply {
-    let maximum = if operation == "materialUpload" { 16 * 1024 * 1024 } else { 1024 * 1024 };
+    let maximum = if operation == "materialUpload" {
+        16 * 1024 * 1024
+    } else {
+        1024 * 1024
+    };
     if request_id.len() > 100 || operation.len() > 100 || input.to_string().len() > maximum {
         return Err("请求参数过大。".into());
     }

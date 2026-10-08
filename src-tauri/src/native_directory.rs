@@ -18,8 +18,7 @@ pub fn write_message(input: &SharedInput, value: &Value) -> Result<(), String> {
     writeln!(pipe, "{value}").map_err(|_| "宿主请求发送失败。".into())
 }
 
-// This is a deliberately narrow reverse-RPC capability, shared by web and
-// native callers through the existing backend. No JS dialog permission needed.
+// 仅开放目录/附件选择这一条反向 RPC；Web 与原生共用后端身份与取消边界。
 pub fn handle_request(
     app: Option<&AppHandle>,
     input: &SharedInput,
@@ -51,7 +50,11 @@ pub fn handle_request(
     let id = id.to_owned();
     let input = input.clone();
     let busy = busy.clone();
-    let mut dialog = app.dialog().file().set_title(if files { "添加附件" } else { "添加工作区" });
+    let mut dialog = app.dialog().file().set_title(if files {
+        "添加附件"
+    } else {
+        "添加工作区"
+    });
     if let Some(window) = app.get_webview_window("main") {
         dialog = dialog.set_parent(&window);
     }
@@ -60,10 +63,18 @@ pub fn handle_request(
             let value = match result {
                 None => json!({"id":id,"operation":"$hostReply","result":null}),
                 Some(paths) => {
-                    let paths: Result<Vec<String>, _> = paths.into_iter().map(|path| path.into_path().map(|path| path.to_string_lossy().into_owned())).collect();
+                    let paths: Result<Vec<String>, _> = paths
+                        .into_iter()
+                        .map(|path| {
+                            path.into_path()
+                                .map(|path| path.to_string_lossy().into_owned())
+                        })
+                        .collect();
                     match paths {
                         Ok(paths) => json!({"id":id,"operation":"$hostReply","result":paths}),
-                        Err(_) => json!({"id":id,"operation":"$hostReply","error":"文件路径无法读取。"}),
+                        Err(_) => {
+                            json!({"id":id,"operation":"$hostReply","error":"文件路径无法读取。"})
+                        }
                     }
                 }
             };

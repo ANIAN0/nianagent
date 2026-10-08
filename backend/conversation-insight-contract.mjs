@@ -88,7 +88,7 @@ export const insightOperations = {
     title: "执行已注册扩展命令",
     input: ["sessionId", "commandRequestId", "name", "arguments"],
     condition:
-      "仅正式空闲会话；先保存started回执再调用SDK注册handler，同ID不得重复效果。",
+      "仅正式空闲会话；前置拒绝保存原ID的failed终态；先保存started再调用SDK注册handler，同ID只核对原回执，不重复效果。",
     effect:
       "后台执行，按原IDCommandRead核对；不是模型用户消息。扩展需可信；经SDK执行的工具受会话策略约束，扩展直接调用宿主API不构成沙箱。会话切换由Moon正式控制提供。",
     example: {
@@ -107,7 +107,8 @@ export const insightOperations = {
     result: "ConversationCommandReceipt",
     title: "核对扩展命令原回执",
     input: ["sessionId", "commandRequestId"],
-    condition: "只读，缺失或冷恢复started返回unknown。",
+    condition:
+      "只读，前置拒绝可查询failed；缺失或冷恢复started返回unknown；损坏或身份不匹配保留原文件并拒绝读取，不重放命令。",
     effect: "不重放命令。",
     example: {
       sessionId: "sample-session",

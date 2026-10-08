@@ -1,18 +1,10 @@
-import { WorkspaceService } from "./workspaces.mjs"
-import { ConversationStore } from "./conversation-store.mjs"
-import { ConversationCatalogService } from "./conversation-catalog.mjs"
-import { ConversationService } from "./conversations.mjs"
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai"
 import { ModelRuntime } from "@earendil-works/pi-coding-agent"
 import { ModelStore, memoryCredentials } from "./store.mjs"
 import { AuthorizationJobs } from "./oauth.mjs"
-import { dispatchOperation, assertSchema, schemas } from "./contract.mjs"
-import { SessionService } from "./sessions.mjs"
-import { MaterialService } from "./materials.mjs"
-import { McpService } from "./mcp.mjs"
+import { assertSchema, schemas } from "./contract.mjs"
 import { matchModel } from "./model-metadata.mjs"
-import { ExtensionService } from "./extensions.mjs"
-import { recordedWrite, readWriteReceipt } from "./write-receipts.mjs"
+import { recordedWrite } from "./write-receipts.mjs"
 import { operationError } from "./operation-issue.mjs"
 
 const apis = ["openai-responses", "openai-completions", "anthropic-messages"]
@@ -156,28 +148,9 @@ export class ModelService {
     this.accountLogouts = new Map()
     this.closed = false
     this.jobs = new AuthorizationJobs(this)
-    this.mcp = new McpService(directory)
-    this.extensions = new ExtensionService(directory)
-    this.sessions = new SessionService(directory, this)
-    this.materials = new MaterialService(directory, this.sessions)
-    this.workspaces = new WorkspaceService(directory)
-    this.conversationStore = new ConversationStore(directory)
-    this.conversationCatalog = new ConversationCatalogService(
-      this.conversationStore
-    )
-    this.conversations = new ConversationService(
-      directory,
-      this,
-      this.sessions,
-      this.conversationStore,
-      this.workspaces
-    )
-    this.sessions.commands = this.conversations.commands
   }
   async initialize() {
     await this.store.initialize()
-    await this.extensions.discover()
-    await this.conversationStore.initialize({ recoverInterrupted: true })
   }
   async runtime(connection, credentials = this.store.credentialStore()) {
     const runtime = await ModelRuntime.create({
@@ -227,7 +200,9 @@ export class ModelService {
       issue: "",
     }
     if (connection.kind === "subscription") {
-      result.accountOperationBusy = this.accountLogouts.has(connection.providerId)
+      result.accountOperationBusy = this.accountLogouts.has(
+        connection.providerId
+      )
       result.account = {
         name: connection.providerId,
         plan: "Pi OAuth",
@@ -272,12 +247,25 @@ export class ModelService {
     )
   }
   async save(connection, signal, operationRequestId) {
-    return recordedWrite({ store: this.store, operation: "save", targetId: connection.id, input: connection, requestId: operationRequestId, signal,
+    return recordedWrite({
+      store: this.store,
+      operation: "save",
+      targetId: connection.id,
+      input: connection,
+      requestId: operationRequestId,
+      signal,
       action: (commit) => this.saveConnection(connection, signal, commit),
       replay: async () => {
         const data = await this.store.read()
-        const current = data.connections.find((item) => item.id === connection.id)
-        if (!current) throw operationError("write_already_committed", "原保存已完成，但连接后来已删除，请重新读取目录。", "reload")
+        const current = data.connections.find(
+          (item) => item.id === connection.id
+        )
+        if (!current)
+          throw operationError(
+            "write_already_committed",
+            "原保存已完成，但连接后来已删除，请重新读取目录。",
+            "reload"
+          )
         return this.present(current, data)
       },
     })
@@ -399,8 +387,15 @@ export class ModelService {
     return this.present(stored, await this.store.read())
   }
   async remove(id, revision, signal, operationRequestId) {
-    return recordedWrite({ store: this.store, operation: "remove", targetId: id, input: { id, revision }, requestId: operationRequestId, signal,
-      action: (commit) => this.removeConnection(id, revision, signal, commit), replay: () => undefined,
+    return recordedWrite({
+      store: this.store,
+      operation: "remove",
+      targetId: id,
+      input: { id, revision },
+      requestId: operationRequestId,
+      signal,
+      action: (commit) => this.removeConnection(id, revision, signal, commit),
+      replay: () => undefined,
     })
   }
   async removeConnection(id, revision, signal, commit) {
@@ -556,7 +551,8 @@ export class ModelService {
     } catch (error) {
       if (signal.aborted) throw error
       throw new Error(
-        "模型调用未成功，请检查凭据、接口或服务状态（请求上限 30 秒）。"
+        "模型调用未成功，请检查凭据、接口或服务状态（请求上限 30 秒）。",
+        { cause: error }
       )
     }
   }
@@ -564,7 +560,11 @@ export class ModelService {
     if (connection?.kind !== "subscription") return
     requireValue(!this.closed, "模型服务已关闭。")
     if (this.accountLogouts.has(connection.providerId))
-      throw operationError("account_operation_busy", "该提供者正在退出登录，请等待结束后重新读取连接。", "check")
+      throw operationError(
+        "account_operation_busy",
+        "该提供者正在退出登录，请等待结束后重新读取连接。",
+        "check"
+      )
   }
   async logout(id, signal) {
     requireValue(!this.closed, "模型服务已关闭。")
@@ -573,10 +573,15 @@ export class ModelService {
     signal?.throwIfAborted()
     const connection = data.connections.find((item) => item.id === id)
     requireValue(connection?.kind === "subscription", "订阅连接不存在。")
-    requireValue(!this.jobs.hasProvider(connection.providerId), "请先取消该提供者的授权并等待清理结束。")
+    requireValue(
+      !this.jobs.hasProvider(connection.providerId),
+      "请先取消该提供者的授权并等待清理结束。"
+    )
     this.assertAccountIdle(connection)
     const controller = new AbortController()
-    const ownedSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal
+    const ownedSignal = signal
+      ? AbortSignal.any([signal, controller.signal])
+      : controller.signal
     const owner = { controller }
     // Pi serializes credential operations per ModelRuntime instance. Moon
     // creates separate runtime snapshots, so the service owns this boundary.
@@ -586,8 +591,20 @@ export class ModelService {
         ownedSignal.throwIfAborted()
         await this.store.update((document) => {
           ownedSignal.throwIfAborted()
-          requireValue(document.connections.some((item) => item.id === id && item.kind === "subscription" && item.providerId === connection.providerId && item.revision === connection.revision), "连接已更新或删除，请重新读取。")
-          requireValue(!this.jobs.hasProvider(connection.providerId), "该提供者的授权尚未结束。")
+          requireValue(
+            document.connections.some(
+              (item) =>
+                item.id === id &&
+                item.kind === "subscription" &&
+                item.providerId === connection.providerId &&
+                item.revision === connection.revision
+            ),
+            "连接已更新或删除，请重新读取。"
+          )
+          requireValue(
+            !this.jobs.hasProvider(connection.providerId),
+            "该提供者的授权尚未结束。"
+          )
           delete document.authorizations[connection.providerId]
         }, ownedSignal)
         const runtime = await this.runtime()
@@ -596,31 +613,23 @@ export class ModelService {
         // provider composition/model availability before its promise settles.
         await runtime.logout(connection.providerId, { signal: ownedSignal })
       } finally {
-        if (this.accountLogouts.get(connection.providerId) === owner) this.accountLogouts.delete(connection.providerId)
+        if (this.accountLogouts.get(connection.providerId) === owner)
+          this.accountLogouts.delete(connection.providerId)
       }
     })()
     await owner.done
     return this.present(connection, await this.store.read())
   }
-  async dispatch(operation, input, signal) {
-    return dispatchOperation(this, operation, input, signal)
-  }
-  async writeReceipt(operation, requestId, signal) {
-    const store = operation.startsWith("mcp") ? this.mcp.receiptStore() : operation === "extensionConfigure" ? this.extensions.receiptStore() : this.store
-    return readWriteReceipt(store, operation, requestId, signal)
-  }
 
   async close() {
     this.closed = true
     const logouts = [...this.accountLogouts.values()]
-    for (const owner of logouts) owner.controller.abort(new DOMException("Model service closed", "AbortError"))
+    for (const owner of logouts)
+      owner.controller.abort(
+        new DOMException("Model service closed", "AbortError")
+      )
     await this.jobs.close()
     await Promise.allSettled(logouts.map((owner) => owner.done))
-    this.workspaces.close()
-    await this.conversations.close()
-    await this.sessions.close()
-    await this.mcp.close()
-    await this.extensions.close()
   }
 }
 function pickModel(model) {

@@ -1,6 +1,10 @@
 import { fileURLToPath } from "node:url"
 import { readFile, writeFile } from "node:fs/promises"
-import { schemas, operations, transportRecoveryByOperation } from "../backend/contract.mjs"
+import {
+  schemas,
+  operations,
+  transportRecoveryByOperation,
+} from "../backend/contract.mjs"
 import { format, resolveConfig } from "prettier"
 function type(schema) {
   if (schema.$ref) return schema.$ref
@@ -28,10 +32,7 @@ const output = `// Generated from backend/schema.mjs and backend/contract.mjs. D
   .join("\n")}\n}\nexport type RpcResults = {\n${Object.entries(operations)
   .map(([name, op]) => `${name}: ${type(op.response)}`)
   .join("\n")}\n}\nexport type ModelOperation = keyof RpcRequests\n`
-const url = new URL(
-  "../src/features/models/model-contract.generated.ts",
-  import.meta.url
-)
+const url = new URL("../src/contracts/rpc.generated.ts", import.meta.url)
 const formatted = await format(output, {
   ...(await resolveConfig(fileURLToPath(url))),
   parser: "typescript",

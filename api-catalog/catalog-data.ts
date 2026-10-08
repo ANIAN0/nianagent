@@ -1,5 +1,5 @@
 import { apiIndex } from "virtual:moon-api-index"
-import type { ModelOperation } from "@/features/models/model-contract.generated"
+import type { ModelOperation } from "@/contracts/rpc.generated"
 import type { OperationDefinition, SchemaRegistry } from "./components/types"
 
 export type OperationIndexItem = {
@@ -48,7 +48,7 @@ export function loadContract() {
   return pendingContract
 }
 export const loadArchitecture = () =>
-  import("../ARCHITECTURE.md?raw").then((module) => module.default)
+  import("./architecture-data").then((module) => module.architectureText())
 export function readLocation(search = location.search) {
   const params = new URLSearchParams(search)
   const operation = params.get("operation") ?? "list"

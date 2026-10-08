@@ -18,7 +18,7 @@ import { OperationDocs } from "./components/operation-docs"
 import { DeferredContent } from "./components/deferred-content"
 import { operationIndex, operationUrl, moduleUrl } from "./catalog-data"
 import { useCatalogController } from "./use-catalog-controller"
-import type { ModelOperation } from "@/features/models/model-contract.generated"
+import type { ModelOperation } from "@/contracts/rpc.generated"
 
 const loadArchitecturePanel = () => import("./architecture-panel")
 const loadDebugPanel = () => import("./components/debug-panel")

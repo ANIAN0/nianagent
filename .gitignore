@@ -28,5 +28,10 @@ dist-ssr
 /AGENTS.md
 /.dev/
 
+# Local development specifications; product usage and licenses remain tracked.
+/ARCHITECTURE.md
+/DESIGN.md
+/backend/extensions/README.md
+
 # Packaged Node backend
 /src-tauri/runtime/

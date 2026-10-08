@@ -1,11 +1,5 @@
-import {
-  mkdir,
-  readFile,
-  writeFile,
-  rename,
-  rm,
-  readdir,
-} from "node:fs/promises"
+import { replaceJson } from "./atomic-file.mjs"
+import { readFile, readdir } from "node:fs/promises"
 import { join, resolve, relative, isAbsolute } from "node:path"
 import { randomUUID } from "node:crypto"
 import { SessionManager } from "@earendil-works/pi-coding-agent"
@@ -115,19 +109,11 @@ export class ConversationControls {
     }
   }
   async persist(state, signal) {
-    await mkdir(this.directory, { recursive: true, mode: 0o700 })
-    const temporary = join(this.directory, `.${randomUUID()}.tmp`)
-    try {
-      await writeFile(
-        temporary,
-        JSON.stringify({ version: 1, operations: state.controls }),
-        { flag: "wx", mode: 0o600 }
-      )
-      signal?.throwIfAborted()
-      await rename(temporary, this.file(state.record.id))
-    } finally {
-      await rm(temporary, { force: true })
-    }
+    await replaceJson(
+      this.file(state.record.id),
+      { version: 1, operations: state.controls },
+      { signal }
+    )
   }
   async confirm(state, operation, changes) {
     const previous = structuredClone(operation)
@@ -672,7 +658,7 @@ export class ConversationControls {
         if (!file.endsWith(".jsonl")) continue
         const path = join(this.host.directory, file)
         const content = await readFile(path, "utf8")
-        let matches = false
+        let matches
         try {
           matches = content
             .split("\n")

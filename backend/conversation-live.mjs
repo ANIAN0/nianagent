@@ -1,14 +1,11 @@
-// Ephemeral projection/replay cache. Pi JSONL remains the sole message history.
+import { retainProjection } from "./live-projection-cache.mjs"
+// 可重建的增量投影缓存；淘汰后读取 Pi 正文生成完整帧。
 export class ConversationLive {
   constructor(conversations) {
     this.conversations = conversations
   }
   remember(state, snapshot) {
-    state.liveSnapshots ||= new Map()
-    state.liveSnapshots.set(snapshot.version, structuredClone(snapshot))
-    while (state.liveSnapshots.size > 32)
-      state.liveSnapshots.delete(state.liveSnapshots.keys().next().value)
-    return snapshot
+    return retainProjection(state, snapshot)
   }
   wake(state) {
     if (state.liveTimer) return
@@ -66,7 +63,7 @@ export class ConversationLive {
         snapshot,
       }
     const previous = new Map(
-      base.messages.map((message) => [message.id, JSON.stringify(message)])
+      base.messages.map((message) => [message.id, message])
     )
     const { messages, ...metadata } = snapshot
     return {
@@ -77,7 +74,7 @@ export class ConversationLive {
       metadata,
       order: messages.map((message) => message.id),
       upserts: messages.filter(
-        (message) => previous.get(message.id) !== JSON.stringify(message)
+        (message) => previous.get(message.id) !== message
       ),
     }
   }

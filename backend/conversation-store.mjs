@@ -1,12 +1,13 @@
-import { mkdir, readFile, writeFile, rename, rm } from "node:fs/promises"
+import { replaceJson, withAcquiredLock } from "./atomic-file.mjs"
+import { mkdir, readFile } from "node:fs/promises"
 import { join, isAbsolute } from "node:path"
-import { randomUUID } from "node:crypto"
+
 import { setTimeout as delay } from "node:timers/promises"
 import lockfile from "proper-lockfile"
 import { assertSchema } from "./schema.mjs"
 import { conversationRecordSchema } from "./conversation-catalog-contract.mjs"
 import { conversationRequestReceiptStorageSchema } from "./conversation-contract.mjs"
-import { operationError, publicFailure } from "./operation-issue.mjs"
+import { archiveReceipt, readArchivedReceipt } from "./receipt-archive.mjs"
 
 const check = (value, message) => {
   if (!value) throw new Error(message)
@@ -60,7 +61,8 @@ export class ConversationStore {
     try {
       data = JSON.parse(await readFile(this.file, "utf8"))
     } catch (error) {
-      if (error.code === "ENOENT") return { version: 1, conversations: [], requestReceipts: [] }
+      if (error.code === "ENOENT")
+        return { version: 1, conversations: [], requestReceipts: [] }
       throw new Error("会话目录损坏或无法读取；原文件未覆盖。", {
         cause: error,
       })
@@ -90,11 +92,19 @@ export class ConversationStore {
     check(Array.isArray(receipts), "发送回执结构损坏；原文件未覆盖。")
     const identities = new Set()
     for (const receipt of receipts) {
-      assertSchema(conversationRequestReceiptStorageSchema, receipt, "已保存发送回执")
+      assertSchema(
+        conversationRequestReceiptStorageSchema,
+        receipt,
+        "已保存发送回执"
+      )
       identity(receipt.sessionId)
       identity(receipt.clientRequestId)
-      if (receipt.status === "started" || receipt.status === "handled") identity(receipt.runId)
-      check(Number.isFinite(Date.parse(receipt.updatedAt)), "发送回执时间损坏；原文件未覆盖。")
+      if (receipt.status === "started" || receipt.status === "handled")
+        identity(receipt.runId)
+      check(
+        Number.isFinite(Date.parse(receipt.updatedAt)),
+        "发送回执时间损坏；原文件未覆盖。"
+      )
       const key = JSON.stringify([receipt.sessionId, receipt.clientRequestId])
       check(!identities.has(key), "发送回执存在重复身份；原文件未覆盖。")
       identities.add(key)
@@ -103,33 +113,103 @@ export class ConversationStore {
   async request(sessionId, clientRequestId, signal) {
     identity(sessionId)
     identity(clientRequestId)
-    return (await this.document(signal)).requestReceipts.find((receipt) =>
-      receipt.sessionId === sessionId && receipt.clientRequestId === clientRequestId) ?? null
+    return (
+      (await this.document(signal)).requestReceipts.find(
+        (receipt) =>
+          receipt.sessionId === sessionId &&
+          receipt.clientRequestId === clientRequestId
+      ) ??
+      (await this.archivedRequest(sessionId, clientRequestId)) ??
+      null
+    )
+  }
+  archivedRequest(sessionId, clientRequestId) {
+    return readArchivedReceipt(
+      join(this.directory, "request-receipts"),
+      [sessionId, clientRequestId],
+      (receipt) => {
+        this.validateReceipts([receipt])
+        check(
+          receipt.sessionId === sessionId &&
+            receipt.clientRequestId === clientRequestId,
+          "发送归档身份不一致。"
+        )
+      }
+    )
+  }
+  async compactRequests(document, signal) {
+    if (document.requestReceipts.length <= 256) return
+    const current = new Map(
+      document.conversations.map((record) => [record.id, record])
+    )
+    const eligible = document.requestReceipts.filter(
+      (receipt) =>
+        ["rejected", "handled"].includes(receipt.status) ||
+        (receipt.status === "started" &&
+          current.get(receipt.sessionId)?.runId !== receipt.runId)
+    )
+    const moved = new Set()
+    for (const receipt of eligible.slice(
+      0,
+      Math.min(64, document.requestReceipts.length - 128)
+    )) {
+      await archiveReceipt(
+        join(this.directory, "request-receipts"),
+        [receipt.sessionId, receipt.clientRequestId],
+        receipt,
+        (value) => this.validateReceipts([value]),
+        signal
+      )
+      moved.add(receipt)
+    }
+    document.requestReceipts = document.requestReceipts.filter(
+      (receipt) => !moved.has(receipt)
+    )
   }
   beginRequest(sessionId, clientRequestId, fingerprint, ownerEpoch, signal) {
     identity(sessionId)
     identity(clientRequestId)
-    return this.transaction((data) => {
-      const previous = data.requestReceipts.find((receipt) =>
-        receipt.sessionId === sessionId && receipt.clientRequestId === clientRequestId)
+    return this.transaction(async (data) => {
+      const previous =
+        data.requestReceipts.find(
+          (receipt) =>
+            receipt.sessionId === sessionId &&
+            receipt.clientRequestId === clientRequestId
+        ) ?? (await this.archivedRequest(sessionId, clientRequestId))
       if (previous) {
-        check(previous.fingerprint === fingerprint, "请求标识已经用于不同内容，请使用新标识。")
+        check(
+          previous.fingerprint === fingerprint,
+          "请求标识已经用于不同内容，请使用新标识。"
+        )
         return { result: { receipt: previous, created: false }, changed: false }
       }
-      const receipt = { sessionId, clientRequestId, fingerprint, ownerEpoch,
-        status: "preparing", updatedAt: new Date().toISOString() }
+      const receipt = {
+        sessionId,
+        clientRequestId,
+        fingerprint,
+        ownerEpoch,
+        status: "preparing",
+        updatedAt: new Date().toISOString(),
+      }
       data.requestReceipts.push(receipt)
       return { result: { receipt, created: true }, changed: true }
     }, signal)
   }
   rejectRequest(sessionId, clientRequestId, fingerprint, issue) {
     return this.transaction((data) => {
-      const receipt = data.requestReceipts.find((item) =>
-        item.sessionId === sessionId && item.clientRequestId === clientRequestId)
+      const receipt = data.requestReceipts.find(
+        (item) =>
+          item.sessionId === sessionId &&
+          item.clientRequestId === clientRequestId
+      )
       if (!receipt || receipt.status !== "preparing")
         return { result: receipt ?? null, changed: false }
       check(receipt.fingerprint === fingerprint, "发送回执与原请求内容不一致。")
-      Object.assign(receipt, { status: "rejected", issue, updatedAt: new Date().toISOString() })
+      Object.assign(receipt, {
+        status: "rejected",
+        issue,
+        updatedAt: new Date().toISOString(),
+      })
       return { result: receipt, changed: true }
     })
   }
@@ -150,43 +230,22 @@ export class ConversationStore {
   }
   async transaction(change, signal) {
     const unlock = await this.acquire(signal)
-    const temporary = join(this.directory, `.index-${randomUUID()}.tmp`)
-    let committed = false
-    try {
+    return withAcquiredLock(unlock, async (committed) => {
       signal?.throwIfAborted()
       const document = await this.document(signal)
-      const { result, changed } = change(document)
+      const before = document.requestReceipts.length
+      await this.compactRequests(document, signal)
+      const outcome = await change(document)
+      const { result } = outcome
+      const changed =
+        outcome.changed || before !== document.requestReceipts.length
       if (!changed) return structuredClone(result)
       document.conversations.forEach((record) => this.validate(record))
       this.validateReceipts(document.requestReceipts)
-      await writeFile(temporary, JSON.stringify(document, null, 2), {
-        flag: "wx",
-        mode: 0o600,
-      })
-      signal?.throwIfAborted()
-      await rename(temporary, this.file)
-      committed = true
+      await replaceJson(this.file, document, { signal, pretty: true })
+      committed()
       return structuredClone(result)
-    } finally {
-      try {
-        // Rename consumes the temporary path. Cleanup must never turn an
-        // already committed index replacement into a definitive rejection.
-        if (!committed) await rm(temporary, { force: true })
-      } finally {
-        try {
-          await unlock()
-        } catch (error) {
-          if (committed)
-            throw operationError(
-              "result_unknown",
-              "会话记录已保存，但本次请求的收尾未完成。请先核对会话状态。",
-              "check",
-              publicFailure(error, "conversationRead").issue.details
-            )
-          throw error
-        }
-      }
-    }
+    })
   }
   async initialize({ recoverInterrupted = false } = {}, signal) {
     await mkdir(this.directory, { recursive: true, mode: 0o700 })
@@ -296,21 +355,38 @@ export class ConversationStore {
       const record = data.conversations.find((item) => item.id === id)
       check(record, "会话不存在，请刷新列表。")
       if (request) {
-        const receipt = data.requestReceipts.find((item) =>
-          item.sessionId === id && item.clientRequestId === request.clientRequestId)
-        check(receipt && receipt.fingerprint === request.fingerprint,
-          "发送回执与原请求内容不一致。")
+        const receipt = data.requestReceipts.find(
+          (item) =>
+            item.sessionId === id &&
+            item.clientRequestId === request.clientRequestId
+        )
+        check(
+          receipt && receipt.fingerprint === request.fingerprint,
+          "发送回执与原请求内容不一致。"
+        )
         if (request.outcome === "rejected" || request.outcome === "handled") {
-          check(receipt.status === "started" && receipt.runId === request.runId &&
-            record.runId === request.runId, "原请求运行已经变化；不能确认其他运行的结果。")
-          Object.assign(receipt, { status: request.outcome,
-            updatedAt: new Date().toISOString() })
+          check(
+            receipt.status === "started" &&
+              receipt.runId === request.runId &&
+              record.runId === request.runId,
+            "原请求运行已经变化；不能确认其他运行的结果。"
+          )
+          Object.assign(receipt, {
+            status: request.outcome,
+            updatedAt: new Date().toISOString(),
+          })
           if (request.issue) receipt.issue = request.issue
           else delete receipt.issue
         } else {
-          check(receipt.status === "preparing", "原请求不在可启动的准备阶段，请先核对原回执。")
-          Object.assign(receipt, { status: "started", runId: patch.runId,
-            updatedAt: new Date().toISOString() })
+          check(
+            receipt.status === "preparing",
+            "原请求不在可启动的准备阶段，请先核对原回执。"
+          )
+          Object.assign(receipt, {
+            status: "started",
+            runId: patch.runId,
+            updatedAt: new Date().toISOString(),
+          })
           delete receipt.issue
         }
       }

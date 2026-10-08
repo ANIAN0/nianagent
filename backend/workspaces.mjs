@@ -1,13 +1,5 @@
-import {
-  access,
-  mkdir,
-  readFile,
-  realpath,
-  rename,
-  rm,
-  stat,
-  writeFile,
-} from "node:fs/promises"
+import { replaceJson, withAcquiredLock } from "./atomic-file.mjs"
+import { access, mkdir, readFile, realpath, stat } from "node:fs/promises"
 import { constants } from "node:fs"
 import { basename, isAbsolute, join, parse } from "node:path"
 import { randomUUID } from "node:crypto"
@@ -109,34 +101,24 @@ export class WorkspaceService {
     const release = await lockfile
       .lock(this.file, {
         realpath: false,
-        lockfilePath: `${this.file}.lock`,
+        lockfilePath: this.file + ".lock",
         retries: { retries: 40, minTimeout: 20, maxTimeout: 100 },
       })
       .catch((error) => {
         throw new Error("工作区正在保存，请稍后重试。", { cause: error })
       })
-    const temporary = `${this.file}.${randomUUID()}.tmp`
-    try {
+    return withAcquiredLock(release, async (committed) => {
       this.ensureOpen(signal)
       const previous = await this.read()
       const document = previous ?? (await this.initial(signal))
       const { result, changed } = await change(document)
       if (!previous || changed) {
         this.ensureOpen(signal)
-        await writeFile(temporary, JSON.stringify(document, null, 2), {
-          mode: 0o600,
-        })
-        this.ensureOpen(signal)
-        await rename(temporary, this.file)
+        await replaceJson(this.file, document, { signal, pretty: true })
+        committed()
       }
       return result
-    } finally {
-      try {
-        await rm(temporary, { force: true })
-      } finally {
-        await release()
-      }
-    }
+    })
   }
   async document(signal) {
     this.ensureOpen(signal)
