@@ -6,7 +6,7 @@
 
 控制结果未确认时，正式发送入口继续阻止新的运行，直到查询原操作确认Pi提交边界，避免后续自动压缩污染对账证据。完成、取消和失败回执保持终态，不会认领其他操作追加的摘要；内存任务按会话与操作双重身份管理。若Pi追加历史失败且磁盘暂不可读，只保留操作前只读快照并要求重读历史，不暴露未提交的内存摘要。取消在Pi创建摘要控制器前到达时，在正式手动压缩开始事件补发取消，仍以实际提交结果为准。
 
-`conversation-control-contract.mjs` 是输入、结果与调用说明的权威来源，汇入现有schema与接口目录。正式页面用 `useConversationControls` 以会话及操作标识恢复结果，切换或关闭面板不取消后台控制；网络未知时查询原操作，不重复发起。`CompactDialog` 和 `CompactionRecord` 的状态由服务提供，组件库复用正式组件但不调用模型。
+`conversation-control-contract.mjs` 是输入、结果与调用说明的权威来源，汇入现有schema与接口目录。正式页面提交不带参数的 `/compact` 后通过 `useConversationControls` 发起压缩，新操作开始提交即清空本次命令，终态不改动下一稿；以会话及操作标识恢复结果，切换会话不取消后台控制；网络未知时自动查询原操作，不重复发起。`CompactionStatus` 与 `CompactionRecord` 共用DSH式 `CompactionRow`，将命令状态与已保存摘要合为紧凑行，没有独立弹窗或附加操作按钮。摘要使用MarkdownContent的常规正文排版，缺少DSH压缩计数字段时显示摘要可用性文案。组件库复用正式组件但不调用模型。
 
 会话派生在独立打开的Pi SessionManager上调用官方 `createBranchedSession`，复制根到选定assistant entry的稳定前缀；不调用会替换源runtime的操作。源JSONL、active leaf和订阅保持不变。新会话复制已保存项目指令与工具选择快照，首次创建独立agent/订阅；重启可按需恢复。来源关系保存于Pi custom entry和会话摘要，草稿、待发送队列及控制请求归属Moon会话身份，不从历史复制。
 
@@ -200,6 +200,8 @@ use-composer-materials将本owner已结算的上传失败保留为本地结果�
 ## 会话页面投影与输入恢复
 
 Pi JSONL 是正式历史唯一来源。前端按权威 userTurnId 组织轮次，runId 标识一次接收执行，同一 run 可含多次 Pi 自动重试；历史失败与后续成功按同一用户轮次和真实运行身份关联，historyIndex 使用完整 Pi 分支位置，不能由过滤后的消息数组推断 pending 或继续的位置。有序 blocks 保留思考、正文与工具发生次序；思考 phase 和工具状态独立，末端有效回复统一持有复制、信息、派生与时间。tool details.diff、target、受控图片引用与成功写入成果来自实际 Pi 事件或已存结果，不通过回复文字猜测文件。图片内容留在材料缓存与预览响应，不放入轮询快照。截断保留 stopReason，合法继续沿 Pi 新增可见指令，旧成功工具不重跑。
+
+工具状态与结果可用性由 ConversationService 在同一调用发生上分别投影。真实 Pi toolResult 与已收到的 tool_execution_end 结果保持原成功、失败和停止语义；resultAvailability 的 available 只说明最终结果可用，允许空文本、图片和既有截断，不承诺落盘或内容完整。tool_execution_update 的部分结果为 partial，其余缺结果为 missing。合法 moon-shell-result 可在正文保存失败后留下真实退出与耗时：非0仍为 failed，0或仅耗时为 returned，只说明命令已经结束；没有结果、当前进度或对应停止证据时为 unknown。缺事件、缺正文和旧 assistant stopReason 不证明未执行，not-run 只兼容明确有未执行证据的调用方。嵌套 MCP 的真实结束结论优先于 unfinished 摘要，正文可用仍独立检查；unfinished 不标未执行。可选 availability 仅为旧调用方兼容，当前正式投影总提供；旧 Pi 历史只读恢复，不补造结果、改写历史或自动重跑工具。
 
 conversation-submission.ts 将发送副本与下一条可编辑草稿分离。prepared 原请求先持久化，下一稿成功保存后才记录 sending 并调用宿主；明确拒绝按请求身份恢复一次，结果未知只读 conversationReceiptRead，accepted 后再读当前快照。ACK 前再次持久保存最新草稿，写入/清理失败仍保留原副本与本机恢复入口；重开 prepared 仅恢复，不发模型。queue-edit-store.ts 独立持有按会话、消息项和原 revision 的文字/材料编辑稿，A→B→A 和重开不丢编辑；队列修改在会话锁内按原 CAS 重新核对材料，未知修改只查原项，不盲目采用最新版本重存。
 

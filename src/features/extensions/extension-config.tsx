@@ -173,6 +173,7 @@ function ExtensionConfigDialog({
           </div>
         ) : failure ? (
           <OperationFeedback
+            notify={false}
             title="无法读取扩展能力"
             {...failure}
             actions={
@@ -224,6 +225,7 @@ function ExtensionConfigDialog({
                 </p>
                 {item.issue && (
                   <OperationFeedback
+                    notify={false}
                     title="扩展需要处理"
                     {...feedbackFromError({ issue: item.issue })}
                     actions={

@@ -388,6 +388,7 @@ export function ExtensionEditor({
       )}
       {failure && (
         <OperationFeedback
+          notify={false}
           title={
             pending
               ? "保存结果待核对"

@@ -114,6 +114,7 @@ export function ConnectionList({
         </div>
       ) : error || failure ? (
         <OperationFeedback
+          notify={false}
           title="无法读取模型连接"
           {...(failure ?? {
             message: error!,

@@ -25,6 +25,7 @@ export function McpTestResult({
   return (
     <div className="flex flex-col gap-3" aria-live="polite">
       <OperationFeedback
+        notify={false}
         title={
           stale
             ? "配置已修改，测试结果已过期"

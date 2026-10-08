@@ -44,6 +44,7 @@ export function ReferenceStatusDialog({
           </DialogDescription>
         </DialogHeader>
         <OperationFeedback
+          notify={false}
           density="compact"
           title={reference ? "引用状态" : "材料状态"}
           severity={preparing ? "info" : "error"}

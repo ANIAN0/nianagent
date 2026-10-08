@@ -280,6 +280,7 @@ export function McpServerEditor({
       </FieldGroup>
       {saveFailure && (
         <OperationFeedback
+          notify={false}
           title={
             saveUnknown
               ? "保存结果待确认"

@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog"
 import type { MaterialPreview as Preview } from "@/features/models/model-contract.generated"
 import type { Material } from "@/features/home/home-types"
+import { useComposerPanelInactive } from "@/features/home/composer-panel-context"
 import { MaterialServiceContext } from "./material-service"
 import { MaterialImagePreview } from "./material-image-preview"
 
@@ -25,11 +26,16 @@ type MaterialPreviewProps = {
   onClose: () => void
 }
 export function MaterialPreviewDialog(props: MaterialPreviewProps) {
+  const { material, onClose } = props
+  const inactive = useComposerPanelInactive()
+  useEffect(() => {
+    if (inactive && material) onClose()
+  }, [inactive, material, onClose])
   // A new opening reads current files afresh; a prior opening is never presented
   // as the current disk contents while the next request is still pending.
-  return props.material ? (
+  return !inactive && material ? (
     <MaterialPreviewContent
-      key={`${props.cwd}:${props.material.id}:${props.history}`}
+      key={`${props.cwd}:${material.id}:${props.history}`}
       {...props}
     />
   ) : null
@@ -92,6 +98,7 @@ function MaterialPreviewContent({
     </p>
   ) : current?.issue ? (
     <OperationFeedback
+      notify={false}
       title={
         current.issue.code === "cancelled" ? "预览读取已取消" : "无法读取材料"
       }

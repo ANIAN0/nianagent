@@ -22,6 +22,7 @@ export function MaterialImagePreview({
       {failed ? (
         <DialogBody variant="feedback">
           <OperationFeedback
+            notify={false}
             title="无法显示图片"
             message="图片内容无法解码，请重新选择有效图片。"
             severity="warning"

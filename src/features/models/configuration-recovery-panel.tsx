@@ -222,6 +222,7 @@ export function ConfigurationRecoveryPanel<
     <div className="flex flex-col gap-3">
       {storageIssue && (
         <OperationFeedback
+          notify={false}
           title="设置恢复记录需要处理"
           {...storageIssue}
           actions={
@@ -247,6 +248,7 @@ export function ConfigurationRecoveryPanel<
         return (
           <div key={id} className="flex flex-col gap-2">
             <OperationFeedback
+              notify={false}
               title={`核对${requestLabel(record)}`}
               {...issue}
               actions={
@@ -313,7 +315,11 @@ export function ConfigurationRecoveryPanel<
       })}
       {notice &&
         (finalIssue ? (
-          <OperationFeedback title="原请求已核对" {...finalIssue} />
+          <OperationFeedback
+            notify={false}
+            title="原请求已核对"
+            {...finalIssue}
+          />
         ) : (
           <p role="status" className="text-sm text-muted-foreground">
             {notice}

@@ -96,6 +96,7 @@ function McpConnectionStatus({ server }: { server: McpServer }) {
       </p>
       {runtime?.error && configuration.enabled && (
         <OperationFeedback
+          notify={false}
           title="会话连接需要处理"
           message="请在服务配置中检查连接参数与凭据，再测试连接。"
           details={runtime.error}
@@ -155,6 +156,7 @@ export function McpServerList({
       </header>
       {error && (
         <OperationFeedback
+          notify={false}
           title={hasLoaded ? "未能刷新 MCP 服务" : "无法读取 MCP 服务"}
           message={hasLoaded ? `已保留上次读取的目录。${error}` : error}
           details={errorDetails}
@@ -347,6 +349,7 @@ export function McpServerList({
                       <TableRow>
                         <TableCell colSpan={4}>
                           <OperationFeedback
+                            notify={false}
                             title={
                               unknown
                                 ? `${name} 的启用状态待确认`

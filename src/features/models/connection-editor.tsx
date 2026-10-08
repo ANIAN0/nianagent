@@ -173,6 +173,7 @@ export function ConnectionEditor({
               />
               {providersFailure && (
                 <OperationFeedback
+                  notify={false}
                   title="无法读取订阅提供者"
                   {...providersFailure}
                   actions={
@@ -249,6 +250,7 @@ export function ConnectionEditor({
                 </p>
                 {accountFailure && (
                   <OperationFeedback
+                    notify={false}
                     title={
                       accountUnknown
                         ? "账号状态待核对"
@@ -320,6 +322,7 @@ export function ConnectionEditor({
             )}
             {saveFailure && (
               <OperationFeedback
+                notify={false}
                 title={
                   saveUnknown
                     ? "保存结果待核对"

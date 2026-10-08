@@ -1,11 +1,5 @@
 import { HoverHint } from "@/components/feedback/hover-hint"
-import {
-  useContext,
-  useEffect,
-  useEffectEvent,
-  useRef,
-  useState,
-} from "react"
+import { useContext, useEffect, useEffectEvent, useRef, useState } from "react"
 import {
   ChevronDown,
   SlidersHorizontal,
@@ -676,6 +670,7 @@ function SessionConfigPanel({
               <div className="moon-scrollbar min-h-0 flex-1 overflow-auto px-6 py-4">
                 {feedback && (
                   <OperationFeedback
+                    notify={false}
                     density="compact"
                     title={
                       feedback.code === "cancelled"
@@ -704,10 +699,15 @@ function SessionConfigPanel({
                 {unavailableSelected.length > 0 && (
                   <div className="mx-6 mb-3">
                     <OperationFeedback
+                      notify={false}
                       density="compact"
                       title="所选工具不可用"
                       message={`请取消选择后应用：${unavailableSelected
-                        .map((id) => displayTools.find((tool) => tool.id === id)?.name ?? id)
+                        .map(
+                          (id) =>
+                            displayTools.find((tool) => tool.id === id)?.name ??
+                            id
+                        )
                         .join("、")}`}
                       severity="warning"
                     />
@@ -782,6 +782,7 @@ function SessionConfigPanel({
             {feedback && phase !== "load-error" && (
               <div className="moon-scrollbar max-h-[45%] shrink-0 overflow-auto px-6 pb-3">
                 <OperationFeedback
+                  notify={false}
                   density="compact"
                   title={
                     phase === "refresh-error"

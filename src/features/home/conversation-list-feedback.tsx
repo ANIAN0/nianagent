@@ -52,6 +52,7 @@ export function ConversationListFeedback({
   return (
     <div className="mb-2 px-2 py-1">
       <OperationFeedback
+        notify={false}
         title={
           failure.code === "cancelled"
             ? "会话列表读取已取消"
