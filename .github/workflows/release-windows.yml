@@ -3,6 +3,16 @@ name: Release Windows
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: "Existing unpublished draft Release ID"
+        required: true
+        type: string
+      build_run_id:
+        description: "Completed original tag build run ID"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -13,6 +23,7 @@ concurrency:
 
 jobs:
   release:
+    if: github.event_name == 'push'
     runs-on: windows-2025
     permissions:
       contents: write
@@ -72,6 +83,11 @@ jobs:
           updaterJsonPreferNsis: true
           uploadPlainBinary: false
           retryAttempts: 1
+      - name: Normalize verified draft manifest to stable tag URL
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MOON_RELEASE_ID: ${{ steps.draft.outputs.releaseId }}
+        run: node scripts/normalize-release-manifest.mjs
       - name: Verify uploaded installer signature and manifest
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -80,3 +96,45 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release edit $env:GITHUB_REF_NAME --draft=false --prerelease=false --latest
+
+  resume:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-2025
+    permissions:
+      contents: write
+      actions: read
+    env:
+      MOON_UPDATER_PUBLIC_KEY: ${{ vars.MOON_UPDATER_PUBLIC_KEY }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: "24.16.0"
+          package-manager-cache: false
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d
+        with:
+          toolchain: "1.99.0"
+      - name: Validate original signed tag build and existing draft
+        id: resume
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MOON_RELEASE_ID: ${{ inputs.release_id }}
+          MOON_BUILD_RUN_ID: ${{ inputs.build_run_id }}
+        run: node scripts/validate-release-resume.mjs
+      - name: Normalize verified draft manifest to stable tag URL
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MOON_RELEASE_ID: ${{ steps.resume.outputs.releaseId }}
+        run: node scripts/normalize-release-manifest.mjs
+      - name: Verify uploaded installer signature and manifest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MOON_RELEASE_ID: ${{ steps.resume.outputs.releaseId }}
+        run: node scripts/verify-release-assets.mjs --release-id $env:MOON_RELEASE_ID
+      - name: Publish the verified draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MOON_RELEASE_TAG: ${{ steps.resume.outputs.tag }}
+        run: gh release edit $env:MOON_RELEASE_TAG --draft=false --prerelease=false --latest
