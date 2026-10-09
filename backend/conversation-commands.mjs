@@ -1,3 +1,4 @@
+import { settleResources } from "./close-resources.mjs"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { publicFailure } from "./operation-issue.mjs"
@@ -168,6 +169,7 @@ export class ConversationCommands {
           await this.save(receipt)
         } catch {
           receipt.status = "unknown"
+          state.maintenanceSaveError = true
         }
         state.command = this.public(receipt)
         state.commandRunning = false
@@ -181,7 +183,7 @@ export class ConversationCommands {
       return this.public(receipt)
     })
   }
-  async close() {
-    await Promise.allSettled(this.active.values())
+  async close({ strict = false } = {}) {
+    await settleResources(this.active.values(), strict)
   }
 }

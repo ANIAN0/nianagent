@@ -3,6 +3,8 @@ import { fileURLToPath } from "node:url"
 import { resolve, relative } from "node:path"
 import { spawnSync } from "node:child_process"
 import { backendSourceFiles } from "../backend/extensions/source-files.mjs"
+import { packageNodeRuntime } from "./package-node-runtime.mjs"
+import { packagingEnvironment } from "./release-settings.mjs"
 const root = fileURLToPath(new URL("../", import.meta.url))
 const output = resolve(root, "src-tauri/runtime")
 const sourceFiles = await backendSourceFiles(resolve(root, "backend"))
@@ -18,7 +20,7 @@ for (const directory of [resolve(root, "src-tauri"), output]) {
     if (error.code !== "ENOENT") throw error
   }
 }
-// This directory contains only the reproducible pnpm deploy output.
+// 此目录仅包含可重建的正式运行资源，不包含应用数据。
 await rm(output, { recursive: true, force: true })
 const result = spawnSync(
   "pnpm",
@@ -31,7 +33,12 @@ const result = spawnSync(
     "--registry=https://registry.npmjs.org",
     "src-tauri/runtime",
   ],
-  { cwd: root, stdio: "inherit", shell: process.platform === "win32" }
+  {
+    cwd: root,
+    stdio: "inherit",
+    shell: process.platform === "win32",
+    env: packagingEnvironment(),
+  }
 )
 if (result.status !== 0) process.exit(result.status ?? 1)
 for (const file of sourceFiles) {
@@ -42,3 +49,4 @@ for (const file of sourceFiles) {
   if (!source.equals(packaged))
     throw new Error(`Backend deployment omitted or changed ${file}`)
 }
+await packageNodeRuntime(output)

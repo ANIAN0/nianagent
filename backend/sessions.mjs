@@ -1,3 +1,4 @@
+import { settleResources } from "./close-resources.mjs"
 import { withAcquiredLock, withCleanup, stageJson } from "./atomic-file.mjs"
 import { createPiSession } from "./pi-session-adapter.mjs"
 import {
@@ -634,14 +635,15 @@ export class SessionService {
       "已选择的 MCP 或扩展工具已停用、删除或失效，请在会话配置中取消后重试。"
     )
   }
-  async close() {
+  async close({ strict = false } = {}) {
     this.closed = true
     const entries = [...this.active.values()]
     for (const { session } of entries) session.dispose()
-    await Promise.allSettled(
-      entries.map(({ session }) => this.resources.get(session)?.closing)
+    await settleResources(
+      entries.map(({ session }) => this.resources.get(session)?.closing),
+      strict
     )
-    await Promise.allSettled([...this.closing])
+    await settleResources([...this.closing], strict)
     this.active.clear()
   }
 }

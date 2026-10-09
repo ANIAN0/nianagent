@@ -1,0 +1,81 @@
+name: Release Windows
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-2025
+    permissions:
+      contents: write
+    env:
+      MOON_UPDATER_PUBLIC_KEY: ${{ vars.MOON_UPDATER_PUBLIC_KEY }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: "24.16.0"
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: "11.24.0"
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d
+        with:
+          toolchain: "1.99.0"
+          targets: x86_64-pc-windows-msvc
+          components: rustfmt
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Check product version and tag
+        run: node scripts/release-version.mjs --check --tag $env:GITHUB_REF_NAME
+      - name: Check contract, types, lint and formatting
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          pnpm contract:check
+          pnpm typecheck
+          pnpm lint --max-warnings 0
+          pnpm exec prettier --check "{src,backend,scripts,ui-catalog,api-catalog}/**/*.{ts,tsx,mjs}"
+          cargo fmt --manifest-path src-tauri/Cargo.toml --check
+          cargo fmt --manifest-path scripts/release-verifier/Cargo.toml --check
+          cargo check --locked --manifest-path src-tauri/Cargo.toml
+      - name: Prepare release public key
+        run: pnpm release:prepare
+      - name: Prepare unpublished draft
+        id: draft
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/prepare-release-draft.mjs
+      - name: Build signed NSIS and upload complete assets
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          releaseId: ${{ steps.draft.outputs.releaseId }}
+          releaseDraft: true
+          prerelease: false
+          tauriScript: pnpm exec tauri
+          args: --config src-tauri/tauri.production.conf.json --config .dev/release/updater-config.json --target x86_64-pc-windows-msvc --bundles nsis
+          uploadUpdaterJson: true
+          uploadUpdaterSignatures: true
+          updaterJsonPreferNsis: true
+          uploadPlainBinary: false
+          retryAttempts: 1
+      - name: Verify uploaded installer signature and manifest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/verify-release-assets.mjs --release-id ${{ steps.draft.outputs.releaseId }}
+      - name: Publish the verified draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit $env:GITHUB_REF_NAME --draft=false --prerelease=false --latest

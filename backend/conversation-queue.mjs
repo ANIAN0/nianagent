@@ -1,3 +1,4 @@
+import { settleResources } from "./close-resources.mjs"
 import { replaceJson } from "./atomic-file.mjs"
 import { archiveReceipt, readArchivedReceipt } from "./receipt-archive.mjs"
 import { validateQueueOperationReceipts as validateArchivedQueueReceipts } from "./queue-operation-receipts.mjs"
@@ -896,7 +897,7 @@ export class ConversationQueue {
       { triggerTurn: true }
     )
   }
-  async close() {
-    await Promise.allSettled([...this.writes.values()])
+  async close({ strict = false } = {}) {
+    await settleResources([...this.writes.values()], strict)
   }
 }

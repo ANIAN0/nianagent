@@ -1,3 +1,8 @@
+import { readConfigurationDraft } from "@/lib/operations/configuration-draft-store"
+import {
+  maintenanceWritesFrozen,
+  useMaintenanceBlocker,
+} from "@/lib/maintenance/maintenance-coordinator"
 import { useRetainedWrite } from "@/lib/operations/use-retained-write"
 import { recheckConfigurationRecoveryStore } from "@/lib/operations/configuration-recovery-store"
 import {
@@ -78,7 +83,19 @@ export function useConnectionEditor({
   onClose,
   registerLeave,
 }: ConnectionEditorProps) {
-  const retained = retainedSaves.get(service)?.get(initial.id)
+  const restoredDraft = readConfigurationDraft<RetainedSave>(
+    "save",
+    initial.id,
+    service.evidence === "demo"
+  )
+  const retained =
+    retainedSaves.get(service)?.get(initial.id) ?? restoredDraft.record
+  const [restorationFailed] = useState(!!restoredDraft.issue)
+  if (retained && !retainedSaves.get(service)?.has(initial.id)) {
+    const owner = retainedSaves.get(service) ?? new Map<string, RetainedSave>()
+    owner.set(initial.id, retained)
+    retainedSaves.set(service, owner)
+  }
   const retainedAccount = unresolvedAccounts.get(service)?.get(initial.id)
   const [baseline, setBaseline] = useState(
     retained?.baseline ?? retainedAccount?.baseline ?? initial
@@ -92,7 +109,7 @@ export function useConnectionEditor({
   const [waitingToLeave, setWaitingToLeave] = useState(false)
   const [saveFailure, setSaveFailure] = useState<
     FeedbackDescription | undefined
-  >(retained?.issue)
+  >(retained?.issue ?? restoredDraft.issue)
   const [discoveryFailure, setDiscoveryFailure] =
     useState<FeedbackDescription>()
   const [accountFailure, setAccountFailure] = useState<
@@ -140,6 +157,11 @@ export function useConnectionEditor({
   })
 
   const dirty = JSON.stringify(draft) !== JSON.stringify(baseline)
+  useMaintenanceBlocker(
+    "model-editor:" + initial.id,
+    "模型连接配置有未保存更改或操作仍在进行，请返回配置页处理。",
+    dirty || !!busy || oauth || restorationFailed || !!restoredDraft.issue
+  )
   const errors = attempted ? connectionErrors(draft, connections, testing) : {}
   const active = connections.some((value) => value.id === initial.id)
   const saveUnknown = hasUnresolved
@@ -149,8 +171,10 @@ export function useConnectionEditor({
   const accountBlocked = accountUnknown || accountConflict
   const saveConflict = !saveUnknown && saveFailure?.recovery === "reload"
   const saveBlocked =
-    saveFailure?.severity !== "info" &&
-    (saveFailure?.recovery === "restart" || saveFailure?.recovery === "none")
+    restorationFailed ||
+    !!restoredDraft.issue ||
+    (saveFailure?.severity !== "info" &&
+      (saveFailure?.recovery === "restart" || saveFailure?.recovery === "none"))
   const discoveryBlocked =
     discoveryFailure?.severity !== "info" &&
     (discoveryFailure?.recovery === "restart" ||
@@ -173,8 +197,24 @@ export function useConnectionEditor({
     unresolvedAccounts.get(service)?.delete(initial.id)
   }
   function recoverStorage() {
-    if (service.evidence === "demo" || recheckConfigurationRecoveryStore())
-      setSaveFailure(undefined)
+    const restored = readConfigurationDraft(
+      "save",
+      initial.id,
+      service.evidence === "demo"
+    )
+    if (restored.issue) setSaveFailure(restored.issue)
+    else if (service.evidence === "demo" || recheckConfigurationRecoveryStore())
+      setSaveFailure(
+        restorationFailed
+          ? {
+              code: "recovery_storage_restored",
+              recovery: "reload",
+              severity: "warning",
+              message:
+                "恢复存储已可读取，请返回列表后重新打开原配置，继续处理保留的原请求与副本。",
+            }
+          : undefined
+      )
   }
   useEffect(() => {
     if (!service.providers || draft.kind !== "subscription") return
@@ -253,6 +293,7 @@ export function useConnectionEditor({
     return () => window.removeEventListener("beforeunload", warn)
   }, [dirty, saveUnknown, accountUnknown])
   function change(patch: Partial<ModelConnection>) {
+    if (maintenanceWritesFrozen()) return
     setDraft((value) => ({ ...value, ...patch }))
     setDiscoveryFailure(undefined)
     setResult("")
@@ -676,7 +717,9 @@ export function useConnectionEditor({
   return {
     baseline,
     draft,
-    setDraft,
+    setDraft: (apply: Parameters<typeof setDraft>[0]) => {
+      if (!maintenanceWritesFrozen()) setDraft(apply)
+    },
     attempted,
     busy,
     dirty,

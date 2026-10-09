@@ -1,5 +1,7 @@
 import type { ComposerDraft } from "@/lib/composer/types"
 import type { FeedbackDescription } from "@/lib/operation-issue"
+import type { MaterialService } from "@/features/materials/material-service"
+import { materialsBlockMaintenance } from "@/features/materials/upload-retry-sources"
 
 export type QueueEditSubmission = {
   /** Stable clientEditId sent to the host; a shared CAS revision alone is not a receipt. */
@@ -237,4 +239,25 @@ export function clearQueueEdit(
   if (persistent) localStorage.removeItem(key)
   retained.delete(key)
   publishQueueEdits(sessionId)
+}
+
+/** 重启前保存所有真实会话的原编辑，包括已离开页面的 owner。 */
+export function saveRetainedQueueEdits() {
+  for (const [key, record] of retained) {
+    if (!record.sessionId.startsWith("catalog:"))
+      localStorage.setItem(key, JSON.stringify(record))
+  }
+}
+
+/** FileReader 尚未上传的材料只能留在原 owner 中，持久化占位记录不代表已可重启。 */
+export function maintenanceBlockedQueueEdits(service?: MaterialService) {
+  return [...retained.values()].filter(
+    (record) =>
+      !record.sessionId.startsWith("catalog:") &&
+      [record.draft, record.originalDraft, record.submitted?.draft].some(
+        (draft) =>
+          !!draft &&
+          materialsBlockMaintenance(service, record.sessionId, draft.materials)
+      )
+  )
 }

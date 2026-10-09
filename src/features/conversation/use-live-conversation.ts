@@ -1,3 +1,13 @@
+import {
+  frontendBlocker,
+  useMaintenanceSave,
+} from "@/lib/maintenance/maintenance-coordinator"
+import {
+  maintenanceBlockedQueueEdits,
+  saveRetainedQueueEdits,
+} from "./queue-edit-store"
+import { materialsBlockMaintenance } from "@/features/materials/upload-retry-sources"
+import type { MaterialService } from "@/features/materials/material-service"
 import { useQueueRecovery } from "./use-queue-recovery"
 import { ConversationSnapshotCache } from "./conversation-snapshot-cache"
 import { useCallback, useEffect, useRef, useState } from "react"
@@ -94,7 +104,8 @@ export function resolveConversationModel(
 /** Server snapshots and editing drafts are separate; polling never replaces input. */
 export function useLiveConversation(
   selectedId: string | undefined,
-  providedService?: ConversationService
+  providedService?: ConversationService,
+  materialService?: MaterialService
 ) {
   // The service belongs to this hook owner; replacing it requires a new owner.
   const [service] = useState(
@@ -178,6 +189,43 @@ export function useLiveConversation(
     []
   )
   const requests = useRef(restored.requests)
+  useMaintenanceSave(() => {
+    for (const [id, draft] of Object.entries(draftsRef.current))
+      saveConversationDraft(id, draft)
+    for (const [id, submission] of requests.current)
+      saveConversationRequest(id, submission)
+    saveRetainedQueueEdits()
+    const preparingConversations = new Set(
+      Object.entries(draftsRef.current)
+        .filter(([id, draft]) =>
+          materialsBlockMaintenance(materialService, id, draft.materials)
+        )
+        .map(([id]) => id)
+    )
+    for (const [id, submission] of requests.current)
+      if (
+        materialsBlockMaintenance(
+          materialService,
+          id,
+          submission.draft.materials
+        )
+      )
+        preparingConversations.add(id)
+    return [
+      ...[...preparingConversations].map((id) =>
+        frontendBlocker(
+          "conversation-materials:" + id,
+          "会话材料仍在准备，或粘贴图片仅保存在窗口中，请完成准备或移除后再维护。"
+        )
+      ),
+      ...maintenanceBlockedQueueEdits(materialService).map((record) =>
+        frontendBlocker(
+          "queue-materials:" + record.sessionId + ":" + record.id,
+          "排队编辑材料仍在准备，或粘贴图片仅保存在窗口中，请完成准备或移除后再维护。"
+        )
+      ),
+    ]
+  })
   const locks = useRef(new Set<string>())
   const stopLocks = useRef(new Set<string>())
   const unknownStops = useRef(new Set<string>())

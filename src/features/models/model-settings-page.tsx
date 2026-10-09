@@ -1,3 +1,4 @@
+import { findConfigurationDraft } from "@/lib/operations/configuration-draft-store"
 import { ConfigurationRecoveryPanel } from "@/components/operations/configuration-recovery-panel"
 import {
   retainConfigurationAttempt,
@@ -6,7 +7,6 @@ import {
 } from "@/lib/operations/configuration-recovery-store"
 import "./model-settings.css"
 import { useCallback, useEffect, useRef, useState } from "react"
-import { ArrowLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { RecoveryAction } from "@/components/feedback/recovery-action"
 import {
@@ -46,20 +46,20 @@ type Deletion = {
   open: boolean
 }
 const unresolvedDeletions = new WeakMap<ModelService, Map<string, Deletion>>()
-export type ModelSettingsPageProps = {
+export type ModelSettingsContentProps = {
   service: ModelService
   mcpService?: McpService
-  onReturn: () => void
+  section: "models" | "mcp"
   onConnectionsChange?: (connections: ModelConnection[]) => void
   registerLeave?: (guard: LeaveGuard | null) => void
 }
-export function ModelSettingsPage({
+export function ModelSettingsContent({
   service,
   mcpService,
-  onReturn,
+  section,
   onConnectionsChange,
   registerLeave,
-}: ModelSettingsPageProps) {
+}: ModelSettingsContentProps) {
   const [listing, setListing] = useState<{
     service?: ModelService
     items: ModelConnection[]
@@ -72,7 +72,6 @@ export function ModelSettingsPage({
       ["save", "remove", "authStart"].includes(record.operation)
     )
     .map((record) => record.targetId)
-  const [section, setSection] = useState<"models" | "mcp">("models")
   const [editor, setEditor] = useState<{
     service: ModelService
     item: ModelConnection
@@ -345,50 +344,12 @@ export function ModelSettingsPage({
     deletionIssue?.recovery === "settings" ||
     deletionIssue?.recovery === "reload"
   return (
-    <section
+    <div
       ref={root}
-      className="model-settings-workspace"
-      aria-label="模型设置"
+      className="h-full min-h-0"
+      aria-label={section === "models" ? "模型设置" : "MCP 设置"}
     >
-      <header className="model-settings-topbar">
-        <h1>设置</h1>
-        <Button variant="ghost" onClick={() => leave(onReturn)}>
-          <ArrowLeft data-icon="inline-start" />
-          返回工作台
-        </Button>
-      </header>
-      <nav className="model-settings-nav" aria-label="设置分区">
-        <h2>模型与执行</h2>
-        <Button
-          variant="ghost"
-          aria-current={section === "models" ? "page" : undefined}
-          className="w-full justify-start"
-          onClick={() => {
-            if (section !== "models")
-              leave(() => {
-                setSection("models")
-                closeEditor()
-              })
-          }}
-        >
-          模型连接
-        </Button>
-        <Button
-          variant="ghost"
-          aria-current={section === "mcp" ? "page" : undefined}
-          className="w-full justify-start"
-          onClick={() => {
-            if (section !== "mcp")
-              leave(() => {
-                setSection("mcp")
-                closeEditor()
-              })
-          }}
-        >
-          MCP 服务
-        </Button>
-      </nav>
-      <div className="model-settings-content">
+      <div className="h-full min-h-0">
         {section === "mcp" && (
           <McpSettings service={mcpService} registerLeave={storeGuard} />
         )}
@@ -448,6 +409,13 @@ export function ModelSettingsPage({
                 service={service}
                 operations={["save", "remove", "authStart"]}
                 onResolved={load}
+                onRestoreDraft={(record) => {
+                  const saved = findConfigurationDraft<{
+                    baseline: ModelConnection
+                  }>(record)
+                  if (saved && record.operation === "save")
+                    edit(saved.record.baseline)
+                }}
               />
             </div>
             <ConnectionList
@@ -553,6 +521,6 @@ export function ModelSettingsPage({
         }}
         onConfirm={() => void (deletionUnknown ? checkRemoval() : remove())}
       />
-    </section>
+    </div>
   )
 }

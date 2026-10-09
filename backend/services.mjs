@@ -11,6 +11,7 @@ import { ConversationService } from "./conversations.mjs"
 import { validateRequest, dispatchOperation } from "./contract.mjs"
 import { readWriteReceipt } from "./write-receipts.mjs"
 import { operationDependencies, serviceRoot } from "./service-registry.mjs"
+import { settleResources } from "./close-resources.mjs"
 
 /** 服务装配根：业务服务不再创建其他领域；就绪失败只阻断真实依赖它的操作。 */
 export class MoonServices {
@@ -92,15 +93,33 @@ export class MoonServices {
         : this.models.store
     return readWriteReceipt(store, operation, requestId, signal)
   }
-  async close() {
+  async close({ strict = false } = {}) {
     this.closed = true
     this.workspaces.close()
     // 先结束执行/会话持有者，再释放共享资源；关闭期间不再创建新依赖。
-    await this.conversations.close()
-    await this.sessions.close()
-    await this.models.close()
-    await this.mcp.close()
-    await this.extensions.close()
-    await Promise.allSettled(this.ready.values())
+    const failures = []
+    for (const resource of [
+      this.conversations,
+      this.sessions,
+      this.models,
+      this.mcp,
+      this.extensions,
+    ]) {
+      try {
+        await resource.close({ strict })
+      } catch (error) {
+        failures.push(error)
+      }
+    }
+    try {
+      await settleResources([...this.ready.values()], strict)
+    } catch (error) {
+      failures.push(error)
+    }
+    if (strict && failures.length)
+      throw new AggregateError(
+        failures,
+        "维护资源关闭未确认，请重启 Moon 恢复。"
+      )
   }
 }

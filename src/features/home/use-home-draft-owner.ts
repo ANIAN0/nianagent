@@ -1,3 +1,7 @@
+import {
+  frontendBlocker,
+  useMaintenanceSave,
+} from "@/lib/maintenance/maintenance-coordinator"
 import { useComposerAnchor } from "@/lib/composer/use-composer-anchor"
 import { type ComposerEditorElement } from "@/components/composer/composer-editor-contract"
 import {
@@ -31,6 +35,8 @@ import {
 } from "./home-submission-draft"
 
 import type { HomeComposerProps } from "./home-composer.types"
+import { MaterialServiceContext } from "@/features/materials/material-service"
+import { materialsBlockMaintenance } from "@/features/materials/upload-retry-sources"
 
 /** 只维护这一组状态的所有权，迟到结果仍按原身份核对。 */
 export function useHomeDraftOwner({
@@ -54,6 +60,7 @@ export function useHomeDraftOwner({
   | "onDraftChange"
 >) {
   const sessionService = useContext(SessionServiceContext)
+  const materialService = useContext(MaterialServiceContext)
   const { models, materials, tools } = data
   const [addedWorkspaces, setWorkspaces] = useState<typeof data.workspaces>([])
   const workspaces = useMemo(
@@ -145,6 +152,22 @@ export function useHomeDraftOwner({
   }, [rawDraft.workspaceId, inactive])
   const [saveError, setSaveError] = useState("")
   const latestDraft = useRef(rawDraft)
+  useMaintenanceSave(() => {
+    const current = latestDraft.current
+    if (current.workspaceId && draftStore) draftStore.write(current)
+    return materialsBlockMaintenance(
+      materialService,
+      current.sessionId ?? "",
+      current.materials
+    )
+      ? [
+          frontendBlocker(
+            "home-materials:" + current.sessionId,
+            "首页材料仍在准备，或粘贴图片仅保存在窗口中，请完成准备或移除后再维护。"
+          ),
+        ]
+      : []
+  })
   const restorationRef = useRef(restoredSubmission)
   const restorationAck = useRef(onRestorationPersisted)
   useLayoutEffect(() => {

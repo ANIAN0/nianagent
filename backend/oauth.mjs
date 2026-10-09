@@ -1,3 +1,4 @@
+import { settleResources } from "./close-resources.mjs"
 import { CredentialSynchronizationError } from "@earendil-works/pi-coding-agent"
 import { randomUUID, createHash } from "node:crypto"
 import { operationError } from "./operation-issue.mjs"
@@ -336,13 +337,18 @@ export class AuthorizationJobs {
       }
     }
   }
-  async close() {
+  async close({ strict = false } = {}) {
     this.closed = true
     const jobs = [...this.jobs.values()]
     for (const job of jobs) {
       clearTimeout(job.expiry)
       job.controller.abort()
     }
-    await Promise.allSettled(jobs.map((job) => job.done))
+    await settleResources(
+      jobs.map((job) => job.done),
+      strict
+    )
+    if (strict && jobs.some((job) => job.cleanupError))
+      throw new Error("授权资源清理未确认，请重启恢复。")
   }
 }

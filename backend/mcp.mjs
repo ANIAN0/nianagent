@@ -1,3 +1,4 @@
+import { settleResources } from "./close-resources.mjs"
 import { mkdir, readFile, realpath, stat } from "node:fs/promises"
 import { compactWriteReceipts } from "./write-receipt-archive.mjs"
 import { replaceJson, withAcquiredLock } from "./atomic-file.mjs"
@@ -614,9 +615,12 @@ export class McpService {
       }))
     )
   }
-  async close() {
+  async close({ strict = false } = {}) {
     this.closed = true
-    await Promise.allSettled([...this.clients].map((client) => client.close()))
+    await settleResources(
+      [...this.clients].map((client) => client.close()),
+      strict
+    )
     this.clients.clear()
   }
 }

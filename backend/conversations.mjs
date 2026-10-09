@@ -1,3 +1,4 @@
+import { settleResources } from "./close-resources.mjs"
 import { ConversationTranscript } from "./conversation-transcript.mjs"
 import { ConversationRun } from "./conversation-run.mjs"
 import { PiHistory } from "./pi-history.mjs"
@@ -49,6 +50,7 @@ export class ConversationService {
     this.epoch = randomUUID()
     this.version = Date.now()
     this.closed = false
+    this.maintenanceFrozen = false
     const service = this
     this.queue = new ConversationQueue(directory, {
       epoch: this.epoch,
@@ -70,7 +72,7 @@ export class ConversationService {
       restore: this.restore.bind(this),
       snapshot: this.snapshot.bind(this),
       get closed() {
-        return service.closed
+        return service.closed || service.maintenanceFrozen
       },
       active: this.active,
       start: this.start.bind(this),
@@ -753,6 +755,7 @@ export class ConversationService {
     )
   }
   start(input, signal) {
+    requireValue(!this.maintenanceFrozen, "Moon 正在维护，不能开始新执行。")
     return this.conversation_run.start(input, signal)
   }
   run(state, input) {
@@ -817,14 +820,14 @@ export class ConversationService {
       return this.snapshot(state)
     })
   }
-  close() {
+  close({ strict = false } = {}) {
     if (this.closing) return this.closing
     this.closed = true
-    this.closing = this.closeActive()
+    this.closing = this.closeActive(strict)
     return this.closing
   }
-  async closeActive() {
-    await this.controls.close()
+  async closeActive(strict = false) {
+    await this.controls.close({ strict })
     const states = [...this.active.values()]
     for (const state of states) this.permissions.cancel(state)
     for (const state of states) this.live.close(state)
@@ -842,15 +845,21 @@ export class ConversationService {
             .map(([key]) => key)
         )
       }
-    await Promise.allSettled(states.map((state) => state.session?.abort()))
-    await Promise.allSettled(states.map((state) => state.run))
-    await this.commands.close()
+    await settleResources(
+      states.map((state) => state.session?.abort()),
+      strict
+    )
+    await settleResources(
+      states.map((state) => state.run),
+      strict
+    )
+    await this.commands.close({ strict })
     for (const state of states) {
       state.unsubscribe?.()
       state.session?.dispose()
     }
     this.active.clear()
-    await this.queue.close()
+    await this.queue.close({ strict })
   }
   queuePending(state) {
     return this.queue.pending(state)

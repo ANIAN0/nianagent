@@ -7,7 +7,7 @@ import { readJsonBody } from "./http-body.mjs"
 export async function runtimeVersion() {
   // Explicit wire compatibility, never source-file hashing on an RPC request.
   // Backend edits take effect by restarting the dev host.
-  return "moon-host-protocol-2"
+  return "moon-host-protocol-3"
 }
 export async function startRuntime(file, dispatch, publicFailure) {
   const version = await runtimeVersion()

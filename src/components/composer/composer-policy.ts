@@ -1,3 +1,5 @@
+import { maintenanceWritesFrozen } from "@/lib/maintenance/maintenance-coordinator"
+import { projectEditableDraft } from "@/lib/maintenance/frontend-recovery"
 import type {
   ComposerData,
   ComposerDraft,
@@ -10,12 +12,20 @@ import {
 } from "../../features/materials/material-reference-feedback.ts"
 
 type DraftBlock = {
-  kind: "choosing" | "model" | "image" | "materials" | "query" | "empty"
+  kind:
+    | "maintenance"
+    | "choosing"
+    | "model"
+    | "image"
+    | "materials"
+    | "query"
+    | "empty"
   message: string
 }
 
 /** Normalize an editable working copy, never an immutable submission or history. */
-export function editableComposerDraft(draft: ComposerDraft): ComposerDraft {
+export function editableComposerDraft(source: ComposerDraft): ComposerDraft {
+  const draft = projectEditableDraft(source)
   const leading = draft.text.trimStart().match(/^\/([^\s]+)/u)?.[1]
   return {
     ...draft,
@@ -52,28 +62,30 @@ export function composerDraftEligibility(
     draft.materials,
     draft.command?.name
   )
-  const block: DraftBlock | undefined = choosing
-    ? { kind: "choosing", message: "正在选择附件，选择完成后可发送。" }
-    : !modelAvailable
-      ? { kind: "model", message: "请选择可用模型后发送。" }
-      : unsupportedImage
-        ? {
-            kind: "image",
-            message: "当前模型不支持图片，请更换模型或移除图片。",
-          }
-        : !materialReady
+  const block: DraftBlock | undefined = maintenanceWritesFrozen()
+    ? { kind: "maintenance", message: "Moon 正在维护，暂不能提交新的输入。" }
+    : choosing
+      ? { kind: "choosing", message: "正在选择附件，选择完成后可发送。" }
+      : !modelAvailable
+        ? { kind: "model", message: "请选择可用模型后发送。" }
+        : unsupportedImage
           ? {
-              kind: "materials",
-              message:
-                (unreadyReference &&
-                  fileReferenceFeedback(unreadyReference)?.block) ||
-                "材料尚未准备完成，请重试失败材料或移除后发送。",
+              kind: "image",
+              message: "当前模型不支持图片，请更换模型或移除图片。",
             }
-          : unresolved
-            ? { kind: "query", message: unresolved }
-            : !hasDraft
-              ? { kind: "empty", message: "输入文字或添加材料后发送。" }
-              : undefined
+          : !materialReady
+            ? {
+                kind: "materials",
+                message:
+                  (unreadyReference &&
+                    fileReferenceFeedback(unreadyReference)?.block) ||
+                  "材料尚未准备完成，请重试失败材料或移除后发送。",
+              }
+            : unresolved
+              ? { kind: "query", message: unresolved }
+              : !hasDraft
+                ? { kind: "empty", message: "输入文字或添加材料后发送。" }
+                : undefined
   return {
     hasDraft,
     modelAvailable,

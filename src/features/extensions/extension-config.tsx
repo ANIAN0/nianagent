@@ -1,3 +1,4 @@
+import { findConfigurationDraft } from "@/lib/operations/configuration-draft-store"
 import { ConfigurationRecoveryPanel } from "@/components/operations/configuration-recovery-panel"
 import { useConfigurationRecoveries } from "@/lib/operations/configuration-recovery-store"
 import { useCallback, useEffect, useRef, useState } from "react"
@@ -146,6 +147,13 @@ function ExtensionConfigDialog({
             onResolved={() => {
               reload()
               onConfigured?.()
+            }}
+            onRestoreDraft={(record) => {
+              const saved = findConfigurationDraft<{
+                descriptor: ExtensionDescriptor
+              }>(record)
+              if (saved && record.operation === "extensionConfigure")
+                setEditor(saved.record.descriptor)
             }}
           />
         )}

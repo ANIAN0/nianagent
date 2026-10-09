@@ -1,3 +1,4 @@
+import { useMaintenanceSave } from "@/lib/maintenance/maintenance-coordinator"
 import { useCallback, useRef, useState } from "react"
 
 import type { ConversationSnapshot } from "@/contracts/rpc.generated"
@@ -85,6 +86,10 @@ export function useQueueRecovery({
       ])
     )
   )
+  useMaintenanceSave(() => {
+    for (const record of queueRecoveries.current.values())
+      saveQueueOperation(record)
+  })
   const [queueRecoveryRecords, setQueueRecoveryRecords] = useState(
     restoredQueue.records
   )

@@ -69,6 +69,7 @@ export const runFailureIssue = (error) =>
       )
     : modelFailureIssue(error)
 export const queueFailure = (state, error, summary) => {
+  state.maintenanceSaveError = true
   state.queueIssue = storageIssue(
     error,
     "conversationRead",

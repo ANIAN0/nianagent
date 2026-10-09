@@ -1,3 +1,4 @@
+import { StartupRecovery } from "@/features/settings/startup-recovery"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
@@ -11,7 +12,9 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ThemeProvider>
       <TooltipProvider>
-        <App />
+        <StartupRecovery>
+          <App />
+        </StartupRecovery>
         <ComposerToaster />
       </TooltipProvider>
     </ThemeProvider>

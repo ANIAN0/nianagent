@@ -43,6 +43,9 @@ export function CatalogHeader({
         </h1>
       </div>
       <div className="api-catalog-header-actions">
+        <Button variant="ghost" size="sm" asChild>
+          <a href="?desktop=desktop_get_state">桌面接口</a>
+        </Button>
         <span className="api-catalog-environment" title={environment}>
           {environment}
         </span>

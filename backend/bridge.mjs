@@ -1,6 +1,5 @@
 import { readFile } from "node:fs/promises"
-import { join } from "node:path"
-import { homedir } from "node:os"
+import { developmentStorage } from "./storage-bootstrap.mjs"
 import { request as httpRequest } from "node:http"
 import { runtimeVersion } from "./runtime.mjs"
 import { readJsonBody } from "./http-body.mjs"
@@ -122,19 +121,14 @@ function requestRuntime(runtime, operation, input, signal) {
 
 export function modelBackendPlugin() {
   function configure(server) {
-    const file =
-      process.env.MOON_RUNTIME_FILE ||
-      join(
-        process.env.LOCALAPPDATA || join(homedir(), ".local", "share"),
-        "Moon",
-        "models",
-        "runtime.json"
-      )
     const bridge = {
       async call(operation, input, signal) {
         let runtime
         try {
-          runtime = JSON.parse(await readFile(file, "utf8"))
+          // Tauri dev迁移后Vite可能仍存活；每次请求重新读取同一个bootstrap。
+          runtime = JSON.parse(
+            await readFile(developmentStorage().runtimeFile, "utf8")
+          )
         } catch {
           throw operationError(
             "host_unavailable",

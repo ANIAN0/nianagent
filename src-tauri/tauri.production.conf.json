@@ -3,8 +3,19 @@
     "beforeBuildCommand": "pnpm build && pnpm backend:package"
   },
   "bundle": {
+    "targets": ["nsis"],
+    "createUpdaterArtifacts": true,
     "resources": {
       "runtime/": "runtime/"
+    },
+    "windows": {
+      "allowDowngrades": false,
+      "nsis": {
+        "installMode": "currentUser",
+        "template": "nsis/installer.nsi",
+        "installerHooks": "nsis/hooks.nsh",
+        "languages": ["SimpChinese", "English"]
+      }
     }
   }
 }

@@ -1,19 +1,24 @@
 {
   "name": "moon",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.1.0",
+  "packageManager": "pnpm@11.24.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/generate-model-contract.mjs --check && pnpm typecheck && node scripts/build-frontend.mjs",
+    "build": "pnpm contract:check && pnpm typecheck && node scripts/build-frontend.mjs",
     "lint": "eslint .",
-    "format": "prettier --write \"{src,backend,scripts,ui-catalog,api-catalog}/**/*.{ts,tsx,mjs}\" && cargo fmt --manifest-path src-tauri/Cargo.toml",
+    "format": "prettier --write \"{src,backend,scripts,ui-catalog,api-catalog}/**/*.{ts,tsx,mjs}\" && cargo fmt --manifest-path src-tauri/Cargo.toml && cargo fmt --manifest-path scripts/release-verifier/Cargo.toml",
     "typecheck": "tsc -b --pretty false && tsc -p backend/tsconfig.json --pretty false",
     "preview": "vite preview",
     "backend:package": "node scripts/package-backend.mjs",
-    "desktop:build": "pnpm tauri build --config src-tauri/tauri.production.conf.json",
-    "contract:generate": "node scripts/generate-model-contract.mjs",
-    "contract:check": "node scripts/generate-model-contract.mjs --check"
+    "desktop:build": "node scripts/build-desktop.mjs",
+    "release:version": "node scripts/release-version.mjs",
+    "release:check": "node scripts/release-version.mjs --check",
+    "release:prepare": "node scripts/prepare-desktop-release.mjs",
+    "release:verify": "node scripts/verify-release-assets.mjs",
+    "contract:generate": "node scripts/generate-model-contract.mjs && node scripts/generate-desktop-contract.mjs",
+    "contract:check": "node scripts/generate-model-contract.mjs --check && node scripts/generate-desktop-contract.mjs --check"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "1.0.0",

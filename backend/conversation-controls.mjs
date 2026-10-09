@@ -1,3 +1,4 @@
+import { settleResources } from "./close-resources.mjs"
 import { replaceJson } from "./atomic-file.mjs"
 import { readFile, readdir } from "node:fs/promises"
 import { join, resolve, relative, isAbsolute } from "node:path"
@@ -383,6 +384,7 @@ export class ConversationControls {
           await this.persist(state)
         } catch {
           operation.status = "unknown"
+          state.maintenanceSaveError = true
           operation.error = "无法保存操作回执，请检查压缩状态。"
         }
         state.controlBusy = false
@@ -455,13 +457,13 @@ export class ConversationControls {
       return this.present(operation)
     })
   }
-  async close() {
+  async close({ strict = false } = {}) {
     for (const state of this.host.active.values())
       if (state.controlBusy) {
         state.controlCancelRequested = true
         state.session?.abortCompaction()
       }
-    await Promise.allSettled([...this.tasks.values()])
+    await settleResources([...this.tasks.values()], strict)
   }
   async forkStart(sessionId, operationId, entryId, signal) {
     return this.host.sessions.exclusive(sessionId, async () => {

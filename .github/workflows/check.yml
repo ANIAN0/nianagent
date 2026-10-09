@@ -1,0 +1,45 @@
+name: Check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: "24.16.0"
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: "11.24.0"
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d
+        with:
+          toolchain: "1.99.0"
+          components: rustfmt
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm release:check
+      - name: Check contract, types, lint and formatting
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          pnpm contract:check
+          pnpm typecheck
+          pnpm lint --max-warnings 0
+          pnpm exec prettier --check "{src,backend,scripts,ui-catalog,api-catalog}/**/*.{ts,tsx,mjs}"
+          cargo fmt --manifest-path src-tauri/Cargo.toml --check
+          cargo fmt --manifest-path scripts/release-verifier/Cargo.toml --check
+          cargo check --locked --manifest-path src-tauri/Cargo.toml
+          cargo check --locked --manifest-path scripts/release-verifier/Cargo.toml
+      - name: Build frontend and standalone backend resources
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          pnpm build
+          pnpm backend:package

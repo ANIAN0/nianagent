@@ -1,3 +1,4 @@
+import { DesktopApiCatalog } from "./desktop-catalog"
 import { createRoot } from "react-dom/client"
 import { ThemeProvider } from "@/components/theme-provider"
 import { NotificationToaster } from "@/components/ui/notification-toast"
@@ -9,7 +10,11 @@ const root = createRoot(document.getElementById("root")!)
 if (import.meta.hot) import.meta.hot.dispose(() => root.unmount())
 root.render(
   <ThemeProvider storageKey={null} defaultTheme="light">
-    <ApiCatalogApp />
+    {new URLSearchParams(location.search).has("desktop") ? (
+      <DesktopApiCatalog />
+    ) : (
+      <ApiCatalogApp />
+    )}
     <NotificationToaster />
   </ThemeProvider>
 )

@@ -1,3 +1,4 @@
+import { useMaintenanceSave } from "@/lib/maintenance/maintenance-coordinator"
 import { useCallback, useRef, useState } from "react"
 import type { HomeComposerProps } from "./home-composer"
 import type { ComposerDraft } from "@/lib/composer/types"
@@ -61,6 +62,10 @@ export function useHomeSubmissionOwnership({
   const [homeSubmissions, setHomeSubmissions] = useState(restoreHomeSubmissions)
   const homeSubmissionsRef = useRef(homeSubmissions)
   const homeSubmissionEditing = useRef(new Map<string, ComposerDraft>())
+  useMaintenanceSave(() => {
+    for (const submission of Object.values(homeSubmissionsRef.current))
+      saveHomeSubmission(submission)
+  })
   const [retainedHomeViews, setRetainedHomeViews] = useState<RetainedHomeViews>(
     {}
   )

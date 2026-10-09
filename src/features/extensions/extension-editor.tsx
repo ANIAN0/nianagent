@@ -1,3 +1,9 @@
+import { readConfigurationDraft } from "@/lib/operations/configuration-draft-store"
+import {
+  maintenanceWritesFrozen,
+  useMaintenanceBlocker,
+  useMaintenanceFrozen,
+} from "@/lib/maintenance/maintenance-coordinator"
 import { useRetainedWrite } from "@/lib/operations/use-retained-write"
 import { recheckConfigurationRecoveryStore } from "@/lib/operations/configuration-recovery-store"
 import {
@@ -76,7 +82,20 @@ export function ExtensionEditor({
   onSaved(keepOpen?: boolean): void
   registerLeave(guard: ((action: () => void) => void) | null): void
 }) {
-  const retained = unresolved.get(service)?.get(descriptor.id)
+  const frozen = useMaintenanceFrozen()
+  const restoredDraft = readConfigurationDraft<Retained>(
+    "extensionConfigure",
+    descriptor.id,
+    service.evidence === "demo"
+  )
+  const retained =
+    unresolved.get(service)?.get(descriptor.id) ?? restoredDraft.record
+  const [restorationFailed] = useState(!!restoredDraft.issue)
+  if (retained && !unresolved.get(service)?.has(descriptor.id)) {
+    const owner = unresolved.get(service) ?? new Map<string, Retained>()
+    owner.set(descriptor.id, retained)
+    unresolved.set(service, owner)
+  }
   const [baseline, setBaseline] = useState(retained?.descriptor ?? descriptor)
   const [enabled, setEnabled] = useState(
     retained?.enabled ?? descriptor.enabled
@@ -85,7 +104,7 @@ export function ExtensionEditor({
     retained?.configuration ?? descriptor.configuration
   )
   const [failure, setFailure] = useState<FeedbackDescription | undefined>(
-    retained?.issue
+    retained?.issue ?? restoredDraft.issue
   )
   const [busy, setBusy] = useState<"save" | "check">()
   const [waiting, setWaiting] = useState(false)
@@ -121,10 +140,17 @@ export function ExtensionEditor({
 
   const dirty =
     enabled !== baseline.enabled || configuration !== baseline.configuration
+  useMaintenanceBlocker(
+    "extension-editor:" + descriptor.id,
+    "扩展配置有未保存更改或操作仍在进行，请返回配置页处理。",
+    dirty || !!busy || restorationFailed || !!restoredDraft.issue
+  )
   const pending = hasUnresolved
   const saveBlocked =
-    failure?.severity !== "info" &&
-    (failure?.recovery === "restart" || failure?.recovery === "none")
+    restorationFailed ||
+    !!restoredDraft.issue ||
+    (failure?.severity !== "info" &&
+      (failure?.recovery === "restart" || failure?.recovery === "none"))
   let fields: ReturnType<typeof readExtensionConfiguration> | undefined
   let errors: string[] = []
   try {
@@ -137,8 +163,24 @@ export function ExtensionEditor({
     errors = ["配置格式无法识别，请检查扩展安装后重启 Moon。"]
   }
   function recoverStorage() {
-    if (service.evidence === "demo" || recheckConfigurationRecoveryStore())
-      setFailure(undefined)
+    const restored = readConfigurationDraft(
+      "extensionConfigure",
+      descriptor.id,
+      service.evidence === "demo"
+    )
+    if (restored.issue) setFailure(restored.issue)
+    else if (service.evidence === "demo" || recheckConfigurationRecoveryStore())
+      setFailure(
+        restorationFailed
+          ? {
+              code: "recovery_storage_restored",
+              recovery: "reload",
+              severity: "warning",
+              message:
+                "恢复存储已可读取，请返回目录后重新打开原配置，继续处理保留的原请求与副本。",
+            }
+          : undefined
+      )
   }
   const leave = useCallback(
     (action: () => void) => {
@@ -209,6 +251,7 @@ export function ExtensionEditor({
   }
   async function save() {
     if (
+      maintenanceWritesFrozen() ||
       request.current ||
       pending ||
       saveBlocked ||
@@ -352,8 +395,10 @@ export function ExtensionEditor({
           <Switch
             id="extension-enabled"
             checked={enabled}
-            disabled={!!busy}
-            onCheckedChange={setEnabled}
+            disabled={!!busy || frozen}
+            onCheckedChange={(value) => {
+              if (!maintenanceWritesFrozen()) setEnabled(value)
+            }}
           />
           <FieldDescription>保存后在空闲会话下一轮生效。</FieldDescription>
         </Field>
@@ -362,8 +407,11 @@ export function ExtensionEditor({
             id={descriptor.id}
             schema={fields.schema}
             values={fields.configuration}
-            disabled={!!busy}
-            onChange={(values) => setConfiguration(JSON.stringify(values))}
+            disabled={!!busy || frozen}
+            onChange={(values) => {
+              if (!maintenanceWritesFrozen())
+                setConfiguration(JSON.stringify(values))
+            }}
           />
         )}
       </FieldGroup>
@@ -409,6 +457,7 @@ export function ExtensionEditor({
         <Button
           disabled={
             !!busy ||
+            frozen ||
             pending ||
             saveBlocked ||
             !dirty ||

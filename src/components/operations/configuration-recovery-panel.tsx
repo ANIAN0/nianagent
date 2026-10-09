@@ -3,6 +3,7 @@ import {
   useEffect,
   useLayoutEffect,
   useRef,
+  useReducer,
   useState,
 } from "react"
 import { Button } from "@/components/ui/button"
@@ -27,6 +28,11 @@ import {
   type ConfigurationRecovery,
 } from "@/lib/operations/configuration-recovery-store"
 import type { AuthState, WriteReceipt } from "@/contracts/rpc.generated"
+import {
+  configurationDraftIdentities,
+  clearConfigurationDraftByIdentity,
+} from "@/lib/operations/configuration-draft-store"
+import { useMaintenanceBlocker } from "@/lib/maintenance/maintenance-coordinator"
 function requestLabel(record: ConfigurationRecovery) {
   const labels: Record<ConfigurationRecovery["operation"], string> = {
     save: "模型连接的原保存请求",
@@ -57,17 +63,40 @@ export function ConfigurationRecoveryPanel<
   operations,
   onResolved,
   recoveries,
+  onRestoreDraft,
 }: {
   service: Service<O>
   operations: readonly (O | "authStart")[]
   onResolved(): void
   recoveries?: ConfigurationRecovery[]
+  onRestoreDraft?: (record: ConfigurationRecovery) => void
 }) {
-  const { records: all, issue: storageIssue } = useConfigurationRecoveries(
-    service.evidence === "demo"
-  )
+  const { records: all, issue: identityStorageIssue } =
+    useConfigurationRecoveries(service.evidence === "demo")
   const records = (recoveries ?? all).filter((record) =>
     operations.includes(record.operation as O | "authStart")
+  )
+  const [, refreshDrafts] = useReducer((value: number) => value + 1, 0)
+  let drafts: ReturnType<typeof configurationDraftIdentities> = []
+  let draftStorageIssue: FeedbackDescription | undefined
+  try {
+    drafts = configurationDraftIdentities(service.evidence === "demo").filter(
+      (record) => operations.includes(record.operation as O)
+    )
+  } catch {
+    draftStorageIssue = {
+      code: "recovery_storage_unavailable",
+      severity: "error",
+      recovery: "none",
+      message:
+        "本机配置恢复副本无法读取或校验。原副本保留，请检查本机存储后重新读取；不会重新提交原操作。",
+    }
+  }
+  const storageIssue = identityStorageIssue ?? draftStorageIssue
+  useMaintenanceBlocker(
+    "configuration-recovery-read",
+    "本机配置恢复记录尚未完整读取，请先处理存储错误。",
+    !!storageIssue
   )
   const identity = records
     .map((record) => `${record.operation}:${record.operationRequestId}`)
@@ -78,6 +107,7 @@ export function ConfigurationRecoveryPanel<
   const [busy, setBusy] = useState<string[]>([])
   const [notice, setNotice] = useState("")
   const [finalIssue, setFinalIssue] = useState<FeedbackDescription>()
+  const [actionIssue, setActionIssue] = useState<FeedbackDescription>()
   const [confirmation, setConfirmation] = useState<SettingsConfirmation>()
   const requests = useRef(new Map<string, AbortController>())
   const checked = useRef(new Set<string>())
@@ -176,7 +206,7 @@ export function ConfigurationRecoveryPanel<
               : undefined
           )
           setNotice(
-            `${requestLabel(record)}已确认${receipt.state === "committed" ? "提交" : "未提交"}。草稿原文未保存，凭据需重新填写。`
+            `${requestLabel(record)}已确认${receipt.state === "committed" ? "提交" : "未提交"}。保留的配置副本可继续打开处理；没有重发原请求。`
           )
         }
         if (!controller.signal.aborted) latest.current.onResolved()
@@ -217,7 +247,7 @@ export function ConfigurationRecoveryPanel<
       ownedChecks.clear()
     }
   }, [service])
-  if (!records.length && !storageIssue && !notice) return null
+  if (!records.length && !drafts.length && !storageIssue && !notice) return null
   return (
     <div className="flex flex-col gap-3">
       {storageIssue && (
@@ -229,7 +259,10 @@ export function ConfigurationRecoveryPanel<
             <Button
               variant="outline"
               size="sm"
-              onClick={recheckConfigurationRecoveryStore}
+              onClick={() => {
+                recheckConfigurationRecoveryStore()
+                refreshDrafts()
+              }}
             >
               重新读取本机恢复记录
             </Button>
@@ -243,7 +276,7 @@ export function ConfigurationRecoveryPanel<
           severity: "info" as const,
           recovery: "none" as const,
           message:
-            "应用已重新打开，正在核对原请求。只保存请求身份，不保存密钥、请求头或草稿原文。",
+            "应用已重新打开，正在核对同一个原请求。可用的配置副本保留在本机私有数据中，不会自动重发。",
         }
         return (
           <div key={id} className="flex flex-col gap-2">
@@ -292,10 +325,14 @@ export function ConfigurationRecoveryPanel<
                   setConfirmation({
                     title: "放弃本机恢复记录？",
                     description:
-                      "只移除本机保留的请求身份，不取消或撤销原请求；原请求仍可能提交。再次修改会产生新的请求，请先确认原操作结果。",
+                      "移除本机保留的请求身份和配置副本，不取消或撤销原请求；原请求仍可能提交。再次修改会产生新的请求，请先确认原操作结果。",
                     label: "放弃恢复记录",
                     destructive: true,
                     action: () => {
+                      clearConfigurationDraftByIdentity(
+                        record,
+                        service.evidence === "demo"
+                      )
                       finishConfigurationAttempt(
                         record.operation,
                         record.operationRequestId,
@@ -313,6 +350,36 @@ export function ConfigurationRecoveryPanel<
           </div>
         )
       })}
+      {onRestoreDraft &&
+        drafts.map((record) => (
+          <div
+            key={`draft:${record.operationRequestId}`}
+            className="flex flex-wrap items-center gap-2"
+          >
+            <span className="text-[13px] text-muted-foreground">
+              {requestLabel(record)}的配置副本已保留
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                try {
+                  onRestoreDraft(record)
+                } catch {
+                  setActionIssue({
+                    code: "recovery_storage_unavailable",
+                    severity: "error",
+                    recovery: "none",
+                    message:
+                      "本机配置恢复副本暂不能读取。原副本保留，请重新读取本机恢复记录。",
+                  })
+                }
+              }}
+            >
+              打开保留的配置副本
+            </Button>
+          </div>
+        ))}
       {notice &&
         (finalIssue ? (
           <OperationFeedback
@@ -325,13 +392,27 @@ export function ConfigurationRecoveryPanel<
             {notice}
           </p>
         ))}
+      {actionIssue && (
+        <OperationFeedback
+          notify={false}
+          title="恢复副本尚未处理"
+          {...actionIssue}
+        />
+      )}
       <SettingsConfirmDialog
         value={confirmation}
         onCancel={() => setConfirmation(undefined)}
         onConfirm={() => {
           const action = confirmation?.action
           setConfirmation(undefined)
-          void action?.()
+          setActionIssue(undefined)
+          void Promise.resolve()
+            .then(() => action?.())
+            .catch((reason) => {
+              setActionIssue(
+                feedbackFromError(reason, "本机恢复副本未能清理，原记录保留。")
+              )
+            })
         }}
       />
     </div>

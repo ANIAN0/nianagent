@@ -1,3 +1,4 @@
+import { settleResources } from "./close-resources.mjs"
 import { replaceJson, withAcquiredLock } from "./atomic-file.mjs"
 import { compactWriteReceipts } from "./write-receipt-archive.mjs"
 import { mkdir, readdir, readFile, lstat, realpath } from "node:fs/promises"
@@ -810,10 +811,13 @@ export class ExtensionService {
     )
     return promise
   }
-  async close() {
+  async close({ strict = false } = {}) {
     this.closed = true
-    await Promise.allSettled([...this.resourceClosers].map((close) => close()))
-    await Promise.allSettled([...this.closing])
+    await settleResources(
+      [...this.resourceClosers].map((close) => close()),
+      strict
+    )
+    await settleResources([...this.closing], strict)
     this.contexts.clear()
   }
 }

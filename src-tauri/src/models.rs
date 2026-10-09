@@ -42,21 +42,24 @@ pub struct ModelBackend {
     stopping: AtomicBool,
     bridge: Mutex<Option<Bridge>>,
     script: PathBuf,
+    node: PathBuf,
     directory: PathBuf,
 }
 impl ModelBackend {
-    pub fn new(app: &tauri::App) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(
+        app: &tauri::App,
+        paths: &crate::storage::StoragePaths,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let script = if cfg!(debug_assertions) {
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../backend/rpc.mjs")
         } else {
             app.path().resource_dir()?.join("runtime/rpc.mjs")
         };
-        let directory = if cfg!(debug_assertions) {
-            std::env::var_os("MOON_DATA_DIR")
-                .map(PathBuf::from)
-                .unwrap_or(app.path().local_data_dir()?.join("Moon/models"))
+        let directory = paths.data.clone();
+        let node = if cfg!(debug_assertions) {
+            PathBuf::from("node")
         } else {
-            app.path().local_data_dir()?.join("Moon/models")
+            app.path().resource_dir()?.join("runtime/node.exe")
         };
         let backend = Self {
             app: Some(app.handle().clone()),
@@ -64,6 +67,7 @@ impl ModelBackend {
             stopping: AtomicBool::new(false),
             bridge: Mutex::new(None),
             script,
+            node,
             directory,
         };
         let ready = backend
@@ -85,6 +89,36 @@ impl ModelBackend {
             .unwrap_or_else(|poison| poison.into_inner());
         bridge.take();
     }
+    pub fn internal(&self, operation: &str, input: Value, timeout: Duration) -> Reply {
+        let id = format!("host-{}", uuid::Uuid::new_v4());
+        self.send(&id, operation, input)?
+            .recv_timeout(timeout)
+            .map_err(|_| "后端维护确认超时，状态可能已部分关闭，请重新启动Moon恢复。".to_string())?
+    }
+    pub fn finish_maintenance_shutdown(&self) -> Result<(), String> {
+        self.stopping.store(true, Ordering::SeqCst);
+        let mut guard = self.bridge.lock().map_err(|_| "后端进程锁不可用。")?;
+        if let Some(bridge) = guard.as_mut() {
+            if let Ok(mut input) = bridge.input.lock() {
+                input.take();
+            }
+            for _ in 0..600 {
+                match bridge.child.try_wait() {
+                    Ok(Some(status)) if status.success() => {
+                        guard.take();
+                        return Ok(());
+                    }
+                    Ok(Some(_)) => {
+                        return Err("后端退出异常，无法确认全部保存，请重启恢复。".into());
+                    }
+                    Err(_) => return Err("无法确认后端退出，请重启恢复。".into()),
+                    Ok(None) => std::thread::sleep(Duration::from_millis(50)),
+                }
+            }
+            return Err("后端尚未退出；未强杀后假称安全保存，请重新启动恢复。".into());
+        }
+        Ok(())
+    }
     fn send(
         &self,
         request_id: &str,
@@ -102,13 +136,16 @@ impl ModelBackend {
             *bridge = None;
         }
         if bridge.is_none() {
-            let mut command = Command::new("node");
+            let mut command = Command::new(dunce::simplified(&self.node));
             command
                 // Tauri's release resource_dir is canonical on Windows. Node
                 // cannot use its verbatim drive prefix as the entry script.
                 .arg(dunce::simplified(&self.script))
                 .env("MOON_DATA_DIR", &self.directory)
                 .env("MOON_RUNTIME_FILE", self.directory.join("runtime.json"))
+                .env("PI_CODING_AGENT_DIR", self.directory.join("agent"))
+                .env("TEMP", self.directory.join("tmp"))
+                .env("TMP", self.directory.join("tmp"))
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
@@ -119,7 +156,11 @@ impl ModelBackend {
             }
             let mut child = command.spawn().map_err(|error| match error.kind() {
                 std::io::ErrorKind::NotFound => {
-                    "找不到 Node.js，请安装 Node.js >=22.19 并确认 PATH。"
+                    if cfg!(debug_assertions) {
+                        "开发运行需要Node.js >=22.19。"
+                    } else {
+                        "Moon内置Node运行时缺失，请修复程序安装。"
+                    }
                 }
                 std::io::ErrorKind::PermissionDenied => "没有权限启动 Node.js 模型服务。",
                 _ => "无法创建模型服务进程，请检查程序安装。",
@@ -229,6 +270,9 @@ pub async fn model_request(
     operation: String,
     input: Value,
 ) -> Reply {
+    if operation.starts_with('$') {
+        return Err("内部宿主命令不可从业务RPC调用。".into());
+    }
     let maximum = if operation == "materialUpload" {
         16 * 1024 * 1024
     } else {

@@ -1,3 +1,14 @@
+import {
+  DesktopServiceProvider,
+  useDesktopLifecycle,
+} from "@/features/settings/desktop-service"
+import { MaintenanceStatus } from "@/features/settings/maintenance-status"
+import {
+  maintenanceWritesFrozen,
+  frontendBlocker,
+  useMaintenanceSave,
+  useMaintenanceFrozen,
+} from "@/lib/maintenance/maintenance-coordinator"
 import { HomeSubmissionHost } from "@/features/home/home-submission-host"
 import { PageErrorBoundary } from "@/components/feedback/page-error-boundary"
 import { BoundedCache } from "@/lib/bounded-cache"
@@ -48,15 +59,16 @@ import {
   createMaterialService,
   MaterialServiceContext,
 } from "@/features/materials/material-service"
+import { hasRetainedUploadSources } from "@/features/materials/upload-retry-sources"
 
 import {
   createExtensionService,
   ExtensionServiceContext,
 } from "@/features/extensions/extension-service"
 
-const ModelSettingsPage = lazy(() =>
-  import("@/features/models/model-settings-page").then((module) => ({
-    default: module.ModelSettingsPage,
+const SettingsPage = lazy(() =>
+  import("@/features/settings/settings-page").then((module) => ({
+    default: module.SettingsPage,
   }))
 )
 const LiveConversationView = lazy(() =>
@@ -73,11 +85,23 @@ function restoreSelection() {
   }
 }
 export default function App() {
+  const desktop = useDesktopLifecycle()
+  const writesFrozen = useMaintenanceFrozen()
   const navigation = useNavigationBoundaryState()
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [selected, setSelected] = useState<string | undefined>(restoreSelection)
   const [sessionService] = useState(createSessionService)
   const [materialService] = useState(createMaterialService)
+  useMaintenanceSave(() =>
+    hasRetainedUploadSources(materialService)
+      ? [
+          frontendBlocker(
+            "retained-upload-files",
+            "仍有粘贴或拖入图片仅保存在窗口中，请完成准备、移除或等待临时源正常过期后再维护。"
+          ),
+        ]
+      : []
+  )
   const [extensionService] = useState(createExtensionService)
   const [positions] = useState(
     () => new BoundedCache<string, ConversationReadingPosition>(200)
@@ -85,7 +109,7 @@ export default function App() {
   const models = useModelCatalog(() => navigation.run(openSettings))
   const workspaces = useWorkspaces()
   const catalog = useConversationCatalog()
-  const chat = useLiveConversation(selected)
+  const chat = useLiveConversation(selected, undefined, materialService)
   const home = useHomeSubmissionController({
     chat,
     connections: models.connections,
@@ -226,262 +250,288 @@ export default function App() {
       })
   }
   return (
-    <PermissionServiceContext.Provider value={permissionService}>
-      <CommandServiceContext.Provider value={commandService}>
-        <NavigationBoundaryContext.Provider value={navigation}>
-          <SessionServiceContext.Provider value={sessionService}>
-            <MaterialServiceContext.Provider value={materialService}>
-              <ExtensionServiceContext.Provider value={extensionService}>
-                <AppShell
-                  data={data}
-                  activeConversationId={selected}
-                  historyState={catalog.historyState}
-                  historyError={catalog.historyError}
-                  historyIssue={catalog.historyIssue}
-                  onHistoryRetry={() => void catalog.refresh()}
-                  onSettings={() => navigation.run(openSettings)}
-                  onSelectConversation={(item) =>
-                    leaveSettings(() => selectConversation(item.id))
-                  }
-                  onNew={(workspaceId) =>
-                    leaveSettings(() => {
-                      selectConversation()
-                      home.openHome(workspaceId)
-                    })
-                  }
-                >
-                  {notice && (
-                    <div className="shrink-0 px-4 py-2">
-                      <OperationFeedback
-                        title="首页提交已确认"
-                        message={notice}
-                        severity="info"
-                      />
-                    </div>
-                  )}
-                  {Object.values(homeSubmissions).some(
-                    (submission) =>
-                      submission.sessionId !== selected &&
-                      (selected ||
-                        settingsOpen ||
-                        submission.sessionId !==
-                          visibleHomeSubmission?.sessionId)
-                  ) && (
-                    <div className="shrink-0 px-4 py-2">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          const submission = Object.values(
-                            homeSubmissions
-                          ).find(
-                            (item) =>
-                              item.sessionId !== selected &&
-                              (selected ||
-                                settingsOpen ||
-                                item.sessionId !==
-                                  visibleHomeSubmission?.sessionId)
-                          )
-                          if (!submission) return
-                          leaveSettings(() => {
-                            selectConversation()
-                            home.openHome(submission.draft.workspaceId)
-                          })
-                        }}
-                      >
-                        有首页提交待处理 · 返回原输入
-                      </Button>
-                    </div>
-                  )}
-                  {settingsOpen && (
-                    <Suspense
-                      fallback={
-                        <div role="status" className="p-8">
-                          正在打开设置…
-                        </div>
+    <DesktopServiceProvider value={desktop}>
+      <div
+        className="contents"
+        data-maintenance-frozen={writesFrozen}
+        onBeforeInputCapture={(event) => {
+          if (maintenanceWritesFrozen()) event.preventDefault()
+        }}
+        onPasteCapture={(event) => {
+          if (maintenanceWritesFrozen()) event.preventDefault()
+        }}
+        onDropCapture={(event) => {
+          if (maintenanceWritesFrozen()) event.preventDefault()
+        }}
+      >
+        <PermissionServiceContext.Provider value={permissionService}>
+          <CommandServiceContext.Provider value={commandService}>
+            <NavigationBoundaryContext.Provider value={navigation}>
+              <SessionServiceContext.Provider value={sessionService}>
+                <MaterialServiceContext.Provider value={materialService}>
+                  <ExtensionServiceContext.Provider value={extensionService}>
+                    <AppShell
+                      data={data}
+                      activeConversationId={selected}
+                      historyState={catalog.historyState}
+                      historyError={catalog.historyError}
+                      historyIssue={catalog.historyIssue}
+                      onHistoryRetry={() => void catalog.refresh()}
+                      onSettings={() => navigation.run(openSettings)}
+                      onSelectConversation={(item) =>
+                        leaveSettings(() => selectConversation(item.id))
+                      }
+                      onNew={(workspaceId) =>
+                        leaveSettings(() => {
+                          selectConversation()
+                          home.openHome(workspaceId)
+                        })
                       }
                     >
-                      <PageErrorBoundary key="settings">
-                        <ModelSettingsPage
-                          service={models.service}
-                          onReturn={() =>
-                            navigation.run(() => setSettingsOpen(false))
-                          }
-                          onConnectionsChange={models.update}
-                          registerLeave={registerSettingsLeave}
-                        />
-                      </PageErrorBoundary>
-                    </Suspense>
-                  )}
-                  <div
-                    className={
-                      settingsOpen ? "hidden" : "flex min-h-0 flex-1 flex-col"
-                    }
-                  >
-                    {selected ? (
-                      <Suspense
-                        fallback={
-                          <div
-                            role="status"
-                            className="p-8 text-sm text-muted-foreground"
+                      <MaintenanceStatus />
+                      {notice && (
+                        <div className="shrink-0 px-4 py-2">
+                          <OperationFeedback
+                            title="首页提交已确认"
+                            message={notice}
+                            severity="info"
+                          />
+                        </div>
+                      )}
+                      {Object.values(homeSubmissions).some(
+                        (submission) =>
+                          submission.sessionId !== selected &&
+                          (selected ||
+                            settingsOpen ||
+                            submission.sessionId !==
+                              visibleHomeSubmission?.sessionId)
+                      ) && (
+                        <div className="shrink-0 px-4 py-2">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              const submission = Object.values(
+                                homeSubmissions
+                              ).find(
+                                (item) =>
+                                  item.sessionId !== selected &&
+                                  (selected ||
+                                    settingsOpen ||
+                                    item.sessionId !==
+                                      visibleHomeSubmission?.sessionId)
+                              )
+                              if (!submission) return
+                              leaveSettings(() => {
+                                selectConversation()
+                                home.openHome(submission.draft.workspaceId)
+                              })
+                            }}
                           >
-                            正在打开会话…
-                          </div>
+                            有首页提交待处理 · 返回原输入
+                          </Button>
+                        </div>
+                      )}
+                      {settingsOpen && (
+                        <Suspense
+                          fallback={
+                            <div role="status" className="p-8">
+                              正在打开设置…
+                            </div>
+                          }
+                        >
+                          <PageErrorBoundary key="settings">
+                            <SettingsPage
+                              service={models.service}
+                              onReturn={() =>
+                                navigation.run(() => setSettingsOpen(false))
+                              }
+                              onConnectionsChange={models.update}
+                              registerLeave={registerSettingsLeave}
+                            />
+                          </PageErrorBoundary>
+                        </Suspense>
+                      )}
+                      <div
+                        className={
+                          settingsOpen
+                            ? "hidden"
+                            : "flex min-h-0 flex-1 flex-col"
                         }
                       >
-                        <PageErrorBoundary key={selected}>
-                          <LiveConversationView
-                            key={selected}
-                            id={selected}
-                            title={
-                              metadata?.title ??
-                              (homeSubmissions[selected]
-                                ? "新会话"
-                                : "正在读取会话")
+                        {selected ? (
+                          <Suspense
+                            fallback={
+                              <div
+                                role="status"
+                                className="p-8 text-sm text-muted-foreground"
+                              >
+                                正在打开会话…
+                              </div>
                             }
-                            workspacePath={
-                              metadata?.cwd ?? homeSubmissions[selected]?.cwd
-                            }
-                            snapshot={current}
-                            readIssue={chat.readIssues[selected]}
-                            readPending={chat.readPending[selected]}
-                            actionIssue={chat.actionIssues[selected]}
-                            draftError={chat.draftErrors[selected]}
-                            receiptIssue={chat.receiptIssues[selected]}
-                            onCleanReceipt={() => chat.cleanReceipt(selected)}
-                            queueIssues={chat.queueIssues[selected]}
-                            queueRecoveryReason={
-                              chat.queueRecoveryReason[selected]
-                            }
-                            queueRecoveryRecords={chat.queueRecoveryRecords}
-                            queueOperationPendingByRequest={
-                              chat.queueOperationPendingByRequest
-                            }
-                            queueRecoveryIssuesByRequest={
-                              chat.queueRecoveryIssuesByRequest[selected]
-                            }
-                            queueStorageIssue={chat.queueStorageIssue}
-                            queueOriginalRetryAllowed={
-                              chat.queueOriginalRetryAllowedByRequest[selected]
-                            }
-                            onRetryQueueOriginal={(record) =>
-                              action(
-                                chat.retryQueueOriginal(
-                                  selected,
-                                  queueOperationIssueKey(record),
-                                  record.operationRequestId
-                                )
-                              )
-                            }
-                            readReceiptIssue={
-                              metadataUnread
-                                ? readReceiptIssues[selected]
-                                : undefined
-                            }
-                            onRetryReadReceipt={() =>
-                              setReadReceiptRetry((value) => value + 1)
-                            }
-                            pending={chat.pending[selected]}
-                            stopPending={chat.stopPending[selected]}
-                            stopUnconfirmed={chat.stopUnconfirmed[selected]}
-                            data={data}
-                            draft={currentDraft}
-                            positions={positions}
-                            onChange={(draft) => {
-                              chat.change(selected, draft)
-                              home.changeFollowingDraft(draft)
-                            }}
-                            onSend={(draft, delivery) =>
-                              action(
-                                chat.send(
-                                  selected,
-                                  draft,
-                                  models.connections,
-                                  undefined,
-                                  undefined,
-                                  delivery
-                                )
-                              )
-                            }
-                            onStop={() => action(chat.stop(selected))}
-                            onContinue={() =>
-                              action(
-                                chat.retry(
-                                  selected,
-                                  currentDraft,
-                                  models.connections
-                                )
-                              )
-                            }
-                            onReload={chat.reload}
-                            onOpenSettings={openSettings}
-                            onRecoverDraft={(draft) =>
-                              chat.adoptRecoveredDraft(selected, draft)
-                            }
-                            onQueueEdit={(
-                              itemId,
-                              text,
-                              materials,
-                              revision,
-                              clientEditId
-                            ) =>
-                              chat.queueEdit(
-                                selected,
-                                itemId,
-                                text,
-                                materials,
-                                revision,
-                                clientEditId
-                              )
-                            }
-                            onQueueRemove={(itemId) =>
-                              action(chat.queueRemove(selected, itemId))
-                            }
-                            onQueueDeliver={(itemId) =>
-                              action(chat.queueDeliver(selected, itemId))
-                            }
-                            onSaveDraft={() => chat.saveDraft(selected)}
-                            unconfirmed={chat.unconfirmed[selected]}
-                            pendingSubmission={
-                              chat.submissionEcho(selected) ??
-                              home.submissionEcho(selected)
-                            }
-                            onReconcile={() => action(chat.reconcile(selected))}
-                            onOpenConversation={(id) => {
-                              leaveSettings(() => selectConversation(id))
-                              void catalog.refresh(true)
-                            }}
-                            captureNavigation={homeNavigation.capture}
-                          />
-                        </PageErrorBoundary>
-                      </Suspense>
-                    ) : null}
-                    {!selected && workspaces.initialLoading && (
-                      <div
-                        role="status"
-                        aria-label="正在读取工作区"
-                        className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-8 pt-24"
-                      >
-                        <Skeleton className="mx-auto h-8 w-44" />
-                        <Skeleton className="h-28 w-full rounded-2xl" />
+                          >
+                            <PageErrorBoundary key={selected}>
+                              <LiveConversationView
+                                key={selected}
+                                id={selected}
+                                title={
+                                  metadata?.title ??
+                                  (homeSubmissions[selected]
+                                    ? "新会话"
+                                    : "正在读取会话")
+                                }
+                                workspacePath={
+                                  metadata?.cwd ??
+                                  homeSubmissions[selected]?.cwd
+                                }
+                                snapshot={current}
+                                readIssue={chat.readIssues[selected]}
+                                readPending={chat.readPending[selected]}
+                                actionIssue={chat.actionIssues[selected]}
+                                draftError={chat.draftErrors[selected]}
+                                receiptIssue={chat.receiptIssues[selected]}
+                                onCleanReceipt={() =>
+                                  chat.cleanReceipt(selected)
+                                }
+                                queueIssues={chat.queueIssues[selected]}
+                                queueRecoveryReason={
+                                  chat.queueRecoveryReason[selected]
+                                }
+                                queueRecoveryRecords={chat.queueRecoveryRecords}
+                                queueOperationPendingByRequest={
+                                  chat.queueOperationPendingByRequest
+                                }
+                                queueRecoveryIssuesByRequest={
+                                  chat.queueRecoveryIssuesByRequest[selected]
+                                }
+                                queueStorageIssue={chat.queueStorageIssue}
+                                queueOriginalRetryAllowed={
+                                  chat.queueOriginalRetryAllowedByRequest[
+                                    selected
+                                  ]
+                                }
+                                onRetryQueueOriginal={(record) =>
+                                  action(
+                                    chat.retryQueueOriginal(
+                                      selected,
+                                      queueOperationIssueKey(record),
+                                      record.operationRequestId
+                                    )
+                                  )
+                                }
+                                readReceiptIssue={
+                                  metadataUnread
+                                    ? readReceiptIssues[selected]
+                                    : undefined
+                                }
+                                onRetryReadReceipt={() =>
+                                  setReadReceiptRetry((value) => value + 1)
+                                }
+                                pending={chat.pending[selected]}
+                                stopPending={chat.stopPending[selected]}
+                                stopUnconfirmed={chat.stopUnconfirmed[selected]}
+                                data={data}
+                                draft={currentDraft}
+                                positions={positions}
+                                onChange={(draft) => {
+                                  chat.change(selected, draft)
+                                  home.changeFollowingDraft(draft)
+                                }}
+                                onSend={(draft, delivery) =>
+                                  action(
+                                    chat.send(
+                                      selected,
+                                      draft,
+                                      models.connections,
+                                      undefined,
+                                      undefined,
+                                      delivery
+                                    )
+                                  )
+                                }
+                                onStop={() => action(chat.stop(selected))}
+                                onContinue={() =>
+                                  action(
+                                    chat.retry(
+                                      selected,
+                                      currentDraft,
+                                      models.connections
+                                    )
+                                  )
+                                }
+                                onReload={chat.reload}
+                                onOpenSettings={openSettings}
+                                onRecoverDraft={(draft) =>
+                                  chat.adoptRecoveredDraft(selected, draft)
+                                }
+                                onQueueEdit={(
+                                  itemId,
+                                  text,
+                                  materials,
+                                  revision,
+                                  clientEditId
+                                ) =>
+                                  chat.queueEdit(
+                                    selected,
+                                    itemId,
+                                    text,
+                                    materials,
+                                    revision,
+                                    clientEditId
+                                  )
+                                }
+                                onQueueRemove={(itemId) =>
+                                  action(chat.queueRemove(selected, itemId))
+                                }
+                                onQueueDeliver={(itemId) =>
+                                  action(chat.queueDeliver(selected, itemId))
+                                }
+                                onSaveDraft={() => chat.saveDraft(selected)}
+                                unconfirmed={chat.unconfirmed[selected]}
+                                pendingSubmission={
+                                  chat.submissionEcho(selected) ??
+                                  home.submissionEcho(selected)
+                                }
+                                onReconcile={() =>
+                                  action(chat.reconcile(selected))
+                                }
+                                onOpenConversation={(id) => {
+                                  leaveSettings(() => selectConversation(id))
+                                  void catalog.refresh(true)
+                                }}
+                                captureNavigation={homeNavigation.capture}
+                              />
+                            </PageErrorBoundary>
+                          </Suspense>
+                        ) : null}
+                        {!selected && workspaces.initialLoading && (
+                          <div
+                            role="status"
+                            aria-label="正在读取工作区"
+                            className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-8 pt-24"
+                          >
+                            <Skeleton className="mx-auto h-8 w-44" />
+                            <Skeleton className="h-28 w-full rounded-2xl" />
+                          </div>
+                        )}
+                        <HomeSubmissionHost
+                          home={home}
+                          data={data}
+                          unconfirmed={chat.unconfirmed}
+                          settingsOpen={settingsOpen}
+                          selected={selected}
+                          workspaces={workspaces}
+                        />
                       </div>
-                    )}
-                    <HomeSubmissionHost
-                      home={home}
-                      data={data}
-                      unconfirmed={chat.unconfirmed}
-                      settingsOpen={settingsOpen}
-                      selected={selected}
-                      workspaces={workspaces}
-                    />
-                  </div>
-                </AppShell>
-              </ExtensionServiceContext.Provider>
-            </MaterialServiceContext.Provider>
-          </SessionServiceContext.Provider>
-        </NavigationBoundaryContext.Provider>
-      </CommandServiceContext.Provider>
-    </PermissionServiceContext.Provider>
+                    </AppShell>
+                  </ExtensionServiceContext.Provider>
+                </MaterialServiceContext.Provider>
+              </SessionServiceContext.Provider>
+            </NavigationBoundaryContext.Provider>
+          </CommandServiceContext.Provider>
+        </PermissionServiceContext.Provider>
+      </div>
+    </DesktopServiceProvider>
   )
 }

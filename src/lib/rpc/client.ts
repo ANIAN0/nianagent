@@ -1,3 +1,4 @@
+import { maintenanceAllowsRpc } from "@/lib/maintenance/maintenance-coordinator"
 import { transportRecoveryByOperation } from "@/contracts/rpc.generated"
 import type {
   ModelOperation,
@@ -54,6 +55,13 @@ export async function rpcCall<K extends ModelOperation>(
   signal?: AbortSignal
 ): Promise<RpcResults[K]> {
   signal?.throwIfAborted()
+  if (!maintenanceAllowsRpc(operation))
+    throw new RpcRequestRejected("Moon 正在维护，暂不能提交新的变更。", {
+      code: "maintenance_busy",
+      summary: "Moon 正在维护，暂不能提交新的变更。当前输入和原请求保留。",
+      severity: "info",
+      recovery: "retry",
+    })
   if (isTauri()) {
     const requestId = crypto.randomUUID()
     const abort = () => {

@@ -4,8 +4,10 @@ packages:
 injectWorkspacePackages: true
 
 allowBuilds:
+  '@google/genai': false
   esbuild: true
   msw: false
+  protobufjs: false
 
 minimumReleaseAgeExclude:
   - '@earendil-works/chord@1.0.0'

@@ -37,5 +37,17 @@
     "android": {
       "debugApplicationIdSuffix": ".debug"
     }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/ANIAN0/nianagent/releases/latest/download/latest.json"
+      ],
+      "requireSignedVersion": true,
+      "allowDowngrades": false,
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

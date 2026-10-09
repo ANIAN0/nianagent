@@ -502,6 +502,7 @@ export class ConversationRun {
       await this.ports.sessions.exclusive(state.record.id, async () => {
         const writeError = this.ports.persistence.get(manager)?.error
         if (writeError) {
+          state.maintenanceSaveError = true
           failure = storageIssue(
             writeError,
             "conversationRead",
@@ -638,6 +639,7 @@ export class ConversationRun {
           }
         } catch (error) {
           state.phase = "failed"
+          state.maintenanceSaveError = true
           state.issue = nativePrompt?.handled
             ? {
                 ...publicFailure(error, "conversationReceiptRead").issue,

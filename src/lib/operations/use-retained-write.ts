@@ -1,4 +1,9 @@
-import { useState, type RefObject } from "react"
+import { useLayoutEffect, useState, type RefObject } from "react"
+import {
+  retainConfigurationDraft,
+  clearConfigurationDraft,
+} from "./configuration-draft-store"
+import { useMaintenanceSave } from "@/lib/maintenance/maintenance-coordinator"
 import type { WriteReceipt } from "@/contracts/rpc.generated"
 import type { FeedbackDescription } from "@/lib/operation-issue"
 import {
@@ -35,20 +40,61 @@ export function useRetainedWrite<
 }) {
   const retained = records.get(service)?.get(recordKey)
   const [hasUnresolved, setHasUnresolved] = useState(!!retained)
+  function saveCurrent() {
+    const attempt = submittedRef.current
+    const record = records.get(service)?.get(recordKey)
+    if (attempt && record) {
+      const next = snapshot(
+        attempt,
+        (record as R & { issue: FeedbackDescription }).issue
+      )
+      records.get(service)?.set(recordKey, next)
+      retainConfigurationDraft(
+        identity(attempt),
+        recordKey,
+        next,
+        service.evidence === "demo"
+      )
+    }
+  }
+  // 当前编辑副本同步到原请求 owner；离开页面不会丢掉未知操作的下一份草稿。
+  useLayoutEffect(() => {
+    if (!hasUnresolved) return
+    try {
+      saveCurrent()
+    } catch {
+      /* 维护 flush 会重试并返回实际保存失败。 */
+    }
+  })
+  useMaintenanceSave(saveCurrent)
   function remember(attempt: A, issue: FeedbackDescription) {
-    retainConfigurationAttempt(identity(attempt), service.evidence === "demo")
+    const original = identity(attempt)
+    const next = snapshot(attempt, issue)
+    retainConfigurationDraft(
+      original,
+      recordKey,
+      next,
+      service.evidence === "demo"
+    )
+    retainConfigurationAttempt(original, service.evidence === "demo")
     let owner = records.get(service)
     if (!owner) {
       owner = new Map()
       records.set(service, owner)
     }
-    owner.set(recordKey, snapshot(attempt, issue))
+    owner.set(recordKey, next)
     setHasUnresolved(true)
   }
   function clearAttempt() {
     const attempt = submittedRef.current
     if (attempt) {
       const original = identity(attempt)
+      clearConfigurationDraft(
+        original.operation,
+        recordKey,
+        original.operationRequestId,
+        service.evidence === "demo"
+      )
       finishConfigurationAttempt(
         original.operation,
         original.operationRequestId,

@@ -1,3 +1,4 @@
+import { findConfigurationDraft } from "@/lib/operations/configuration-draft-store"
 import { ConfigurationRecoveryPanel } from "@/components/operations/configuration-recovery-panel"
 import {
   retainConfigurationAttempt,
@@ -436,6 +437,28 @@ export function McpSettings({
               service={service}
               operations={["mcpSave", "mcpRemove"]}
               onResolved={load}
+              onRestoreDraft={(record) => {
+                const saved = findConfigurationDraft<{
+                  original: string
+                  revision?: number
+                }>(record)
+                if (saved && record.operation === "mcpSave")
+                  setEditor({
+                    service,
+                    initial:
+                      saved.recordKey === "new"
+                        ? undefined
+                        : {
+                            configuration: JSON.parse(saved.record.original),
+                            revision: saved.record.revision ?? 0,
+                            source:
+                              (activeListing?.servers ?? []).find(
+                                (item) =>
+                                  item.configuration.name === saved.recordKey
+                              )?.source ?? "",
+                          },
+                  })
+              }}
             />
           </div>
           <McpServerList

@@ -1,4 +1,5 @@
 import type { MaterialService } from "./material-service"
+import type { Material } from "@/lib/composer/types"
 
 export const uploadRetrySourceLimits = {
   entries: 32,
@@ -110,6 +111,41 @@ export function getUploadRetrySource(
   const entry = bucket.entries.get(key(sessionId, cwd, id))
   if (expired) schedule(bucket)
   return entry?.file
+}
+
+/** 维护只核对原临时源，不改状态或延长寿命；失败占位材料也可能仍持有仅内存的 File。 */
+export function materialsBlockMaintenance(
+  service: MaterialService | null | undefined,
+  sessionId: string,
+  materials: readonly Material[]
+) {
+  if (materials.some((material) => material.status === "preparing")) return true
+  if (!service || !sessionId) return false
+  const bucket = buckets.get(service)
+  if (!bucket) return false
+  const ids = new Set(
+    materials
+      .filter((material) => temporary(material.id))
+      .map((material) => material.id)
+  )
+  for (const identity of bucket.entries.keys()) {
+    const [owner, cwd, id] = JSON.parse(identity) as [string, string, string]
+    if (
+      owner === sessionId &&
+      ids.has(id) &&
+      getUploadRetrySource(service, owner, cwd, id)
+    )
+      return true
+  }
+  return false
+}
+
+/** 隐藏编辑 owner 可卸载，原 File 仍由同一正式服务持有；App flush 不能因此漏掉它。 */
+export function hasRetainedUploadSources(service: MaterialService) {
+  const bucket = buckets.get(service)
+  if (!bucket) return false
+  if (expire(bucket)) schedule(bucket)
+  return bucket.entries.size > 0
 }
 
 export function releaseUploadRetrySource(

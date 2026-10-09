@@ -1,3 +1,8 @@
+import { readConfigurationDraft } from "@/lib/operations/configuration-draft-store"
+import {
+  maintenanceWritesFrozen,
+  useMaintenanceBlocker,
+} from "@/lib/maintenance/maintenance-coordinator"
 import { useRetainedWrite } from "@/lib/operations/use-retained-write"
 import { recheckConfigurationRecoveryStore } from "@/lib/operations/configuration-recovery-store"
 import {
@@ -46,7 +51,19 @@ export function useMcpEditor({
   registerLeave,
 }: McpServerEditorProps) {
   const recordKey = initial?.configuration.name || "new"
-  const retained = retainedSaves.get(service)?.get(recordKey)
+  const restoredDraft = readConfigurationDraft<RetainedSave>(
+    "mcpSave",
+    recordKey,
+    service.evidence === "demo"
+  )
+  const retained =
+    retainedSaves.get(service)?.get(recordKey) ?? restoredDraft.record
+  const [restorationFailed] = useState(!!restoredDraft.issue)
+  if (retained && !retainedSaves.get(service)?.has(recordKey)) {
+    const owner = retainedSaves.get(service) ?? new Map<string, RetainedSave>()
+    owner.set(recordKey, retained)
+    retainedSaves.set(service, owner)
+  }
   const [value, setValue] = useState<McpConfiguration>(() =>
     structuredClone(
       retained?.value || initial?.configuration || blankMcpConfiguration()
@@ -71,7 +88,7 @@ export function useMcpEditor({
   const [busy, setBusy] = useState<"save" | "test" | "check">()
   const [saveFailure, setSaveFailure] = useState<
     ReturnType<typeof feedbackFromError> | undefined
-  >(retained?.issue)
+  >(retained?.issue ?? restoredDraft.issue)
   const [testFailure, setTestFailure] =
     useState<ReturnType<typeof feedbackFromError>>()
   const [validation, setValidation] = useState(false)
@@ -108,8 +125,24 @@ export function useMcpEditor({
   })
 
   function recoverStorage() {
-    if (service.evidence === "demo" || recheckConfigurationRecoveryStore())
-      setSaveFailure(undefined)
+    const restored = readConfigurationDraft(
+      "mcpSave",
+      recordKey,
+      service.evidence === "demo"
+    )
+    if (restored.issue) setSaveFailure(restored.issue)
+    else if (service.evidence === "demo" || recheckConfigurationRecoveryStore())
+      setSaveFailure(
+        restorationFailed
+          ? {
+              code: "recovery_storage_restored",
+              recovery: "reload",
+              severity: "warning",
+              message:
+                "恢复存储已可读取，请返回列表后重新打开原配置，继续处理保留的原请求与副本。",
+            }
+          : undefined
+      )
   }
   const validName = /^[a-zA-Z0-9_-]{1,64}$/.test(value.name)
   const validTimeout =
@@ -117,6 +150,11 @@ export function useMcpEditor({
     value.timeout >= 1 &&
     value.timeout <= 120
   const dirty = JSON.stringify(value) !== original
+  useMaintenanceBlocker(
+    "mcp-editor:" + recordKey,
+    "MCP 配置有未保存更改或操作仍在进行，请返回配置页处理。",
+    dirty || !!busy || restorationFailed || !!restoredDraft.issue
+  )
   const leave = useCallback<LeaveGuard>(
     (action) => {
       if (busy) {
@@ -166,6 +204,7 @@ export function useMcpEditor({
     [service, recordKey]
   )
   const patch = (update: Partial<McpConfiguration>) => {
+    if (maintenanceWritesFrozen()) return
     setValue((old) => ({ ...old, ...update }))
     setValidation(false)
     setTestNotice("")
@@ -187,8 +226,10 @@ export function useMcpEditor({
     onSaved(saved, keepOpen)
   }
   const saveBlocked =
-    saveFailure?.severity !== "info" &&
-    (saveFailure?.recovery === "restart" || saveFailure?.recovery === "none")
+    restorationFailed ||
+    !!restoredDraft.issue ||
+    (saveFailure?.severity !== "info" &&
+      (saveFailure?.recovery === "restart" || saveFailure?.recovery === "none"))
   const testBlocked =
     testFailure?.severity !== "info" &&
     (testFailure?.recovery === "restart" || testFailure?.recovery === "none")

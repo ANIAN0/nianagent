@@ -1,3 +1,4 @@
+import { settleResources } from "./close-resources.mjs"
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai"
 import { ModelRuntime } from "@earendil-works/pi-coding-agent"
 import { ModelStore, memoryCredentials } from "./store.mjs"
@@ -621,15 +622,18 @@ export class ModelService {
     return this.present(connection, await this.store.read())
   }
 
-  async close() {
+  async close({ strict = false } = {}) {
     this.closed = true
     const logouts = [...this.accountLogouts.values()]
     for (const owner of logouts)
       owner.controller.abort(
         new DOMException("Model service closed", "AbortError")
       )
-    await this.jobs.close()
-    await Promise.allSettled(logouts.map((owner) => owner.done))
+    await this.jobs.close({ strict })
+    await settleResources(
+      logouts.map((owner) => owner.done),
+      strict
+    )
   }
 }
 function pickModel(model) {
