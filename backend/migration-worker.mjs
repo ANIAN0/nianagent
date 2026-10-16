@@ -20,18 +20,20 @@ import {
   basename,
 } from "node:path"
 import { fileURLToPath } from "node:url"
-import { tmpdir } from "node:os"
+import { tmpdir, homedir } from "node:os"
 import { promisify } from "node:util"
 import { execFile } from "node:child_process"
 import lockfile from "proper-lockfile"
 import { ConversationStore } from "./conversation-store.mjs"
 import { validateOfflineStorage } from "./storage-validation.mjs"
+import { withAcquiredLock } from "./atomic-file.mjs"
 /** 只有本模块固定说明可公开；JSON/FS/SDK异常绝不按文本语言猜测安全性。 */
 export class MigrationError extends Error {
-  constructor(message) {
+  constructor(message, publicCode = "dataInvalid") {
     super(message)
     this.name = "MoonMigrationError"
     this.code = "migration_validation"
+    this.publicCode = publicCode
   }
 }
 const exec = promisify(execFile)
@@ -65,6 +67,46 @@ async function noLinks(path) {
     current = parent
   }
 }
+const uuidPattern =
+  "[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}"
+function atomicTemporary(relativePath) {
+  const path = relativePath.replaceAll("\\", "/")
+  if (new RegExp(`^runtime\\.json\\.${uuidPattern}\\.tmp$`, "i").test(path))
+    return true
+  const name = basename(path).match(
+    new RegExp(`^\\.(.+)-${uuidPattern}\\.tmp$`, "i")
+  )?.[1]
+  if (!name) return false
+  const target = join(dirname(path), name).replaceAll("\\", "/")
+  return (
+    [
+      "models.json",
+      "workspaces.json",
+      "agent/mcp.json",
+      "session-config/sessions.json",
+      "plugins/configuration.json",
+      "extensions/configuration.json",
+      "conversations/index.json",
+    ].includes(target) ||
+    new RegExp(`^materials/(?:[a-f0-9]{64}|${uuidPattern})\\.json$`, "i").test(
+      target
+    ) ||
+    new RegExp(
+      `^materials/uploads/${uuidPattern}/(?:owner|reservation-isolated)\\.json$`,
+      "i"
+    ).test(target) ||
+    /^(?:conversation-permissions|conversation-commands|conversations\/(?:controls|queue|request-receipts))\/[a-zA-Z0-9_/-]+\.json$/.test(
+      target
+    ) ||
+    /^conversations\/(?:operation-receipts|retired-items|retired-requests)\/[A-Za-z0-9_-]{1,128}\/[A-Za-z0-9_-]{1,128}\.json$/.test(
+      target
+    ) ||
+    /^(?:models\.json\.receipts|agent\/mcp\.json\.receipts|extensions\/configuration\.json\.receipts)\/[A-Za-z0-9_-]{1,128}\.json$/.test(
+      target
+    ) ||
+    /^plugins\/remote-access\/connection\.json$/.test(target)
+  )
+}
 const excluded = (name, relativePath) =>
   [
     ".moon-data.lock",
@@ -77,7 +119,11 @@ const excluded = (name, relativePath) =>
     "agent.lock",
     "workspaces.json.lock",
   ].includes(relativePath) ||
-  /^\.moon-write-.*\.tmp$/.test(name) ||
+  (new RegExp(`^\\.moon-write-${uuidPattern}\\.tmp$`, "i").test(name) &&
+    [".", "maintenance", "updates"].includes(
+      dirname(relativePath).replaceAll("\\", "/")
+    )) ||
+  atomicTemporary(relativePath) ||
   relativePath === "tmp"
 async function files(root, destinationPrefix = "", full = false) {
   if (!(await exists(root))) return []
@@ -202,7 +248,7 @@ async function outputReferences(entries, record) {
   }
   return imported
 }
-export async function inspectMigration(record) {
+async function validateMigrationTarget(record) {
   const source = resolve(record.sourceDirectory)
   const target = resolve(record.targetDirectory)
   if (
@@ -210,35 +256,64 @@ export async function inspectMigration(record) {
     equal(source, target) ||
     within(source, target) ||
     within(target, source) ||
+    [record.legacyTempDirectory, tmpdir()]
+      .filter(Boolean)
+      .some((root) => equal(root, target) || within(root, target)) ||
     dirname(target) === target ||
+    [
+      homedir(),
+      process.env.APPDATA,
+      process.env.LOCALAPPDATA,
+      process.env.PUBLIC,
+    ]
+      .filter(Boolean)
+      .some((root) => equal(root, target) || within(target, root)) ||
     equal(target, record.installDirectory) ||
+    equal(target, join(record.installDirectory, "runtime")) ||
     within(join(record.installDirectory, "runtime"), target) ||
-    within(target, record.installDirectory)
+    within(target, record.installDirectory) ||
+    [record.legacyProfileDirectory, record.controlDirectory]
+      .filter(Boolean)
+      .some(
+        (root) =>
+          equal(root, target) || within(root, target) || within(target, root)
+      )
   )
     throw new MigrationError(
-      "目标必须是独立的新空数据目录，不能与源、程序目录或runtime嵌套。"
+      "目标必须是独立的新空数据目录，不能与旧数据、旧profile、控制目录或runtime嵌套。",
+      "targetInvalid"
     )
-  await noLinks(source)
+  if (record.kind !== "initialize") await noLinks(source)
   await noLinks(target)
   if (!(await exists(dirname(target))))
-    throw new MigrationError("目标父目录不存在，请先选择存在的可写位置。")
+    throw new MigrationError(
+      "目标父目录不存在，请先选择存在的可写位置。",
+      "targetInvalid"
+    )
   if (await exists(target)) {
     if (!(await lstat(target)).isDirectory())
-      throw new MigrationError("目标不是目录。")
+      throw new MigrationError("目标不是目录。", "targetInvalid")
     if ((await readdir(target)).length) {
       let sameOperation = false
       try {
         const marker = await parse(join(target, ".moon-migration.json"))
         sameOperation =
           marker.operationId === record.operationId &&
-          marker.dataSetId === record.dataSetId
+          marker.dataSetId === record.dataSetId &&
+          (record.kind !== "initialize" || marker.kind === "initialize")
       } catch {
         /* 非同次操作不能接管。 */
       }
       if (!sameOperation)
-        throw new MigrationError("目标目录已有文件，请选择新的空目录。")
+        throw new MigrationError(
+          "目标目录已有文件，请选择新的空目录。",
+          "targetInvalid"
+        )
     }
   }
+}
+async function sourceEntries(record) {
+  const source = resolve(record.sourceDirectory)
   const entries = await files(source)
   if (record.legacyProfileDirectory) {
     entries.push(
@@ -250,21 +325,53 @@ export async function inspectMigration(record) {
       ...(await files(join(record.legacyProfileDirectory, "logs"), "logs"))
     )
   }
-  const imported = await outputReferences(entries, record)
+  return entries
+}
+async function summary(entries, record) {
+  const destinations = new Map()
+  for (const entry of entries) {
+    const destination =
+      process.platform === "win32"
+        ? entry.relative.toLowerCase()
+        : entry.relative
+    const previous = destinations.get(destination)
+    if (previous && !equal(previous.source, entry.source))
+      throw new MigrationError(
+        "迁移来源包含映射到同一目标的文件，请先处理同名来源。原目录保留，未复制或覆盖。",
+        "dataInvalid"
+      )
+    destinations.set(destination, entry)
+  }
+  entries.splice(0, entries.length, ...destinations.values())
   const totalBytes = entries.reduce((sum, file) => sum + file.bytes, 0)
-  const space = await statfs(dirname(target))
+  const space = await statfs(dirname(record.targetDirectory))
   const availableBytes = Number(space.bavail) * Number(space.bsize)
   if (
     availableBytes <
     totalBytes + Math.max(64 * 1024 * 1024, totalBytes * 0.1)
   )
-    throw new MigrationError("目标磁盘可用空间不足，原目录保留。")
+    throw new MigrationError(
+      "目标磁盘可用空间不足，原目录保留。",
+      "insufficientSpace"
+    )
+  return { totalBytes, availableBytes, fileCount: entries.length }
+}
+/** 用户确认前只枚举文件元数据，不能调用读取Pi历史内容的outputReferences。 */
+export async function inspectMigrationMetadata(record) {
+  await validateMigrationTarget(record)
+  // 不导入时只检查独立空目标与空间，不能枚举或读取旧数据/profile来阻断用户选择。
+  if (record.kind === "initialize") return summary([], record)
+  const entries = await sourceEntries(record)
+  return summary(entries, record)
+}
+export async function inspectMigration(record) {
+  await validateMigrationTarget(record)
+  const entries = await sourceEntries(record)
+  const imported = await outputReferences(entries, record)
   return {
     entries,
     imported,
-    totalBytes,
-    availableBytes,
-    fileCount: entries.length,
+    ...(await summary(entries, record)),
   }
 }
 function mappedPath(path, record, requiredRoot) {
@@ -444,18 +551,20 @@ async function privateStage(path, complete = false) {
   )
 }
 
+async function sourceLease(record) {
+  return (await exists(record.sourceDirectory))
+    ? await lockfile.lock(join(record.sourceDirectory, "runtime.json"), {
+        realpath: false,
+        lockfilePath: join(record.sourceDirectory, "runtime.json.lock"),
+        retries: 0,
+      })
+    : async () => {}
+}
 export async function copyMigration(record, progress = () => {}) {
-  const release = await lockfile.lock(
-    join(record.sourceDirectory, "runtime.json"),
-    {
-      realpath: false,
-      lockfilePath: join(record.sourceDirectory, "runtime.json.lock"),
-      retries: 0,
-    }
-  )
-  try {
+  const release = await sourceLease(record)
+  return withAcquiredLock(release, async () => {
     const inspected = await inspectMigration(record)
-    const staging = join(
+    let staging = join(
       dirname(record.targetDirectory),
       `.Moon迁移-${record.operationId}`
     )
@@ -470,30 +579,46 @@ export async function copyMigration(record, progress = () => {}) {
         retainedCopies: [...new Set(retainedCopies)],
       })
     await noLinks(staging)
-    const stageMarker = join(staging, ".moon-migration.json")
+    let stageMarker = join(staging, ".moon-migration.json")
     if ((await exists(staging)) && (await readdir(staging)).length) {
-      const marker = await parse(stageMarker)
+      let marker
+      try {
+        marker = await parse(stageMarker)
+      } catch (error) {
+        if (!(error instanceof SyntaxError) && error.code !== "ENOENT")
+          throw error
+      }
       if (
-        marker.operationId !== record.operationId ||
-        marker.dataSetId !== record.dataSetId
-      )
-        throw new MigrationError("迁移暂存目录身份不匹配。")
-      // 中断暂存保留为明确旧副本，新一轮按当前冻结源重建，避免残留已删除文件进入结果。
-      const retained = `${staging}-interrupted-${randomUUID()}`
-      await rename(staging, retained)
-      retainedCopies.push(retained)
+        marker?.operationId === record.operationId &&
+        marker?.dataSetId === record.dataSetId
+      ) {
+        // Only a verified stage belongs to this operation and may be renamed.
+        const retained = `${staging}-interrupted-${randomUUID()}`
+        await rename(staging, retained)
+        retainedCopies.push(retained)
+      } else {
+        // Unknown partial markers stay at their exact original path. A fresh
+        // attempt must not keep retrying the same unreadable marker forever.
+        retainedCopies.push(staging)
+        staging = `${staging}-attempt-${randomUUID()}`
+        stageMarker = join(staging, ".moon-migration.json")
+        retainedCopies.push(staging)
+      }
       reportRetained()
     }
     await mkdir(staging, { recursive: true, mode: 0o700 })
+    const markerTemporary = join(staging, `.moon-write-${randomUUID()}.tmp`)
     await writeSynced(
-      stageMarker,
+      markerTemporary,
       JSON.stringify({
         operationId: record.operationId,
         dataSetId: record.dataSetId,
       })
     )
+    await rename(markerTemporary, stageMarker)
     await privateStage(staging)
     const expected = new Map()
+    let copiedBytes = 0
     for (const [index, entry] of inspected.entries.entries()) {
       if (entry.relative === "moon-data.json") continue
       const bytes = await copyEntry(
@@ -503,10 +628,12 @@ export async function copyMigration(record, progress = () => {}) {
         inspected.imported
       )
       expected.set(entry.relative, bytes)
+      copiedBytes += bytes
       progress({
         phase: "copying",
         completedFiles: index + 1,
         totalFiles: inspected.fileCount,
+        copiedBytes,
       })
     }
     let minimumAppVersion = "0.1.0"
@@ -638,35 +765,51 @@ export async function copyMigration(record, progress = () => {}) {
       totalBytes: [...expected.values()].reduce((sum, bytes) => sum + bytes, 0),
       retainedCopies: [...new Set(retainedCopies)],
     }
-  } finally {
-    await release()
-  }
+  })
+}
+/** 由仅依赖Node内置模块的launcher调用，加载本模块不会读取或初始化业务数据。 */
+export async function runMigrationAction(
+  action,
+  recordFile,
+  progress = () => {}
+) {
+  const record = await parse(recordFile)
+  if (
+    !/^[A-Za-z0-9_-]{1,128}$/.test(record.operationId || "") ||
+    !equal(dirname(recordFile), record.controlDirectory) ||
+    (action === "--prepare"
+      ? !/^[A-Za-z0-9_-]{1,128}$/.test(record.previewPlanId || "") ||
+        basename(recordFile) !== `preview-${record.previewPlanId}.json`
+      : basename(recordFile) !== `${record.operationId}.json`)
+  )
+    throw new MigrationError("维护记录来源无效。")
+  if (action === "--prepare") return inspectMigrationMetadata(record)
+  if (action === "--inspect") {
+    // 首启确认后读取完整旧数据前必须排除旧Node；设置在线预检保留其既有只读入口。
+    const release = record.legacy ? await sourceLease(record) : async () => {}
+    return withAcquiredLock(release, async () => {
+      const result = await inspectMigration(record)
+      return {
+        fileCount: result.fileCount,
+        totalBytes: result.totalBytes,
+        availableBytes: result.availableBytes,
+      }
+    })
+  } else if (action === "--copy") {
+    const result = await copyMigration(record, progress)
+    return { complete: true, ...result }
+  } else throw new MigrationError("维护模式无效。")
 }
 if (process.argv[1] && equal(process.argv[1], fileURLToPath(import.meta.url))) {
   try {
     const [action, recordFile] = process.argv.slice(2)
-    const record = await parse(recordFile)
-    if (
-      !/^[A-Za-z0-9_-]{1,128}$/.test(record.operationId || "") ||
-      !equal(dirname(recordFile), record.controlDirectory) ||
-      basename(recordFile) !== `${record.operationId}.json`
+    console.log(
+      JSON.stringify(
+        await runMigrationAction(action, recordFile, (value) =>
+          console.log(JSON.stringify(value))
+        )
+      )
     )
-      throw new MigrationError("维护记录来源无效。")
-    if (action === "--inspect") {
-      const result = await inspectMigration(record)
-      console.log(
-        JSON.stringify({
-          fileCount: result.fileCount,
-          totalBytes: result.totalBytes,
-          availableBytes: result.availableBytes,
-        })
-      )
-    } else if (action === "--copy") {
-      const result = await copyMigration(record, (value) =>
-        console.log(JSON.stringify(value))
-      )
-      console.log(JSON.stringify({ complete: true, ...result }))
-    } else throw new MigrationError("维护模式无效。")
   } catch (error) {
     const controlled = error instanceof MigrationError
     console.error(

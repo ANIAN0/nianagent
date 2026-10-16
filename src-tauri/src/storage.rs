@@ -190,11 +190,29 @@ impl StoragePaths {
             serde_json::from_value(read_json(&bootstrap_file)?)
                 .map_err(|_| "数据引导格式损坏，不能创建空数据替代。")?
         } else {
+            // Recover only the protected default dataset left by an older
+            // first-start crash. Never replace its identity with a fresh UUID.
+            let default_data = base.join("data");
+            let orphan_marker = default_data.join("moon-data.json");
+            let data_set_id = if override_root.is_none() && orphan_marker.exists() {
+                private_directory(&default_data, false)?;
+                let marker: DataMarker = serde_json::from_value(read_json(&orphan_marker)?)
+                    .map_err(|_| "默认数据集标记损坏，原目录保留。")?;
+                if marker.schema_version != 1
+                    || Uuid::parse_str(&marker.data_set_id).is_err()
+                    || semver::Version::parse(&marker.minimum_app_version).is_err()
+                {
+                    return Err("默认数据集身份或版本无法核验，原目录保留。".into());
+                }
+                marker.data_set_id
+            } else {
+                Uuid::new_v4().to_string()
+            };
             Bootstrap {
                 format_version: 1,
                 generation: 1,
                 data_root: PathBuf::from("data"),
-                data_set_id: Uuid::new_v4().to_string(),
+                data_set_id,
             }
         };
         if bootstrap.format_version != 1
@@ -232,15 +250,7 @@ impl StoragePaths {
             bootstrap.generation += 1;
             relocated = true;
         }
-        if !existing && override_root.is_none() && !cfg!(debug_assertions) {
-            crate::migration::import_legacy_before_start(
-                &install,
-                &control,
-                &bootstrap_file,
-                &mut data,
-                &mut bootstrap,
-            )?;
-        }
+        // 旧版首启由StartupGate在创建业务根/profile之前处理；这里仅初始化正常权威根。
         let marker_file = data.join("moon-data.json");
         let marker: DataMarker = if marker_file.exists() {
             let value: DataMarker = serde_json::from_value(read_json(&marker_file)?)
@@ -261,6 +271,11 @@ impl StoragePaths {
                 );
             }
             private_directory(&data, true)?;
+            // The directory exists before its durable initialization intent;
+            // a restart can therefore reuse this exact ID before marker write.
+            if override_root.is_none() && !existing {
+                atomic_json(&bootstrap_file, &bootstrap)?;
+            }
             let value = DataMarker {
                 data_set_id: bootstrap.data_set_id.clone(),
                 schema_version: 1,

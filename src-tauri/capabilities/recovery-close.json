@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "recovery-close",
+  "description": "正常启动受阻的主窗口允许按正式退出按钮关闭",
+  "windows": ["main"],
+  "permissions": ["core:window:allow-close"]
+}

@@ -1,16 +1,24 @@
 use crate::storage::{self, StoragePaths};
-use tauri::{App, Manager};
+use tauri::{AppHandle, Manager};
 
 /// 必须读取WebView2实际环境；仅检查Tauri配置不能证明策略或环境覆盖没有生效。
 #[cfg(windows)]
-pub fn verify(app: &App, paths: &StoragePaths) -> Result<(), String> {
+pub fn verify(app: &AppHandle, paths: &StoragePaths) -> Result<(), String> {
+    verify_directory(app, "main", &paths.data.join("webview"))
+}
+#[cfg(windows)]
+pub fn verify_directory(
+    app: &AppHandle,
+    label: &str,
+    expected: &std::path::Path,
+) -> Result<(), String> {
     use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Environment7;
     use windows_core::{Interface, PWSTR};
-    let expected = paths.data.join("webview");
+    let expected = expected.to_owned();
     let (sender, receiver) = std::sync::mpsc::channel();
     let window = app
-        .get_webview_window("main")
-        .ok_or("Moon主窗口不存在，无法核验profile。")?;
+        .get_webview_window(label)
+        .ok_or("Moon窗口不存在，无法核验profile。")?;
     window
         .with_webview(move |webview| {
             let result = (|| -> Result<(), String> {
@@ -52,12 +60,20 @@ pub fn verify(app: &App, paths: &StoragePaths) -> Result<(), String> {
             let _ = sender.send(result);
         })
         .map_err(|_| "无法访问WebView2实际环境。")?;
-    // Tauri当前主线程with_webview同步执行；无法取得结果同样停止，不猜测配置已生效。
+    // 后台验证通过主线程的实际WebView回调取结果；超时同样停止，不猜测配置已生效。
     receiver
         .recv_timeout(std::time::Duration::from_secs(5))
         .map_err(|_| "WebView2实际数据目录核验超时，已停止启动。")?
 }
 #[cfg(not(windows))]
-pub fn verify(_app: &App, _paths: &StoragePaths) -> Result<(), String> {
+pub fn verify(_app: &AppHandle, _paths: &StoragePaths) -> Result<(), String> {
+    Ok(())
+}
+#[cfg(not(windows))]
+pub fn verify_directory(
+    _app: &AppHandle,
+    _label: &str,
+    _expected: &std::path::Path,
+) -> Result<(), String> {
     Ok(())
 }

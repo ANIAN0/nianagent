@@ -16,7 +16,8 @@ export async function validateStorage(ready, directory) {
   await ready.conversationStore.document()
   await ready.sessions.document()
   await ready.mcp.document()
-  await ready.extensions.document()
+  // Optional extension corruption remains visible in extensions.list. It may
+  // disable those extensions, but cannot prevent an independent local chat.
   await ready.workspaces.read()
   let queues = []
   try {

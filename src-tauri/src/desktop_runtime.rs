@@ -32,23 +32,54 @@ pub fn now() -> String {
 }
 fn maintenance_record(paths: &StoragePaths) -> Result<Option<Value>, String> {
     let latest = paths.control.join("last-maintenance.json");
-    if latest.exists() {
-        return storage::read_json(&latest).map(Some);
+    let latest = if latest.exists() {
+        storage::read_json(&latest).ok()
+    } else {
+        None
+    };
+    if latest.as_ref().is_some_and(|record| {
+        committed_startup_operation(paths, record)
+            || (record["kind"] == "update"
+                && record["dataSetId"] == paths.marker.data_set_id
+                && record["generation"] == paths.bootstrap.generation)
+    }) {
+        return Ok(latest);
     }
     // 首次legacy导入可能在bootstrap写穿后、last-maintenance首次落盘前崩溃。
     // 只由当前权威bootstrap/marker证明的同目标记录补回诊断，不重新复制或重放业务。
     let records = std::fs::read_dir(&paths.control).map_err(|_| "维护控制记录不可读取。")?;
     for entry in records.filter_map(Result::ok) {
         if let Ok(record) = storage::read_json(&entry.path()) {
-            if committed_migration(paths, &record) {
+            if record["operationId"].as_str().is_some_and(|id| {
+                uuid::Uuid::parse_str(id).is_ok()
+                    && entry.file_name().to_string_lossy() == format!("{id}.json")
+            }) && committed_startup_operation(paths, &record)
+            {
                 return Ok(Some(record));
             }
         }
     }
-    Ok(None)
+    Ok(latest.filter(|record| {
+        record["dataSetId"] == paths.marker.data_set_id
+            && record["generation"] == paths.bootstrap.generation
+            && (record["kind"] == "update"
+                || record["sourceDirectory"].as_str().is_some_and(|root| {
+                    dunce::canonicalize(root).is_ok_and(|root| {
+                        storage::text(&root).eq_ignore_ascii_case(&storage::text(&paths.data))
+                    })
+                }))
+    }))
 }
-fn committed_migration(paths: &StoragePaths, record: &Value) -> bool {
-    record["kind"] == "migration"
+fn committed_startup_operation(paths: &StoragePaths, record: &Value) -> bool {
+    (record["kind"] == "migration" || record["kind"] == "initialize")
+        && record["operationId"]
+            .as_str()
+            .is_some_and(|id| uuid::Uuid::parse_str(id).is_ok())
+        && storage::read_json(&paths.data.join(".moon-migration.json")).is_ok_and(|marker| {
+            marker["operationId"] == record["operationId"]
+                && marker["dataSetId"] == paths.marker.data_set_id
+                && (record["kind"] != "initialize" || marker["kind"] == "initialize")
+        })
         && record["dataSetId"] == paths.marker.data_set_id
         && record["targetDirectory"].as_str().is_some_and(|path| {
             dunce::canonicalize(path).is_ok_and(|target| {
@@ -62,6 +93,48 @@ fn committed_migration(paths: &StoragePaths, record: &Value) -> bool {
                 generation.checked_add(1) == Some(paths.bootstrap.generation)
             }
         })
+}
+fn committed_migration(paths: &StoragePaths, record: &Value) -> bool {
+    record["kind"] == "migration" && committed_startup_operation(paths, record)
+}
+/// 正常profile已证明、但业务服务不能恢复时，只保存同根opening诊断，不回迁或重发。
+pub fn record_startup_failure(paths: &StoragePaths) -> DesktopIssue {
+    let record = maintenance_record(paths).ok().flatten();
+    let committed = record
+        .as_ref()
+        .is_some_and(|record| committed_migration(paths, record));
+    let message = if committed {
+        "数据已迁移，但Moon桌面服务未能启动或读取恢复记录。请检查安装资源、存储内容和程序权限，退出后重新打开Moon；不会重复迁移或重发请求。"
+    } else if record.as_ref().is_some_and(|record| {
+        record["kind"] == "initialize" && committed_startup_operation(paths, record)
+    }) {
+        "新数据集已建立，但Moon桌面服务未能启动或读取恢复记录。原旧数据仍保留，请检查运行资源和目录权限后重试。"
+    } else {
+        "Moon桌面服务未能启动或读取恢复记录。请检查安装资源、存储内容和程序权限，退出后重新打开Moon；原数据和恢复记录保留。"
+    };
+    if let Some(mut record) = record {
+        if let Some(id) = record["operationId"]
+            .as_str()
+            .filter(|id| uuid::Uuid::parse_str(id).is_ok())
+            .map(str::to_owned)
+        {
+            if committed_startup_operation(paths, &record) {
+                record["committed"] = json!(true);
+                record["generation"] = json!(paths.bootstrap.generation);
+            }
+            record["phase"] = json!("unknown");
+            record["message"] = json!(message);
+            record["startupIssue"] = json!(migration::failure(
+                StartupIssueCode::StorageIo,
+                StartupFailureStage::Opening,
+                message,
+                Some(&paths.data)
+            ));
+            let _ = storage::atomic_json(&migration::record_file(paths, &id), &record);
+            let _ = storage::atomic_json(&paths.control.join("last-maintenance.json"), &record);
+        }
+    }
+    issue(IssueCode::Unavailable, message, RecoveryAction::None)
 }
 pub struct FlushWait {
     pub operation_id: String,
@@ -134,8 +207,10 @@ impl DesktopRuntime {
             maintenance.operation_id = record["operationId"].as_str().map(str::to_owned);
             maintenance.kind = if record["kind"] == "migration" {
                 MaintenanceKind::Migration
-            } else {
+            } else if record["kind"] == "update" {
                 MaintenanceKind::Update
+            } else {
+                MaintenanceKind::None
             };
             maintenance.source_directory = record["sourceDirectory"].as_str().map(str::to_owned);
             maintenance.target_directory = record["targetDirectory"].as_str().map(str::to_owned);
@@ -161,6 +236,11 @@ impl DesktopRuntime {
                 update.phase = UpdatePhase::Unknown;
             }
         }
+        if !backend_readable {
+            maintenance.phase = MaintenancePhase::Failed;
+            maintenance.writes_frozen = true;
+            maintenance.issue = Some(record_startup_failure(&paths));
+        }
         let state = DesktopSnapshot {
             revision: 1,
             version: env!("CARGO_PKG_VERSION").into(),
@@ -169,11 +249,12 @@ impl DesktopRuntime {
             development: cfg!(debug_assertions),
             storage: paths.info(),
             capabilities: DesktopCapabilities {
-                migrate_data: cfg!(windows)
+                migrate_data: backend_readable
+                    && cfg!(windows)
                     && !matches!(paths.source, StorageSource::DevelopmentEnvironment),
                 open_data_directory: true,
-                check_updates: supported && key,
-                install_updates: supported && key && !cfg!(debug_assertions),
+                check_updates: backend_readable && supported && key,
+                install_updates: backend_readable && supported && key && !cfg!(debug_assertions),
                 unavailable_reason: reason,
             },
             maintenance,
@@ -502,7 +583,7 @@ impl DesktopRuntime {
         else {
             return Ok(());
         };
-        if committed_migration(&self.paths, &record) {
+        if committed_startup_operation(&self.paths, &record) {
             record["committed"] = json!(true);
             record["generation"] = json!(self.paths.bootstrap.generation);
         }
@@ -516,7 +597,10 @@ impl DesktopRuntime {
             && version_matches
             && record["dataSetId"] == self.paths.marker.data_set_id
             && record["generation"] == self.paths.bootstrap.generation
-            && (record["kind"] != "migration" || record["committed"] == true)
+            && (!["migration", "initialize"]
+                .iter()
+                .any(|kind| record["kind"] == *kind)
+                || record["committed"] == true)
         {
             record["phase"] = json!("succeeded");
             record["confirmedAt"] = json!(now());

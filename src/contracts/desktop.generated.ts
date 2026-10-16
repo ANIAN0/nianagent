@@ -1,4 +1,108 @@
 // Generated from backend/desktop-contract.mjs. Do not edit.
+export type BootStage =
+  "profile" | "backend" | "storage" | "frontendProfile" | "workbench" | "ready"
+export type BootPhase = "starting" | "waitingFrontend" | "failed" | "ready"
+export type BootHostMode = "desktop"
+export type BootIssue = {
+  code: IssueCode
+  stage: BootStage
+  message: string
+  diagnostics: string
+}
+export type BootCapabilities = { retry: boolean; exit: boolean }
+export type BootSnapshot = {
+  attemptId: string
+  revision: number
+  hostMode: BootHostMode
+  phase: BootPhase
+  stage: BootStage
+  storage: StorageInfo | null
+  issue: BootIssue | null
+  capabilities: BootCapabilities
+}
+export type BootAttemptInput = { attemptId: string }
+export type BootFrontendStage = "profile" | "workbench"
+export type BootFrontendInput = {
+  attemptId: string
+  dataSetId: string
+  generation: number
+  stage: BootFrontendStage
+  ready: boolean
+}
+export type StartupSelection = "import" | "fresh"
+export type StartupPhase =
+  | "awaitingConfirmation"
+  | "preparing"
+  | "ready"
+  | "inspecting"
+  | "copying"
+  | "validating"
+  | "committing"
+  | "readyToOpen"
+  | "failed"
+export type StartupFailureStage =
+  | "runtime"
+  | "target"
+  | "source"
+  | "inspecting"
+  | "copying"
+  | "validating"
+  | "committing"
+  | "opening"
+export type StartupIssueCode =
+  | "runtimeMissing"
+  | "dependencyMissing"
+  | "runtimeIncompatible"
+  | "sourceBusy"
+  | "sourceInvalid"
+  | "targetInvalid"
+  | "permission"
+  | "insufficientSpace"
+  | "dataInvalid"
+  | "storageIo"
+  | "planExpired"
+  | "interrupted"
+  | "internal"
+export type StartupIssue = {
+  code: StartupIssueCode
+  stage: StartupFailureStage
+  message: string
+  path: string | null
+  retryable: boolean
+}
+export type StartupCapabilities = {
+  chooseDirectory: boolean
+  prepare: boolean
+  migrate: boolean
+  createFresh: boolean
+  retry: boolean
+  openDiagnostics: boolean
+  exit: boolean
+  continueStartup: boolean
+}
+export type StartupSnapshot = {
+  revision: number
+  operationId: string | null
+  planId: string | null
+  planExpiresAt: string | null
+  phase: StartupPhase
+  selection: StartupSelection | null
+  sourceDirectory: string
+  legacyProfileDirectory: string | null
+  targetDirectory: string
+  defaultDirectory: string
+  retainedCopyDirectories: string[]
+  fileCount: number | null
+  totalBytes: number | null
+  availableBytes: number | null
+  completedFiles: number
+  copiedBytes: number | null
+  issue: StartupIssue | null
+  capabilities: StartupCapabilities
+}
+export type StartupState = StartupSnapshot | null
+export type StartupStartInput = { planId: string; targetDirectory: string }
+export type StartupOperationInput = { operationId: string }
 export type IssueCode =
   | "validation"
   | "permission"
@@ -156,7 +260,29 @@ export type ReleaseInput = { releaseId: string }
 export type UpdateInstallInput = { releaseId: string; stopActive: boolean }
 export type CancelInput = { operationId: string }
 export type RetainedCopyInput = { index: number }
+export type FileOpenInput = { path: string; program: string | null }
+export type FileExportInput = { path: string; name: string }
+export type InstalledEditor = { name: string; path: string }
+export type InstalledEditors = InstalledEditor[]
 export type DesktopRequests = {
+  file_editors: undefined
+  file_choose_editor: undefined
+  file_open: FileOpenInput
+  file_export: FileExportInput
+  boot_get_state: undefined
+  boot_retry: BootAttemptInput
+  boot_acknowledge_frontend: BootFrontendInput
+  boot_exit: BootAttemptInput
+  startup_get_state: undefined
+  startup_choose_directory: undefined
+  startup_prepare_migration: MigrationPrepareInput
+  startup_start_migration: StartupStartInput
+  startup_prepare_fresh: MigrationPrepareInput
+  startup_start_fresh: StartupStartInput
+  startup_retry_migration: StartupOperationInput
+  startup_open_diagnostics: undefined
+  startup_continue: StartupOperationInput
+  startup_exit: undefined
   desktop_get_state: undefined
   desktop_open_data_directory: undefined
   desktop_open_retained_copy: RetainedCopyInput
@@ -173,6 +299,24 @@ export type DesktopRequests = {
   update_install: UpdateInstallInput
 }
 export type DesktopResults = {
+  file_editors: InstalledEditors
+  file_choose_editor: string | null
+  file_open: null
+  file_export: string | null
+  boot_get_state: BootSnapshot
+  boot_retry: BootSnapshot
+  boot_acknowledge_frontend: BootSnapshot
+  boot_exit: null
+  startup_get_state: StartupState
+  startup_choose_directory: string | null
+  startup_prepare_migration: StartupSnapshot
+  startup_start_migration: StartupSnapshot
+  startup_prepare_fresh: StartupSnapshot
+  startup_start_fresh: StartupSnapshot
+  startup_retry_migration: StartupSnapshot
+  startup_open_diagnostics: null
+  startup_continue: null
+  startup_exit: null
   desktop_get_state: DesktopSnapshot
   desktop_open_data_directory: null
   desktop_open_retained_copy: null
@@ -190,6 +334,158 @@ export type DesktopResults = {
 }
 export type DesktopCommand = keyof DesktopRequests
 export const desktopCommandMetadata = {
+  file_editors: {
+    module: "本机文件",
+    title: "检测已安装编辑器",
+    input: null,
+    result: "InstalledEditors",
+    effect: "仅本机检测支持的已安装编辑器，不安装程序。",
+    source: "src-tauri/src/native_files.rs",
+  },
+  file_choose_editor: {
+    module: "本机文件",
+    title: "选择已安装编辑器",
+    input: null,
+    result: "OptionalString",
+    effect: "系统程序文件选择；取消不改变配置。",
+    source: "src-tauri/src/native_files.rs",
+  },
+  file_open: {
+    module: "本机文件",
+    title: "在外部程序打开当前文件",
+    input: "FileOpenInput",
+    result: null,
+    effect: "本机用户明确操作，重新解析原路径，启动已安装程序或系统关联程序。",
+    source: "src-tauri/src/native_files.rs",
+  },
+  file_export: {
+    module: "本机文件",
+    title: "另存当前原文件",
+    input: "FileExportInput",
+    result: "OptionalString",
+    effect:
+      "系统保存选择，取消返回null；完整复制并复查当前源元数据后发布，失败保留原目标。",
+    source: "src-tauri/src/native_files.rs",
+  },
+  boot_get_state: {
+    module: "启动",
+    title: "读取真实启动阶段",
+    input: null,
+    result: "BootSnapshot",
+    effect: "仅正常主窗口读取；后台启动期间也可读取当前权威阶段。",
+    source: "src-tauri/src/boot.rs",
+  },
+  boot_retry: {
+    module: "启动",
+    title: "重试启动",
+    input: "BootAttemptInput",
+    result: "BootSnapshot",
+    effect:
+      "仅当前failed尝试；host失败确认旧Node退出后真实启动，前端失败只重做前端恢复和模块加载。",
+    source: "src-tauri/src/boot.rs",
+  },
+  boot_acknowledge_frontend: {
+    module: "启动",
+    title: "确认前端启动阶段",
+    input: "BootFrontendInput",
+    result: "BootSnapshot",
+    effect:
+      "按当前尝试及数据身份依次确认profile和真实工作台模块；都成功后才进入ready。",
+    source: "src-tauri/src/boot.rs",
+  },
+  boot_exit: {
+    module: "启动",
+    title: "退出启动中的Moon",
+    input: "BootAttemptInput",
+    result: null,
+    effect: "仅当前未ready尝试，实际停止宿主与启动子进程。",
+    source: "src-tauri/src/boot.rs",
+  },
+  startup_get_state: {
+    module: "首启迁移",
+    title: "读取首启迁移状态",
+    input: null,
+    result: "StartupState",
+    effect: "仅startup窗口读取当前权威状态；正常业务模式返回null。",
+    source: "src-tauri/src/desktop_commands.rs",
+  },
+  startup_choose_directory: {
+    module: "首启迁移",
+    title: "选择迁移目标",
+    input: null,
+    result: "OptionalString",
+    effect: "系统目录选择；取消不改变状态，换目标令旧计划失效。",
+    source: "src-tauri/src/desktop_commands.rs",
+  },
+  startup_prepare_migration: {
+    module: "首启迁移",
+    title: "检查首启迁移目标",
+    input: "MigrationPrepareInput",
+    result: "StartupSnapshot",
+    effect:
+      "只检查元数据、运行资源与空间，不读取业务正文；五分钟计划绑定当前目标与身份。",
+    source: "src-tauri/src/desktop_commands.rs",
+  },
+  startup_start_migration: {
+    module: "首启迁移",
+    title: "确认迁移并启动",
+    input: "StartupStartInput",
+    result: "StartupSnapshot",
+    effect: "明确确认后检查、复制和验证；旧副本保留，同计划重复开始幂等。",
+    source: "src-tauri/src/desktop_commands.rs",
+  },
+  startup_prepare_fresh: {
+    module: "首次启动",
+    title: "检查新数据集目录",
+    input: "MigrationPrepareInput",
+    result: "StartupSnapshot",
+    effect:
+      "不读旧业务或旧profile；只为无登记数据的首次启动准备独立空目标计划。",
+    source: "src-tauri/src/desktop_commands.rs",
+  },
+  startup_start_fresh: {
+    module: "首次启动",
+    title: "不导入旧数据并启动",
+    input: "StartupStartInput",
+    result: "StartupSnapshot",
+    effect:
+      "创建独立dataset及profile并权威提交bootstrap；旧数据和失败副本保留，不接管旧非空目标。",
+    source: "src-tauri/src/desktop_commands.rs",
+  },
+  startup_retry_migration: {
+    module: "首启迁移",
+    title: "重试未提交首次启动操作",
+    input: "StartupOperationInput",
+    result: "StartupSnapshot",
+    effect:
+      "仅失败且未提交的同operation按原selection重做导入或空数据初始化，不重放unknown业务请求。",
+    source: "src-tauri/src/desktop_commands.rs",
+  },
+  startup_open_diagnostics: {
+    module: "首启迁移",
+    title: "打开首启诊断目录",
+    input: null,
+    result: null,
+    effect: "只打开当前固定维护控制目录，不接受任意路径或清理请求。",
+    source: "src-tauri/src/desktop_commands.rs",
+  },
+  startup_continue: {
+    module: "首启迁移",
+    title: "打开已提交数据的Moon",
+    input: "StartupOperationInput",
+    result: null,
+    effect: "只在bootstrap和目标身份确认已提交后，经受控helper交接正常启动。",
+    source: "src-tauri/src/desktop_commands.rs",
+  },
+  startup_exit: {
+    module: "首启迁移",
+    title: "退出首启界面",
+    input: null,
+    result: null,
+    effect:
+      "确认前、失败或readyToOpen可退出；检查复制校验提交期间不结束worker。",
+    source: "src-tauri/src/desktop_commands.rs",
+  },
   desktop_get_state: {
     module: "桌面",
     title: "读取桌面状态",
@@ -305,6 +601,167 @@ export const desktopCommandMetadata = {
   },
 } as const
 export const desktopSchemaMetadata = {
+  BootStage: {
+    type: "string",
+    enum: [
+      "profile",
+      "backend",
+      "storage",
+      "frontendProfile",
+      "workbench",
+      "ready",
+    ],
+  },
+  BootPhase: {
+    type: "string",
+    enum: ["starting", "waitingFrontend", "failed", "ready"],
+  },
+  BootHostMode: { type: "string", enum: ["desktop"] },
+  BootIssue: {
+    type: "object",
+    properties: {
+      code: { $ref: "IssueCode" },
+      stage: { $ref: "BootStage" },
+      message: { type: "string" },
+      diagnostics: { type: "string" },
+    },
+  },
+  BootCapabilities: {
+    type: "object",
+    properties: { retry: { type: "boolean" }, exit: { type: "boolean" } },
+  },
+  BootSnapshot: {
+    type: "object",
+    properties: {
+      attemptId: { type: "string" },
+      revision: { type: "integer" },
+      hostMode: { $ref: "BootHostMode" },
+      phase: { $ref: "BootPhase" },
+      stage: { $ref: "BootStage" },
+      storage: { nullable: { $ref: "StorageInfo" } },
+      issue: { nullable: { $ref: "BootIssue" } },
+      capabilities: { $ref: "BootCapabilities" },
+    },
+  },
+  BootAttemptInput: {
+    type: "object",
+    properties: { attemptId: { type: "string" } },
+  },
+  BootFrontendStage: { type: "string", enum: ["profile", "workbench"] },
+  BootFrontendInput: {
+    type: "object",
+    properties: {
+      attemptId: { type: "string" },
+      dataSetId: { type: "string" },
+      generation: { type: "integer" },
+      stage: { $ref: "BootFrontendStage" },
+      ready: { type: "boolean" },
+    },
+  },
+  StartupSelection: { type: "string", enum: ["import", "fresh"] },
+  StartupPhase: {
+    type: "string",
+    enum: [
+      "awaitingConfirmation",
+      "preparing",
+      "ready",
+      "inspecting",
+      "copying",
+      "validating",
+      "committing",
+      "readyToOpen",
+      "failed",
+    ],
+  },
+  StartupFailureStage: {
+    type: "string",
+    enum: [
+      "runtime",
+      "target",
+      "source",
+      "inspecting",
+      "copying",
+      "validating",
+      "committing",
+      "opening",
+    ],
+  },
+  StartupIssueCode: {
+    type: "string",
+    enum: [
+      "runtimeMissing",
+      "dependencyMissing",
+      "runtimeIncompatible",
+      "sourceBusy",
+      "sourceInvalid",
+      "targetInvalid",
+      "permission",
+      "insufficientSpace",
+      "dataInvalid",
+      "storageIo",
+      "planExpired",
+      "interrupted",
+      "internal",
+    ],
+  },
+  StartupIssue: {
+    type: "object",
+    properties: {
+      code: { $ref: "StartupIssueCode" },
+      stage: { $ref: "StartupFailureStage" },
+      message: { type: "string" },
+      path: { nullable: { type: "string" } },
+      retryable: { type: "boolean" },
+    },
+  },
+  StartupCapabilities: {
+    type: "object",
+    properties: {
+      chooseDirectory: { type: "boolean" },
+      prepare: { type: "boolean" },
+      migrate: { type: "boolean" },
+      createFresh: { type: "boolean" },
+      retry: { type: "boolean" },
+      openDiagnostics: { type: "boolean" },
+      exit: { type: "boolean" },
+      continueStartup: { type: "boolean" },
+    },
+  },
+  StartupSnapshot: {
+    type: "object",
+    properties: {
+      revision: { type: "integer" },
+      operationId: { nullable: { type: "string" } },
+      planId: { nullable: { type: "string" } },
+      planExpiresAt: { nullable: { type: "string" } },
+      phase: { $ref: "StartupPhase" },
+      selection: { nullable: { $ref: "StartupSelection" } },
+      sourceDirectory: { type: "string" },
+      legacyProfileDirectory: { nullable: { type: "string" } },
+      targetDirectory: { type: "string" },
+      defaultDirectory: { type: "string" },
+      retainedCopyDirectories: { type: "array", items: { type: "string" } },
+      fileCount: { nullable: { type: "integer" } },
+      totalBytes: { nullable: { type: "integer" } },
+      availableBytes: { nullable: { type: "integer" } },
+      completedFiles: { type: "integer" },
+      copiedBytes: { nullable: { type: "integer" } },
+      issue: { nullable: { $ref: "StartupIssue" } },
+      capabilities: { $ref: "StartupCapabilities" },
+    },
+  },
+  StartupState: { nullable: { $ref: "StartupSnapshot" } },
+  StartupStartInput: {
+    type: "object",
+    properties: {
+      planId: { type: "string" },
+      targetDirectory: { type: "string" },
+    },
+  },
+  StartupOperationInput: {
+    type: "object",
+    properties: { operationId: { type: "string" } },
+  },
   IssueCode: {
     type: "string",
     enum: [
@@ -557,8 +1014,26 @@ export const desktopSchemaMetadata = {
     type: "object",
     properties: { index: { type: "integer" } },
   },
+  FileOpenInput: {
+    type: "object",
+    properties: {
+      path: { type: "string" },
+      program: { nullable: { type: "string" } },
+    },
+  },
+  FileExportInput: {
+    type: "object",
+    properties: { path: { type: "string" }, name: { type: "string" } },
+  },
+  InstalledEditor: {
+    type: "object",
+    properties: { name: { type: "string" }, path: { type: "string" } },
+  },
+  InstalledEditors: { type: "array", items: { $ref: "InstalledEditor" } },
 } as const
 export type DesktopEvents = {
+  "moon://boot-state": BootSnapshot
+  "moon://startup-state": StartupSnapshot
   "moon://desktop-state": DesktopSnapshot
   "moon://maintenance-flush": FlushRequest
 }

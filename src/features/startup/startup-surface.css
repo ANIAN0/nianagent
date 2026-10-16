@@ -1,0 +1,204 @@
+/* 沿用旧 StartupSurface 的居中阅读轴与20px环；阶段由真实宿主或加载动作提供。 */
+.startup-surface {
+  display: grid;
+  place-items: center;
+  min-height: 100dvh;
+  padding: 24px;
+  background: var(--background, Canvas);
+  color: var(--foreground, CanvasText);
+  font-family: var(--font-sans, "Source Han Sans SC", sans-serif);
+}
+.startup-surface > section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  width: min(100%, 480px);
+  min-width: 0;
+}
+.startup-surface h1 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.startup-progress {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+.startup-progress p,
+.startup-failure p,
+.startup-exit-instruction {
+  margin: 0;
+  color: var(--muted-foreground, GrayText);
+  font-size: 12px;
+  line-height: 18px;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.startup-spinner {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border, GrayText);
+  border-top-color: var(--foreground, CanvasText);
+  border-radius: 50%;
+  animation: startup-spin 0.8s linear infinite;
+}
+.startup-failure {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+.startup-failure h2 {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.startup-failure h2 > svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--destructive, CanvasText);
+}
+.startup-failure .startup-retrying {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+}
+.startup-retrying .startup-spinner,
+.startup-details .startup-spinner {
+  width: 14px;
+  height: 14px;
+}
+.startup-disclosure {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+.startup-disclosure > [data-slot="collapsible-content"] {
+  width: 100%;
+}
+.startup-details {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: 40dvh;
+  overflow: auto;
+  margin: 0;
+  padding: 12px 0;
+  list-style: none;
+  gap: 12px;
+}
+.startup-details li {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 18px;
+}
+.startup-details li > svg,
+.startup-details li > span:first-child {
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+}
+.startup-details li > span:nth-child(2) {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.startup-details strong {
+  font-weight: 500;
+}
+.startup-details small,
+.startup-details [data-status="pending"] {
+  color: var(--muted-foreground, GrayText);
+  font-size: 12px;
+}
+.startup-details [data-status="complete"] > svg {
+  color: var(--semantic-success, var(--foreground, CanvasText));
+}
+.startup-details [data-status="failed"] > svg {
+  color: var(--destructive, CanvasText);
+}
+.startup-step-pending {
+  border: 1px solid var(--border, GrayText);
+  border-radius: 50%;
+}
+.startup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+.startup-toggle [data-icon="inline-end"] {
+  transition: transform 150ms ease;
+}
+.startup-toggle[aria-expanded="true"] [data-icon="inline-end"] {
+  transform: rotate(180deg);
+}
+@keyframes startup-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.startup-initial-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+.startup-initial-actions[hidden] {
+  display: none;
+}
+.startup-initial-actions > p {
+  flex-basis: 100%;
+  color: var(--muted-foreground, GrayText);
+}
+/* React尚未可用的备用按钮必须是原生控件；正式页面仍只复用共享Button。 */
+.startup-initial-button {
+  min-height: 28px;
+  padding: 4px 10px;
+  border: 1px solid var(--border, GrayText);
+  border-radius: 8px;
+  background: var(--background, Canvas);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  cursor: pointer;
+}
+.startup-initial-button:focus-visible {
+  outline: 2px solid var(--ring, Highlight);
+  outline-offset: 2px;
+}
+.startup-initial-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+@media (prefers-reduced-motion: reduce) {
+  .startup-spinner {
+    animation: none;
+  }
+  .startup-toggle [data-icon="inline-end"] {
+    transition: none;
+  }
+}

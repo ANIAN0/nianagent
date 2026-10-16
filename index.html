@@ -1,20 +1,83 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/moon.svg" />
+    <link rel="icon" type="image/svg+xml" href="%BASE_URL%moon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Moon</title>
     <link
       rel="preload"
-      href="/fonts/source-han-sans/SourceHanSansSC-VF.woff2"
+      href="%BASE_URL%fonts/source-han-sans/SourceHanSansSC-VF.woff2"
       as="font"
       type="font/woff2"
       crossorigin
     />
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <div id="root">
+      <!-- React或模块尚未加载时也保留可读的启动入口。 -->
+      <main
+        id="moon-initial-boot"
+        style="
+          display: grid;
+          place-items: center;
+          min-height: 100dvh;
+          padding: 24px;
+          box-sizing: border-box;
+          background: Canvas;
+          color: CanvasText;
+          font-family: sans-serif;
+        "
+      >
+        <section
+          style="
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+            width: min(100%, 480px);
+          "
+        >
+          <h1
+            style="
+              margin: 0;
+              font-size: 16px;
+              line-height: 24px;
+              font-weight: 600;
+              letter-spacing: 0.04em;
+            "
+          >
+            Moon
+          </h1>
+          <p
+            id="moon-initial-stage"
+            role="status"
+            style="
+              margin: 0;
+              font-size: 12px;
+              line-height: 18px;
+              text-align: center;
+            "
+          >
+            加载启动界面
+          </p>
+          <div id="moon-initial-actions" hidden>
+            <button id="moon-initial-retry" type="button">重新加载界面</button>
+            <button id="moon-initial-copy" type="button">复制诊断信息</button>
+            <p style="font-size: 12px; line-height: 18px; text-align: center">
+              若仍无法加载，请关闭此窗口。若桌面窗口仍留在托盘，请从托盘菜单退出
+              Moon 后重新打开。
+            </p>
+          </div>
+        </section>
+      </main>
+    </div>
+    <script src="%BASE_URL%startup.js"></script>
+
+    <script
+      id="moon-main-module"
+      type="module"
+      src="/src/main.tsx"
+    ></script>
   </body>
 </html>

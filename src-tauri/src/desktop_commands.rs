@@ -3,18 +3,170 @@ use crate::{
     desktop_runtime::{self, DesktopResult, DesktopRuntime, issue},
     migration,
     models::ModelBackend,
-    storage,
+    startup, storage,
 };
 use serde_json::json;
 use std::{path::PathBuf, process::Command, time::Duration};
 use tauri::{AppHandle, Manager, State};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
+fn migration_issue(error: StartupIssue) -> DesktopIssue {
+    let (code, recovery) = match error.code {
+        StartupIssueCode::SourceBusy => (IssueCode::Busy, RecoveryAction::Wait),
+        StartupIssueCode::Permission => (IssueCode::Permission, RecoveryAction::Retry),
+        StartupIssueCode::TargetInvalid
+        | StartupIssueCode::InsufficientSpace
+        | StartupIssueCode::PlanExpired => (IssueCode::Validation, RecoveryAction::ChooseDirectory),
+        StartupIssueCode::RuntimeIncompatible => (IssueCode::Compatibility, RecoveryAction::None),
+        StartupIssueCode::RuntimeMissing | StartupIssueCode::DependencyMissing => {
+            (IssueCode::Unavailable, RecoveryAction::None)
+        }
+        StartupIssueCode::StorageIo => (IssueCode::Unknown, RecoveryAction::Retry),
+        StartupIssueCode::Internal => (IssueCode::Internal, RecoveryAction::Retry),
+        _ => (IssueCode::Validation, RecoveryAction::Retry),
+    };
+    issue(
+        code,
+        error.message,
+        if error.retryable {
+            recovery
+        } else {
+            RecoveryAction::None
+        },
+    )
+}
+
+#[tauri::command]
+pub fn startup_get_state(app: AppHandle) -> StartupState {
+    app.try_state::<std::sync::Arc<startup::StartupGate>>()
+        .map(|service| service.snapshot())
+}
+#[tauri::command]
+pub async fn startup_choose_directory(app: AppHandle) -> DesktopResult<Option<String>> {
+    let service = startup::service(&app)?;
+    if !service.snapshot().capabilities.choose_directory {
+        return Err(issue(
+            IssueCode::Busy,
+            "迁移正在处理，暂时不能选择目录。",
+            RecoveryAction::Wait,
+        ));
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let choice = rfd::FileDialog::new()
+            .set_title("选择Moon专用数据目录")
+            .pick_folder()
+            .map(|path| storage::text(&path));
+        if let Some(path) = &choice {
+            service.invalidate_choice(&app, path)?;
+        }
+        Ok(choice)
+    })
+    .await
+    .map_err(|_| {
+        issue(
+            IssueCode::Internal,
+            "目录选择失败，请重试。",
+            RecoveryAction::Retry,
+        )
+    })?
+}
+#[tauri::command]
+pub async fn startup_prepare_migration(
+    app: AppHandle,
+    input: MigrationPrepareInput,
+) -> DesktopResult<StartupSnapshot> {
+    let service = startup::service(&app)?;
+    tauri::async_runtime::spawn_blocking(move || service.prepare(&app, input))
+        .await
+        .map_err(|_| {
+            issue(
+                IssueCode::Internal,
+                "目录预检任务未能完成，请重新读取状态。",
+                RecoveryAction::Retry,
+            )
+        })?
+}
+#[tauri::command]
+pub fn startup_start_migration(
+    app: AppHandle,
+    input: StartupStartInput,
+) -> DesktopResult<StartupSnapshot> {
+    startup::service(&app)?.start(&app, input)
+}
+#[tauri::command]
+pub async fn startup_prepare_fresh(
+    app: AppHandle,
+    input: MigrationPrepareInput,
+) -> DesktopResult<StartupSnapshot> {
+    let service = startup::service(&app)?;
+    tauri::async_runtime::spawn_blocking(move || service.prepare_fresh(&app, input))
+        .await
+        .map_err(|_| {
+            issue(
+                IssueCode::Internal,
+                "新数据集目录预检未完成，请读取当前状态。",
+                RecoveryAction::Retry,
+            )
+        })?
+}
+#[tauri::command]
+pub fn startup_start_fresh(
+    app: AppHandle,
+    input: StartupStartInput,
+) -> DesktopResult<StartupSnapshot> {
+    startup::service(&app)?.start_fresh(&app, input)
+}
+#[tauri::command]
+pub async fn startup_retry_migration(
+    app: AppHandle,
+    input: StartupOperationInput,
+) -> DesktopResult<StartupSnapshot> {
+    let service = startup::service(&app)?;
+    tauri::async_runtime::spawn_blocking(move || service.retry(&app, input))
+        .await
+        .map_err(|_| {
+            issue(
+                IssueCode::Internal,
+                "迁移重试任务未能完成，请重新读取状态。",
+                RecoveryAction::Retry,
+            )
+        })?
+}
+#[tauri::command]
+pub fn startup_open_diagnostics(app: AppHandle) -> DesktopResult<()> {
+    open_directory(&storage::text(&startup::service(&app)?.control))
+}
+#[tauri::command]
+pub async fn startup_continue(app: AppHandle, input: StartupOperationInput) -> DesktopResult<()> {
+    let service = startup::service(&app)?;
+    tauri::async_runtime::spawn_blocking(move || service.continue_startup(&app, input))
+        .await
+        .map_err(|_| {
+            issue(
+                IssueCode::Internal,
+                "启动交接未能完成，请读取当前恢复说明。",
+                RecoveryAction::Retry,
+            )
+        })?
+}
+#[tauri::command]
+pub fn startup_exit(app: AppHandle) -> DesktopResult<()> {
+    if !startup::service(&app)?.snapshot().capabilities.exit {
+        return Err(issue(
+            IssueCode::Busy,
+            "迁移正在处理，请等待当前操作结束。",
+            RecoveryAction::Wait,
+        ));
+    }
+    app.exit(0);
+    Ok(())
+}
+
 #[tauri::command]
 pub fn desktop_get_state(service: State<'_, DesktopRuntime>) -> DesktopSnapshot {
     service.snapshot()
 }
-fn open_directory(path: &str) -> DesktopResult<()> {
+pub(crate) fn open_directory(path: &str) -> DesktopResult<()> {
     let path = PathBuf::from(path);
     storage::reject_links(&path)
         .map_err(|message| issue(IssueCode::Validation, message, RecoveryAction::None))?;
@@ -181,13 +333,7 @@ pub async fn storage_prepare_migration(
         storage::atomic_json(&file, &record)
             .map_err(|message| issue(IssueCode::Permission, message, RecoveryAction::Retry))?;
         let inspected =
-            migration::worker(&service.paths, "--inspect", &file).map_err(|message| {
-                issue(
-                    IssueCode::Validation,
-                    message,
-                    RecoveryAction::ChooseDirectory,
-                )
-            })?;
+            migration::worker(&service.paths, "--inspect", &file).map_err(migration_issue)?;
         storage::private_directory(&normalized, true).map_err(|message| {
             issue(
                 IssueCode::Permission,
@@ -238,10 +384,21 @@ pub async fn storage_prepare_migration(
     })?
 }
 #[tauri::command]
-pub fn storage_start_migration(
+pub async fn storage_start_migration(
     app: AppHandle,
     input: MigrationStartInput,
 ) -> DesktopResult<MaintenanceState> {
+    tauri::async_runtime::spawn_blocking(move || start_migration(app, input))
+        .await
+        .map_err(|_| {
+            issue(
+                IssueCode::Internal,
+                "迁移启动结果未确认，请读取当前状态。",
+                RecoveryAction::Retry,
+            )
+        })?
+}
+fn start_migration(app: AppHandle, input: MigrationStartInput) -> DesktopResult<MaintenanceState> {
     let service = app.state::<DesktopRuntime>();
     let _request = service
         .maintenance_requests
@@ -296,13 +453,7 @@ pub fn storage_start_migration(
                 "--inspect",
                 &migration::record_file(&service.paths, &plan.plan_id),
             )
-            .map_err(|message| {
-                issue(
-                    IssueCode::Validation,
-                    message,
-                    RecoveryAction::ChooseDirectory,
-                )
-            })?;
+            .map_err(migration_issue)?;
             service.prepare_shutdown(&handle, &mut record, input.stop_active)?;
             record["phase"] = json!("waitingForExit");
             service.persist(&record)?;
@@ -444,7 +595,21 @@ pub fn update_cancel(app: AppHandle, input: CancelInput) -> DesktopResult<Update
     Ok(service.snapshot().update)
 }
 #[tauri::command]
-pub fn update_set_preferences(
+pub async fn update_set_preferences(
+    app: AppHandle,
+    input: UpdatePreferences,
+) -> DesktopResult<UpdatePreferences> {
+    tauri::async_runtime::spawn_blocking(move || save_update_preferences(app, input))
+        .await
+        .map_err(|_| {
+            issue(
+                IssueCode::Internal,
+                "更新偏好保存结果未确认，请重新读取。",
+                RecoveryAction::Retry,
+            )
+        })?
+}
+fn save_update_preferences(
     app: AppHandle,
     input: UpdatePreferences,
 ) -> DesktopResult<UpdatePreferences> {
@@ -466,10 +631,21 @@ pub fn update_set_preferences(
     Ok(input)
 }
 #[tauri::command]
-pub fn update_install(
+pub async fn update_install(
     app: AppHandle,
     input: UpdateInstallInput,
 ) -> DesktopResult<MaintenanceState> {
+    tauri::async_runtime::spawn_blocking(move || install_update(app, input))
+        .await
+        .map_err(|_| {
+            issue(
+                IssueCode::Internal,
+                "更新启动结果未确认，请读取当前状态。",
+                RecoveryAction::Retry,
+            )
+        })?
+}
+fn install_update(app: AppHandle, input: UpdateInstallInput) -> DesktopResult<MaintenanceState> {
     let service = app.state::<DesktopRuntime>();
     let _request = service
         .maintenance_requests

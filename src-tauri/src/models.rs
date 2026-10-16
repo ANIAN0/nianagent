@@ -21,25 +21,48 @@ struct Bridge {
     pending: Pending,
 }
 // 先关闭输入让后端自行收尾，再限时终止子进程；不能让退出无限等待。
-impl Drop for Bridge {
-    fn drop(&mut self) {
-        if let Ok(mut input) = self.input.lock() {
-            input.take();
-        }
+impl Bridge {
+    fn stop(&mut self) -> Result<(), String> {
+        self.input
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .take();
         for _ in 0..40 {
-            if self.child.try_wait().ok().flatten().is_some() {
-                return;
+            if self
+                .child
+                .try_wait()
+                .map_err(|_| "无法确认业务子进程状态。")?
+                .is_some()
+            {
+                return Ok(());
             }
             std::thread::sleep(Duration::from_millis(50));
         }
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        if self.child.kill().is_err()
+            && self
+                .child
+                .try_wait()
+                .map_err(|_| "无法确认业务子进程状态。")?
+                .is_none()
+        {
+            return Err("业务子进程退出未确认。".into());
+        }
+        self.child.wait().map_err(|_| "业务子进程退出未确认。")?;
+        Ok(())
+    }
+}
+impl Drop for Bridge {
+    fn drop(&mut self) {
+        if let Err(message) = self.stop() {
+            log::error!("{message}");
+        }
     }
 }
 pub struct ModelBackend {
     app: Option<tauri::AppHandle>,
     directory_picker_busy: Arc<AtomicBool>,
     stopping: AtomicBool,
+    terminating: AtomicBool,
     bridge: Mutex<Option<Bridge>>,
     script: PathBuf,
     node: PathBuf,
@@ -47,7 +70,7 @@ pub struct ModelBackend {
 }
 impl ModelBackend {
     pub fn new(
-        app: &tauri::App,
+        app: &tauri::AppHandle,
         paths: &crate::storage::StoragePaths,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let script = if cfg!(debug_assertions) {
@@ -62,26 +85,51 @@ impl ModelBackend {
             app.path().resource_dir()?.join("runtime/node.exe")
         };
         let backend = Self {
-            app: Some(app.handle().clone()),
+            app: Some(app.clone()),
             directory_picker_busy: Arc::new(AtomicBool::new(false)),
             stopping: AtomicBool::new(false),
+            terminating: AtomicBool::new(false),
             bridge: Mutex::new(None),
             script,
             node,
             directory,
         };
-        let ready = backend
-            .send("$startup", "$runtime", json!({}))
-            .map_err(std::io::Error::other)?;
-        ready
-            .recv_timeout(Duration::from_secs(30))
-            .map_err(|_| std::io::Error::other("模型服务启动超时。"))?
-            .map_err(std::io::Error::other)?;
         Ok(backend)
+    }
+    /// 对象先受宿主管理，真正启动在后台进行；重试只能在旧子进程退出得到证明后开始。
+    pub fn start(&self) -> Result<(), String> {
+        {
+            let bridge = self.bridge.lock().map_err(|_| "业务进程锁不可用。")?;
+            if self.terminating.load(Ordering::SeqCst) {
+                return Err("Moon正在退出。".into());
+            }
+            if bridge.is_some() {
+                return Err("旧业务子进程尚未退出，不能重复启动。".into());
+            }
+            self.stopping.store(false, Ordering::SeqCst);
+        }
+        self.send("$startup", "$runtime", json!({}))?
+            .recv_timeout(Duration::from_secs(30))
+            .map_err(|_| "桌面服务启动超时。".to_string())??;
+        Ok(())
+    }
+    /// 启动恢复失败时必须确认Node结束；这不代表保存成功，也不用于维护中的强杀交付。
+    pub fn shutdown_confirmed(&self) -> Result<(), String> {
+        self.stopping.store(true, Ordering::SeqCst);
+        let mut bridge = self
+            .bridge
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        if let Some(child) = bridge.as_mut() {
+            child.stop()?;
+        }
+        bridge.take();
+        Ok(())
     }
     pub fn shutdown(&self) {
         // Mark terminal before waiting for the bridge lock. Pending callers must
         // never create another process while the application is exiting.
+        self.terminating.store(true, Ordering::SeqCst);
         self.stopping.store(true, Ordering::SeqCst);
         let mut bridge = self
             .bridge
@@ -126,7 +174,7 @@ impl ModelBackend {
         input: Value,
     ) -> Result<mpsc::Receiver<Reply>, String> {
         let mut bridge = self.bridge.lock().map_err(|_| "模型进程锁异常。")?;
-        if self.stopping.load(Ordering::SeqCst) {
+        if self.stopping.load(Ordering::SeqCst) || self.terminating.load(Ordering::SeqCst) {
             return Err("Moon 正在退出。".into());
         }
         let exited = bridge
@@ -143,6 +191,11 @@ impl ModelBackend {
                 .arg(dunce::simplified(&self.script))
                 .env("MOON_DATA_DIR", &self.directory)
                 .env("MOON_RUNTIME_FILE", self.directory.join("runtime.json"))
+                .env(
+                    "MOON_DESKTOP_EXECUTABLE",
+                    std::env::current_exe().map_err(|_| "Moon程序路径不可读取。")?,
+                )
+                .env("MOON_DESKTOP_PID", std::process::id().to_string())
                 .env("PI_CODING_AGENT_DIR", self.directory.join("agent"))
                 .env("TEMP", self.directory.join("tmp"))
                 .env("TMP", self.directory.join("tmp"))
@@ -273,7 +326,7 @@ pub async fn model_request(
     if operation.starts_with('$') {
         return Err("内部宿主命令不可从业务RPC调用。".into());
     }
-    let maximum = if operation == "materialUpload" {
+    let maximum = if operation == "materialUpload" || operation == "pluginCall" {
         16 * 1024 * 1024
     } else {
         1024 * 1024

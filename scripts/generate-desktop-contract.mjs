@@ -51,10 +51,12 @@ outputs.set(
 )
 const rust = Object.entries(desktopSchemas)
   .map(([name, schema]) => {
+    if (schema.nullable || schema.$ref || schema.type === "array")
+      return `pub type ${name} = ${rustType(schema)};`
     const common =
       "#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]\n"
     if (schema.enum)
-      return `${common}pub enum ${name} {\n${schema.enum.map((value) => `    #[serde(rename = ${JSON.stringify(value)})]\n    ${pascal(value)},`).join("\n")}\n}`
+      return `#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]\npub enum ${name} {\n${schema.enum.map((value) => `    #[serde(rename = ${JSON.stringify(value)})]\n    ${pascal(value)},`).join("\n")}\n}`
     return `${common}#[serde(rename_all = "camelCase", deny_unknown_fields)]\npub struct ${name} {\n${Object.entries(
       schema.properties
     )
@@ -77,7 +79,11 @@ if (process.argv.includes("--check")) {
     new URL("../src-tauri/src/lib.rs", import.meta.url),
     "utf8"
   )
-  for (const name of Object.keys(desktopCommands))
-    if (!entry.includes(`desktop_commands::${name}`))
+  for (const [name, definition] of Object.entries(desktopCommands))
+    if (
+      !entry.includes(
+        `${definition.source.split("/").at(-1).replace(".rs", "")}::${name}`
+      )
+    )
       throw new Error(`桌面命令未注册：${name}`)
 }

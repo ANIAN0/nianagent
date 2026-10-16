@@ -1,5 +1,233 @@
 // Generated from backend/desktop-contract.mjs. Do not edit.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum BootStage {
+    #[serde(rename = "profile")]
+    Profile,
+    #[serde(rename = "backend")]
+    Backend,
+    #[serde(rename = "storage")]
+    Storage,
+    #[serde(rename = "frontendProfile")]
+    FrontendProfile,
+    #[serde(rename = "workbench")]
+    Workbench,
+    #[serde(rename = "ready")]
+    Ready,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum BootPhase {
+    #[serde(rename = "starting")]
+    Starting,
+    #[serde(rename = "waitingFrontend")]
+    WaitingFrontend,
+    #[serde(rename = "failed")]
+    Failed,
+    #[serde(rename = "ready")]
+    Ready,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum BootHostMode {
+    #[serde(rename = "desktop")]
+    Desktop,
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BootIssue {
+    pub code: IssueCode,
+    pub stage: BootStage,
+    pub message: String,
+    pub diagnostics: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BootCapabilities {
+    pub retry: bool,
+    pub exit: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BootSnapshot {
+    pub attempt_id: String,
+    pub revision: u64,
+    pub host_mode: BootHostMode,
+    pub phase: BootPhase,
+    pub stage: BootStage,
+    pub storage: Option<StorageInfo>,
+    pub issue: Option<BootIssue>,
+    pub capabilities: BootCapabilities,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BootAttemptInput {
+    pub attempt_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum BootFrontendStage {
+    #[serde(rename = "profile")]
+    Profile,
+    #[serde(rename = "workbench")]
+    Workbench,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BootFrontendInput {
+    pub attempt_id: String,
+    pub data_set_id: String,
+    pub generation: u64,
+    pub stage: BootFrontendStage,
+    pub ready: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum StartupSelection {
+    #[serde(rename = "import")]
+    Import,
+    #[serde(rename = "fresh")]
+    Fresh,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum StartupPhase {
+    #[serde(rename = "awaitingConfirmation")]
+    AwaitingConfirmation,
+    #[serde(rename = "preparing")]
+    Preparing,
+    #[serde(rename = "ready")]
+    Ready,
+    #[serde(rename = "inspecting")]
+    Inspecting,
+    #[serde(rename = "copying")]
+    Copying,
+    #[serde(rename = "validating")]
+    Validating,
+    #[serde(rename = "committing")]
+    Committing,
+    #[serde(rename = "readyToOpen")]
+    ReadyToOpen,
+    #[serde(rename = "failed")]
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum StartupFailureStage {
+    #[serde(rename = "runtime")]
+    Runtime,
+    #[serde(rename = "target")]
+    Target,
+    #[serde(rename = "source")]
+    Source,
+    #[serde(rename = "inspecting")]
+    Inspecting,
+    #[serde(rename = "copying")]
+    Copying,
+    #[serde(rename = "validating")]
+    Validating,
+    #[serde(rename = "committing")]
+    Committing,
+    #[serde(rename = "opening")]
+    Opening,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum StartupIssueCode {
+    #[serde(rename = "runtimeMissing")]
+    RuntimeMissing,
+    #[serde(rename = "dependencyMissing")]
+    DependencyMissing,
+    #[serde(rename = "runtimeIncompatible")]
+    RuntimeIncompatible,
+    #[serde(rename = "sourceBusy")]
+    SourceBusy,
+    #[serde(rename = "sourceInvalid")]
+    SourceInvalid,
+    #[serde(rename = "targetInvalid")]
+    TargetInvalid,
+    #[serde(rename = "permission")]
+    Permission,
+    #[serde(rename = "insufficientSpace")]
+    InsufficientSpace,
+    #[serde(rename = "dataInvalid")]
+    DataInvalid,
+    #[serde(rename = "storageIo")]
+    StorageIo,
+    #[serde(rename = "planExpired")]
+    PlanExpired,
+    #[serde(rename = "interrupted")]
+    Interrupted,
+    #[serde(rename = "internal")]
+    Internal,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StartupIssue {
+    pub code: StartupIssueCode,
+    pub stage: StartupFailureStage,
+    pub message: String,
+    pub path: Option<String>,
+    pub retryable: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StartupCapabilities {
+    pub choose_directory: bool,
+    pub prepare: bool,
+    pub migrate: bool,
+    pub create_fresh: bool,
+    pub retry: bool,
+    pub open_diagnostics: bool,
+    pub exit: bool,
+    pub continue_startup: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StartupSnapshot {
+    pub revision: u64,
+    pub operation_id: Option<String>,
+    pub plan_id: Option<String>,
+    pub plan_expires_at: Option<String>,
+    pub phase: StartupPhase,
+    pub selection: Option<StartupSelection>,
+    pub source_directory: String,
+    pub legacy_profile_directory: Option<String>,
+    pub target_directory: String,
+    pub default_directory: String,
+    pub retained_copy_directories: Vec<String>,
+    pub file_count: Option<u64>,
+    pub total_bytes: Option<u64>,
+    pub available_bytes: Option<u64>,
+    pub completed_files: u64,
+    pub copied_bytes: Option<u64>,
+    pub issue: Option<StartupIssue>,
+    pub capabilities: StartupCapabilities,
+}
+
+pub type StartupState = Option<StartupSnapshot>;
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StartupStartInput {
+    pub plan_id: String,
+    pub target_directory: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StartupOperationInput {
+    pub operation_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum IssueCode {
     #[serde(rename = "validation")]
     Validation,
@@ -23,7 +251,7 @@ pub enum IssueCode {
     Internal,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum RecoveryAction {
     #[serde(rename = "retry")]
     Retry,
@@ -37,7 +265,7 @@ pub enum RecoveryAction {
     None,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ActivityKind {
     #[serde(rename = "conversation")]
     Conversation,
@@ -68,7 +296,7 @@ pub struct DesktopIssue {
     pub activities: Vec<Activity>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum StorageSource {
     #[serde(rename = "installation")]
     Installation,
@@ -127,7 +355,7 @@ pub struct MigrationPlan {
     pub activities: Vec<Activity>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum MaintenanceKind {
     #[serde(rename = "none")]
     None,
@@ -137,7 +365,7 @@ pub enum MaintenanceKind {
     Update,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum MaintenancePhase {
     #[serde(rename = "idle")]
     Idle,
@@ -197,7 +425,7 @@ pub struct UpdateRelease {
     pub published_at: Option<String>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum UpdatePhase {
     #[serde(rename = "unavailable")]
     Unavailable,
@@ -255,7 +483,7 @@ pub struct DesktopSnapshot {
     pub update_preferences: UpdatePreferences,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum FlushReason {
     #[serde(rename = "migration")]
     Migration,
@@ -327,3 +555,26 @@ pub struct CancelInput {
 pub struct RetainedCopyInput {
     pub index: u64,
 }
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FileOpenInput {
+    pub path: String,
+    pub program: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FileExportInput {
+    pub path: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InstalledEditor {
+    pub name: String,
+    pub path: String,
+}
+
+pub type InstalledEditors = Vec<InstalledEditor>;

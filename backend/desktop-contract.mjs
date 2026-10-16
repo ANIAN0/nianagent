@@ -8,6 +8,119 @@ const array = (items) => ({ type: "array", items })
 const enumeration = (...values) => ({ type: "string", enum: values })
 const object = (properties) => ({ type: "object", properties })
 export const desktopSchemas = {
+  BootStage: enumeration(
+    "profile",
+    "backend",
+    "storage",
+    "frontendProfile",
+    "workbench",
+    "ready"
+  ),
+  BootPhase: enumeration("starting", "waitingFrontend", "failed", "ready"),
+  BootHostMode: enumeration("desktop"),
+  BootIssue: object({
+    code: ref("IssueCode"),
+    stage: ref("BootStage"),
+    message: str,
+    diagnostics: str,
+  }),
+  BootCapabilities: object({ retry: bool, exit: bool }),
+  BootSnapshot: object({
+    attemptId: str,
+    revision: num,
+    hostMode: ref("BootHostMode"),
+    phase: ref("BootPhase"),
+    stage: ref("BootStage"),
+    storage: nullable(ref("StorageInfo")),
+    issue: nullable(ref("BootIssue")),
+    capabilities: ref("BootCapabilities"),
+  }),
+  BootAttemptInput: object({ attemptId: str }),
+  BootFrontendStage: enumeration("profile", "workbench"),
+  BootFrontendInput: object({
+    attemptId: str,
+    dataSetId: str,
+    generation: num,
+    stage: ref("BootFrontendStage"),
+    ready: bool,
+  }),
+  StartupSelection: enumeration("import", "fresh"),
+  StartupPhase: enumeration(
+    "awaitingConfirmation",
+    "preparing",
+    "ready",
+    "inspecting",
+    "copying",
+    "validating",
+    "committing",
+    "readyToOpen",
+    "failed"
+  ),
+  StartupFailureStage: enumeration(
+    "runtime",
+    "target",
+    "source",
+    "inspecting",
+    "copying",
+    "validating",
+    "committing",
+    "opening"
+  ),
+  StartupIssueCode: enumeration(
+    "runtimeMissing",
+    "dependencyMissing",
+    "runtimeIncompatible",
+    "sourceBusy",
+    "sourceInvalid",
+    "targetInvalid",
+    "permission",
+    "insufficientSpace",
+    "dataInvalid",
+    "storageIo",
+    "planExpired",
+    "interrupted",
+    "internal"
+  ),
+  StartupIssue: object({
+    code: ref("StartupIssueCode"),
+    stage: ref("StartupFailureStage"),
+    message: str,
+    path: nullable(str),
+    retryable: bool,
+  }),
+  StartupCapabilities: object({
+    chooseDirectory: bool,
+    prepare: bool,
+    migrate: bool,
+    createFresh: bool,
+    retry: bool,
+    openDiagnostics: bool,
+    exit: bool,
+    continueStartup: bool,
+  }),
+  StartupSnapshot: object({
+    revision: num,
+    operationId: nullable(str),
+    planId: nullable(str),
+    planExpiresAt: nullable(str),
+    phase: ref("StartupPhase"),
+    selection: nullable(ref("StartupSelection")),
+    sourceDirectory: str,
+    legacyProfileDirectory: nullable(str),
+    targetDirectory: str,
+    defaultDirectory: str,
+    retainedCopyDirectories: array(str),
+    fileCount: nullable(num),
+    totalBytes: nullable(num),
+    availableBytes: nullable(num),
+    completedFiles: num,
+    copiedBytes: nullable(num),
+    issue: nullable(ref("StartupIssue")),
+    capabilities: ref("StartupCapabilities"),
+  }),
+  StartupState: nullable(ref("StartupSnapshot")),
+  StartupStartInput: object({ planId: str, targetDirectory: str }),
+  StartupOperationInput: object({ operationId: str }),
   IssueCode: enumeration(
     "validation",
     "permission",
@@ -181,6 +294,10 @@ export const desktopSchemas = {
   UpdateInstallInput: object({ releaseId: str, stopActive: bool }),
   CancelInput: object({ operationId: str }),
   RetainedCopyInput: object({ index: num }),
+  FileOpenInput: object({ path: str, program: nullable(str) }),
+  FileExportInput: object({ path: str, name: str }),
+  InstalledEditor: object({ name: str, path: str }),
+  InstalledEditors: array(ref("InstalledEditor")),
 }
 const command = (module, title, input, result, effect) => ({
   module,
@@ -188,9 +305,114 @@ const command = (module, title, input, result, effect) => ({
   input,
   result,
   effect,
-  source: "src-tauri/src/desktop_commands.rs",
+  source:
+    module === "启动"
+      ? "src-tauri/src/boot.rs"
+      : "src-tauri/src/desktop_commands.rs",
 })
 export const desktopCommands = {
+  file_editors: { ...command("本机文件", "检测已安装编辑器", null, "InstalledEditors", "仅本机检测支持的已安装编辑器，不安装程序。"), source: "src-tauri/src/native_files.rs" },
+  file_choose_editor: { ...command("本机文件", "选择已安装编辑器", null, "OptionalString", "系统程序文件选择；取消不改变配置。"), source: "src-tauri/src/native_files.rs" },
+  file_open: { ...command("本机文件", "在外部程序打开当前文件", "FileOpenInput", null, "本机用户明确操作，重新解析原路径，启动已安装程序或系统关联程序。"), source: "src-tauri/src/native_files.rs" },
+  file_export: { ...command("本机文件", "另存当前原文件", "FileExportInput", "OptionalString", "系统保存选择，取消返回null；完整复制并复查当前源元数据后发布，失败保留原目标。"), source: "src-tauri/src/native_files.rs" },
+  boot_get_state: command(
+    "启动",
+    "读取真实启动阶段",
+    null,
+    "BootSnapshot",
+    "仅正常主窗口读取；后台启动期间也可读取当前权威阶段。"
+  ),
+  boot_retry: command(
+    "启动",
+    "重试启动",
+    "BootAttemptInput",
+    "BootSnapshot",
+    "仅当前failed尝试；host失败确认旧Node退出后真实启动，前端失败只重做前端恢复和模块加载。"
+  ),
+  boot_acknowledge_frontend: command(
+    "启动",
+    "确认前端启动阶段",
+    "BootFrontendInput",
+    "BootSnapshot",
+    "按当前尝试及数据身份依次确认profile和真实工作台模块；都成功后才进入ready。"
+  ),
+  boot_exit: command(
+    "启动",
+    "退出启动中的Moon",
+    "BootAttemptInput",
+    null,
+    "仅当前未ready尝试，实际停止宿主与启动子进程。"
+  ),
+  startup_get_state: command(
+    "首启迁移",
+    "读取首启迁移状态",
+    null,
+    "StartupState",
+    "仅startup窗口读取当前权威状态；正常业务模式返回null。"
+  ),
+  startup_choose_directory: command(
+    "首启迁移",
+    "选择迁移目标",
+    null,
+    "OptionalString",
+    "系统目录选择；取消不改变状态，换目标令旧计划失效。"
+  ),
+  startup_prepare_migration: command(
+    "首启迁移",
+    "检查首启迁移目标",
+    "MigrationPrepareInput",
+    "StartupSnapshot",
+    "只检查元数据、运行资源与空间，不读取业务正文；五分钟计划绑定当前目标与身份。"
+  ),
+  startup_start_migration: command(
+    "首启迁移",
+    "确认迁移并启动",
+    "StartupStartInput",
+    "StartupSnapshot",
+    "明确确认后检查、复制和验证；旧副本保留，同计划重复开始幂等。"
+  ),
+  startup_prepare_fresh: command(
+    "首次启动",
+    "检查新数据集目录",
+    "MigrationPrepareInput",
+    "StartupSnapshot",
+    "不读旧业务或旧profile；只为无登记数据的首次启动准备独立空目标计划。"
+  ),
+  startup_start_fresh: command(
+    "首次启动",
+    "不导入旧数据并启动",
+    "StartupStartInput",
+    "StartupSnapshot",
+    "创建独立dataset及profile并权威提交bootstrap；旧数据和失败副本保留，不接管旧非空目标。"
+  ),
+  startup_retry_migration: command(
+    "首启迁移",
+    "重试未提交首次启动操作",
+    "StartupOperationInput",
+    "StartupSnapshot",
+    "仅失败且未提交的同operation按原selection重做导入或空数据初始化，不重放unknown业务请求。"
+  ),
+  startup_open_diagnostics: command(
+    "首启迁移",
+    "打开首启诊断目录",
+    null,
+    null,
+    "只打开当前固定维护控制目录，不接受任意路径或清理请求。"
+  ),
+  startup_continue: command(
+    "首启迁移",
+    "打开已提交数据的Moon",
+    "StartupOperationInput",
+    null,
+    "只在bootstrap和目标身份确认已提交后，经受控helper交接正常启动。"
+  ),
+  startup_exit: command(
+    "首启迁移",
+    "退出首启界面",
+    null,
+    null,
+    "确认前、失败或readyToOpen可退出；检查复制校验提交期间不结束worker。"
+  ),
   desktop_get_state: command(
     "桌面",
     "读取桌面状态",
@@ -291,6 +513,8 @@ export const desktopCommands = {
   ),
 }
 export const desktopEvents = {
+  "moon://boot-state": "BootSnapshot",
+  "moon://startup-state": "StartupSnapshot",
   "moon://desktop-state": "DesktopSnapshot",
   "moon://maintenance-flush": "FlushRequest",
 }

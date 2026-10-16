@@ -1,4 +1,5 @@
 use crate::{
+    desktop_contract_generated::{StartupFailureStage, StartupIssue, StartupIssueCode},
     storage::{self, Bootstrap, DataMarker, StoragePaths},
     windows_guard,
 };
@@ -11,26 +12,91 @@ use std::{
     time::Duration,
 };
 
-pub fn worker(paths: &StoragePaths, action: &str, record: &Path) -> Result<Value, String> {
-    run_worker(&paths.install, action, record)
+pub fn worker(paths: &StoragePaths, action: &str, record: &Path) -> Result<Value, StartupIssue> {
+    worker_detailed(&paths.install, action, record, |_| Ok(()))
 }
 fn run_worker(install: &Path, action: &str, record: &Path) -> Result<Value, String> {
+    worker_detailed(install, action, record, |_| Ok(())).map_err(|issue| issue.message)
+}
+pub fn failure(
+    code: StartupIssueCode,
+    stage: StartupFailureStage,
+    message: impl Into<String>,
+    path: Option<&Path>,
+) -> StartupIssue {
+    let retryable = !matches!(
+        code,
+        StartupIssueCode::RuntimeMissing
+            | StartupIssueCode::DependencyMissing
+            | StartupIssueCode::RuntimeIncompatible
+    );
+    StartupIssue {
+        code,
+        stage,
+        message: message.into(),
+        path: path.map(storage::text),
+        retryable,
+    }
+}
+pub fn worker_detailed(
+    install: &Path,
+    action: &str,
+    record: &Path,
+    mut progress: impl FnMut(&Value) -> Result<(), String>,
+) -> Result<Value, StartupIssue> {
     let (node, script) = if cfg!(debug_assertions) {
         (
             PathBuf::from("node"),
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../backend/migration-worker.mjs"),
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../backend/migration-launcher.mjs"),
         )
     } else {
         (
             install.join("runtime/node.exe"),
-            install.join("runtime/migration-worker.mjs"),
+            install.join("runtime/migration-launcher.mjs"),
         )
     };
+    let sandbox = record
+        .parent()
+        .ok_or_else(|| {
+            failure(
+                StartupIssueCode::Internal,
+                StartupFailureStage::Runtime,
+                "迁移控制路径无效。",
+                None,
+            )
+        })?
+        .join("startup");
+    storage::private_directory(&sandbox, true).map_err(|message| {
+        failure(
+            StartupIssueCode::Permission,
+            StartupFailureStage::Runtime,
+            message,
+            Some(&sandbox),
+        )
+    })?;
+    for directory in ["tmp", "agent"] {
+        fs::create_dir_all(sandbox.join(directory)).map_err(|_| {
+            failure(
+                StartupIssueCode::Permission,
+                StartupFailureStage::Runtime,
+                "无法准备私有迁移运行目录。",
+                Some(&sandbox),
+            )
+        })?;
+    }
     let mut command = Command::new(dunce::simplified(&node));
     command
         .arg(dunce::simplified(&script))
         .arg(action)
         .arg(dunce::simplified(record))
+        .current_dir(&sandbox)
+        .env_remove("NODE_OPTIONS")
+        .env_remove("NODE_PATH")
+        .env("MOON_DATA_DIR", &sandbox)
+        .env("MOON_RUNTIME_FILE", sandbox.join("runtime.json"))
+        .env("PI_CODING_AGENT_DIR", sandbox.join("agent"))
+        .env("TMP", sandbox.join("tmp"))
+        .env("TEMP", sandbox.join("tmp"))
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     #[cfg(windows)]
@@ -38,25 +104,67 @@ fn run_worker(install: &Path, action: &str, record: &Path) -> Result<Value, Stri
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x08000000);
     }
-    let mut child = command.spawn().map_err(|_| "无法启动内置数据迁移服务。")?;
-    let stderr = child.stderr.take().ok_or("迁移诊断通道不可用。")?;
+    let mut child = command.spawn().map_err(|_| {
+        failure(
+            StartupIssueCode::RuntimeMissing,
+            StartupFailureStage::Runtime,
+            "内置迁移运行服务不可启动，请检查安装资源。",
+            Some(&script),
+        )
+    })?;
+    let stderr = child.stderr.take().ok_or_else(|| {
+        failure(
+            StartupIssueCode::Internal,
+            StartupFailureStage::Runtime,
+            "迁移诊断通道不可用。",
+            None,
+        )
+    })?;
     let diagnostics = std::thread::spawn(move || {
         let mut message = String::new();
         let _ = BufReader::new(stderr).read_to_string(&mut message);
         message
     });
-    let stdout = child.stdout.take().ok_or("迁移进度通道不可用。")?;
+    let stdout = child.stdout.take().ok_or_else(|| {
+        failure(
+            StartupIssueCode::Internal,
+            StartupFailureStage::Runtime,
+            "迁移进度通道不可用。",
+            None,
+        )
+    })?;
     let mut last = None;
+    let mut persistence_failure = None;
     for line in BufReader::new(stdout).lines().map_while(Result::ok) {
         if let Ok(value) = serde_json::from_str::<Value>(&line) {
             if action == "--copy" && value["phase"].is_string() {
                 if let Ok(mut current) = storage::read_json(record) {
-                    for key in ["phase", "completedFiles", "totalFiles", "retainedCopies"] {
+                    for key in [
+                        "phase",
+                        "completedFiles",
+                        "totalFiles",
+                        "retainedCopies",
+                        "copiedBytes",
+                    ] {
                         if !value[key].is_null() {
                             current[key] = value[key].clone();
                         }
                     }
-                    storage::atomic_json(record, &current)?;
+                    if let Err(message) = storage::atomic_json(record, &current) {
+                        persistence_failure = Some(failure(
+                            StartupIssueCode::StorageIo,
+                            StartupFailureStage::Copying,
+                            message,
+                            Some(record),
+                        ));
+                    }
+                } else {
+                    persistence_failure = Some(failure(
+                        StartupIssueCode::StorageIo,
+                        StartupFailureStage::Copying,
+                        "复制进度未能读回维护记录，原数据与暂存保留。",
+                        Some(record),
+                    ));
                 }
                 let label = match value["phase"].as_str() {
                     Some("copying") => "正在复制",
@@ -68,34 +176,69 @@ fn run_worker(install: &Path, action: &str, record: &Path) -> Result<Value, Stri
                     value["completedFiles"], value["totalFiles"]
                 ));
             }
+            if let Err(message) = progress(&value) {
+                persistence_failure = Some(failure(
+                    StartupIssueCode::StorageIo,
+                    StartupFailureStage::Copying,
+                    message,
+                    Some(record),
+                ));
+            }
             last = Some(value);
         }
     }
-    let status = child.wait().map_err(|_| "无法确认迁移服务结束。")?;
+    let status = child.wait().map_err(|_| {
+        failure(
+            StartupIssueCode::Internal,
+            StartupFailureStage::Copying,
+            "无法确认迁移服务结束。",
+            None,
+        )
+    })?;
     let message = diagnostics.join().unwrap_or_default();
     if !status.success() {
         // 只接受本地worker明确标记的受控诊断，普通stderr/第三方异常不公开。
         let public = message
             .lines()
             .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-            .find(|value| {
-                value["migrationFailure"] == true
-                    && matches!(
-                        value["code"].as_str(),
-                        Some("migration_validation" | "migration_internal")
-                    )
-            })
-            .and_then(|value| {
-                value["message"]
-                    .as_str()
-                    .filter(|message| message.len() <= 1024)
-                    .map(str::to_owned)
-            });
-        return Err(public.unwrap_or(
-            "数据迁移未完成，原数据和维护记录保留，请检查权限、占用或存储内容。".into(),
-        ));
+            .filter(|value| value["migrationFailure"] == true)
+            .filter_map(|value| serde_json::from_value::<StartupIssue>(value["issue"].clone()).ok())
+            .find(|issue| issue.message.len() <= 1024);
+        let mut public = public.unwrap_or_else(|| {
+            failure(
+                StartupIssueCode::Internal,
+                StartupFailureStage::Runtime,
+                "内置迁移服务启动或执行异常，原数据和维护记录保留。请打开诊断目录查看失败阶段。",
+                Some(&script),
+            )
+        });
+        if public.path.is_none() && matches!(public.stage, StartupFailureStage::Runtime) {
+            public.path = Some(storage::text(&script));
+        }
+        return Err(public);
     }
-    last.ok_or("迁移服务没有返回确认结果。".into())
+    if let Some(issue) = persistence_failure {
+        return Err(issue);
+    }
+    last.filter(|value| {
+        if action == "--probe" {
+            value["loaded"] == true
+        } else if action == "--copy" {
+            value["complete"] == true
+        } else {
+            value["fileCount"].is_u64()
+                && value["totalBytes"].is_u64()
+                && value["availableBytes"].is_u64()
+        }
+    })
+    .ok_or_else(|| {
+        failure(
+            StartupIssueCode::Internal,
+            StartupFailureStage::Runtime,
+            "迁移服务没有返回有效确认结果。",
+            None,
+        )
+    })
 }
 pub fn record_file(paths: &StoragePaths, id: &str) -> PathBuf {
     paths.control.join(format!("{id}.json"))
@@ -125,110 +268,7 @@ pub fn migration_record(paths: &StoragePaths, id: &str, target: &str) -> Value {
     json!({"operationId":id,"kind":"migration","sourceDirectory":storage::text(&paths.data),"targetDirectory":target,"installDirectory":storage::text(&paths.install),"controlDirectory":storage::text(&paths.control),"bootstrapFile":storage::text(&paths.bootstrap_file),"dataSetId":paths.marker.data_set_id,"generation":paths.bootstrap.generation,"shutdownStarted":false,"committed":false,"phase":"preparing","parentPid":std::process::id(),"legacy":false,"retainedCopies":retained})
 }
 
-pub fn import_legacy_before_start(
-    install: &Path,
-    control: &Path,
-    bootstrap_file: &Path,
-    target: &mut PathBuf,
-    bootstrap: &mut Bootstrap,
-) -> Result<(), String> {
-    let Some(local) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) else {
-        return Ok(());
-    };
-    let source = local.join("Moon/models");
-    let profile = local.join("local.moon.desktop");
-    if !source.exists() && !profile.join("EBWebView").exists() {
-        return Ok(());
-    }
-    windows_guard::require_single_user_session()?;
-    let choice = rfd::MessageDialog::new().set_title("迁移已有Moon数据").set_description(format!("发现旧版Moon数据：{}\n新数据目录：{}\n将复制业务记录、完整桌面profile和日志，保留原数据。\n是：迁移并启动；否：选择其他新空目录；取消：退出。", storage::text(&source), storage::text(target))).set_buttons(rfd::MessageButtons::YesNoCancel).show();
-    match choice {
-        rfd::MessageDialogResult::Yes => {}
-        rfd::MessageDialogResult::No => {
-            *target = rfd::FileDialog::new()
-                .set_title("选择新的Moon专用空数据目录")
-                .pick_folder()
-                .ok_or("已取消旧数据迁移。")?;
-            bootstrap.data_root = target.clone();
-        }
-        _ => return Err("已取消旧数据迁移，原目录保留。".into()),
-    }
-    let guard = windows_guard::Guard::create(false)?;
-    guard.show();
-    // 首次导入在bootstrap提交前中断，也必须显式恢复同一数据集/操作，不能生成另一套身份。
-    let previous = fs::read_dir(control)
-        .map_err(|_| "无法读取旧版迁移恢复记录。")?
-        .filter_map(Result::ok)
-        .filter_map(|entry| storage::read_json(&entry.path()).ok())
-        .find(|record| {
-            record["legacy"] == true
-                && record["kind"] == "migration"
-                && record["committed"] == false
-                && record["generation"] == 0
-                && record["sourceDirectory"] == storage::text(&source)
-                && record["legacyProfileDirectory"] == storage::text(&profile)
-                && record["targetDirectory"] == storage::text(target)
-                && record["installDirectory"] == storage::text(install)
-                && record["controlDirectory"] == storage::text(control)
-                && record["bootstrapFile"] == storage::text(bootstrap_file)
-                && record["operationId"]
-                    .as_str()
-                    .is_some_and(|id| uuid::Uuid::parse_str(id).is_ok())
-                && record["dataSetId"]
-                    .as_str()
-                    .is_some_and(|id| uuid::Uuid::parse_str(id).is_ok())
-        });
-    let mut record = if let Some(record) = previous {
-        bootstrap.data_set_id = record["dataSetId"]
-            .as_str()
-            .ok_or("旧版迁移身份无效。")?
-            .into();
-        record
-    } else {
-        let id = uuid::Uuid::new_v4().to_string();
-        json!({"operationId":id,"kind":"migration","sourceDirectory":storage::text(&source),"targetDirectory":storage::text(target),"installDirectory":storage::text(install),"controlDirectory":storage::text(control),"bootstrapFile":storage::text(bootstrap_file),"dataSetId":bootstrap.data_set_id,"generation":0,"shutdownStarted":true,"committed":false,"phase":"copying","legacy":true,"legacyTempDirectory":std::env::temp_dir(),"legacyProfileDirectory":storage::text(&profile)})
-    };
-    let id = record["operationId"]
-        .as_str()
-        .ok_or("旧版迁移身份缺失。")?
-        .to_owned();
-    let file = control.join(format!("{id}.json"));
-    storage::atomic_json(&file, &record)?;
-    let result = (|| -> Result<(), String> {
-        storage::validate_tree(&source)?;
-        ensure_profile_released(&profile)?;
-        if !source.exists() {
-            fs::create_dir_all(&source).map_err(|_| "无法持有旧版后端排他租约。")?;
-        }
-        run_worker(install, "--inspect", &file)?;
-        storage::private_directory(target, true)?;
-        let copied = run_worker(install, "--copy", &file)?;
-        record = storage::read_json(&file)?;
-        storage::private_directory(target, false)?;
-        storage::atomic_json(bootstrap_file, bootstrap)?;
-        record["committed"] = json!(true);
-        record["phase"] = json!("handedOff");
-        record["generation"] = json!(bootstrap.generation);
-        record["completedFiles"] = copied["fileCount"].clone();
-        record["totalFiles"] = copied["fileCount"].clone();
-        storage::atomic_json(&file, &record)?;
-        storage::atomic_json(&control.join("last-maintenance.json"), &record)?;
-        Ok(())
-    })();
-    if let Err(message) = result {
-        if let Ok(saved) = storage::read_json(&file) {
-            record = saved;
-        }
-        record["phase"] = json!("failed");
-        record["message"] = json!(message);
-        let _ = storage::atomic_json(&file, &record);
-        let _ = storage::atomic_json(&control.join("last-maintenance.json"), &record);
-        return Err(message);
-    }
-
-    Ok(())
-}
-fn ensure_profile_released(root: &Path) -> Result<(), String> {
+pub(crate) fn ensure_profile_released(root: &Path) -> Result<(), String> {
     if !root.exists() {
         return Ok(());
     }

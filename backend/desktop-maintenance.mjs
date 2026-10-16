@@ -16,6 +16,7 @@ export class DesktopMaintenance {
     this.operationId = null
     this.closed = false
     this.draining = false
+    this.changes = Promise.resolve()
   }
   accepts(operation) {
     return (
@@ -75,6 +76,14 @@ export class DesktopMaintenance {
     )
       throw operationError("maintenance_unconfirmed", "维护请求无效。")
     if (input.action === "inspect") return this.state(input.operationId)
+    const change = this.changes.then(() => this.change(input))
+    this.changes = change.then(
+      () => {},
+      () => {}
+    )
+    return change
+  }
+  async change(input) {
     if (this.operationId && this.operationId !== input.operationId)
       throw operationError(
         "maintenance_busy",
@@ -87,12 +96,14 @@ export class DesktopMaintenance {
           "maintenance_unconfirmed",
           "服务已进入关闭阶段，只能重新启动恢复。"
         )
-      this.operationId = null
+      await this.service()?.plugins.resume()
       if (this.service()) this.service().conversations.maintenanceFrozen = false
+      this.operationId = null
       return this.state(input.operationId)
     }
     this.operationId = input.operationId
     if (this.service()) this.service().conversations.maintenanceFrozen = true
+    await this.service()?.plugins.freeze()
     if (input.action === "freeze") return this.state(input.operationId)
     const ready = this.service()
     const conversations = this.activities().filter(
@@ -107,7 +118,11 @@ export class DesktopMaintenance {
       // 明确停止也覆盖手动压缩等控制任务，不能只停止普通Pi prompt。
       await ready?.conversations.controls.close({ strict: true })
       for (const activity of conversations) {
+        // A send can reserve busy before its atomic start commit. Join its
+        // existing session boundary before reading the run identity to stop.
+        await ready.sessions.exclusive(activity.id, () => {})
         const state = ready.conversations.active.get(activity.id)
+        if (!state) continue
         if (state.entry?.busy)
           await ready.conversations.stop(activity.id, state.record.runId)
         // stop只表示接受停止；必须等待Pi运行和落盘真正完成。
@@ -132,7 +147,7 @@ export class DesktopMaintenance {
     // 最后关闭阶段拒绝所有新业务请求，并排空所有已接受入口；读操作也可能持有资源。
     this.draining = true
     const requests = [...this.requests.values()]
-    await Promise.all(requests.map((request) => request.done))
+    await Promise.allSettled(requests.map((request) => request.done))
     for (const state of ready?.conversations.active.values() || []) {
       if (
         state.maintenanceSaveError ||
