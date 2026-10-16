@@ -22,6 +22,12 @@ export type ResponseState = {
   }
   authorizationInput?: { id: string }
   queueReceiptInput?: Readonly<RpcRequests["conversationQueueReceiptRead"]>
+  queueEditInput?: Readonly<
+    Pick<
+      RpcRequests["conversationQueueEdit"],
+      "sessionId" | "itemId" | "revision" | "clientEditId"
+    >
+  >
   /** A different interface was never invoked; only this SID shares its original queue boundary. */
   queueBlockedSessionId?: string
 }
@@ -83,6 +89,14 @@ export function createRequestController(invoke: Invocation, now = Date.now) {
     ModelOperation,
     NonNullable<ResponseState["queueReceiptInput"]>
   >()
+  const unresolvedEdits = new Map<
+    ModelOperation,
+    NonNullable<ResponseState["queueEditInput"]>
+  >()
+  const editBlockers = new Map<
+    ModelOperation,
+    NonNullable<ResponseState["queueEditInput"]>
+  >()
   const queueBlockers = new Map<
     ModelOperation,
     {
@@ -132,21 +146,25 @@ export function createRequestController(invoke: Invocation, now = Date.now) {
         status:
           unresolved.has(old.operation) ||
           unresolvedQueues.has(old.operation) ||
+          unresolvedEdits.has(old.operation) ||
           unresolvedAuthorizations.has(old.operation)
             ? "unknown"
             : "cancelled",
         receiptInput: unresolved.get(old.operation),
         queueReceiptInput: unresolvedQueues.get(old.operation),
+        queueEditInput: unresolvedEdits.get(old.operation),
         authorizationInput: unresolvedAuthorizations.has(old.operation)
           ? { id: unresolvedAuthorizations.get(old.operation)! }
           : undefined,
-        text: unresolvedQueues.has(old.operation)
-          ? "已取消等待；原队列操作是否采用尚未确认，请查询原会话和原请求编号的队列操作回执。"
-          : unresolved.has(old.operation)
-            ? "已取消等待；原写入是否提交尚未确认，请查询该原请求的写入回执。"
-            : unresolvedAuthorizations.has(old.operation)
-              ? "已取消等待；授权准备可能已经开始，请查询或取消原授权任务，不要启动另一授权。"
-              : "已取消等待。已经开始的任务不保证回滚；请根据接口说明确认最终状态。",
+        text: unresolvedEdits.has(old.operation)
+          ? "已取消等待；原排队编辑是否采用尚未确认，请核对原项与冻结的clientEditId，不要重存。"
+          : unresolvedQueues.has(old.operation)
+            ? "已取消等待；原队列操作是否采用尚未确认，请查询原会话和原请求编号的队列操作回执。"
+            : unresolved.has(old.operation)
+              ? "已取消等待；原写入是否提交尚未确认，请查询该原请求的写入回执。"
+              : unresolvedAuthorizations.has(old.operation)
+                ? "已取消等待；授权准备可能已经开始，请查询或取消原授权任务，不要启动另一授权。"
+                : "已取消等待。已经开始的任务不保证回滚；请根据接口说明确认最终状态。",
         elapsedMs: Math.max(0, now() - old.start),
         startedAt: new Date(old.start).toISOString(),
       },
@@ -192,6 +210,8 @@ export function createRequestController(invoke: Invocation, now = Date.now) {
         active?.operation === operation ||
         unresolved.has(operation) ||
         unresolvedQueues.has(operation) ||
+        unresolvedEdits.has(operation) ||
+        editBlockers.has(operation) ||
         queueBlockers.has(operation) ||
         unresolvedAuthorizations.has(operation)
       )
@@ -208,6 +228,7 @@ export function createRequestController(invoke: Invocation, now = Date.now) {
         !snapshot[operation] ||
         unresolved.has(operation) ||
         unresolvedQueues.has(operation) ||
+        unresolvedEdits.has(operation) ||
         unresolvedAuthorizations.has(operation)
       )
         return
@@ -227,6 +248,18 @@ export function createRequestController(invoke: Invocation, now = Date.now) {
               crypto.randomUUID(),
           }
         }
+        if (
+          operation === "conversationQueueEdit" &&
+          input &&
+          typeof input === "object" &&
+          !Array.isArray(input)
+        )
+          input = {
+            ...input,
+            clientEditId:
+              (input as { clientEditId?: string }).clientEditId ??
+              crypto.randomUUID(),
+          }
         validate(operation, input)
       } catch (error) {
         update(operation, {
@@ -239,6 +272,21 @@ export function createRequestController(invoke: Invocation, now = Date.now) {
       }
       if (writesQueue(operation)) {
         const sessionId = (input as { sessionId: string }).sessionId
+        const editing = [...unresolvedEdits.values()].find(
+          (original) => original.sessionId === sessionId
+        )
+        if (editing) {
+          editBlockers.set(operation, editing)
+          update(operation, {
+            response: {
+              status: "unknown",
+              queueEditInput: editing,
+              queueBlockedSessionId: sessionId,
+              text: "本接口尚未执行。同一会话的原排队编辑尚待核对，请先核对下方原项和编辑身份。",
+            },
+          })
+          return
+        }
         const blocker = [...unresolvedQueues].find(
           ([, original]) => original.sessionId === sessionId
         )
@@ -259,6 +307,7 @@ export function createRequestController(invoke: Invocation, now = Date.now) {
           return
         }
       }
+      editBlockers.delete(operation)
       queueBlockers.delete(operation)
       const request = {
         operation,
@@ -266,6 +315,22 @@ export function createRequestController(invoke: Invocation, now = Date.now) {
         start: now(),
       }
       active = request
+      if (operation === "conversationQueueEdit") {
+        const original = input as RpcRequests["conversationQueueEdit"]
+        unresolvedEdits.set(
+          operation,
+          Object.freeze({
+            sessionId: original.sessionId,
+            itemId: original.itemId,
+            revision: original.revision,
+            clientEditId: original.clientEditId,
+          })
+        )
+        update(operation, {
+          input: JSON.stringify(input, null, 2),
+          dirty: true,
+        })
+      }
       if (supportsQueueReceipt(operation)) {
         const original = input as RpcRequests["conversationQueueReceiptRead"]
         unresolvedQueues.set(
@@ -313,6 +378,7 @@ export function createRequestController(invoke: Invocation, now = Date.now) {
         if (active !== request || request.controller.signal.aborted) return
         unresolved.delete(operation)
         unresolvedQueues.delete(operation)
+        unresolvedEdits.delete(operation)
         unresolvedAuthorizations.delete(operation)
         if (
           operation === "conversationQueueReceiptRead" &&
@@ -363,6 +429,50 @@ export function createRequestController(invoke: Invocation, now = Date.now) {
                     ? feedbackFromError({ issue: receipt.issue })
                     : undefined,
                 },
+              })
+            }
+          }
+        }
+        if (
+          operation === "conversationQueueItemRead" &&
+          result &&
+          typeof result === "object"
+        ) {
+          const receipt = result as {
+            id: string
+            editBaseRevision?: number
+            editRequestId?: string
+          }
+          const queried = input as RpcRequests["conversationQueueItemRead"]
+          for (const [originalOperation, original] of unresolvedEdits) {
+            if (
+              original.sessionId !== queried.sessionId ||
+              original.itemId !== queried.itemId ||
+              receipt.id !== original.itemId ||
+              !original.clientEditId ||
+              receipt.editRequestId !== original.clientEditId ||
+              receipt.editBaseRevision !== original.revision
+            )
+              continue
+            unresolvedEdits.delete(originalOperation)
+            update(originalOperation, {
+              response: {
+                status: "success",
+                text: JSON.stringify(
+                  {
+                    result: "原编辑已按原版本及clientEditId核对，未再次执行",
+                    receipt,
+                  },
+                  null,
+                  2
+                ),
+              },
+            })
+            for (const [blockedOperation, blocker] of editBlockers) {
+              if (blocker !== original) continue
+              editBlockers.delete(blockedOperation)
+              update(blockedOperation, {
+                response: { status: "idle", text: "" },
               })
             }
           }
@@ -476,18 +586,23 @@ export function createRequestController(invoke: Invocation, now = Date.now) {
           error.name === "RpcRequestRejected" &&
           feedback.code !== "result_unknown" &&
           feedback.recovery !== "check"
-        if (definiteQueueRejection) unresolvedQueues.delete(operation)
+        if (definiteQueueRejection) {
+          unresolvedQueues.delete(operation)
+          unresolvedEdits.delete(operation)
+        }
         const queueReceiptInput = unresolvedQueues.get(operation)
         update(operation, {
           response: {
             receiptInput: unresolved.get(operation),
             queueReceiptInput,
+            queueEditInput: unresolvedEdits.get(operation),
             authorizationInput: unresolvedAuthorizations.has(operation)
               ? { id: unresolvedAuthorizations.get(operation)! }
               : undefined,
             issue: feedback,
             status:
               queueReceiptInput ||
+              unresolvedEdits.has(operation) ||
               feedback.code === "result_unknown" ||
               feedback.recovery === "check"
                 ? "unknown"

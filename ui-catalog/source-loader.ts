@@ -4,9 +4,11 @@ import { catalogImportPath } from "./catalog-path"
 const sources = import.meta.glob<string>(
   [
     "../src/**/*.tsx",
+    "../backend/plugins/**/*.tsx",
     "../api-catalog/**/*.tsx",
     "./**/*.tsx",
     "!../src/**/*.catalog.tsx",
+    "!../backend/plugins/**/*.catalog.tsx",
     "!../api-catalog/**/*.catalog.tsx",
     "!./**/*.catalog.tsx",
   ],

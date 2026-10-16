@@ -4,6 +4,7 @@ import type { CatalogEntry } from "./catalog-types"
 // A preview loads the tiny ID/path index and exactly one demonstration module, never the documentation index or raw source map.
 const definitions = import.meta.glob<{ default: CatalogEntry }>([
   "../src/**/*.catalog.tsx",
+  "../backend/plugins/**/*.catalog.tsx",
   "../api-catalog/**/*.catalog.tsx",
   "./**/*.catalog.tsx",
 ])

@@ -1,5 +1,9 @@
 import { operations } from "../backend/contract.mjs"
 import {
+  fileOperations,
+  fileModule,
+} from "../backend/plugins/file-workbench/contract.mjs"
+import {
   serviceRegistry,
   serviceRoot,
   operationDependencies,
@@ -19,6 +23,13 @@ export function architectureText() {
     )
     modules.set(module, rows)
   }
+  modules.set("文件工作栏", [
+    fileModule.responsibility,
+    ...Object.entries(fileOperations).map(
+      ([name, operation]) =>
+        `- file-workbench.${name} → pluginCall\n  源码：${fileModule.source}\n  数据归属：${fileModule.storage}\n  调用边界：${operation.scope} / remote=${operation.remote}`
+    ),
+  ])
   return [...modules]
     .map(([module, rows]) => `## ${module}\n\n${rows.join("\n\n")}`)
     .join("\n\n")

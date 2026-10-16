@@ -91,6 +91,7 @@ export function ResponseViewer({
                 response.status === "running" ||
                 !!response.receiptInput ||
                 !!response.queueReceiptInput ||
+                !!response.queueEditInput ||
                 !!response.authorizationInput
               }
               onClick={onClear}
@@ -147,6 +148,28 @@ export function ResponseViewer({
               label="复制原授权任务参数"
             />
           </div>
+        </div>
+      )}
+      {response.queueEditInput && (
+        <div className="flex flex-col gap-2 py-3">
+          <p className="text-sm">
+            使用“核对原排队编辑”（conversationQueueItemRead）读取原项。须同时匹配下方
+            revision 与 clientEditId；未查到或身份不同仍是未知，不要重新保存。
+          </p>
+          <pre className="api-response-output moon-scrollbar">
+            {JSON.stringify(response.queueEditInput, null, 2)}
+          </pre>
+          <CopyButton
+            value={JSON.stringify(
+              {
+                sessionId: response.queueEditInput.sessionId,
+                itemId: response.queueEditInput.itemId,
+              },
+              null,
+              2
+            )}
+            label="复制原排队编辑查询参数"
+          />
         </div>
       )}
       {response.queueReceiptInput && (

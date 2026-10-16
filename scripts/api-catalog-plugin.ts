@@ -1,10 +1,12 @@
 import type { Plugin } from "vite"
 import { operations, schemas } from "../backend/contract.mjs"
 import type { Schema } from "../backend/contract.mjs"
+import { fileOperations } from "../backend/plugins/file-workbench/contract.mjs"
 
 const indexId = "virtual:moon-api-index"
 const docsId = "virtual:moon-api-docs"
 const documentPrefix = `${docsId}/`
+const fileDocsId = "virtual:moon-file-api-docs"
 
 /** Follow the same JSON Schema subset as the formal runtime contract, including cycles. */
 export function collectReferencedSchemas(
@@ -63,6 +65,7 @@ export function apiCatalogPlugin(): Plugin {
       if (
         id === indexId ||
         id === docsId ||
+        id === fileDocsId ||
         (id.startsWith(documentPrefix) &&
           Object.hasOwn(operations, id.slice(documentPrefix.length)))
       )
@@ -76,7 +79,55 @@ export function apiCatalogPlugin(): Plugin {
           module: definition.module ?? "模型配置",
           effect: definition.effect,
         }))
-        return `export const apiIndex = ${JSON.stringify(items)}`
+        const fileItems = Object.entries(fileOperations).map(
+          ([name, definition]) => ({
+            id: `file-workbench.${name}`,
+            name,
+            title: definition.title,
+            module: definition.module,
+            effect: definition.effect,
+          })
+        )
+        return `export const apiIndex = ${JSON.stringify(items)};\nexport const fileApiIndex = ${JSON.stringify(fileItems)}`
+      }
+      if (id === `\0${fileDocsId}`) {
+        const documents = Object.fromEntries(
+          Object.entries(fileOperations).map(([name, registered]) => {
+            const envelope = {
+              ...operations.pluginCall,
+              title: registered.title,
+              effect: registered.effect,
+              example: {
+                id: "file-workbench",
+                operation: name,
+                sessionId: "session-id",
+                payload: JSON.stringify(registered.example),
+              },
+            }
+            const definition = {
+              ...envelope,
+              module: registered.module,
+              request: registered.input,
+              response: registered.output,
+              condition: registered.condition,
+              errors: registered.errors,
+              result: "{ value: 实际插件结果 }",
+            }
+            return [
+              name,
+              {
+                definition,
+                envelope,
+                schemas: collectReferencedSchemas(
+                  [registered.input, registered.output, { $ref: "RpcFailure" }],
+                  schemas,
+                  `file-workbench.${name}`
+                ),
+              },
+            ]
+          })
+        )
+        return `export const fileApiDocs = ${JSON.stringify(documents)}`
       }
       if (id === `\0${docsId}`) {
         const loaders = Object.keys(operations).map(

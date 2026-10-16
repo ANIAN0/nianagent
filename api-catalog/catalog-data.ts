@@ -1,4 +1,4 @@
-import { apiIndex } from "virtual:moon-api-index"
+import { apiIndex, fileApiIndex } from "virtual:moon-api-index"
 import type { ModelOperation } from "@/contracts/rpc.generated"
 import type { OperationDefinition, SchemaRegistry } from "./components/types"
 
@@ -9,6 +9,15 @@ export type OperationIndexItem = {
   effect: string
 }
 export const operationIndex: readonly OperationIndexItem[] = apiIndex
+export type FileOperationIndexItem = {
+  id: string
+  name: string
+  title: string
+  module: string
+  effect: string
+}
+export const fileOperationIndex: readonly FileOperationIndexItem[] =
+  fileApiIndex
 export type OperationDocumentation = {
   definition: OperationDefinition
   schemas: SchemaRegistry

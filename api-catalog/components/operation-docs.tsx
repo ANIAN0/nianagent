@@ -4,12 +4,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { DeferredContent } from "./deferred-content"
 import { CopyButton } from "./copy-button"
-import type {
-  ModelOperation,
-  OperationDefinition,
-  SchemaRegistry,
-  Schema,
-} from "./types"
+import type { OperationDefinition, SchemaRegistry, Schema } from "./types"
 
 const loadFields = () =>
   import("./schema-field-table").then((module) => ({
@@ -64,7 +59,7 @@ export function OperationDocs({
   definition,
   schemas,
 }: {
-  operation: ModelOperation
+  operation: string
   definition: OperationDefinition
   schemas: SchemaRegistry
 }) {

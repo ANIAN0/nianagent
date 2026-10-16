@@ -16,7 +16,7 @@ import {
   EmptyContent,
 } from "@/components/ui/empty"
 import { cn } from "@/lib/utils"
-import type { ModelOperation, NavigationItem } from "./types"
+import type { NavigationItem } from "./types"
 
 export function ModuleNavigation({
   items,
@@ -28,10 +28,10 @@ export function ModuleNavigation({
   selectedModule,
 }: {
   items: NavigationItem[]
-  selected?: ModelOperation
+  selected?: string
   query: string
   onQueryChange: (value: string) => void
-  onSelect: (operation: ModelOperation) => void
+  onSelect: (operation: string) => void
   onModuleSelect?: (module: string) => void
   selectedModule?: string
 }) {

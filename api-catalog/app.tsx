@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useRef, useState } from "react"
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { isTauri } from "@tauri-apps/api/core"
 import { FlaskConical } from "lucide-react"
 import { useTheme } from "@/components/theme-provider"
@@ -16,22 +16,47 @@ import { CatalogHeader } from "./components/catalog-header"
 import { ModuleNavigation } from "./components/module-navigation"
 import { OperationDocs } from "./components/operation-docs"
 import { DeferredContent } from "./components/deferred-content"
-import { operationIndex, operationUrl, moduleUrl } from "./catalog-data"
+import {
+  operationIndex,
+  fileOperationIndex,
+  operationUrl,
+  moduleUrl,
+} from "./catalog-data"
+import type { FileApiDrafts } from "./file-plugin-operation"
 import { useCatalogController } from "./use-catalog-controller"
 import type { ModelOperation } from "@/contracts/rpc.generated"
 
 const loadArchitecturePanel = () => import("./architecture-panel")
 const loadDebugPanel = () => import("./components/debug-panel")
 const loadNavigationDialog = () => import("./components/navigation-dialog")
+const loadFilePluginOperation = () => import("./file-plugin-operation")
 const Documentation = memo(OperationDocs)
 const Navigation = memo(ModuleNavigation)
-const navigationItems = [...operationIndex]
+const navigationItems = [...operationIndex, ...fileOperationIndex]
 
 export function ApiCatalogApp() {
   const [debugOperation, setDebugOperation] = useState<ModelOperation | null>(
     null
   )
   const page = useCatalogController(debugOperation)
+  const [fileDrafts] = useState<FileApiDrafts>(() => new Map())
+  const cancelFileCalls = useCallback(() => {
+    for (const requests of fileDrafts.values()) requests.cancel()
+  }, [fileDrafts])
+  useEffect(
+    () => () => {
+      for (const requests of fileDrafts.values()) requests.dispose()
+    },
+    [fileDrafts]
+  )
+  useEffect(() => {
+    window.addEventListener("pagehide", cancelFileCalls)
+    window.addEventListener("popstate", cancelFileCalls)
+    return () => {
+      window.removeEventListener("pagehide", cancelFileCalls)
+      window.removeEventListener("popstate", cancelFileCalls)
+    }
+  }, [cancelFileCalls])
   const navigate = page.navigate
   const { theme, setTheme } = useTheme()
   const [query, setQuery] = useState("")
@@ -47,7 +72,10 @@ export function ApiCatalogApp() {
     : operationIndex.find((item) => item.id === page.selection.operation)
   const moduleValid =
     page.selection.module &&
-    operationIndex.some((item) => item.module === page.selection.module)
+    navigationItems.some((item) => item.module === page.selection.module)
+  const selectedFile =
+    !page.selection.module &&
+    fileOperationIndex.find((item) => item.id === page.selection.operation)
   const environment = isTauri()
     ? "Tauri → Moon 共享宿主"
     : "浏览器同源代理 → Moon 共享宿主"
@@ -72,23 +100,25 @@ export function ApiCatalogApp() {
     }
   }, [selectedId, input, contract])
   const selectOperation = useCallback(
-    (operation: ModelOperation) => {
+    (operation: string) => {
+      cancelFileCalls()
       navigate(operationUrl(operation))
       setNavigationOpen(false)
     },
-    [navigate]
+    [navigate, cancelFileCalls]
   )
   const selectModule = useCallback(
     (module: string) => {
+      cancelFileCalls()
       navigate(moduleUrl(module))
       setNavigationOpen(false)
     },
-    [navigate]
+    [navigate, cancelFileCalls]
   )
   const nav = (
     <Navigation
       items={navigationItems}
-      selected={selected?.id}
+      selected={selectedFile ? selectedFile.id : selected?.id}
       selectedModule={page.selection.module ?? undefined}
       query={query}
       onQueryChange={setQuery}
@@ -97,7 +127,7 @@ export function ApiCatalogApp() {
     />
   )
   const unknown =
-    (!page.selection.module && !selected) ||
+    (!page.selection.module && !selected && !selectedFile) ||
     (page.selection.module && !moduleValid)
   return (
     <div className="api-catalog-root">
@@ -112,7 +142,10 @@ export function ApiCatalogApp() {
               : null
           setNavigationOpen(true)
         }}
-        onLeave={page.requests.cancel}
+        onLeave={() => {
+          page.requests.cancel()
+          cancelFileCalls()
+        }}
       />
       <div className="api-catalog-layout">
         <aside className="api-catalog-sidebar">{nav}</aside>
@@ -135,6 +168,18 @@ export function ApiCatalogApp() {
                 </Button>
               </EmptyContent>
             </Empty>
+          ) : selectedFile ? (
+            <DeferredContent
+              key={selectedFile.id}
+              load={loadFilePluginOperation}
+              props={{
+                operation: selectedFile.name,
+                environment,
+                drafts: fileDrafts,
+              }}
+              label="文件插件接口"
+              fallback={<div role="status">正在载入正式插件契约…</div>}
+            />
           ) : page.selection.module ? (
             <DeferredContent
               load={loadArchitecturePanel}

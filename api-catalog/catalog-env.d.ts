@@ -1,5 +1,15 @@
 declare module "virtual:moon-api-index" {
   export const apiIndex: import("./catalog-data").OperationIndexItem[]
+  export const fileApiIndex: import("./catalog-data").FileOperationIndexItem[]
+}
+
+declare module "virtual:moon-file-api-docs" {
+  export const fileApiDocs: Record<
+    string,
+    import("./catalog-data").OperationDocumentation & {
+      envelope: import("./components/types").OperationDefinition
+    }
+  >
 }
 
 declare module "virtual:moon-api-docs" {

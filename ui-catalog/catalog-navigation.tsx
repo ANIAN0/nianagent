@@ -43,12 +43,14 @@ export function CatalogNavigation({
   hrefForSection: (entry: CatalogMetadata, section: StorySection) => string
 }) {
   const selectionKey = `${component}:${section ?? ""}:${stateId ?? ""}`
-  const currentPath = () =>
-    entries.some(
-      (entry) => entry.id === component && entry.layer === "复合组件"
-    )
+  const currentPath = () => {
+    const entry = entries.find((entry) => entry.id === component)
+    return entry?.layer === "复合组件"
       ? [component, `${component}:${section ?? "normal"}`]
-      : []
+      : entry?.layer === "基础组件"
+        ? [`basic:${entry.group}`]
+        : []
+  }
   const [expansion, setExpansion] = useState(() => ({
     selectionKey,
     groups: new Set(currentPath()),
@@ -155,11 +157,16 @@ export function CatalogNavigation({
               <details
                 className="catalog-flow-group"
                 key={group}
-                open={basic.some(
-                  (entry) => entry.id === component && entry.group === group
-                )}
+                open={expansion.groups.has(`basic:${group}`)}
               >
-                <summary className="catalog-group">
+                <summary
+                  className="catalog-group"
+                  onClick={(event) => {
+                    event.preventDefault()
+                    event.currentTarget.focus()
+                    toggleGroup(`basic:${group}`)
+                  }}
+                >
                   <ChevronRight aria-hidden="true" />
                   {group}
                 </summary>

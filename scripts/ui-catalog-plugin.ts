@@ -9,7 +9,7 @@ const publicId = "virtual:moon-ui-catalog"
 const resolvedId = `\0${publicId}`
 const previewId = "virtual:moon-ui-previews"
 const resolvedPreviewId = `\0${previewId}`
-const sourceDirectories = ["src", "api-catalog", "ui-catalog"]
+const sourceDirectories = ["src", "backend/plugins", "api-catalog", "ui-catalog"]
 type StaticValue =
   | string
   | number

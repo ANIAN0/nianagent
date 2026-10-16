@@ -1,7 +1,7 @@
 import { DeferredContent } from "./components/deferred-content"
 import { Input } from "@/components/ui/input"
 import type { Schema, SchemaRegistry } from "./components/types"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { isTauri } from "@tauri-apps/api/core"
 import {
   desktopCommandMetadata,
@@ -82,6 +82,13 @@ export function DesktopApiCatalog() {
   const [result, setResult] = useState<string | null>(null)
   const [issue, setIssue] = useState<DesktopIssue | null>(null)
   const [busy, setBusy] = useState(false)
+  const request = useRef(0)
+  useEffect(
+    () => () => {
+      request.current++
+    },
+    []
+  )
   const [mobileNavigation, setMobileNavigation] = useState(false)
   const definition = desktopCommandMetadata[selected]
   const filtered = entries.filter(([id, item]) =>
@@ -93,6 +100,7 @@ export function DesktopApiCatalog() {
     selected === "desktop_get_state" || selected === "update_check"
   async function read() {
     if (!callable || busy) return
+    const identity = ++request.current
     setBusy(true)
     setIssue(null)
     try {
@@ -100,11 +108,12 @@ export function DesktopApiCatalog() {
         selected === "desktop_get_state"
           ? await desktopCall("desktop_get_state", undefined)
           : await desktopCall("update_check", undefined)
-      setResult(JSON.stringify(value, null, 2))
+      if (identity === request.current)
+        setResult(JSON.stringify(value, null, 2))
     } catch (error) {
-      setIssue(desktopIssue(error))
+      if (identity === request.current) setIssue(desktopIssue(error))
     } finally {
-      setBusy(false)
+      if (identity === request.current) setBusy(false)
     }
   }
   const navigation = (
@@ -141,6 +150,8 @@ export function DesktopApiCatalog() {
                   )
                     return
                   event.preventDefault()
+                  request.current++
+                  setBusy(false)
                   history.replaceState(
                     null,
                     "",

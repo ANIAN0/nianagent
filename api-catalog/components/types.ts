@@ -5,7 +5,7 @@ export type { Schema, ModelOperation }
 export type OperationDefinition = (typeof operations)[ModelOperation]
 export type SchemaRegistry = Record<string, Schema>
 export type NavigationItem = {
-  id: ModelOperation
+  id: string
   title: string
   module: string
   effect?: string
