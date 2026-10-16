@@ -156,7 +156,8 @@ export function useConversationHistory({
           issueFeedback={(message, recovered) =>
             message.issue &&
             message.issue.code !== "cancelled" &&
-            message.id !== currentIssueMessage ? (
+            message.id !== currentIssueMessage &&
+            !(currentIssueMessage && !recovered && turn.messages.some(current => current.id === currentIssueMessage && current.issue?.code === message.issue?.code && current.issue?.summary === message.issue?.summary)) ? (
               <ConversationTurnFeedback
                 title={recovered ? "先前失败，已恢复" : "本轮运行失败"}
                 message={message.issue.summary}

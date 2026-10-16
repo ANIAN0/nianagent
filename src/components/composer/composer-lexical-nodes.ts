@@ -195,12 +195,35 @@ export function setCaret(start: number, end: number) {
   const set = (point: typeof selection.anchor, target: number) => {
     function find(node: LexicalNode): boolean {
       const before = offsetBefore(node)
-      if ($isTextNode(node) && target <= before + node.getTextContentSize()) {
+      if (
+        $isTextNode(node) &&
+        target >= before &&
+        target <= before + node.getTextContentSize()
+      ) {
         point.set(node.getKey(), Math.max(0, target - before), "text")
         return true
       }
-      if ($isElementNode(node)) return node.getChildren().some(find)
-      if (node.getType() === "linebreak" && target <= before + 1) {
+      if ($isElementNode(node)) {
+        if (node.getChildren().some(find)) return true
+        const after = before + node.getTextContentSize()
+        // Empty paragraphs have no text child. Root block separators also
+        // belong to this boundary, never to the following paragraph's text.
+        if (
+          node.getType() !== "root" &&
+          target >= before &&
+          (target <= after ||
+            (node.getParent()?.getType() === "root" && target < after + 2))
+        ) {
+          point.set(node.getKey(), node.getChildrenSize(), "element")
+          return true
+        }
+        return false
+      }
+      if (
+        node.getType() === "linebreak" &&
+        target >= before &&
+        target <= before + 1
+      ) {
         const parent = node.getParent()!
         point.set(
           parent.getKey(),
@@ -218,7 +241,7 @@ export function setCaret(start: number, end: number) {
       else point.set($getRoot().getKey(), 0, "element")
     }
   }
-  set(selection.anchor, start)
-  set(selection.focus, end)
+  set(selection.anchor, Math.max(0, start))
+  set(selection.focus, Math.max(0, end))
   $setSelection(selection)
 }

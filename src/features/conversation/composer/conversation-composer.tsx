@@ -329,9 +329,7 @@ export function ConversationComposer({
                   retryLabel={(material) =>
                     materialController.retryLabel(material.id)
                   }
-                  onRemove={(id) =>
-                    change(removeComposerMaterial(draft, id, workspacePath))
-                  }
+                  onRemove={(id) => { materialController.discard(id); change(removeComposerMaterial(draft, id, workspacePath)) }}
                 />
                 <ComposerToolbar
                   sessionId={sessionId}

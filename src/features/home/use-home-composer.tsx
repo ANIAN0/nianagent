@@ -1,4 +1,5 @@
 import { useHomeDraftOwner } from "./use-home-draft-owner"
+import { useRemoteConnectionRevision } from "@/lib/rpc/use-remote-connection"
 
 import "./home.css"
 import {
@@ -51,7 +52,12 @@ export function useHomeComposer({
   initialDraft = {},
   onSubmit,
   onDraftChange,
+  onDraftOwner,
 }: HomeComposerProps) {
+  const connectionRevision = useRemoteConnectionRevision()
+  const configReadOwner = useRef("")
+  const configEditedOwner = useRef("")
+  const configRequest = useRef<AbortController | null>(null)
   const {
     rawDraft,
     sessionId,
@@ -61,6 +67,7 @@ export function useHomeComposer({
     bindAnchor,
     draft,
     updateDraft,
+    retireDraft,
     latestDraft,
     mounted,
     inputRef,
@@ -86,10 +93,39 @@ export function useHomeComposer({
     onDraftChange,
   })
 
+  useLayoutEffect(
+    () =>
+      onDraftOwner?.(
+        sessionId,
+        (next) => {
+          if (
+            JSON.stringify(next.session) !==
+            JSON.stringify(latestDraft.current.session)
+          )
+            configEditedOwner.current = `${sessionId}:${workspacePath}`
+          return updateDraft(() => next)
+        },
+        () => {
+          retireDraft()
+          configRequest.current?.abort()
+        }
+      ),
+    [
+      sessionId,
+      workspacePath,
+      onDraftOwner,
+      updateDraft,
+      latestDraft,
+      retireDraft,
+    ]
+  )
+
   useEffect(() => {
     if (!rawDraft.workspaceId) return
-    onDraftChange?.({ ...rawDraft, sessionId })
-  }, [rawDraft, sessionId, onDraftChange])
+    // A retained owner's effect can run after its live editor changed.
+    // Announce the updater's current value rather than an older render.
+    onDraftChange?.(latestDraft.current)
+  }, [rawDraft, sessionId, onDraftChange, latestDraft])
   const [result, setResult] = useState("")
   const [submitFeedback, setSubmitFeedback] = useState<{
     sessionId: string
@@ -129,7 +165,6 @@ export function useHomeComposer({
       })),
   })
   const submitRequest = useRef<AbortController | null>(null)
-  const configRequest = useRef<AbortController | null>(null)
   const [readySession, setReadySession] = useState("")
   const [configRevision, setConfigRevision] = useState(0)
   const configKey = `${sessionId}:${workspacePath}:${configRevision}`
@@ -344,6 +379,7 @@ export function useHomeComposer({
   useEffect(() => {
     const controller = new AbortController()
     configRequest.current = controller
+    const owner = `${sessionId}:${workspacePath}`
     if (sessionService && workspacePath) {
       Promise.all([
         sessionService.catalog(workspacePath, controller.signal),
@@ -351,7 +387,11 @@ export function useHomeComposer({
       ])
         .then(([catalog, saved]) => {
           if (controller.signal.aborted) return
+          const keepCandidate =
+            configReadOwner.current === owner ||
+            configEditedOwner.current === owner
           const options =
+            (keepCandidate ? latestDraft.current.session : undefined) ??
             saved ??
             (sessionSeed.current.workspaceId === rawDraft.workspaceId
               ? sessionSeed.current.session
@@ -364,6 +404,7 @@ export function useHomeComposer({
               instructionScope: options.instructionScope,
             },
           }))
+          configReadOwner.current = owner
           setReadySession(configKey)
           setConfigFeedback(undefined)
         })
@@ -389,7 +430,6 @@ export function useHomeComposer({
     }
     return () => {
       controller.abort()
-      submitRequest.current?.abort()
     }
   }, [
     sessionService,
@@ -399,7 +439,13 @@ export function useHomeComposer({
     updateDraft,
     configKey,
     sessionSeed,
+    latestDraft,
+    connectionRevision,
   ])
+  useEffect(
+    () => () => submitRequest.current?.abort(),
+    [sessionId, workspacePath]
+  )
   const eligibility = composerDraftEligibility(
     draft,
     data,
@@ -424,11 +470,17 @@ export function useHomeComposer({
     models.includes(draft.model)
   function change(patch: Partial<ComposerDraft>) {
     if (inactive || acceptedSubmission) return
+    if (patch.session !== undefined)
+      configEditedOwner.current = `${sessionId}:${workspacePath}`
     // Keep an outstanding Home request and its material operations on one cwd.
     // Switching pages is owned by App and creates/reuses a separate view owner.
     if (
       patch.workspaceId !== undefined &&
-      (submitting || pendingCopy || unknownSubmission)
+      (submitting ||
+        pendingCopy ||
+        unknownSubmission ||
+        materialController.choosing ||
+        rawDraft.materials.some((item) => item.status === "preparing"))
     )
       return
     if (
@@ -439,19 +491,32 @@ export function useHomeComposer({
       configRequest.current?.abort()
       submitRequest.current?.abort()
     }
-    updateDraft((current) =>
-      patch.workspaceId !== undefined &&
-      patch.workspaceId !== current.workspaceId
-        ? {
-            ...current,
-            text: "",
-            materials: [],
-            sessionId: undefined,
-            ...draftStore?.read(patch.workspaceId),
-            ...patch,
-          }
-        : { ...current, ...patch }
-    )
+    updateDraft((current) => {
+      if (
+        patch.workspaceId === undefined ||
+        patch.workspaceId === current.workspaceId
+      )
+        return { ...current, ...patch }
+      const cached = draftStore?.read(patch.workspaceId)
+      const originalPending =
+        !!cached?.sessionId && unconfirmedSessionIds.includes(cached.sessionId)
+      const next = {
+        ...current,
+        text: "",
+        materials: [],
+        ...cached,
+        ...(originalPending ? { text: "", materials: [] } : {}),
+        ...patch,
+        sessionId: crypto.randomUUID(),
+      }
+      delete next.homeRecoveryKey
+      delete next.homeTransferId
+      sessionSeed.current = {
+        workspaceId: next.workspaceId,
+        session: cached?.session,
+      }
+      return next
+    })
     setResult("")
     if (submissionFailure && !unknownSubmission) setSubmitFeedback(undefined)
     if (patch.session) {

@@ -1,4 +1,4 @@
-import { useCallback } from "react"
+import { useCallback, useMemo } from "react"
 import { HomeComposer, type HomeComposerProps } from "./home-composer"
 import type { ComposerData, ComposerDraft } from "@/lib/composer/types"
 import type { useHomeSubmissionController } from "./use-home-submission-controller"
@@ -10,10 +10,12 @@ function OwnedHomeComposer({
   viewKey,
   onOwnedDraftChange,
   onOwnedSelectionActivity,
+  persistOwnedDraft,
   ...props
 }: Omit<HomeComposerProps, "onDraftChange" | "onMaterialSelectionActivity"> & {
   viewKey: number
   onOwnedDraftChange: (draft: ComposerDraft, viewKey: number) => void
+  persistOwnedDraft: (draft: ComposerDraft, viewKey: number) => void
   onOwnedSelectionActivity: (
     sessionId: string,
     active: boolean,
@@ -29,9 +31,17 @@ function OwnedHomeComposer({
       onOwnedSelectionActivity(id, active, viewKey),
     [onOwnedSelectionActivity, viewKey]
   )
+  const draftStore = useMemo(
+    () => ({
+      read: persistentHomeDraftStore.read,
+      write: (draft: ComposerDraft) => persistOwnedDraft(draft, viewKey),
+    }),
+    [persistOwnedDraft, viewKey]
+  )
   return (
     <HomeComposer
       {...props}
+      draftStore={draftStore}
       onDraftChange={onDraftChange}
       onMaterialSelectionActivity={onSelectionActivity}
     />
@@ -58,9 +68,11 @@ export function HomeSubmissionHost({
     | "prepareHomeSubmission"
     | "checkHomeSubmission"
     | "saveHomeDraft"
+    | "persistOwnedHomeDraft"
     | "saveHomeSelectionActivity"
     | "submitHome"
     | "retryCleanup"
+    | "registerHomeDraftOwner"
   >
   data: ComposerData
   unconfirmed: Record<string, boolean>
@@ -90,8 +102,9 @@ export function HomeSubmissionHost({
       {homeViews.map((view) => {
         const inactive =
           settingsOpen || !!selected || view.key !== homeDraft.key
-        const ownedSubmission = view.draft?.sessionId
-          ? homeSubmissions[view.draft.sessionId]
+        const sessionId = view.draft?.sessionId ?? view.sessionId
+        const ownedSubmission = sessionId
+          ? homeSubmissions[sessionId]
           : visibleHomeSubmission
         return (
           <div
@@ -109,9 +122,7 @@ export function HomeSubmissionHost({
               pendingSubmission={ownedSubmission}
               onRestorationPersisted={acknowledgeHomeRestoration}
               restoredSubmission={
-                view.draft?.sessionId
-                  ? homeRestorations[view.draft.sessionId]
-                  : undefined
+                sessionId ? homeRestorations[sessionId] : undefined
               }
               submissionFeedback={
                 ownedSubmission &&
@@ -149,7 +160,7 @@ export function HomeSubmissionHost({
               acceptedSubmissionIds={Object.entries(homeCleanupErrors)
                 .filter(([, cleanup]) => cleanup.accepted)
                 .map(([id]) => id)}
-              draftStore={persistentHomeDraftStore}
+              persistOwnedDraft={home.persistOwnedHomeDraft}
               unconfirmedSessionIds={[
                 ...new Set([
                   ...Object.keys(unconfirmed),
@@ -165,9 +176,11 @@ export function HomeSubmissionHost({
               initialDraft={
                 view.draft ?? {
                   workspaceId: view.workspaceId,
+                  sessionId: view.sessionId,
                 }
               }
               onOwnedDraftChange={saveHomeDraft}
+              onDraftOwner={home.registerHomeDraftOwner}
               onOwnedSelectionActivity={saveHomeSelectionActivity}
               onSubmit={submitHome}
               onChooseWorkspace={workspaces.choose}

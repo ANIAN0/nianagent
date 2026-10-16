@@ -147,17 +147,46 @@ export class ConversationPermissions {
       pi.on("tool_call", async (event, ctx) => {
         const mode = state.permission?.mode || "workspace",
           name = event.toolName
+        const registered = pi.getAllTools().find((tool) => tool.name === name)
+        const actual =
+          this.conversations.models.plugins?.currentTool(
+            registered,
+            state.session?.getToolDefinition(name)
+          ) ||
+          (registered && registered.sourceInfo?.source !== "builtin"
+            ? { external: true, origin: registered.sourceInfo?.path }
+            : undefined)
+        const contribution = actual
+          ? {
+              ...actual,
+              available: !actual.entry || actual.entry.state === "active",
+            }
+          : undefined
+        if (contribution) {
+          if (!contribution.available)
+            return { block: true, reason: "所属插件已停用。" }
+          if (
+            mode === "read-only" &&
+            contribution.effect &&
+            contribution.effect !== "read"
+          )
+            return { block: true, reason: "只读权限不允许此操作。" }
+        }
         if (mode === "full-access") return
-        if (name === "tool_search" || name === "codemode") return // Nested tool calls pass this same SDK hook.
-        const fileTool = [
-            "read",
-            "write",
-            "edit",
-            "grep",
-            "find",
-            "ls",
-          ].includes(name),
-          mutation = ["write", "edit"].includes(name)
+        if (
+          (name === "tool_search" &&
+            actual?.origin === "<inline:moon-mcp-tool-search>") ||
+          (name === "codemode" &&
+            actual?.origin === "<inline:moon-mcp-codemode>")
+        )
+          return // Nested owned MCP calls pass this same SDK hook.
+        const fileTool =
+            (["read", "write", "edit", "grep", "find", "ls"].includes(name) &&
+              !actual) ||
+            contribution?.resource === "file",
+          mutation =
+            (!actual && ["write", "edit"].includes(name)) ||
+            (actual?.effect && actual.effect !== "read")
         if (mode === "read-only" && (!fileTool || mutation))
           return {
             block: true,

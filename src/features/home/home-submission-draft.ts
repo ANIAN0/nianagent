@@ -34,6 +34,27 @@ export function followingHomeDraft(submitted: ComposerDraft): ComposerDraft {
   return following
 }
 
+/** A retained Home owner also owns edits saved before its history exists. */
+export function ownedFollowingHomeDraft(
+  submission: HomeSubmission,
+  editing?: ComposerDraft
+): ComposerDraft | undefined {
+  if (!editing || editing.sessionId !== submission.sessionId) return
+  if (editing.workspaceId === submission.draft.workspaceId) return editing
+  if (editing.workspaceId) return
+  // Older selected views saved an empty workspace/model while history was
+  // unavailable. Retain their next text/materials with the durable Home owner.
+  const seed = followingHomeDraft(submission.draft)
+  return {
+    ...seed,
+    ...editing,
+    workspaceId: seed.workspaceId,
+    model: editing.model || seed.model,
+    thinking: editing.thinking || seed.thinking,
+    session: seed.session,
+  }
+}
+
 /** A definitive refusal restores the original and preserves anything written meanwhile. */
 export function recoverRejectedHomeDraft(
   submission: HomeSubmission,
@@ -41,6 +62,15 @@ export function recoverRejectedHomeDraft(
 ): HomeDraftRecovery {
   const original = submission.originalDraft ?? submission.draft
   const recoveryKey = homeDraftRecoveryKey(submission)
+  if (
+    submission.clientRequestId &&
+    following.homeRecoveryKey ===
+      JSON.stringify(["chat", submission.sessionId, submission.clientRequestId])
+  )
+    return {
+      draft: { ...structuredClone(following), homeRecoveryKey: recoveryKey },
+      merged: true,
+    }
   if (following.homeRecoveryKey === recoveryKey)
     return { draft: structuredClone(following), merged: true }
   const sameOriginal =

@@ -64,6 +64,7 @@ export default {
   events: [
     "目录/权限/模型/配置分别更新所属草稿；材料使用权威身份",
     "Home onSubmit副本固定，组件页记录服务调用与接收数据",
+    "正式 App 在首页提交已选中但尚无历史时，保留返回原输入入口；准备中断恢复原稿，已发送只核对原请求。当前会话下一稿按原身份交回首页所有者。组件示例不模拟刷新持久化验收。",
   ],
   composition: [
     "HomeComposer / WorkspacePicker / PromptInput / SelectedMaterials / ComposerToolbar",

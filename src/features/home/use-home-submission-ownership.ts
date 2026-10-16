@@ -21,12 +21,16 @@ import {
   recoverRejectedHomeSubmission,
   recordHomeTransfer,
   saveHomeSubmission,
+  saveHomeDraft as persistHomeDraft,
+  saveConversationDraft,
+  restoreHomeDraft,
   type HomeSubmission,
   type HomeDraftCache,
 } from "@/features/conversation/conversation-draft-store"
 import { sameHomeSubmissionAttempt } from "@/features/home/home-receipt-check"
 import {
   homeDraftRecoveryKey,
+  ownedFollowingHomeDraft,
   withHomeDraftRecovery,
 } from "@/features/home/home-submission-draft"
 import {
@@ -53,15 +57,63 @@ export function useHomeSubmissionOwnership({
 }: {
   chat: Pick<
     ReturnType<typeof useLiveConversation>,
-    "adoptHomeDraft" | "settleHomeReceipt"
+    "adoptHomeDraft" | "settleHomeReceipt" | "currentDraft" | "change"
   >
 }) {
+  const {
+    currentDraft: readConversationDraft,
+    change: changeConversationDraft,
+  } = chat
   const [notice, setNotice] = useState("")
-  const [homeDraft, setHomeDraft] = useState<HomeDraftCache>({ key: 0 })
+  const [homeDraft, setHomeDraftState] = useState<HomeDraftCache>({ key: 0 })
+  const homeDraftRef = useRef(homeDraft)
+  const setHomeDraft = useCallback(
+    (
+      apply: HomeDraftCache | ((previous: HomeDraftCache) => HomeDraftCache)
+    ) => {
+      const next =
+        typeof apply === "function" ? apply(homeDraftRef.current) : apply
+      homeDraftRef.current = next
+      setHomeDraftState(next)
+    },
+    []
+  )
+  const persistOwnedHomeDraft = useCallback(
+    (draft: ComposerDraft, viewKey: number) => {
+      const home = homeDraftRef.current
+      if (home.key === viewKey && !home.recovery) persistHomeDraft(draft)
+      else if (draft.sessionId) {
+        saveConversationDraft(draft.sessionId, draft)
+        changeConversationDraft(draft.sessionId, draft)
+      }
+    },
+    [changeConversationDraft]
+  )
   const homeNavigation = useHomeSubmissionNavigation(homeDraft.key)
   const [homeSubmissions, setHomeSubmissions] = useState(restoreHomeSubmissions)
   const homeSubmissionsRef = useRef(homeSubmissions)
   const homeSubmissionEditing = useRef(new Map<string, ComposerDraft>())
+  const homeDraftOwners = useRef(
+    new Map<
+      string,
+      { update: (draft: ComposerDraft) => boolean; retire: () => void }
+    >()
+  )
+  const registerHomeDraftOwner = useCallback(
+    (
+      id: string,
+      update: (draft: ComposerDraft) => boolean,
+      retire: () => void
+    ) => {
+      const owner = { update, retire }
+      homeDraftOwners.current.set(id, owner)
+      return () => {
+        if (homeDraftOwners.current.get(id) === owner)
+          homeDraftOwners.current.delete(id)
+      }
+    },
+    []
+  )
   useMaintenanceSave(() => {
     for (const submission of Object.values(homeSubmissionsRef.current))
       saveHomeSubmission(submission)
@@ -113,60 +165,70 @@ export function useHomeSubmissionOwnership({
   const [homeReconcileErrors, setHomeReconcileErrors] = useState<
     Record<string, string>
   >({})
-  const saveHomeDraft = useCallback((draft: ComposerDraft, viewKey: number) => {
-    const restoration = draft.sessionId
-      ? homeRestorationsRef.current[draft.sessionId]
-      : undefined
-    const awaitingRecovery = !!restoration
-    if (
-      draft.sessionId &&
-      (homeSubmissionsRef.current[draft.sessionId] ||
-        retainedHomeViewsRef.current[viewKey])
-    )
-      homeSubmissionEditing.current.set(draft.sessionId, draft)
-    const retained = retainPreparingHomeView(
-      retainedHomeViewsRef.current,
-      draft,
-      viewKey,
-      !!draft.sessionId && !!homeSubmissionsRef.current[draft.sessionId],
-      !!draft.sessionId && homeSelectionActivities.current.has(draft.sessionId),
-      awaitingRecovery
-    )
-    if (retained !== retainedHomeViewsRef.current) {
-      retainedHomeViewsRef.current = retained
-      setRetainedHomeViews(retained)
-    }
-    if (
-      draft.sessionId &&
-      !homeSubmissionsRef.current[draft.sessionId] &&
-      !awaitingRecovery &&
-      !retained[viewKey] &&
-      !homeSelectionActivities.current.has(draft.sessionId)
-    )
-      homeSubmissionEditing.current.delete(draft.sessionId)
-    setHomeDraft((previous) => {
-      const changed = changeOwnedHomeCache(previous, draft, viewKey)
-      if (changed === previous) return previous
-      return {
-        ...changed,
-        issue:
-          previous.draft &&
-          homeDraftSignature(previous.draft) !== homeDraftSignature(draft)
-            ? undefined
-            : previous.issue,
+  const saveHomeDraft = useCallback(
+    (draft: ComposerDraft, viewKey: number) => {
+      const restoration = draft.sessionId
+        ? homeRestorationsRef.current[draft.sessionId]
+        : undefined
+      const awaitingRecovery = !!restoration
+      if (
+        draft.sessionId &&
+        (homeSubmissionsRef.current[draft.sessionId] ||
+          retainedHomeViewsRef.current[viewKey])
+      ) {
+        homeSubmissionEditing.current.set(draft.sessionId, draft)
+        if (
+          homeSubmissionsRef.current[draft.sessionId] &&
+          readConversationDraft(draft.sessionId)
+        )
+          changeConversationDraft(draft.sessionId, draft)
       }
-    })
-    if (
-      draft.sessionId &&
-      waitingHomeMaterials.current.has(draft.sessionId) &&
-      !hasPreparingHomeMaterials(draft)
-    ) {
-      const id = draft.sessionId
-      // updateDraft writes its source immediately after this callback. Continue
-      // after that write, and verify the same original ID again in the handler.
-      queueMicrotask(() => resumeHomeHandoff.current(id))
-    }
-  }, [])
+      const retained = retainPreparingHomeView(
+        retainedHomeViewsRef.current,
+        draft,
+        viewKey,
+        !!draft.sessionId && !!homeSubmissionsRef.current[draft.sessionId],
+        !!draft.sessionId &&
+          homeSelectionActivities.current.has(draft.sessionId),
+        awaitingRecovery
+      )
+      if (retained !== retainedHomeViewsRef.current) {
+        retainedHomeViewsRef.current = retained
+        setRetainedHomeViews(retained)
+      }
+      if (
+        draft.sessionId &&
+        !homeSubmissionsRef.current[draft.sessionId] &&
+        !awaitingRecovery &&
+        !retained[viewKey] &&
+        !homeSelectionActivities.current.has(draft.sessionId)
+      )
+        homeSubmissionEditing.current.delete(draft.sessionId)
+      setHomeDraft((previous) => {
+        const changed = changeOwnedHomeCache(previous, draft, viewKey)
+        if (changed === previous) return previous
+        return {
+          ...changed,
+          issue:
+            previous.draft &&
+            homeDraftSignature(previous.draft) !== homeDraftSignature(draft)
+              ? undefined
+              : previous.issue,
+        }
+      })
+      if (
+        draft.sessionId &&
+        waitingHomeMaterials.current.has(draft.sessionId) &&
+        !hasPreparingHomeMaterials(draft)
+      ) {
+        const id = draft.sessionId
+        // updateDraft writes its source immediately after this callback. Continue
+        // after that write, and verify the same original ID again in the handler.
+        queueMicrotask(() => resumeHomeHandoff.current(id))
+      }
+    },
+    [readConversationDraft, changeConversationDraft, setHomeDraft]
+  )
   const saveHomeSelectionActivity = useCallback(
     (id: string, active: boolean, viewKey: number) => {
       if (active) homeSelectionActivities.current.set(id, viewKey)
@@ -210,6 +272,15 @@ export function useHomeSubmissionOwnership({
     delete next[id]
     homeSubmissionsRef.current = next
     setHomeSubmissions(next)
+    if (!preserveOwner) {
+      const retained = Object.fromEntries(
+        Object.entries(retainedHomeViewsRef.current).filter(
+          ([, view]) => view.draft.sessionId !== id
+        )
+      )
+      retainedHomeViewsRef.current = retained
+      setRetainedHomeViews(retained)
+    }
     setHomeCleanupErrors((previous) => {
       const next = { ...previous }
       delete next[id]
@@ -335,8 +406,10 @@ export function useHomeSubmissionOwnership({
       }
       // Keep a live material owner until it acknowledges the recovered draft.
       // Recovery is durable before removing the only immutable copy.
-      if (!preserveOwner) forgetHomeSubmission(submission.sessionId)
-      else
+      if (!preserveOwner) {
+        homeDraftOwners.current.get(submission.sessionId)?.retire()
+        forgetHomeSubmission(submission.sessionId)
+      } else
         setHomeCleanupErrors((previous) => ({
           ...previous,
           [submission.sessionId]: {
@@ -393,11 +466,16 @@ export function useHomeSubmissionOwnership({
   function currentHomeEditing(submission: HomeSubmission) {
     // Another Home view may now own the active editor. Pending original IDs keep
     // their unsaved next draft until recovery or durable handoff succeeds.
-    const editing = homeSubmissionEditing.current.get(submission.sessionId)
-    return editing?.sessionId === submission.sessionId &&
-      editing.workspaceId === submission.draft.workspaceId
-      ? editing
-      : undefined
+    return (
+      ownedFollowingHomeDraft(
+        submission,
+        homeSubmissionEditing.current.get(submission.sessionId)
+      ) ??
+      ownedFollowingHomeDraft(
+        submission,
+        readConversationDraft(submission.sessionId)
+      )
+    )
   }
   function acceptHomeSubmission(
     submission: HomeSubmission,
@@ -452,9 +530,32 @@ export function useHomeSubmissionOwnership({
         () => consumeHomeSession(cwd, true, submission.sessionId),
         true
       )
+      homeDraftOwners.current.get(submission.sessionId)?.retire()
       forgetHomeSubmission(submission.sessionId, false)
       setHomeDraft((previous) => {
         const accepted = acceptHomeDraftCache(previous, handoff, true)
+        const ordinary = previous.recovery
+          ? restoreHomeDraft(submission.draft.workspaceId)
+          : undefined
+        if (
+          accepted !== previous &&
+          ordinary?.sessionId &&
+          ordinary.sessionId !== submission.sessionId &&
+          !homeSubmissionsRef.current[ordinary.sessionId] &&
+          typeof ordinary.text === "string" &&
+          Array.isArray(ordinary.materials) &&
+          typeof ordinary.model === "string" &&
+          typeof ordinary.thinking === "string" &&
+          ordinary.session
+        ) {
+          return {
+            ...accepted,
+            key: nextHomeViewKey(previous, retainedHomeViewsRef.current),
+            recovery: false,
+            sessionId: ordinary.sessionId,
+            draft: ordinary as ComposerDraft,
+          }
+        }
         return accepted === previous
           ? previous
           : {
@@ -480,6 +581,8 @@ export function useHomeSubmissionOwnership({
     []
   )
   return {
+    registerHomeDraftOwner,
+    homeDraftOwners,
     notifyInputReceipt,
     setReceiptListener: (
       listener: (snapshot: ConversationSnapshot) => void
@@ -505,9 +608,11 @@ export function useHomeSubmissionOwnership({
     retainedHomeSubmissionError,
     setNotice,
     homeDraft,
+    homeDraftRef,
     homeSubmissions,
     retainedHomeViews,
     retainedHomeViewsRef,
+    setRetainedHomeViews,
     setHomeDraft,
     homeCleanupErrors,
     persistedHomeRestorations,
@@ -517,6 +622,7 @@ export function useHomeSubmissionOwnership({
     homeReconcileErrors,
     notice,
     saveHomeDraft,
+    persistOwnedHomeDraft,
     saveHomeSelectionActivity,
     homeSubmissionEditing,
   }

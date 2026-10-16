@@ -20,6 +20,8 @@ import { MessageAttachments } from "./message-attachments"
 import { MessageActions } from "./message-actions"
 import type { ConversationStatistics } from "@/contracts/rpc.generated"
 import { useMessageEnvironment } from "./message-environment"
+import { ToolResultPresentation } from "@/features/extensions/tool-result-presentation"
+import { findPluginResult } from "@/features/plugins/plugin-web"
 
 export interface ConversationTurnRecord {
   id: string
@@ -66,6 +68,7 @@ export function ConversationTurnView({
   const closed = tail?.stopReason !== "toolUse" && !running
   const process: { id: string; index: number; content: ReactNode }[] = []
   const visibleIssues: { id: string; content: ReactNode }[] = []
+  const issueKeys = new Set<string>()
   const answer: ConversationContentBlock[] = []
   const tools = turn.messages.flatMap((message) =>
     messageBlocks(message).flatMap((block) =>
@@ -93,7 +96,11 @@ export function ConversationTurnView({
     // Historical failures belong to this turn and remain readable even while
     // its execution details are collapsed. The authoritative current failure
     // is already deduplicated by the Live view's exact issueEntryId.
-    if (issue) visibleIssues.push({ id: message.id, content: issue })
+    const issueKey = JSON.stringify([message.issue?.code, message.issue?.summary, turn.recoveredAttemptIds?.has(message.id) ?? false])
+    if (issue && !issueKeys.has(issueKey)) {
+      issueKeys.add(issueKey)
+      visibleIssues.push({ id: message.id, content: issue })
+    }
     if (processBlocks.length)
       process.push({
         id: message.id,
@@ -190,6 +197,7 @@ export function ConversationTurnView({
               ))}
             </div>
           )}
+          {tools.filter(tool => tool.status === "success" && tool.presentation && findPluginResult(tool.presentation.kind, tool.presentation.version)?.persistent).map(tool => <ToolResultPresentation key={tool.occurrenceId || tool.id} tool={tool} fallback={null} />)}
           {visibleIssues.map((issue) => (
             <div key={issue.id} data-issue-entry={issue.id}>
               {issue.content}

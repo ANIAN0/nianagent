@@ -1,11 +1,15 @@
 import { useHomeSubmissionOwnership } from "./use-home-submission-ownership"
-import { useEffect } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import type { ComposerDraft, HomeSubmitReceipt } from "@/lib/composer/types"
 
 import { feedbackFromError } from "@/lib/operation-issue"
 import { RpcRequestRejected } from "@/lib/rpc/client"
 import type { useLiveConversation } from "@/features/conversation/use-live-conversation"
+import {
+  inspectConversationReceipt,
+  type ConversationReceipt,
+} from "@/features/conversation/conversation-receipt"
 import type { ModelConnection } from "@/features/models/model-types"
 
 import type { useWorkspaces } from "@/features/workspaces/use-workspaces"
@@ -17,9 +21,13 @@ import {
   restoreHomeDraft,
   recoverRejectedHomeSubmission,
   saveHomeSubmission,
+  saveHomeDraft as persistHomeDraft,
 } from "@/features/conversation/conversation-draft-store"
 import { sameHomeSubmissionAttempt } from "@/features/home/home-receipt-check"
-import { followingHomeDraft } from "@/features/home/home-submission-draft"
+import {
+  followingHomeDraft,
+  ownedFollowingHomeDraft,
+} from "@/features/home/home-submission-draft"
 import {
   hasPreparingHomeMaterials,
   homePreflightError,
@@ -48,6 +56,10 @@ export function useHomeSubmissionController({
   selectConversation,
   refreshCatalog,
 }: HomeSubmissionControllerOptions) {
+  const activeSubmissions = useRef(new Set<string>())
+  const [submissionPending, setSubmissionPending] = useState<
+    Record<string, boolean>
+  >({})
   const subscribeInputReceipts = chat.subscribeInputReceipts
   const {
     setReceiptListener,
@@ -66,9 +78,11 @@ export function useHomeSubmissionController({
     retainedHomeSubmissionError,
     setNotice,
     homeDraft,
+    homeDraftRef,
     homeSubmissions,
     retainedHomeViews,
     retainedHomeViewsRef,
+    setRetainedHomeViews,
     setHomeDraft,
     homeCleanupErrors,
     persistedHomeRestorations,
@@ -78,12 +92,17 @@ export function useHomeSubmissionController({
     homeReconcileErrors,
     notice,
     saveHomeDraft,
+    persistOwnedHomeDraft,
     saveHomeSelectionActivity,
     homeSubmissionEditing,
+    registerHomeDraftOwner,
+    homeDraftOwners,
   } = useHomeSubmissionOwnership({
     chat: {
       adoptHomeDraft: chat.adoptHomeDraft,
       settleHomeReceipt: chat.settleHomeReceipt,
+      currentDraft: chat.currentDraft,
+      change: chat.change,
     },
   })
 
@@ -146,82 +165,131 @@ export function useHomeSubmissionController({
     )
     if (!signal?.aborted && ownsPage()) selectConversation(id)
     const ownsConversation = homeNavigation.capture()
-    let started = false
+    const originalMayHaveStarted =
+      submission.stage === "sending" || submission.stage === "accepted"
+    let started = originalMayHaveStarted
     let preflightPhase: "read" | "apply" = "read"
-    let cleaned: boolean
+    activeSubmissions.current.add(id)
+    setSubmissionPending((all) => ({ ...all, [id]: true }))
     try {
-      if (!workspace || workspace.available === false)
-        throw new Error("工作目录不可用，请重新选择工作区。")
-      const saved = await sessionService.read(id, signal)
-      preflightPhase = "apply"
-      const configuration =
-        saved ??
-        (await sessionService.apply(
-          { sessionId: id, cwd: workspace.path, ...draft.session },
-          signal
-        ))
-      signal?.throwIfAborted()
-      if (configuration.unavailableToolIds.length)
-        throw new Error("请在会话配置中取消不可用工具后再发送。")
-      // Persist the side-effect boundary before a model request is possible.
-      const sending = { ...submission, stage: "sending" as const }
-      saveHomeSubmission(sending)
-      replaceSubmissions({
-        ...homeSubmissionsRef.current,
-        [id]: sending,
-      })
-      setHomeSubmissions(homeSubmissionsRef.current)
-      started = true
-      const accepted = await chat.send(
-        id,
-        submission.draft,
-        connections,
-        signal,
-        submission.clientRequestId,
-        "followUp",
-        true
-      )
-      if (!accepted.inputAccepted && accepted.inputDisposition !== "handled")
-        throw new RpcRequestRejected(
-          accepted.error || "消息未能开始，请检查模型配置后重试。",
-          accepted.issue
+      let failure: unknown
+      let receipt: ConversationReceipt | undefined
+      try {
+        if (!workspace || workspace.available === false)
+          throw new Error("工作目录不可用，请重新选择工作区。")
+        const saved = await sessionService.read(id, signal)
+        preflightPhase = "apply"
+        const configuration =
+          saved ??
+          (await sessionService.apply(
+            { sessionId: id, cwd: workspace.path, ...draft.session },
+            signal
+          ))
+        signal?.throwIfAborted()
+        if (configuration.unavailableToolIds.length)
+          throw new Error("请在会话配置中取消不可用工具后再发送。")
+        // Persist the side-effect boundary before a model request is possible.
+        const sending = { ...submission, stage: "sending" as const }
+        saveHomeSubmission(sending)
+        replaceSubmissions({
+          ...homeSubmissionsRef.current,
+          [id]: sending,
+        })
+        setHomeSubmissions(homeSubmissionsRef.current)
+        const accepted = await chat.send(
+          id,
+          submission.draft,
+          connections,
+          signal,
+          submission.clientRequestId,
+          "followUp",
+          true,
+          (boundary) => {
+            started = boundary === "dispatch" || originalMayHaveStarted
+          }
         )
-      // Acceptance is irreversible even if the originating view was cancelled.
-      cleaned = acceptHomeSubmission(
-        submission,
-        workspace.path,
-        () => !signal?.aborted && ownsPage()
-      )
-    } catch (error) {
-      if (!started || !chat.submissionDraft(id)) {
+        receipt = inspectConversationReceipt(
+          id,
+          submission.clientRequestId,
+          accepted
+        )
+      } catch (error) {
+        failure = error
+      }
+      // A local receipt can disappear after acceptance or failed cleanup. Only
+      // the same input ACK or its formal ledger establishes the send outcome.
+      receipt = chat.homeInputReceipt(id, submission.clientRequestId) ?? receipt
+      if (
+        started &&
+        receipt?.state !== "accepted" &&
+        receipt?.state !== "handled"
+      ) {
+        try {
+          receipt = await chat.inspectReceipt(
+            id,
+            submission.clientRequestId,
+            signal
+          )
+        } catch (error) {
+          failure ??= error
+        }
+        // An ACK received while the readonly lookup failed still owns this input.
+        receipt =
+          chat.homeInputReceipt(id, submission.clientRequestId) ?? receipt
+      }
+      if (receipt?.state === "accepted" || receipt?.state === "handled") {
+        const cwd = receipt.snapshot?.cwd ?? workspace?.path
+        if (!cwd)
+          throw retainedHomeSubmissionError(
+            failure,
+            "原输入已接受，工作目录尚未确认；副本和下一条草稿均已保留。"
+          )
+        // Acceptance is irreversible even when the view was cancelled or its
+        // local handoff needs another cleanup attempt.
+        const cleaned = acceptHomeSubmission(
+          submission,
+          cwd,
+          () => !signal?.aborted && ownsPage()
+        )
+        if (cleaned && !signal?.aborted && ownsPage()) selectConversation(id)
+        void refreshCatalog(true)
+        return { disposition: "conversation" }
+      }
+      if (!started || receipt?.state === "rejected") {
         const recovered = recoverRejectedHomeSubmission(
           submission,
           currentHomeEditing(submission) ?? chat.drafts[id]
         )
         const rejected = rejectHomeSubmission(
           submission,
-          !started ? homePreflightError(error, preflightPhase) : error
+          !started
+            ? homePreflightError(failure, preflightPhase)
+            : new RpcRequestRejected(
+                receipt?.issue?.summary || "消息未被接受，原输入已恢复。",
+                receipt?.issue
+              )
         )
         chat.adoptRecoveredDraft(id, recovered.draft)
         if (!signal?.aborted && ownsConversation()) selectConversation()
         throw rejected
       }
       throw retainedHomeSubmissionError(
-        error,
+        failure,
         "尚未确认原提交结果。正在核对的副本和下一条草稿均已保留。"
       )
     } finally {
       chat.endHomeHandoff(id)
+      activeSubmissions.current.delete(id)
+      setSubmissionPending((all) => ({ ...all, [id]: false }))
     }
-    if (cleaned && !signal?.aborted && ownsPage()) selectConversation(id)
-    void refreshCatalog(true)
-    return { disposition: "conversation" }
   }
   async function checkHomeSubmission(
     id: string,
     navigate = true,
     signal?: AbortSignal
   ) {
+    if (activeSubmissions.current.has(id))
+      throw new Error("原提交仍在准备或发送，请等待此次操作完成；输入保留。")
     const ownsPage = homeNavigation.capture()
     const submitted = chat.submissionDraft(id)
     let submission = homeSubmissionsRef.current[id]
@@ -314,16 +382,20 @@ export function useHomeSubmissionController({
     homeDraft.workspaceId ||
     workspaces.selectedId ||
     workspaces.items[0]?.id
+  const visibleHomeSessionId =
+    homeDraft.draft?.sessionId ??
+    homeDraft.sessionId ??
+    restoreHomeDraft(visibleHomeWorkspace ?? "").sessionId
   const visibleHomeSubmission = Object.values(homeSubmissions).find(
     (submission) =>
       submission.draft.workspaceId === visibleHomeWorkspace &&
-      (!homeDraft.draft?.sessionId ||
-        submission.sessionId === homeDraft.draft.sessionId)
+      submission.sessionId === visibleHomeSessionId
   )
   const homeViews: {
     key: number
     draft?: ComposerDraft
     workspaceId?: string
+    sessionId?: string
   }[] = Object.values(retainedHomeViews).filter(
     (view) => selected || view.key !== homeDraft.key
   )
@@ -342,25 +414,129 @@ export function useHomeSubmissionController({
     homeViews.push({
       key: homeDraft.key,
       draft: homeDraft.draft,
+      sessionId: homeDraft.sessionId,
       workspaceId: homeDraft.workspaceId ?? workspaces.selectedId,
     })
 
-  function openHome(workspaceId?: string) {
+  function openHome(workspaceId?: string, sessionId?: string) {
+    const current = homeDraftRef.current.draft
+    if (
+      current &&
+      !homeDraftRef.current.recovery &&
+      (hasPreparingHomeMaterials(current) ||
+        (current.sessionId &&
+          homeSelectionActivities.current.has(current.sessionId)))
+    ) {
+      setNotice("当前材料仍在准备，请完成准备或移除材料后再返回原输入。")
+      return false
+    }
     const requested =
       workspaceId ?? workspaces.selectedId ?? workspaces.items[0]?.id
     const retained = Object.values(retainedHomeViewsRef.current).find(
-      (view) => view.draft.workspaceId === requested
+      (view) =>
+        view.draft.workspaceId === requested &&
+        (!sessionId || view.draft.sessionId === sessionId)
+    )
+    const submission = Object.values(homeSubmissionsRef.current).find(
+      (item) =>
+        item.draft.workspaceId === requested &&
+        (!sessionId || item.sessionId === sessionId)
     )
     setHomeDraft((value) =>
       retained
-        ? { key: retained.key, workspaceId: requested, draft: retained.draft }
+        ? {
+            key: retained.key,
+            workspaceId: requested,
+            sessionId: submission?.sessionId ?? retained.draft.sessionId,
+            recovery: true,
+            draft: submission
+              ? (currentHomeEditing(submission) ?? retained.draft)
+              : retained.draft,
+          }
         : {
             key: nextHomeViewKey(value, retainedHomeViewsRef.current),
             workspaceId: requested,
+            sessionId: submission?.sessionId ?? sessionId,
+            recovery: true,
+            draft: submission
+              ? (currentHomeEditing(submission) ??
+                followingHomeDraft(submission.draft))
+              : undefined,
           }
     )
+    return true
+  }
+  function openNewHome(workspaceId?: string) {
+    const requested =
+      workspaceId ?? workspaces.selectedId ?? workspaces.items[0]?.id
+    const previous = homeDraftRef.current
+    const current = previous.draft
+    const pending = current?.sessionId
+      ? homeSubmissionsRef.current[current.sessionId]
+      : undefined
+    if (
+      current &&
+      !pending &&
+      (hasPreparingHomeMaterials(current) ||
+        (current.sessionId &&
+          homeSelectionActivities.current.has(current.sessionId)))
+    ) {
+      setNotice("当前材料仍在准备，请完成准备或移除材料后再新建会话。")
+      return false
+    }
+    if (pending && current) {
+      // The original submit and its material callbacks keep their exact owner.
+      persistOwnedHomeDraft(current, previous.key)
+      chat.change(pending.sessionId, current)
+      const retained = {
+        ...retainedHomeViewsRef.current,
+        [previous.key]: { key: previous.key, draft: current },
+      }
+      retainedHomeViewsRef.current = retained
+      setRetainedHomeViews(retained)
+    }
+    const cached =
+      !previous.recovery && current?.workspaceId === requested
+        ? current
+        : restoreHomeDraft(requested ?? "")
+    const original = cached.sessionId
+      ? homeSubmissionsRef.current[cached.sessionId]
+      : undefined
+    const sessionId = crypto.randomUUID()
+    const seed = original ? followingHomeDraft(original.draft) : cached
+    const candidate = { ...seed, workspaceId: requested, sessionId }
+    delete candidate.homeRecoveryKey
+    delete candidate.homeTransferId
+    const complete =
+      typeof candidate.text === "string" &&
+      Array.isArray(candidate.materials) &&
+      typeof candidate.model === "string" &&
+      typeof candidate.thinking === "string" &&
+      !!candidate.session
+        ? (candidate as ComposerDraft)
+        : undefined
+    // Persist the fresh identity before navigation/refresh can recover the old slot.
+    if (complete) {
+      try {
+        persistHomeDraft(complete)
+      } catch {
+        setNotice(
+          "新会话草稿未能保存，当前输入保留，请释放本地存储空间后重试。"
+        )
+        return false
+      }
+    }
+    setHomeDraft({
+      key: nextHomeViewKey(previous, retainedHomeViewsRef.current),
+      workspaceId: requested,
+      sessionId,
+      draft: complete,
+    })
+    setNotice("")
+    return true
   }
   function retryCleanup(id: string) {
+    if (activeSubmissions.current.has(id)) return
     const submission = homeSubmissionsRef.current[id]
     const cleanup = homeCleanupErrors[id]
     if (!submission || !cleanup) return
@@ -395,6 +571,7 @@ export function useHomeSubmissionController({
 
   return {
     homeDraft,
+    submissionPending,
     homeSubmissions,
     homeRestorations,
     homeCleanupErrors,
@@ -405,17 +582,32 @@ export function useHomeSubmissionController({
     notice,
     clearNotice: () => setNotice(""),
     saveHomeDraft,
+    persistOwnedHomeDraft,
     saveHomeSelectionActivity,
     acknowledgeHomeRestoration,
     prepareHomeSubmission,
     submitHome,
     checkHomeSubmission,
     openHome,
+    openNewHome,
     retryCleanup,
     checkRetained,
     changeFollowingDraft: (draft: ComposerDraft) => {
-      if (draft.sessionId && homeSubmissionsRef.current[draft.sessionId])
-        homeSubmissionEditing.current.set(draft.sessionId, draft)
+      if (!draft.sessionId) return
+      const submission = homeSubmissionsRef.current[draft.sessionId]
+      if (!submission) return
+      const following = ownedFollowingHomeDraft(submission, draft)
+      if (!following) return
+      homeSubmissionEditing.current.set(submission.sessionId, following)
+      homeDraftOwners.current.get(submission.sessionId)?.update(following)
+    },
+    registerHomeDraftOwner,
+    followingDraft: (id: string) => {
+      const submission = homeSubmissions[id]
+      return submission
+        ? (currentHomeEditing(submission) ??
+            followingHomeDraft(submission.draft))
+        : undefined
     },
     submissionEcho: (id: string) => {
       const submission = homeSubmissions[id]

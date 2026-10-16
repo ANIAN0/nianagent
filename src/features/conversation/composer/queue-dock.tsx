@@ -45,7 +45,8 @@ function QueueDockContent({
   checkPending = false,
   issue,
   issues = {},
-  onCheck,
+  onCheck: readQueue,
+  onReadItem,
   onEdit,
   onRemove,
   onSendNow,
@@ -69,12 +70,15 @@ function QueueDockContent({
     editError,
     editConfirmed,
     storageIssue,
+    canQuarantine,
+    quarantine,
     rowCount,
     rowProblems,
     expanded,
     id,
     setCollapsed,
     preview,
+    check: onCheck,
   } = useQueueEditController({
     pendingSubmission,
     pending,
@@ -94,7 +98,8 @@ function QueueDockContent({
     checkPending,
     issue,
     issues,
-    onCheck,
+    onCheck: readQueue,
+    onReadItem,
     onEdit,
     onRemove,
     onSendNow,
@@ -261,19 +266,31 @@ function QueueDockContent({
             title="编辑草稿需要处理"
             {...storageIssue}
             actions={
-              editing && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={saving}
-                  onClick={() => {
-                    if (editConfirmed) clearEditing()
-                    else remember(editing)
-                  }}
-                >
-                  {editConfirmed ? "重新清除副本" : "重新保存草稿"}
-                </Button>
-              )
+              <>
+                {canQuarantine && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={saving}
+                    onClick={quarantine}
+                  >
+                    保留损坏记录副本并恢复
+                  </Button>
+                )}
+                {editing && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={saving}
+                    onClick={() => {
+                      if (editConfirmed) clearEditing()
+                      else remember(editing)
+                    }}
+                  >
+                    {editConfirmed ? "重新清除副本" : "重新保存草稿"}
+                  </Button>
+                )}
+              </>
             }
           />
         </div>

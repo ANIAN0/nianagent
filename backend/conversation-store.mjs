@@ -259,7 +259,8 @@ export class ConversationStore {
         if (!["running", "stopping"].includes(record.status)) continue
         record.status = "failed"
         record.unread = true
-        record.lastError = "上次运行意外中断。已保留对话，可重新发送消息继续。"
+        record.lastError =
+          "上次运行意外中断。已保留对话，请核对原请求结果后继续。"
         record.revision++
         changed = true
       }

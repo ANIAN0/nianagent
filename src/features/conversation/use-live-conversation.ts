@@ -28,7 +28,10 @@ import {
 } from "./conversation-service"
 import { RpcRequestRejected } from "@/lib/rpc/client"
 import { materialReference } from "@/features/materials/material-service"
-import { readConversationReceipt } from "./conversation-receipt"
+import {
+  inspectConversationReceipt,
+  readConversationReceipt,
+} from "./conversation-receipt"
 import { queueOperationIdentity } from "./queue-operation-recovery"
 import {
   prepareConversationSubmission,
@@ -119,6 +122,7 @@ export function useLiveConversation(
     restored.drafts
   )
   const draftsRef = useRef(drafts)
+  const currentDraft = useCallback((id: string) => draftsRef.current[id], [])
   const [draftErrors, setDraftErrors] = useState<Record<string, string>>({})
   const [actionIssues, setActionIssues] = useState<
     Record<string, ConversationActionIssue | undefined>
@@ -264,8 +268,7 @@ export function useLiveConversation(
           ...all,
           [id]:
             all[id]?.code === "receipt_cleanup" ||
-            (resolvedOutcome === "accepted" &&
-              ["send", "retry", "reconcile"].includes(all[id]?.action ?? "") &&
+            (["send", "retry", "reconcile"].includes(all[id]?.action ?? "") &&
               ["result_unknown", "result_pending"].includes(
                 all[id]?.code ?? ""
               ))
@@ -554,7 +557,8 @@ export function useLiveConversation(
   async function submit(
     id: string,
     submission: PendingSubmission,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    onRequestBoundary?: (boundary: "dispatch" | "not-started") => void
   ) {
     // If this write fails, no request has reached the host. Its original draft
     // is recovered locally instead of being classified as an unknown response.
@@ -569,6 +573,7 @@ export function useLiveConversation(
     }
     let snapshot: ConversationSnapshot
     try {
+      onRequestBoundary?.("dispatch")
       snapshot =
         submission.kind === "send"
           ? await service.send(
@@ -581,6 +586,12 @@ export function useLiveConversation(
             })
     } catch (error) {
       if (error instanceof RpcRequestRejected) {
+        // These direct send-RPC refusals precede conversationStart. A later
+        // readonly lookup can return the same codes, so only classify here.
+        if (
+          ["maintenance_busy", "host_version"].includes(error.issue?.code ?? "")
+        )
+          onRequestBoundary?.("not-started")
         clearReceipt(id, submission, "rejected")
       }
       throw error
@@ -662,7 +673,8 @@ export function useLiveConversation(
     signal?: AbortSignal,
     clientRequestId?: string,
     delivery: "followUp" | "steer" = "followUp",
-    preserveFollowing = false
+    preserveFollowing = false,
+    onRequestBoundary?: (boundary: "dispatch" | "not-started") => void
   ) {
     // Preflight failures preserve input. Once both copies are durable, the next
     // editable input separates from the frozen message before the host call.
@@ -724,7 +736,7 @@ export function useLiveConversation(
             return all
           return { ...all, [id]: undefined }
         })
-        return submit(id, prepared.submission, signal)
+        return submit(id, prepared.submission, signal, onRequestBoundary)
       } catch (error) {
         // A local preparation failure never reached the host. Restore once and
         // preserve the immutable receipt until the recovery draft is durable.
@@ -919,6 +931,17 @@ export function useLiveConversation(
         publishInputReceipt(snapshot)
     },
     subscribeInputReceipts,
+    homeInputReceipt: (id: string, requestId: string | undefined) => {
+      if (!requestId) return undefined
+      const snapshot =
+        handoffInputReceipts.current.get(id)?.get(requestId) ??
+        current.current[id]
+      if (!snapshot) return undefined
+      const receipt = inspectConversationReceipt(id, requestId, snapshot)
+      return receipt.state === "accepted" || receipt.state === "handled"
+        ? receipt
+        : undefined
+    },
     submissionDraft: (id: string) => requests.current.get(id)?.draft,
     submissionRequestId: (id: string) => requests.current.get(id)?.id,
     submissionEcho: (id: string) =>
@@ -959,7 +982,32 @@ export function useLiveConversation(
             clearReceipt(id, submission)
             return service.read(id)
           }
-          if (!submission) return service.read(id)
+          if (!submission) {
+            const snapshot = await service.read(id)
+            accept(snapshot)
+            if (
+              snapshot.issue?.code !== "result_unknown" ||
+              !snapshot.clientRequestId
+            )
+              return snapshot
+            const receipt = await readConversationReceipt(
+              service,
+              id,
+              snapshot.clientRequestId
+            )
+            if (receipt.state === "unknown")
+              throw new RpcRequestRejected(
+                "原请求的接受结果仍未确认，请保留输入，不要重复发送。",
+                {
+                  code: "result_pending",
+                  summary:
+                    "原请求的接受结果仍未确认；本次只核对原请求，不会重新发送。",
+                  recovery: "check",
+                  severity: "warning",
+                }
+              )
+            return receipt.snapshot ?? service.read(id)
+          }
           // A restored unknown request may not have an in-memory action issue.
           // Keep its same recovery visible while inspecting, without exposing
           // an unknown prompt during an ordinary first submission.
@@ -1010,6 +1058,16 @@ export function useLiveConversation(
       if (!readOwners.current.has(selectedId)) setReload((value) => value + 1)
     },
     change: changeDraft,
+    currentDraft,
+    updateDraft: (
+      id: string,
+      fallback: ComposerDraft,
+      update: (draft: ComposerDraft) => ComposerDraft
+    ) => {
+      const next = update(draftsRef.current[id] ?? fallback)
+      changeDraft(id, next)
+      return next
+    },
     adoptRecoveredDraft: (id: string, draft: ComposerDraft) => {
       const currentDraft = draftsRef.current[id]
       const next =
@@ -1027,6 +1085,10 @@ export function useLiveConversation(
     saveDraft: (id: string) => {
       if (draftsRef.current[id]) changeDraft(id, draftsRef.current[id])
     },
+    queueItemRead: (id: string, itemId: string, signal?: AbortSignal) =>
+      service.queueItem
+        ? service.queueItem(id, itemId, signal)
+        : Promise.resolve(null),
     queueEdit: async (
       id: string,
       itemId: string,

@@ -122,6 +122,7 @@ export class ConversationCommands {
             signal
           )
         }
+        await owner.sessions.refreshForRunExclusive(sessionId, signal)
         runner = state.session.extensionRunner
         command = runner.getCommand(name)
         check(
@@ -131,6 +132,9 @@ export class ConversationCommands {
         state.permission = await owner.permissions.read(sessionId, signal)
         context = runner.createCommandContext()
         signal?.throwIfAborted()
+        owner.ensureOpen()
+        owner.models.plugins?.assertRunAllowed()
+        state.entry.busy = true
       } catch (error) {
         // 明确拒绝仍保存原身份的终态。回复丢失后也能只读结束 pending。
         receipt.status = "failed"
@@ -139,11 +143,25 @@ export class ConversationCommands {
         return this.public(receipt)
       }
       // started 必须先于 handler；冷恢复或写入回复丢失均不自动再次执行。
-      await this.save(receipt)
+      try {
+        await this.save(receipt)
+        if (owner.closed) {
+          receipt.status = "failed"
+          receipt.issue = publicFailure(
+            new Error("应用关闭前命令尚未开始执行。"),
+            "conversationCommandRun"
+          ).issue
+          await this.save(receipt)
+          state.entry.busy = false
+          return this.public(receipt)
+        }
+      } catch (error) {
+        state.entry.busy = false
+        throw error
+      }
       const previousPhase = state.phase
       state.command = this.public(receipt)
       state.commandRunning = true
-      state.entry.busy = true
       state.stopRequested = false
       state.phase = "running"
       owner.touch(state)

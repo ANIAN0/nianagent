@@ -6,6 +6,8 @@ import type {
 
 export function createConversationService() {
   return {
+    queueItem: (sessionId: string, itemId: string, signal?: AbortSignal) =>
+      rpcCall("conversationQueueItemRead", { sessionId, itemId }, signal),
     queueReceipt: (
       sessionId: string,
       operationRequestId: string,
@@ -81,4 +83,7 @@ export function createConversationService() {
       rpcCall("conversationQueueDeliver", input),
   }
 }
-export type ConversationService = ReturnType<typeof createConversationService>
+export type ConversationService = Omit<
+  ReturnType<typeof createConversationService>,
+  "queueItem"
+> & { queueItem?: ReturnType<typeof createConversationService>["queueItem"] }

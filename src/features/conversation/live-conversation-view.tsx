@@ -30,6 +30,7 @@ import {
 } from "./queue-operation-recovery"
 import type { Material } from "@/lib/composer/types"
 import { MaterialPreviewDialog } from "@/features/materials/material-preview"
+import { usePluginPaths } from "@/features/plugins/plugin-path-context"
 import {
   useContext,
   useEffect,
@@ -93,6 +94,7 @@ export type LiveConversationViewProps = {
     revision?: number,
     clientEditId?: string
   ) => Promise<unknown>
+  onQueueItemRead?: import("./composer/queue-dock.types").QueueDockProps["onReadItem"]
   onQueueRemove?: (itemId: string) => void
   onQueueDeliver?: (itemId: string) => void
   onSaveDraft?: () => void
@@ -139,6 +141,7 @@ export function LiveConversationView({
   onReload,
   readPending,
   onQueueEdit,
+  onQueueItemRead,
   onQueueRemove,
   onQueueDeliver,
   onSaveDraft,
@@ -150,7 +153,9 @@ export function LiveConversationView({
   controlService,
 }: LiveConversationViewProps) {
   const [activeMaterial, setActiveMaterial] = useState<Material | null>(null)
+  const [fileOpenIssue, setFileOpenIssue] = useState<FeedbackDescription>()
   const materialService = useContext(MaterialServiceContext)
+  const pluginPaths = usePluginPaths()
   const permissionService = useContext(PermissionServiceContext)
   const previewRequest = useRef<AbortController | undefined>(undefined)
   const [disclosures] = useState(() => {
@@ -176,47 +181,66 @@ export function LiveConversationView({
       onOpenSettings: onOpenSettings ?? data.modelCatalog?.onOpenSettings,
       onOpenAttachment: (
         attachment: import("./conversation-types").MessageAttachment
-      ) =>
+      ) => {
+        if (
+          pluginPaths &&
+          attachment.materialType === "file" &&
+          attachment.source
+        ) {
+          setFileOpenIssue(undefined)
+          void pluginPaths
+            .openPath(attachment.source)
+            .catch((error) =>
+              setFileOpenIssue(
+                feedbackFromError(error, "当前文件无法打开，请重试。")
+              )
+            )
+          return
+        }
         setActiveMaterial({
           ...attachment,
           source: attachment.source ?? "",
           kind: attachment.materialType === "skill" ? "Skill" : "附件",
           type: attachment.materialType ?? attachment.kind,
           status: "ready",
-        }),
-      onOpenPath: materialService
-        ? async (path: string) => {
-            previewRequest.current?.abort()
-            const request = new AbortController()
-            previewRequest.current = request
-            const prepared = await materialService.prepare(
-              id,
-              cwd,
-              [path],
-              request.signal,
-              { scope: "workspace" }
-            )
-            if (request.signal.aborted || previewRequest.current !== request)
-              return
-            const material = prepared[0]
-            if (!material || material.status !== "ready")
-              throw Object.assign(new Error("文件无法预览。"), {
-                issue: {
-                  code: "material_preview_failed",
-                  summary: material?.error || "文件无法预览。",
-                  severity: "error",
-                  recovery: material?.retryable === false ? "none" : "retry",
-                },
-              })
-            setActiveMaterial(material)
-          }
-        : undefined,
+        })
+      },
+      onOpenPath:
+        pluginPaths?.openPath ??
+        (materialService
+          ? async (path: string) => {
+              previewRequest.current?.abort()
+              const request = new AbortController()
+              previewRequest.current = request
+              const prepared = await materialService.prepare(
+                id,
+                cwd,
+                [path],
+                request.signal,
+                { scope: "workspace" }
+              )
+              if (request.signal.aborted || previewRequest.current !== request)
+                return
+              const material = prepared[0]
+              if (!material || material.status !== "ready")
+                throw Object.assign(new Error("文件无法预览。"), {
+                  issue: {
+                    code: "material_preview_failed",
+                    summary: material?.error || "文件无法预览。",
+                    severity: "error",
+                    recovery: material?.retryable === false ? "none" : "retry",
+                  },
+                })
+              setActiveMaterial(material)
+            }
+          : undefined),
     }),
     [
       id,
       cwd,
       disclosures,
       materialService,
+      pluginPaths,
       snapshot?.approvals,
       onOpenSettings,
       data.modelCatalog?.onOpenSettings,
@@ -442,6 +466,7 @@ export function LiveConversationView({
     !pending &&
     !pendingSubmission &&
     !unconfirmed &&
+    snapshot?.issue?.code === "request_not_accepted" &&
     snapshot?.inputAccepted === false &&
     (snapshot.phase === "failed" || snapshot.phase === "interrupted")
   const pendingQueue =
@@ -794,6 +819,7 @@ export function LiveConversationView({
                       checking={receiptUnknown && pending}
                       onCheckSubmission={onReconcile}
                       retiredItems={snapshot.queue.retiredItems}
+                      onReadItem={onQueueItemRead}
                       revision={snapshot.queue.revision}
                       items={snapshot.queue.items.map((item) => ({
                         ...item,
@@ -946,6 +972,9 @@ export function LiveConversationView({
           />
         }
       />
+      {fileOpenIssue && (
+        <OperationFeedback title="文件未能打开" {...fileOpenIssue} />
+      )}
       <MaterialPreviewDialog
         key={`${id}:materials`}
         history

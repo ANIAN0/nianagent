@@ -587,31 +587,33 @@ export class ConversationControls {
       operation.configuration,
       "派生配置快照"
     )
-    await this.ensureInheritedSources(state, operation)
-    const lineage = {
-      sourceSessionId: state.record.id,
-      sourceTitle: state.record.title,
-      sourceEntryId: operation.anchorId,
-    }
-    await this.host.sessions.copyConfiguration(
-      operation.targetSessionId,
-      operation.configuration
-    )
-    let record = await this.host.store.get(operation.targetSessionId)
-    if (!record)
-      record = await this.host.store.create({
-        id: operation.targetSessionId,
-        workspaceId: state.record.workspaceId,
-        cwd: state.record.cwd,
-        title: `${state.record.title}（分支）`.slice(0, 400),
-        sessionFile: operation.targetSessionFile,
-        modelId: state.record.modelId,
-        thinking: state.record.thinking,
-        lineage,
-      })
-    await this.host.restore(record, selected)
-    operation.status = "completed"
-    operation.error = ""
+    return this.host.sessions.exclusive(operation.targetSessionId, async () => {
+      await this.ensureInheritedSources(state, operation)
+      const lineage = {
+        sourceSessionId: state.record.id,
+        sourceTitle: state.record.title,
+        sourceEntryId: operation.anchorId,
+      }
+      await this.host.sessions.copyConfigurationExclusive(
+        operation.targetSessionId,
+        operation.configuration
+      )
+      let record = await this.host.store.get(operation.targetSessionId)
+      if (!record)
+        record = await this.host.store.create({
+          id: operation.targetSessionId,
+          workspaceId: state.record.workspaceId,
+          cwd: state.record.cwd,
+          title: `${state.record.title}（分支）`.slice(0, 400),
+          sessionFile: operation.targetSessionFile,
+          modelId: state.record.modelId,
+          thinking: state.record.thinking,
+          lineage,
+        })
+      await this.host.restore(record, selected)
+      operation.status = "completed"
+      operation.error = ""
+    })
   }
   async ensureInheritedSources(state, operation) {
     const inherited = operation.inheritedManualCompactionIds || [

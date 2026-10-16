@@ -80,6 +80,7 @@ export function QueueEditEditor({
     !pending &&
     controller.ready &&
     (!!draft.text.trim() || !!draft.materials.length)
+  const canCancel = canLeavePending || (!disabled && !pending)
   const keyboard = useComposerKeyboard(() => {
     if (canSave && !departed) onSave()
   })
@@ -90,8 +91,7 @@ export function QueueEditEditor({
       event.key === "Escape" &&
       !event.nativeEvent.isComposing &&
       !event.defaultPrevented &&
-      !disabled &&
-      !pending
+      canCancel
     ) {
       event.preventDefault()
       onCancel()
@@ -130,14 +130,14 @@ export function QueueEditEditor({
               <Check />
             </Button>
           </QueueActionHint>
-          <QueueActionHint content="取消修改" disabled={disabled || pending}>
+          <QueueActionHint content="取消修改" disabled={!canCancel}>
             <Button
               type="button"
               variant="ghost"
               size="icon-sm"
               className="conversation-queue-action"
               aria-label="取消排队修改"
-              disabled={disabled || pending}
+              disabled={!canCancel}
               onClick={onCancel}
             >
               <X />
@@ -167,7 +167,10 @@ export function QueueEditEditor({
           materials={draft.materials}
           cwd={cwd}
           onRemove={(id) => {
-            if (!disabled) change(removeComposerMaterial(latest.current, id))
+            if (!disabled) {
+              controller.discard(id)
+              change(removeComposerMaterial(latest.current, id))
+            }
           }}
           onRetry={(id) => void controller.retry(id)}
           canRetry={(material) => !disabled && controller.canRetry(material.id)}
@@ -200,7 +203,7 @@ export function QueueEditEditor({
         <Button
           variant="ghost"
           size="sm"
-          disabled={(disabled || pending) && !canLeavePending}
+          disabled={!canCancel}
           onClick={onCancel}
         >
           <X data-icon="inline-start" />

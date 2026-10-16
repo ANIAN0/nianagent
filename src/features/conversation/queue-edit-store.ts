@@ -38,9 +38,11 @@ export function matchesQueueEditReceipt(
 }
 const prefix = "moon.queue.edit.v1."
 const retained = new Map<string, QueueEditRecord>()
+const malformedRecords = new Map<string, Map<string, string | null>>()
 export type QueueEditOwnerSnapshot = {
   record?: QueueEditRecord
   storageIssue?: FeedbackDescription
+  corrupt?: boolean
 }
 const snapshots = new Map<string, QueueEditOwnerSnapshot>()
 const storageIssues = new Map<string, FeedbackDescription>()
@@ -56,6 +58,7 @@ export function getQueueEditOwnerSnapshot(sessionId: string) {
         (record) => record.sessionId === sessionId
       ),
       storageIssue: storageIssues.get(sessionId),
+      corrupt: !!malformedRecords.get(sessionId)?.size,
     }
     snapshots.set(sessionId, snapshot)
   }
@@ -80,11 +83,13 @@ function publishQueueEdits(sessionId: string) {
       (record) => record.sessionId === sessionId
     ),
     storageIssue: storageIssues.get(sessionId),
+    corrupt: !!malformedRecords.get(sessionId)?.size,
   }
   const previous = snapshots.get(sessionId)
   if (
     previous?.record === next.record &&
-    previous?.storageIssue === next.storageIssue
+    previous?.storageIssue === next.storageIssue &&
+    previous?.corrupt === next.corrupt
   )
     return
   snapshots.set(sessionId, next)
@@ -149,7 +154,7 @@ function validDraft(value: unknown): value is ComposerDraft {
   )
 }
 export function restoreQueueEdits(sessionId: string, persistent = true) {
-  let malformed = false
+  const malformed = new Map<string, string | null>()
   if (persistent) {
     for (let index = 0; index < localStorage.length; index++) {
       const key = localStorage.key(index)
@@ -161,15 +166,16 @@ export function restoreQueueEdits(sessionId: string, persistent = true) {
         continue
       }
       if (!Array.isArray(identity) || identity[0] !== sessionId) continue
+      const raw = localStorage.getItem(key)
       let value: unknown
       try {
-        value = JSON.parse(localStorage.getItem(key) ?? "null")
+        value = JSON.parse(raw ?? "null")
       } catch {
-        malformed = true
+        malformed.set(key, raw)
         continue
       }
       if (!value || typeof value !== "object") {
-        malformed = true
+        malformed.set(key, raw)
         continue
       }
       const record = value as QueueEditRecord
@@ -181,7 +187,7 @@ export function restoreQueueEdits(sessionId: string, persistent = true) {
         (record.revision !== undefined &&
           (!Number.isInteger(record.revision) || record.revision < 0))
       ) {
-        malformed = true
+        malformed.set(key, raw)
         continue
       }
       if (
@@ -191,18 +197,45 @@ export function restoreQueueEdits(sessionId: string, persistent = true) {
           !validDraft(record.submitted.draft) ||
           record.submitted.revision !== record.revision)
       ) {
-        malformed = true
+        malformed.set(key, raw)
         continue
       }
       if (key === keyFor(sessionId, record.id)) retained.set(key, record)
+      else malformed.set(key, raw)
     }
   }
+  if (persistent) malformedRecords.set(sessionId, malformed)
   publishQueueEdits(sessionId)
-  if (malformed)
+  if (malformed.size)
     throw new Error("部分排队编辑记录损坏，其他可读取的修改仍然保留。")
   return [...retained.values()]
     .filter((record) => record.sessionId === sessionId)
     .map((record) => structuredClone(record))
+}
+/** Explicit recovery keeps the exact corrupt bytes before excluding them from live drafts. */
+export function quarantineQueueEdits(sessionId: string) {
+  const records = malformedRecords.get(sessionId)
+  for (const [key, raw] of records ?? []) {
+    if (localStorage.getItem(key) !== raw)
+      throw new Error("排队草稿已变化，请重新打开会话后核对；未移除原记录。")
+    const backupKey = "moon.queue.edit.quarantine.v1." + crypto.randomUUID()
+    const backup = JSON.stringify({
+      sessionId,
+      key,
+      raw,
+      savedAt: new Date().toISOString(),
+    })
+    localStorage.setItem(backupKey, backup)
+    if (
+      localStorage.getItem(backupKey) !== backup ||
+      localStorage.getItem(key) !== raw
+    )
+      throw new Error("原记录副本尚未核对，未移除原记录。")
+    localStorage.removeItem(key)
+    records?.delete(key)
+  }
+  restoreQueueEdits(sessionId)
+  setQueueEditStorageIssue(sessionId)
 }
 export function readQueueEdit(sessionId: string, id: string) {
   const record = retained.get(keyFor(sessionId, id))

@@ -26,6 +26,7 @@ import { ConversationPermissions } from "./conversation-permissions.mjs"
 import { ConversationCommands } from "./conversation-commands.mjs"
 import { conversationStatistics } from "./conversation-statistics.mjs"
 import { publicFailure } from "./operation-issue.mjs"
+import { requestContext } from "./request-context.mjs"
 
 import { assertSchema, schemas } from "./schema.mjs"
 
@@ -58,6 +59,9 @@ export class ConversationService {
       ensureOpen: this.ensureOpen.bind(this),
       models: {
         materials: {
+          beginUploadUse: this.models.materials.beginUploadUse.bind(
+            this.models.materials
+          ),
           resolveForPrompt: this.models.materials.resolveForPrompt.bind(
             this.models.materials
           ),
@@ -91,9 +95,8 @@ export class ConversationService {
           exclusive: this.sessions.exclusive.bind(this.sessions),
           active: this.sessions.active,
           readExclusive: this.sessions.readExclusive.bind(this.sessions),
-          copyConfiguration: this.sessions.copyConfiguration.bind(
-            this.sessions
-          ),
+          copyConfigurationExclusive:
+            this.sessions.copyConfigurationExclusive.bind(this.sessions),
         },
         selection: this.selection.bind(this),
         touch: this.touch.bind(this),
@@ -113,9 +116,11 @@ export class ConversationService {
       snapshot: this.snapshot.bind(this),
     })
     this.permissions = new ConversationPermissions(directory, {
+      models: { plugins: this.models.plugins },
       sessions: {
         identity: this.sessions.identity.bind(this.sessions),
         exclusive: this.sessions.exclusive.bind(this.sessions),
+        resources: this.sessions.resources,
       },
       active: this.active,
       touch: this.touch.bind(this),
@@ -124,12 +129,16 @@ export class ConversationService {
       },
     })
     this.commands = new ConversationCommands(directory, {
+      models: { plugins: this.models.plugins },
       initializeStore,
       active: this.active,
       sessions: {
         active: this.sessions.active,
         identity: this.sessions.identity.bind(this.sessions),
         exclusive: this.sessions.exclusive.bind(this.sessions),
+        refreshForRunExclusive: this.sessions.refreshForRunExclusive.bind(
+          this.sessions
+        ),
       },
       ensureOpen: this.ensureOpen.bind(this),
       store: this.store,
@@ -137,6 +146,9 @@ export class ConversationService {
       activate: this.activate.bind(this),
       selection: this.selection.bind(this),
       permissions: this.permissions,
+      get closed() {
+        return service.closed
+      },
       touch: this.touch.bind(this),
     })
 
@@ -144,6 +156,7 @@ export class ConversationService {
       persistence: this.persistence,
       historyNotice: this.historyNotice.bind(this),
       models: {
+        plugins: this.models.plugins,
         mcp: { toolSource: this.models.mcp.toolSource.bind(this.models.mcp) },
         extensions: {
           toolSource: this.models.extensions.toolSource.bind(
@@ -379,6 +392,34 @@ export class ConversationService {
       state.inputDisposition = "handled"
       state.notice = this.handledNotice(receipt.runId, receipt.updatedAt)
     }
+    if (
+      !state.inputAccepted &&
+      !(await this.queue.findRequest(
+        record.id,
+        record.lastRequestId,
+        state.queue
+      ))
+    ) {
+      if (receipt?.status === "started") {
+        state.issue = {
+          code: "result_unknown",
+          summary:
+            "原请求已进入启动阶段，但接受结果尚未确认。请核对原请求，不要重复发送。",
+          recovery: "check",
+          severity: "warning",
+        }
+        state.error = state.issue.summary
+      } else if (receipt?.status === "rejected") {
+        state.issue = {
+          ...restoredIssue(receipt.issue),
+          code: "request_not_accepted",
+          summary: receipt.issue?.summary || "原请求未被接受，原输入保留。",
+          recovery: "none",
+          severity: "warning",
+        }
+        state.error = state.issue.summary
+      }
+    }
     if (selected) await this.activate(state, selected, signal)
     await this.controls.load(state)
     this.active.set(record.id, state)
@@ -403,6 +444,17 @@ export class ConversationService {
         modelRuntime: selected.runtime,
         model: selected.model,
         thinking: selected.thinking,
+        pluginScope: {
+          sessionId: record.id,
+          clientContext: () => state.clientContext || requestContext(),
+          runId: () => state.record.runId,
+          occurrence: (toolCallId, toolName) => {
+            const call = this.toolExecutionCall(state, { toolCallId, toolName })
+            return call
+              ? `${state.record.runId}:${call.entryId}:${call.index}`
+              : undefined
+          },
+        },
         extensionFactories: [
           this.nativeInputFactory(state),
           this.permissions.factory(state),
@@ -444,7 +496,18 @@ export class ConversationService {
         return
       if (!state.entry.busy) return
       state.inputAccepted = true
-      state.acceptedResolve?.()
+      const prompt = input?.nativePrompt
+      if (prompt?.uploadUse) {
+        prompt.uploadAcceptance = prompt.uploadUse
+          .confirm()
+          .catch((error) => {
+            prompt.uploadUseError = error
+          })
+          .finally(() => {
+            state.acceptedResolve?.()
+            this.touch(state)
+          })
+      } else state.acceptedResolve?.()
       this.touch(state)
     }
     state.unsubscribe = session.subscribe((event) => this.event(state, event))
@@ -478,6 +541,61 @@ export class ConversationService {
           prompt.message = event.message
       })
     }
+  }
+  /** Read existing acceptance evidence without acquiring the session lock. */
+  async uploadAdoption(pending, materialId) {
+    try {
+      identity(pending.sessionId)
+      const queue = await this.queue.document(pending.sessionId)
+      if (pending.kind === "queue-edit") {
+        const item = await this.queue.findItem(
+          pending.sessionId,
+          pending.itemId,
+          queue
+        )
+        const accepted =
+          item &&
+          ((pending.clientEditId &&
+            item.editRequestId === pending.clientEditId &&
+            item.editBaseRevision === pending.baseRevision) ||
+            item.materials.some((material) => material.id === materialId))
+        if (accepted) return "accepted"
+        if (
+          item &&
+          pending.ownerEpoch !== this.epoch &&
+          queue.revision === pending.baseRevision
+        )
+          return "rejected"
+        return "unknown"
+      }
+      identity(pending.clientRequestId)
+      if (
+        await this.queue.findRequest(
+          pending.sessionId,
+          pending.clientRequestId,
+          queue
+        )
+      )
+        return "accepted"
+      const record = await this.store.get(pending.sessionId)
+      if (record?.sessionFile) {
+        const manager = await this.fileManager(record, false)
+        if (acceptedInput(manager, pending.clientRequestId)) return "accepted"
+      }
+      const receipt = await this.store.request(
+        pending.sessionId,
+        pending.clientRequestId
+      )
+      if (receipt?.status === "handled") return "accepted"
+      if (
+        receipt?.status === "rejected" ||
+        (receipt?.status === "preparing" && receipt.ownerEpoch !== this.epoch)
+      )
+        return "rejected"
+    } catch {
+      /* Damaged or absent evidence is not permission to delete. */
+    }
+    return "unknown"
   }
   toolHistory(branch) {
     return this.conversation_transcript.toolHistory(branch)
@@ -658,9 +776,7 @@ export class ConversationService {
       if (record) {
         state = await this.restore(record, undefined, signal)
         if (
-          state.queue.items.some(
-            (item) => item.clientRequestId === clientRequestId
-          )
+          await this.queue.findRequest(sessionId, clientRequestId, state.queue)
         )
           return result("accepted")
         // Pi may have appended to its in-memory tree before a failing write.
@@ -894,5 +1010,8 @@ export class ConversationService {
   }
   queueReceiptRead(...args) {
     return this.queue.readReceipt(...args)
+  }
+  queueItemRead(...args) {
+    return this.queue.readItem(...args)
   }
 }

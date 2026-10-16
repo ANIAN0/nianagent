@@ -134,7 +134,7 @@ export function useHomeDraftOwner({
   const sessionSeed = useRef({
     workspaceId: rawDraft.workspaceId,
     session:
-      rawDraft.text.trim() || rawDraft.materials.length
+      initialDraft.session || rawDraft.text.trim() || rawDraft.materials.length
         ? rawDraft.session
         : undefined,
   })
@@ -152,7 +152,12 @@ export function useHomeDraftOwner({
   }, [rawDraft.workspaceId, inactive])
   const [saveError, setSaveError] = useState("")
   const latestDraft = useRef(rawDraft)
+  const draftRetired = useRef(false)
+  const retireDraft = useCallback(() => {
+    draftRetired.current = true
+  }, [])
   useMaintenanceSave(() => {
+    if (draftRetired.current) return []
     const current = latestDraft.current
     if (current.workspaceId && draftStore) draftStore.write(current)
     return materialsBlockMaintenance(
@@ -188,6 +193,7 @@ export function useHomeDraftOwner({
   }, [])
   const updateDraft = useCallback(
     (apply: (current: ComposerDraft) => ComposerDraft, persist = true) => {
+      if (draftRetired.current) return false
       const next = editableComposerDraft(
         bindDraftIdentity(apply(latestDraft.current))
       )
@@ -216,6 +222,12 @@ export function useHomeDraftOwner({
       acknowledgeRestoration,
     ]
   )
+  const initializedDraft = useRef(false)
+  useLayoutEffect(() => {
+    if (initializedDraft.current || !initialDraft.sessionId) return
+    initializedDraft.current = true
+    updateDraft((current) => current)
+  }, [initialDraft.sessionId, updateDraft])
   const draft = {
     ...rawDraft,
     workspaceId:
@@ -241,6 +253,7 @@ export function useHomeDraftOwner({
     bindAnchor,
     draft,
     updateDraft,
+    retireDraft,
     latestDraft,
     mounted,
     inputRef,

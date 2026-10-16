@@ -52,6 +52,12 @@ export type HomeComposerProps = {
   >
   initialDraft?: Partial<ComposerDraft>
   onDraftChange?: (draft: ComposerDraft) => void
+  /** Keep the retained preparation owner on the same live next draft. */
+  onDraftOwner?: (
+    sessionId: string,
+    update: (draft: ComposerDraft) => boolean,
+    retire: () => void
+  ) => () => void
   onSubmit: SubmitWork
   onWorkspaceAdd?: (workspace: Workspace) => void
   onChooseWorkspace?: (signal: AbortSignal) => Promise<Workspace | null>

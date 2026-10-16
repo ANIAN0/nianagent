@@ -1,6 +1,7 @@
 import "./composer.css"
 
 import type { ComposerDraft, Material } from "@/lib/composer/types"
+import type { ConversationQueueItemReceipt } from "@/contracts/rpc.generated"
 
 import type { ConversationSubmissionEchoValue } from "../conversation-submission"
 
@@ -40,6 +41,10 @@ export type QueueDockProps = {
   issue?: FeedbackDescription
   issues?: Record<string, FeedbackDescription | undefined>
   onCheck?: () => void
+  onReadItem?: (
+    itemId: string,
+    signal: AbortSignal
+  ) => Promise<ConversationQueueItemReceipt | null>
   onEdit: (
     id: string,
     text: string,

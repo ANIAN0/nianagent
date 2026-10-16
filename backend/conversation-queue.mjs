@@ -1,4 +1,9 @@
 import { settleResources } from "./close-resources.mjs"
+import {
+  rememberRequestContext,
+  restoreRequestContext,
+  withRequestContext,
+} from "./request-context.mjs"
 import { replaceJson } from "./atomic-file.mjs"
 import { archiveReceipt, readArchivedReceipt } from "./receipt-archive.mjs"
 import { validateQueueOperationReceipts as validateArchivedQueueReceipts } from "./queue-operation-receipts.mjs"
@@ -183,6 +188,112 @@ export class ConversationQueue {
       (value) => validateArchivedQueueReceipts({ [id]: value }, sessionId)
     )
   }
+  validateRetired(value, sessionId) {
+    check(
+      value?.sessionId === sessionId && value.item,
+      "原队列项归档身份无效。"
+    )
+    const item = value.item
+    validId(item.id)
+    validId(item.clientRequestId)
+    if (item.editRequestId !== undefined) validId(item.editRequestId)
+    check(
+      ["delivered", "removed"].includes(item.status) &&
+        typeof item.text === "string" &&
+        Array.isArray(item.materials) &&
+        (item.fingerprint === undefined ||
+          /^[a-f0-9]{64}$/.test(item.fingerprint)) &&
+        (item.editBaseRevision === undefined ||
+          (Number.isSafeInteger(item.editBaseRevision) &&
+            item.editBaseRevision >= 0)),
+      "原队列项归档损坏，记录保留。"
+    )
+  }
+  async archivedItem(sessionId, identity, kind = "id") {
+    validId(sessionId)
+    validId(identity)
+    const value = await readArchivedReceipt(
+      join(
+        this.directory,
+        kind === "id" ? "retired-items" : "retired-requests"
+      ),
+      [sessionId, identity],
+      (value) => {
+        this.validateRetired(value, sessionId)
+        check(
+          value.item[kind === "id" ? "id" : "clientRequestId"] === identity,
+          "原队列项归档索引不符。"
+        )
+      }
+    )
+    return value?.item
+  }
+  async findRequest(sessionId, clientRequestId, queue) {
+    if (!clientRequestId) return undefined
+    queue ??= await this.document(sessionId)
+    return (
+      queue.items.find((item) => item.clientRequestId === clientRequestId) ??
+      (await this.archivedItem(sessionId, clientRequestId, "request"))
+    )
+  }
+  async findItem(sessionId, itemId, queue) {
+    queue ??= await this.document(sessionId)
+    return (
+      queue.items.find((item) => item.id === itemId) ??
+      (await this.archivedItem(sessionId, itemId))
+    )
+  }
+  async readItem(sessionId, itemId, signal) {
+    validId(sessionId)
+    validId(itemId)
+    this.conversations.ensureOpen()
+    signal?.throwIfAborted()
+    const item = await this.findItem(sessionId, itemId)
+    signal?.throwIfAborted()
+    return item
+      ? {
+          id: item.id,
+          clientRequestId: item.clientRequestId,
+          status: item.status,
+          ...(item.editBaseRevision !== undefined
+            ? { editBaseRevision: item.editBaseRevision }
+            : {}),
+          ...(item.editRequestId ? { editRequestId: item.editRequestId } : {}),
+        }
+      : null
+  }
+  async compactItems(state, signal) {
+    const retired = state.queue.items.filter((item) => !active(item))
+    if (retired.length <= 128) return
+    const saved = (await this.document(state.record.id)).items
+    const prune = new Set()
+    for (const item of retired.slice(0, -128)) {
+      if (
+        !saved.some(
+          (original) =>
+            original.id === item.id &&
+            JSON.stringify(original) === JSON.stringify(item)
+        )
+      )
+        continue
+      const value = { sessionId: state.record.id, item }
+      for (const [directory, identity] of [
+        ["retired-items", item.id],
+        ["retired-requests", item.clientRequestId],
+      ])
+        await archiveReceipt(
+          join(this.directory, directory),
+          [state.record.id, identity],
+          value,
+          (value) => this.validateRetired(value, state.record.id),
+          signal
+        )
+      prune.add(item.id)
+    }
+    // Both indexes must be durable before dropping any hot item. A failed
+    // document rename leaves identical copies and all original identities.
+    state.queue.items = state.queue.items.filter((item) => !prune.has(item.id))
+  }
   async compactReceipts(state, signal) {
     const values = Object.values(state.queue.operationReceipts ?? {})
     if (values.length <= 256) return
@@ -261,6 +372,7 @@ export class ConversationQueue {
   async write(state, signal, onCommitted) {
     // 本次替换只提交队列文档；Pi 输入接收回执仍由执行协调器拥有。
     await this.compactReceipts(state, signal)
+    await this.compactItems(state, signal)
     await replaceJson(
       join(this.directory, state.record.id + ".json"),
       state.queue,
@@ -276,9 +388,13 @@ export class ConversationQueue {
       revision: queue.revision,
       mode: queue.mode,
       paused: queue.paused,
-      acceptedRequestIds: queue.items.map((item) => item.clientRequestId),
+      acceptedRequestIds: [
+        ...queue.items.filter(active),
+        ...queue.items.filter((item) => !active(item)).slice(-128),
+      ].map((item) => item.clientRequestId),
       retiredItems: queue.items
         .filter((item) => ["delivered", "removed"].includes(item.status))
+        .slice(-128)
         .map((item) => ({
           id: item.id,
           clientRequestId: item.clientRequestId,
@@ -320,20 +436,35 @@ export class ConversationQueue {
   pending(state) {
     return !!state.queue?.items.some(active)
   }
-  async commit(state, change, signal, commitReceipt) {
+  async commit(state, change, signal, commitReceipt, uploadUse) {
     return this.serialize(state, async () => {
       const before = structuredClone(state.queue)
       let committed = false
       let writing = false
+      let usage
       try {
         change(state.queue)
         state.queue.revision++
         commitReceipt?.(state.queue)
+        if (uploadUse)
+          usage = await this.conversations.models.materials.beginUploadUse(
+            state.record.cwd,
+            uploadUse.materials,
+            uploadUse.identity,
+            signal
+          )
         writing = true
         await this.write(state, signal, () => {
           committed = true
         })
+        await usage?.confirm()
       } catch (error) {
+        let cleanupError
+        try {
+          await usage?.finish(committed ? "unknown" : "rejected")
+        } catch (cleanup) {
+          cleanupError = cleanup
+        }
         if (committed)
           throw operationError(
             "result_unknown",
@@ -369,6 +500,15 @@ export class ConversationQueue {
           )
         }
         this.conversations.touch(state)
+        if (cleanupError)
+          throw Object.assign(
+            operationError(
+              "result_unknown",
+              "原队列请求与上传副本的收尾尚待核对，副本保留。",
+              "check"
+            ),
+            { cause: new AggregateError([error, cleanupError]) }
+          )
         throw error
       }
       this.conversations.touch(state)
@@ -384,8 +524,10 @@ export class ConversationQueue {
       "压缩命令需要在空闲时执行。"
     )
     const signature = fingerprint(input.text, input.materials || [])
-    const existing = state.queue.items.find(
-      (item) => item.clientRequestId === input.clientRequestId
+    const existing = await this.findRequest(
+      state.record.id,
+      input.clientRequestId,
+      state.queue
     )
     if (existing) {
       check(
@@ -421,13 +563,26 @@ export class ConversationQueue {
           delivery: input.delivery || "followUp",
           error: "",
           createdAt: new Date().toISOString(),
+          origin: rememberRequestContext(),
         }),
-      signal
+      signal,
+      undefined,
+      {
+        materials: prepared.displayMaterials,
+        identity: {
+          kind: "send",
+          sessionId: state.record.id,
+          clientRequestId: input.clientRequestId,
+          ownerEpoch: this.conversations.epoch,
+        },
+      }
     )
   }
-  enqueueReceipt(state, input) {
-    const existing = state.queue.items.find(
-      (item) => item.clientRequestId === input.clientRequestId
+  async enqueueReceipt(state, input) {
+    const existing = await this.findRequest(
+      state.record.id,
+      input.clientRequestId,
+      state.queue
     )
     check(
       existing?.fingerprint === fingerprint(input.text, input.materials || []),
@@ -441,7 +596,8 @@ export class ConversationQueue {
     change,
     signal,
     prepare,
-    operationIdentity
+    operationIdentity,
+    uploadIdentity
   ) {
     validId(sessionId)
     return this.conversations.sessions.exclusive(sessionId, async () => {
@@ -498,7 +654,13 @@ export class ConversationQueue {
               change(queue, currentItem, prepared, state)
             },
             signal,
-            commitReceipt
+            commitReceipt,
+            uploadIdentity && prepared
+              ? {
+                  materials: prepared.displayMaterials,
+                  identity: uploadIdentity,
+                }
+              : undefined
           )
           return this.conversations.snapshot(state)
         }
@@ -535,6 +697,7 @@ export class ConversationQueue {
       (_queue, item, prepared, state) => {
         item.text = text
         item.materials = prepared.displayMaterials
+        item.origin = rememberRequestContext()
         item.status = "pending"
         item.error = ""
         item.editBaseRevision = revision
@@ -572,6 +735,15 @@ export class ConversationQueue {
           model,
           signal,
         })
+      },
+      undefined,
+      {
+        kind: "queue-edit",
+        sessionId,
+        itemId,
+        clientEditId,
+        baseRevision: revision,
+        ownerEpoch: this.conversations.epoch,
       }
     )
   }
@@ -623,8 +795,9 @@ export class ConversationQueue {
     const prepared = []
     for (const item of items) {
       try {
-        const materials =
-          await this.conversations.models.materials.resolveForPrompt({
+        const origin = await restoreRequestContext(item.origin)
+        const materials = await withRequestContext(origin, () =>
+          this.conversations.models.materials.resolveForPrompt({
             sessionId: state.record.id,
             cwd: state.record.cwd,
             materials: item.materials,
@@ -632,8 +805,10 @@ export class ConversationQueue {
             model: state.session.model,
             signal,
           })
+        )
         prepared.push({
           item,
+          origin,
           materials,
           text:
             materials.textPrefix +
@@ -716,6 +891,7 @@ export class ConversationQueue {
       (value) => value.item.status === "dispatching" && value.text === text
     )
     if (!value) return undefined
+    state.clientContext = value.origin
     const { item, materials } = value
     state.manager.appendCustomEntry("moon-request", {
       clientRequestId: item.clientRequestId,
@@ -824,17 +1000,22 @@ export class ConversationQueue {
       return
     const slash = state.record.modelId.indexOf("/")
     check(slash > 0, "此会话缺少有效模型，请先选择模型。")
-    const snapshot = await this.conversations.start({
-      sessionId: state.record.id,
-      clientRequestId: randomUUID(),
-      workspaceId: state.record.workspaceId,
-      connectionId: state.record.modelId.slice(0, slash),
-      modelId: state.record.modelId.slice(slash + 1),
-      thinking: state.record.thinking,
-      text: "",
-      materials: [],
-      mode: "queue",
-    })
+    const origin = await restoreRequestContext(
+      state.queue.items.find((item) => item.status === "pending")?.origin
+    )
+    const snapshot = await withRequestContext(origin, () =>
+      this.conversations.start({
+        sessionId: state.record.id,
+        clientRequestId: randomUUID(),
+        workspaceId: state.record.workspaceId,
+        connectionId: state.record.modelId.slice(0, slash),
+        modelId: state.record.modelId.slice(slash + 1),
+        thinking: state.record.thinking,
+        text: "",
+        materials: [],
+        mode: "queue",
+      })
+    )
     if (snapshot?.inputAccepted) {
       this.clearFailure(state, "queue_resume_failed")
       this.conversations.touch(state)

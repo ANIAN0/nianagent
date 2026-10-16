@@ -28,6 +28,8 @@ export type HomeSubmission = {
 export type HomeDraftCache = {
   key: number
   workspaceId?: string
+  sessionId?: string
+  recovery?: boolean
   draft?: ComposerDraft
   issue?: FeedbackDescription
 }
@@ -203,16 +205,20 @@ export function acceptHomeDraftCache(
   const matches = matchesHomeSubmission(previous.draft, submission)
   if (!matches && previous.draft.sessionId !== submission.sessionId)
     return previous
+  const sessionId = crypto.randomUUID()
+  const draft = { ...previous.draft, sessionId }
+  delete draft.homeRecoveryKey
+  delete draft.homeTransferId
   return {
     ...previous,
     // An already reopened HomeComposer owns its raw draft. Remount it from
     // this accepted cache; changing initialDraft alone cannot update that state.
     key: previous.key + 1,
     issue: undefined,
+    sessionId,
+    recovery: false,
     draft:
-      matches || transferred
-        ? { ...previous.draft, text: "", materials: [], sessionId: undefined }
-        : { ...previous.draft, sessionId: undefined },
+      matches || transferred ? { ...draft, text: "", materials: [] } : draft,
   }
 }
 export function saveHomeSubmission(submission: HomeSubmission) {
@@ -242,12 +248,20 @@ export function recoverRejectedHomeSubmission(
   submission: HomeSubmission,
   editing?: ComposerDraft
 ) {
-  const current = editing ?? readHomeDraft(submission.draft.workspaceId)
+  const home = readHomeDraft(submission.draft.workspaceId)
+  const current =
+    editing?.sessionId === submission.sessionId
+      ? editing
+      : home.sessionId === submission.sessionId
+        ? home
+        : (restoreConversationDrafts().drafts[submission.sessionId] ?? {})
   const recovery = recoverRejectedHomeDraft(submission, {
     ...followingHomeDraft(submission.draft),
     ...current,
   })
-  saveHomeDraft(recovery.draft)
+  saveConversationDraft(submission.sessionId, recovery.draft)
+  if (!home.sessionId || home.sessionId === submission.sessionId)
+    saveHomeDraft(recovery.draft)
   return recovery
 }
 
@@ -263,8 +277,18 @@ export function recordHomeTransfer(
   }
   // A previous edit may remain only in memory after a local write failure. Never
   // replace it with stale storage or clear Home until that exact source is durable.
-  if (editing) saveHomeDraft(editing)
-  const current = editing ?? readHomeDraft(submission.draft.workspaceId)
+  const home = readHomeDraft(submission.draft.workspaceId)
+  const current =
+    editing?.sessionId === submission.sessionId
+      ? editing
+      : home.sessionId === submission.sessionId
+        ? home
+        : (restoreConversationDrafts().drafts[submission.sessionId] ?? {})
+  if (editing?.sessionId === submission.sessionId) {
+    saveConversationDraft(submission.sessionId, editing)
+    if (!home.sessionId || home.sessionId === submission.sessionId)
+      saveHomeDraft(editing)
+  }
   const draft = matchesHomeSubmission(current, submission)
     ? followingHomeDraft(submission.draft)
     : { ...followingHomeDraft(submission.draft), ...current }

@@ -1,5 +1,6 @@
 import { HoverHint } from "@/components/feedback/hover-hint"
-import { useContext, useEffect, useId, useState } from "react"
+import { useRemoteConnectionRevision } from "@/lib/rpc/use-remote-connection"
+import { useContext, useEffect, useId, useRef, useState } from "react"
 import {
   ChevronDown,
   LoaderCircle,
@@ -212,22 +213,27 @@ export function SessionPermissionControl({
   disabledReason?: string
 }) {
   const service = useContext(PermissionServiceContext)
+  const connectionRevision = useRemoteConnectionRevision()
   const [result, setResult] = useState<{
     key: string
     permission?: ConversationPermission
     issue?: FeedbackDescription
   }>()
-  const [pending, setPending] = useState(false)
+  const [pendingKey, setPendingKey] = useState<string>()
+  const owner = useRef<object | null>(null)
   const [revision, setRevision] = useState(0)
   const [errorOpen, setErrorOpen] = useComposerPanel("permission-error")
   const closeAutoFocus = useComposerPanelCloseAutoFocus("permission-error")
-  const key = `${sessionId}:${revision}`
+  const key = `${sessionId}:${revision}:${connectionRevision}`
+  const pending = pendingKey === key
   const current = result?.key === key ? result : undefined
   const permission = current?.permission
   const issue = current?.issue
   const reading = !current
   useEffect(() => {
     if (!service || !sessionId) return
+    const identity = {}
+    owner.current = identity
     const controller = new AbortController()
     void service
       .read(sessionId, controller.signal)
@@ -238,7 +244,10 @@ export function SessionPermissionControl({
         if (!controller.signal.aborted)
           setResult({ key, issue: feedbackFromError(error) })
       })
-    return () => controller.abort()
+    return () => {
+      owner.current = null
+      controller.abort()
+    }
   }, [service, sessionId, key])
   if (!service || !sessionId) return null
   if (issue)
@@ -301,14 +310,20 @@ export function SessionPermissionControl({
         disabled={disabled || reading || pending || !permission || !!issue}
         onChange={(mode) => {
           if (!permission) return
-          setPending(true)
+          const identity = owner.current
+          setPendingKey(key)
           void service
             .set(permission, mode)
-            .then((permission) => setResult({ key, permission }))
-            .catch((error) =>
-              setResult({ key, permission, issue: feedbackFromError(error) })
+            .then((permission) => {
+              if (owner.current === identity) setResult({ key, permission })
+            })
+            .catch((error) => {
+              if (owner.current === identity)
+                setResult({ key, permission, issue: feedbackFromError(error) })
+            })
+            .finally(() =>
+              setPendingKey((value) => (value === key ? undefined : value))
             )
-            .finally(() => setPending(false))
         }}
       />
     </div>

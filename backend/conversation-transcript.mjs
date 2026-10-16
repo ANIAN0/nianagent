@@ -459,7 +459,7 @@ export class ConversationTranscript {
             const presentation = this.ports.models.extensions?.presentation(
               result,
               part.name
-            )
+            ) || this.ports.models.plugins?.presentation(result, part.name)
             const images = (
               Array.isArray(result?.content) ? result.content : []
             )
@@ -475,6 +475,7 @@ export class ConversationTranscript {
               source:
                 this.ports.models.mcp?.toolSource(part.name) ||
                 this.ports.models.extensions?.toolSource(part.name, result) ||
+                this.ports.models.plugins?.toolSource(part.name, result) ||
                 "Pi",
               status,
               resultAvailability,

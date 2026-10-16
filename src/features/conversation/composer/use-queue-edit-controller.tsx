@@ -1,11 +1,19 @@
 import "./composer.css"
-import { useEffect, useId, useState, useSyncExternalStore } from "react"
+import {
+  useEffect,
+  useEffectEvent,
+  useId,
+  useState,
+  useSyncExternalStore,
+} from "react"
+import type { ConversationQueueItemReceipt } from "@/contracts/rpc.generated"
 
 import type { Material } from "@/lib/composer/types"
 
 import { feedbackFromError } from "@/lib/operation-issue"
 import {
   clearQueueEdit,
+  quarantineQueueEdits,
   getQueueEditOwnerSnapshot,
   matchesQueueEditReceipt,
   queueEditSignature,
@@ -29,6 +37,9 @@ export function useQueueEditController({
   issue,
   issues = {},
   onEdit,
+  onReadItem,
+  onCheck,
+  revision,
   onRecoverEdit,
 }: QueueDockProps) {
   const id = useId()
@@ -52,11 +63,28 @@ export function useQueueEditController({
       getSnapshot: () => getQueueEditOwnerSnapshot(scope),
     }
   })
-  const { record: editing, storageIssue } = useSyncExternalStore(
+  const {
+    record: editing,
+    storageIssue: savedStorageIssue,
+    corrupt,
+  } = useSyncExternalStore(
     owner.subscribe,
     owner.getSnapshot,
     owner.getSnapshot
   )
+  // Clearing a normal draft's storage feedback must not hide another damaged
+  // record. Corruption has its own lifetime until explicit quarantine succeeds.
+  const storageIssue =
+    savedStorageIssue ??
+    (corrupt
+      ? {
+          code: "queue_edit_corrupt",
+          message:
+            "部分排队编辑记录损坏。可保留原文副本后恢复，其他可读取的修改继续保留。",
+          severity: "warning" as const,
+          recovery: "none" as const,
+        }
+      : undefined)
   const [collapsed, setCollapsed] = useState(true)
   const [saving, setSaving] = useState(false)
   const [preview, setPreview] = useState<Material | null>(null)
@@ -72,13 +100,58 @@ export function useQueueEditController({
   )
   const submitted = editing?.submitted
   const editingItem = items.find((item) => item.id === editing?.id)
-  const retiredReceipt = retiredItems.find((item) => item.id === editing?.id)
+  const [checked, setChecked] = useState<{
+    id: string
+    token: string
+    receipt: ConversationQueueItemReceipt | null
+  }>()
+  const [checkRevision, setCheckRevision] = useState(0)
+  const readOriginal = useEffectEvent((itemId: string, signal: AbortSignal) =>
+    onReadItem?.(itemId, signal)
+  )
+  const recentReceipt = retiredItems.find((item) => item.id === editing?.id)
+  const originalId = editing?.id
+  const submittedToken = submitted?.token
+  const inProjection = !!editingItem || !!recentReceipt
+  useEffect(() => {
+    if (!originalId || !submittedToken || inProjection) return
+    const id = originalId
+    const token = submittedToken
+    const controller = new AbortController()
+    void readOriginal(id, controller.signal)
+      ?.then((receipt) => {
+        if (!controller.signal.aborted) setChecked({ id, token, receipt })
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) {
+          const current = readQueueEdit(scope, id)
+          if (current?.submitted?.token === token)
+            setQueueEditStorageIssue(
+              scope,
+              feedbackFromError(
+                error,
+                "原编辑归档暂时无法读取，请核对；修改仍保留。"
+              )
+            )
+        }
+      })
+    return () => controller.abort()
+  }, [originalId, submittedToken, inProjection, revision, checkRevision, scope])
+  const retiredReceipt =
+    recentReceipt ??
+    (checked?.id === editing?.id && checked?.token === submitted?.token
+      ? (checked?.receipt ?? undefined)
+      : undefined)
   const confirmedRetired = matchesQueueEditReceipt(submitted, retiredReceipt)
   const editConfirmed =
     !!submitted?.acknowledged ||
     matchesQueueEditReceipt(submitted, editingItem) ||
     confirmedRetired
-  const terminalOther = !!submitted && !!retiredReceipt && !editConfirmed
+  const terminalOther =
+    !!submitted &&
+    !!retiredReceipt &&
+    ["delivered", "removed"].includes(retiredReceipt.status) &&
+    !editConfirmed
   const editError = terminalOther
     ? {
         code: "queue_edit_retired",
@@ -277,11 +350,26 @@ export function useQueueEditController({
     editError,
     editConfirmed,
     storageIssue,
+    canQuarantine: persistent && corrupt,
+    quarantine: () => {
+      try {
+        quarantineQueueEdits(scope)
+      } catch (error) {
+        setQueueEditStorageIssue(
+          scope,
+          feedbackFromError(error, "损坏记录未能保存副本，原记录保留。")
+        )
+      }
+    },
     rowCount,
     rowProblems,
     expanded,
     id,
     setCollapsed,
     preview,
+    check: () => {
+      setCheckRevision((value) => value + 1)
+      onCheck?.()
+    },
   }
 }

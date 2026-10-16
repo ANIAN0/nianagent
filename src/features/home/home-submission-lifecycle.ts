@@ -20,7 +20,8 @@ export function retainPreparingHomeView(
   activeSelection = false,
   awaitingRecovery = false
 ): RetainedHomeViews {
-  if (awaitingRecovery) return { ...previous, [key]: { key, draft } }
+  if (submitted || awaitingRecovery)
+    return { ...previous, [key]: { key, draft } }
   if (
     (activeSelection || hasPreparingHomeMaterials(draft)) &&
     (submitted || previous[key])

@@ -3,6 +3,7 @@
 import { randomUUID, createHash } from "node:crypto"
 
 import { SessionManager } from "@earendil-works/pi-coding-agent"
+import { requestContext } from "./request-context.mjs"
 
 import { conversationStatistics } from "./conversation-statistics.mjs"
 import { publicFailure, operationError } from "./operation-issue.mjs"
@@ -45,6 +46,8 @@ export class ConversationRun {
           )
           .digest("hex")
         let tracked = false
+        let reserved
+        let committed = false
         const begin = async () => {
           if (input.mode === "queue") return
           const { receipt, created } = await this.ports.store.beginRequest(
@@ -87,8 +90,10 @@ export class ConversationRun {
               )
               return restored
             }
-            const queuedReceipt = restored.queue.items.find(
-              (item) => item.clientRequestId === input.clientRequestId
+            const queuedReceipt = await this.ports.queue.findRequest(
+              record.id,
+              input.clientRequestId,
+              restored.queue
             )
             if (queuedReceipt) {
               await this.ports.queue.enqueueReceipt(restored, input)
@@ -119,6 +124,35 @@ export class ConversationRun {
                 return restored
             }
             await begin()
+            if (
+              !restored.entry.busy &&
+              record.lastRequestId &&
+              record.lastRequestId !== input.clientRequestId
+            ) {
+              const previous = await this.ports.store.request(
+                record.id,
+                record.lastRequestId,
+                signal
+              )
+              const manager = this.ports.persistence.get(restored.manager)
+                ?.error
+                ? await this.ports.fileManager(record)
+                : restored.manager
+              if (
+                previous?.status === "started" &&
+                !acceptedInput(manager, record.lastRequestId) &&
+                !(await this.ports.queue.findRequest(
+                  record.id,
+                  record.lastRequestId,
+                  restored.queue
+                ))
+              )
+                throw operationError(
+                  "request_not_accepted",
+                  "本次新消息尚未接受：此会话的上一请求仍待核对，请先核对原请求。",
+                  "none"
+                )
+            }
             requireValue(
               !restored.controlBusy,
               "会话控制操作尚未完成，请稍候。"
@@ -285,6 +319,13 @@ export class ConversationRun {
             input.sessionId,
             signal
           )
+          signal?.throwIfAborted()
+          this.ports.ensureOpen()
+          // Reserve the existing execution slot without yielding after the
+          // plugin gate. Plugin mutations observe this slot during the commit.
+          this.ports.models.plugins?.assertRunAllowed()
+          state.entry.busy = true
+          reserved = state
           // Atomic index commit authorizes the run, but does not yet prove Pi input
           // acceptance. After this boundary, caller cancellation cannot stop work;
           // Stop identifies the committed run while receipt reads inspect Pi input.
@@ -309,6 +350,7 @@ export class ConversationRun {
                   fingerprint,
                 }
           )
+          committed = true
           const request = {
             clientRequestId: input.clientRequestId,
             fingerprint,
@@ -350,9 +392,12 @@ export class ConversationRun {
               recovery: "retry",
               severity: "info",
             }
+            state.entry.busy = false
+            reserved = undefined
             return state
           }
           state.phase = "running"
+          state.clientContext = requestContext()
           state.command = undefined
           state.runMetrics = {
             startedAt: performance.now(),
@@ -365,7 +410,6 @@ export class ConversationRun {
           state.stopRequested = false
           state.stoppedToolIds.clear()
           state.stoppedToolCalls.clear()
-          state.entry.busy = true
           state.pending = undefined
           state.toolProgress.clear()
           state.compactionActive = false
@@ -378,17 +422,67 @@ export class ConversationRun {
           state.accepted = new Promise((resolve) => {
             state.acceptedResolve = resolve
           })
+          // Own failures before run's try block and in its async finalizer too.
+          // An uncertain commit keeps its original receipt for reconciliation.
           state.run = this.run(state, input)
+            .catch((error) => {
+              state.phase = "failed"
+              state.maintenanceSaveError = true
+              state.nativePrompt = undefined
+              state.pending = undefined
+              state.runtime = undefined
+              state.compactionActive = false
+              state.queue.paused = true
+              state.issue = storageIssue(
+                error,
+                "conversationRead",
+                "本轮收尾未完成，原记录已保留。请重新读取并核对原请求，不要重复发送。"
+              )
+              state.error = state.issue.summary
+              this.ports.touch(state)
+            })
+            .finally(() => {
+              state.entry.busy = false
+              const resolve = state.acceptedResolve
+              state.acceptedResolve = undefined
+              resolve?.()
+            })
+          reserved = undefined
           return state
         } catch (error) {
-          if (tracked) {
+          if (reserved) reserved.entry.busy = false
+          if (tracked || (reserved && committed)) {
+            let receipt
             try {
-              await this.ports.store.rejectRequest(
-                input.sessionId,
-                input.clientRequestId,
-                fingerprint,
-                publicFailure(error, "conversationSend").issue
-              )
+              const issue = publicFailure(error, "conversationSend").issue
+              if (reserved && committed) {
+                // This owner committed the start but has not invoked run/Pi.
+                // Finish that same run through the existing terminal ledger.
+                reserved.record = await this.ports.store.update(
+                  input.sessionId,
+                  { status: "failed", lastError: issue.summary },
+                  undefined,
+                  input.mode === "queue"
+                    ? undefined
+                    : {
+                        clientRequestId: input.clientRequestId,
+                        fingerprint,
+                        runId: reserved.record.runId,
+                        outcome: "rejected",
+                        issue,
+                      }
+                )
+                reserved.phase = "failed"
+                reserved.inputAccepted = false
+                reserved.issue = issue
+                reserved.error = issue.summary
+              } else
+                receipt = await this.ports.store.rejectRequest(
+                  input.sessionId,
+                  input.clientRequestId,
+                  fingerprint,
+                  issue
+                )
             } catch (storageError) {
               throw operationError(
                 "result_unknown",
@@ -398,6 +492,12 @@ export class ConversationRun {
                   .details
               )
             }
+            if (receipt?.status === "started")
+              throw operationError(
+                "result_unknown",
+                "原请求已进入启动阶段，接受结果尚未确认。请核对原回执，不要重复发送。",
+                "check"
+              )
           }
           throw error
         }
@@ -408,8 +508,10 @@ export class ConversationRun {
     // A startup commit alone is earlier; a missing file still cannot distinguish
     // a crash before input append from loss of previously accepted history.
     if (
-      state.queue.items.some(
-        (item) => item.clientRequestId === input.clientRequestId
+      await this.ports.queue.findRequest(
+        state.record.id,
+        input.clientRequestId,
+        state.queue
       )
     )
       return this.ports.snapshot(state)
@@ -433,6 +535,9 @@ export class ConversationRun {
             started: false,
             handled: false,
             message: undefined,
+            uploadUse: undefined,
+            uploadAcceptance: undefined,
+            uploadUseError: undefined,
           }
         : undefined
     state.nativePrompt = nativePrompt
@@ -460,6 +565,19 @@ export class ConversationRun {
           { triggerTurn: true }
         )
       else {
+        if (state.stopRequested || this.ports.closed)
+          throw new Error("请求已停止。")
+        nativePrompt.uploadUse =
+          await this.ports.models.materials.beginUploadUse(
+            state.record.cwd,
+            nativePrompt.materials,
+            {
+              kind: "send",
+              sessionId: state.record.id,
+              clientRequestId: input.clientRequestId,
+              ownerEpoch: this.ports.epoch,
+            }
+          )
         if (state.stopRequested || this.ports.closed)
           throw new Error("请求已停止。")
         await state.session.prompt(input.text || "请处理所附材料。", {
@@ -496,6 +614,24 @@ export class ConversationRun {
     } catch (error) {
       failure = runFailureIssue(error)
     } finally {
+      // Do not acquire the session lock while holding an unaccepted upload lock.
+      // Its pending identity is resolved by the existing terminal receipt.
+      if (nativePrompt?.uploadUse) {
+        await (
+          nativePrompt.uploadAcceptance ??
+          nativePrompt.uploadUse.finish("unknown")
+        ).catch((error) => {
+          nativePrompt.uploadUseError = error
+        })
+        if (nativePrompt.uploadUseError) {
+          state.maintenanceSaveError = true
+          failure = storageIssue(
+            nativePrompt.uploadUseError,
+            "conversationSend",
+            "原输入与上传副本已保留，但采用收尾尚未确认，请核对原请求。"
+          )
+        }
+      }
       // Keep only the terminal disposition locally. Never carry original text,
       // user-object binding or path context into another input/queued turn.
       state.nativePrompt = undefined
@@ -558,10 +694,10 @@ export class ConversationRun {
         for (const progress of state.toolProgress.values())
           if (progress.status === "running")
             progress.status = state.stopRequested ? "stopped" : "failed"
-        const messages = this.ports.transcript(state)
-        const lastMessage =
-          [...messages].reverse().find((message) => message.text)?.text || ""
         try {
+          const messages = this.ports.transcript(state)
+          const lastMessage =
+            [...messages].reverse().find((message) => message.text)?.text || ""
           if (!writeError) {
             state.recoveredContext = this.ports.contextFeedback(state)
             state.manager.appendCustomEntry("moon-context-usage", {
@@ -591,6 +727,13 @@ export class ConversationRun {
                 : {}),
             })
           }
+          const rejected =
+            input.mode !== "queue" &&
+            !nativePrompt?.handled &&
+            !nativePrompt?.started &&
+            !state.inputAccepted &&
+            !writeError &&
+            !acceptedInput(manager, input.clientRequestId)
           state.record = await this.ports.store.update(
             state.record.id,
             {
@@ -610,11 +753,7 @@ export class ConversationRun {
                   runId: state.record.runId,
                   outcome: "handled",
                 }
-              : input.mode !== "queue" &&
-                  !nativePrompt?.started &&
-                  !state.inputAccepted &&
-                  !writeError &&
-                  !acceptedInput(manager, input.clientRequestId)
+              : rejected
                 ? {
                     clientRequestId: input.clientRequestId,
                     fingerprint: state.requests.get(input.clientRequestId)
@@ -636,6 +775,16 @@ export class ConversationRun {
               state.record.runId,
               state.record.updatedAt
             )
+          } else if (rejected) {
+            // Only the completed rejection commit permits the live view to
+            // offer sending again. Keep the original failure explanation.
+            state.issue = {
+              ...state.issue,
+              code: "request_not_accepted",
+              summary: state.issue?.summary || "原请求未被接受，输入已保留。",
+              recovery: "none",
+              severity: state.issue?.severity || "warning",
+            }
           }
         } catch (error) {
           state.phase = "failed"
@@ -685,9 +834,9 @@ export class ConversationRun {
               this.ports.touch(state)
             })
           })
-        state.acceptedResolve?.()
         this.ports.touch(state)
       })
+      state.acceptedResolve?.()
     }
   }
 }
