@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { thinkingLabels } from "@/lib/composer/model-thinking"
 import type { ComposerData } from "@/lib/composer/types"
 import { createModelService } from "./model-service"
+import { useRemoteConnectionRevision } from "@/lib/rpc/use-remote-connection"
 import {
   feedbackFromError,
   type FeedbackDescription,
@@ -15,6 +16,7 @@ import {
 /** One source for the settings page and both composer model menus. */
 export function useModelCatalog(onOpenSettings: () => void) {
   const [service] = useState(createModelService)
+  const connectionRevision = useRemoteConnectionRevision()
   const [connections, setConnections] = useState<ModelConnection[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -79,7 +81,7 @@ export function useModelCatalog(onOpenSettings: () => void) {
         }
       })
     return () => controller.abort()
-  }, [service, version])
+  }, [service, version, connectionRevision])
   useEffect(() => {
     const refresh = () => setVersion((value) => value + 1)
     window.addEventListener("focus", refresh)

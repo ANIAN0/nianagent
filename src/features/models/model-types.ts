@@ -135,12 +135,8 @@ export function connectionErrors(
     )
   )
     errors.name = "该名称已被使用，请换一个名称。"
-  if (
-    item.kind === "subscription" &&
-    !item.providerId &&
-    item.revision !== undefined
-  )
-    errors.name = "请选择订阅提供者。"
+  if (item.kind === "subscription" && !item.providerId)
+    errors.providerId = "请选择订阅提供者。"
   if (item.kind === "api") {
     if (testing && !item.endpoint.trim())
       errors.endpoint = "测试连接前请输入服务端点。"
@@ -194,6 +190,8 @@ export function modelErrors(
     errors.id = "该模型 ID 已存在。"
   if (!item.name.trim()) errors.name = "请输入显示名称。"
   if (!item.api) errors.api = "请选择接口方式。"
+  else if (item.compat !== undefined && item.api !== "openai-completions")
+    errors.api = "系统说明角色设置仅适用于 Chat Completions。"
   if (item.reasoning === undefined) errors.reasoning = "请选择思考能力。"
   if (!item.input.length) errors.input = "至少选择一种输入能力。"
   if (

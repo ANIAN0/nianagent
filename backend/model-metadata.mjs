@@ -87,6 +87,18 @@ export function matchModel(item, known, connection) {
     )
       metadata.conflicts.push("thinkingLevelMap（采用共同等级）")
   }
+  if (api === "openai-completions") {
+    const values = matches.map((model) =>
+      model.api === "openai-completions"
+        ? model.compat?.supportsDeveloperRole
+        : undefined
+    )
+    if (values.some((value) => typeof value === "boolean")) {
+      if (values.every((value) => value === values[0]))
+        draft.compat = { supportsDeveloperRole: values[0] }
+      else metadata.conflicts.push("compat.supportsDeveloperRole")
+    }
+  }
   metadata.status = metadata.conflicts.length ? "partial" : "matched"
   return { ...draft, metadata }
 }

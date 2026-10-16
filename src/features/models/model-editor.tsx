@@ -137,7 +137,14 @@ export function ModelEditor({
                 <FieldLabel>接口方式</FieldLabel>
                 <Select
                   value={draft.api}
-                  onValueChange={(value) => change({ api: value as ModelApi })}
+                  onValueChange={(value) =>
+                    change({
+                      api: value as ModelApi,
+                      ...(value !== "openai-completions"
+                        ? { compat: undefined }
+                        : {}),
+                    })
+                  }
                 >
                   <SelectTrigger
                     aria-label="模型接口方式"
@@ -162,6 +169,50 @@ export function ModelEditor({
                 </Select>
                 {errors.api && <FieldError>{errors.api}</FieldError>}
               </Field>
+              {draft.api === "openai-completions" && (
+                <Field>
+                  <FieldLabel htmlFor="model-instruction-role">
+                    系统说明角色
+                  </FieldLabel>
+                  <Select
+                    value={
+                      draft.compat?.supportsDeveloperRole === undefined
+                        ? "auto"
+                        : draft.compat.supportsDeveloperRole
+                          ? "developer"
+                          : "system"
+                    }
+                    onValueChange={(value) =>
+                      change({
+                        compat:
+                          value === "auto"
+                            ? undefined
+                            : { supportsDeveloperRole: value === "developer" },
+                      })
+                    }
+                  >
+                    <SelectTrigger
+                      id="model-instruction-role"
+                      className="w-full"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem value="auto">自动（Pi 默认）</SelectItem>
+                        <SelectItem value="system">仅 system</SelectItem>
+                        <SelectItem value="developer">
+                          支持 developer（思考模型）
+                        </SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                  <FieldDescription>
+                    不支持 developer 角色的服务选择 system；未设置时由 Pi 判断。
+                    {draft.reasoning === false && "非思考模型仍使用 system。"}
+                  </FieldDescription>
+                </Field>
+              )}
               <FieldSet data-invalid={!!errors.reasoning}>
                 <FieldLegend variant="label">思考能力</FieldLegend>
                 <RadioGroup

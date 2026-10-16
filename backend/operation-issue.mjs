@@ -48,6 +48,17 @@ export function modelFailureIssue(error) {
       "settings",
       "提供方状态：HTTP 403。"
     )
+  const notFound =
+    /^(?:HTTP\s*)?404\b|\b(?:HTTP|status(?:_code)?)[\s:"'=]*404\b/i.test(
+      message
+    )
+  if (notFound || /model.{0,20}(?:not.found|does.not.exist)/i.test(message))
+    return issue(
+      "model_not_found",
+      "模型或接口未找到，请检查模型 ID、协议和端点。",
+      "settings",
+      notFound ? "提供方状态：HTTP 404。" : undefined
+    )
   if (/429|rate.?limit|too.many.requests/i.test(message))
     return issue(
       "model_busy",
@@ -72,7 +83,7 @@ export function modelFailureIssue(error) {
       "当前上下文超过模型限制，请压缩上下文或选择容量更大的模型。",
       "settings"
     )
-  if (/timeout|timed.out|ETIMEDOUT/i.test(message))
+  if (/timeout|timed.out|ETIMEDOUT|等待模型回复超时/i.test(message))
     return issue(
       "model_timeout",
       "等待模型回复超时，请检查连接后继续。",
@@ -94,13 +105,38 @@ export function modelFailureIssue(error) {
     )
   if (/abort|请求已停止/i.test(message))
     return issue("cancelled", "本次执行已停止。", "none")
-  if (/400|invalid.request/i.test(message))
+  if (/\b400\b|invalid.request/i.test(message)) {
+    const parameter = /\bmax_completion_tokens\b/i.test(message)
+      ? "max_completion_tokens"
+      : /\bmax_tokens\b|\bMaxTokens\b/i.test(message)
+        ? "max_tokens"
+        : /\breasoning_effort\b|\bReasoningEffort\b/i.test(message)
+          ? "reasoning_effort"
+          : undefined
+    const roleFailure =
+      !parameter &&
+      /\b(?:developer|(?:messages(?:\[\d+\])?\.)?role)\b.{0,80}\b(?:unsupported|invalid|not\s+(?:supported|accepted|allowed)|does\s+not\s+support)\b|\b(?:unsupported|invalid|not\s+(?:supported|accepted|allowed)|does\s+not\s+support)\b.{0,80}\b(?:developer|(?:messages(?:\[\d+\])?\.)?role)\b/i.test(
+        message
+      )
+    const status =
+      /^(?:HTTP\s*)?400\b|\b(?:HTTP|status(?:_code)?)[\s:"'=]*400\b/i.test(
+        message
+      )
+        ? "提供方状态：HTTP 400。"
+        : "提供方原因：请求无效。"
     return issue(
       "model_request_invalid",
-      "模型服务拒绝了请求，请检查模型、协议和能力配置。",
+      roleFailure
+        ? "该服务不接受当前系统说明角色，请在模型设置调整系统说明角色。"
+        : parameter === "reasoning_effort"
+          ? "模型服务拒绝了思考等级，请检查模型支持的等级配置。"
+          : parameter
+            ? "模型服务拒绝了最大输出设置，请检查模型的输出上限。"
+            : "模型服务拒绝了请求，请检查模型、协议和能力配置。",
       "settings",
-      "提供方状态：HTTP 400。"
+      `${status}${roleFailure ? " 参数：系统说明角色。" : parameter ? ` 参数：${parameter}。` : ""}`
     )
+  }
   if (/fetch.failed|ECONN|ENOTFOUND|network/i.test(message))
     return issue(
       "model_connection",

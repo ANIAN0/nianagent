@@ -288,7 +288,7 @@ function ModelTable({
                                 ? "Pi 目录未匹配，请手动补全"
                                 : `Pi 目录匹配 · ${model.metadata.sources.length} 个来源`}
                               {!!model.metadata.conflicts.length &&
-                                `；待确认：${model.metadata.conflicts.map((field) => ({ contextWindow: "上下文长度", maxTokens: "输出上限", reasoning: "思考能力", input: "输入类型" })[field] ?? (field.startsWith("thinkingLevelMap") ? "思考等级" : field)).join("、")}`}
+                                `；待确认：${model.metadata.conflicts.map((field) => ({ contextWindow: "上下文长度", maxTokens: "输出上限", reasoning: "思考能力", input: "输入类型", "compat.supportsDeveloperRole": "系统说明角色" })[field] ?? (field.startsWith("thinkingLevelMap") ? "思考等级" : field)).join("、")}`}
                             </span>
                           )}
                         </div>

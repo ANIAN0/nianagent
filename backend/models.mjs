@@ -6,7 +6,7 @@ import { AuthorizationJobs } from "./oauth.mjs"
 import { assertSchema, schemas } from "./contract.mjs"
 import { matchModel } from "./model-metadata.mjs"
 import { recordedWrite } from "./write-receipts.mjs"
-import { operationError } from "./operation-issue.mjs"
+import { modelFailureIssue, operationError } from "./operation-issue.mjs"
 
 const apis = ["openai-responses", "openai-completions", "anthropic-messages"]
 const cost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
@@ -116,6 +116,10 @@ function validate(connection, models = true) {
 }
 function validateModel(model) {
   assertSchema(schemas.ModelDefinition, model, "模型")
+  requireValue(
+    model.compat === undefined || model.api === "openai-completions",
+    "系统说明角色设置仅适用于 Chat Completions。"
+  )
   requireValue(
     model &&
       safeText(model.id, 300) &&
@@ -505,7 +509,9 @@ export class ModelService {
       cursors.add(payload.last_id)
       url.searchParams.set("after_id", payload.last_id)
     }
-    const known = runtime.getModels()
+    const known = runtime
+      .getModels()
+      .filter((model) => model.provider !== providerId(connection))
     const seen = new Set()
     return entries.flatMap((item) => {
       requireValue(safeText(item?.id, 300) && item.id, "模型目录包含无效 ID。")
@@ -519,16 +525,18 @@ export class ModelService {
     const runtime = await this.prepared(connection, model)
     const selected = runtime.getModel(providerId(connection), model.id)
     requireValue(selected, "Pi 中不存在此模型。")
+    const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(30000)])
     try {
       const result = await runtime.completeSimple(
         selected,
         {
+          systemPrompt: "You are a concise assistant.",
           messages: [
             { role: "user", content: "Reply OK.", timestamp: Date.now() },
           ],
         },
         {
-          signal: AbortSignal.any([signal, AbortSignal.timeout(30000)]),
+          signal: requestSignal,
           maxTokens: 32,
           ...(connection.credential === "none" && connection.kind === "api"
             ? {
@@ -545,15 +553,33 @@ export class ModelService {
             : {}),
         }
       )
-      requireValue(
-        !["error", "aborted"].includes(result.stopReason),
-        "模型调用失败，请检查凭据、模型接口和服务状态。"
-      )
+      if (["error", "aborted"].includes(result.stopReason)) {
+        const issue = modelFailureIssue(
+          requestSignal.aborted && !signal.aborted
+            ? "等待模型回复超时"
+            : result.errorMessage ||
+                (result.stopReason === "aborted"
+                  ? "请求已停止"
+                  : "模型请求失败")
+        )
+        throw operationError(
+          issue.code,
+          issue.summary,
+          issue.recovery,
+          issue.details
+        )
+      }
     } catch (error) {
       if (signal.aborted) throw error
-      throw new Error(
-        "模型调用未成功，请检查凭据、接口或服务状态（请求上限 30 秒）。",
-        { cause: error }
+      if (error?.name === "MoonOperationError") throw error
+      const issue = modelFailureIssue(
+        requestSignal.aborted ? "等待模型回复超时" : error
+      )
+      throw operationError(
+        issue.code,
+        issue.summary,
+        issue.recovery,
+        issue.details
       )
     }
   }
@@ -644,6 +670,14 @@ function pickModel(model) {
     reasoning: model.reasoning,
     ...(model.thinkingLevelMap
       ? { thinkingLevelMap: model.thinkingLevelMap }
+      : {}),
+    ...(model.api === "openai-completions" &&
+    typeof model.compat?.supportsDeveloperRole === "boolean"
+      ? {
+          compat: {
+            supportsDeveloperRole: model.compat.supportsDeveloperRole,
+          },
+        }
       : {}),
     input: model.input,
     contextWindow: model.contextWindow,

@@ -53,7 +53,7 @@ export function ConnectionFields({
           {errors.name && <FieldError>{errors.name}</FieldError>}
         </Field>
         {value.kind === "subscription" && providers && (
-          <Field>
+          <Field data-invalid={!!errors.providerId}>
             <FieldLabel htmlFor="subscription-provider">订阅提供者</FieldLabel>
             <Select
               value={value.providerId || ""}
@@ -62,7 +62,10 @@ export function ConnectionFields({
                 onChange({ providerId, models: [], account: undefined })
               }
             >
-              <SelectTrigger id="subscription-provider">
+              <SelectTrigger
+                id="subscription-provider"
+                aria-invalid={!!errors.providerId}
+              >
                 <SelectValue placeholder="选择 Pi 支持的服务" />
               </SelectTrigger>
               <SelectContent>
@@ -75,6 +78,7 @@ export function ConnectionFields({
                 </SelectGroup>
               </SelectContent>
             </Select>
+            {errors.providerId && <FieldError>{errors.providerId}</FieldError>}
             <FieldDescription>
               由 Pi 提供授权和凭据刷新；每个提供者使用一个连接。
             </FieldDescription>
