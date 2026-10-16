@@ -1,5 +1,7 @@
 import { createContext } from "react"
 import { rpcCall } from "@/lib/rpc/client"
+import { isRemoteWeb } from "@/lib/rpc/remote-transport"
+import { chooseRemoteDirectory } from "../../../backend/plugins/remote-access/directory-chooser"
 import type { WorkspaceList, WorkspaceRecord } from "@/contracts/rpc.generated"
 
 export type WorkspaceService = {
@@ -18,6 +20,13 @@ export function createWorkspaceService(): WorkspaceService {
     add: (path, signal) => rpcCall("workspaceAdd", { path }, signal),
     select: (id, signal) => rpcCall("workspaceSelect", { id }, signal),
     get: (id, signal) => rpcCall("workspaceGet", { id }, signal),
-    choose: (signal) => rpcCall("workspaceChoose", {}, signal),
+    choose: (signal) =>
+      isRemoteWeb()
+        ? chooseRemoteDirectory(
+            (path, ownedSignal) =>
+              rpcCall("workspaceAdd", { path }, ownedSignal),
+            signal
+          )
+        : rpcCall("workspaceChoose", {}, signal),
   }
 }

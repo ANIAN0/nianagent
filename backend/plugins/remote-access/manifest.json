@@ -1,0 +1,32 @@
+{
+  "id": "remote-access",
+  "name": "远程访问",
+  "description": "通过扫码或链接，从网页连接正在运行的本机Moon。",
+  "version": "0.2.0",
+  "apiVersion": 2,
+  "sdkVersion": "1.1.0",
+  "defaultEnabled": false,
+  "entries": { "app": "host.mjs", "web": "web.tsx" },
+  "defaultConfiguration": { "origin": "http://127.0.0.1:3000" },
+  "configurationSchema": {
+    "type": "object",
+    "properties": {
+      "origin": {
+        "type": "string",
+        "title": "evework网页地址",
+        "description": "公网使用HTTPS；本地联调可使用127.0.0.1的HTTP地址。"
+      }
+    },
+    "required": ["origin"],
+    "additionalProperties": false
+  },
+  "contributions": [
+    {
+      "id": "remote",
+      "kind": "page",
+      "title": "远程访问",
+      "version": 1,
+      "remote": false
+    }
+  ]
+}

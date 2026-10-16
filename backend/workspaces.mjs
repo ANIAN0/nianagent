@@ -5,6 +5,7 @@ import { basename, isAbsolute, join, parse } from "node:path"
 import { randomUUID } from "node:crypto"
 import lockfile from "proper-lockfile"
 import { pickNativeDirectory } from "./native-directory.mjs"
+import { requestContext } from "./request-context.mjs"
 
 const check = (condition, message) => {
   if (!condition) throw new Error(message)
@@ -157,7 +158,7 @@ export class WorkspaceService {
     this.ensureOpen(signal)
     return record ? this.present(record, signal) : null
   }
-  async add(path, signal) {
+  async add(path, signal, select = requestContext().source !== "remote") {
     const canonical = await this.resolve(path, signal)
     return this.transaction(async (document) => {
       // Recheck after acquiring the write lock: deletion during lock wait is not valid.
@@ -167,8 +168,8 @@ export class WorkspaceService {
       )
       const record = existing ?? descriptor(current)
       if (!existing) document.items.push(record)
-      const changed = !existing || document.selectedId !== record.id
-      document.selectedId = record.id
+      const changed = !existing || (select && document.selectedId !== record.id)
+      if (select) document.selectedId = record.id
       return {
         result: { ...record, available: true, unavailableReason: "" },
         changed,
@@ -176,6 +177,12 @@ export class WorkspaceService {
     }, signal)
   }
   async select(id, signal) {
+    if (requestContext().source === "remote") {
+      const workspace = await this.get(id, signal)
+      check(workspace, "工作区不存在，请重新读取。")
+      check(workspace.available, workspace.unavailableReason)
+      return workspace
+    }
     return this.transaction(async (document) => {
       const record = document.items.find((item) => item.id === id)
       check(record, "工作区不存在，请重新读取。")

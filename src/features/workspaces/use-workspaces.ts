@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import type { Workspace } from "@/lib/composer/types"
 import { createWorkspaceService } from "./workspace-service"
 import { createWorkspaceReadController } from "./workspace-read-controller"
+import { useRemoteConnectionRevision } from "@/lib/rpc/use-remote-connection"
 import {
   feedbackFromError,
   type FeedbackDescription,
@@ -9,6 +10,7 @@ import {
 
 export function useWorkspaces() {
   const [service] = useState(createWorkspaceService)
+  const connectionRevision = useRemoteConnectionRevision()
   const [items, setItems] = useState<Workspace[]>([])
   const [selectedId, setSelectedId] = useState<string>()
   const [loading, setLoading] = useState(true)
@@ -58,7 +60,7 @@ export function useWorkspaces() {
       mounted.current = false
       reader.cancel()
     }
-  }, [reader, refresh])
+  }, [reader, refresh, connectionRevision])
   const adopt = (workspace: Workspace) => {
     if (!mounted.current) return
     reader.cancel()
