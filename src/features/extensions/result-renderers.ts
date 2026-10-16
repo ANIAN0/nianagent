@@ -1,5 +1,6 @@
 import { lazy, type ComponentType, type LazyExoticComponent } from "react"
 import type { ConversationToolCall } from "@/features/conversation/conversation-types"
+import { findPluginResult } from "@/features/plugins/plugin-web"
 
 export type ResultRendererProps = {
   payload: unknown
@@ -69,5 +70,5 @@ export function findResultRenderer(kind: string, version: number) {
     (item) => item.kind === kind && item.version === version
   )
   // Conflicts and unsupported versions preserve the original recorded text.
-  return matches.length === 1 ? matches[0] : undefined
+  return matches.length === 1 ? matches[0] : matches.length === 0 ? findPluginResult(kind, version) : undefined
 }

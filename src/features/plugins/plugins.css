@@ -1,0 +1,5 @@
+.plugin-settings { display: flex; flex-direction: column; gap: 24px; max-width: 880px; margin: 0 auto; padding: 24px; }
+.plugin-setting-item { display: flex; flex-direction: column; gap: 14px; padding: 20px 0; border-top: 1px solid var(--border); }
+.plugin-settings h1, .plugin-settings h2 { font-size: 16px; font-weight: 600; }
+.plugin-settings p { font-size: 13px; line-height: 20px; overflow-wrap: anywhere; }
+.plugin-setting-source { color: var(--muted-foreground); }

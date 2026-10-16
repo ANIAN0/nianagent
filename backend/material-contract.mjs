@@ -28,7 +28,7 @@ export const materialSchemas = {
       name: s("材料原始名称", { minLength: 1, maxLength: 500 }),
       kind: s("材料类别", { enum: ["附件", "Skill"] }),
       type: s("实际交付方式", {
-        enum: ["file", "directory", "image", "skill"],
+        enum: ["file", "directory", "image", "skill", "selection"],
       }),
       status: s("准备状态；非 ready 不可交付", {
         enum: ["preparing", "ready", "failed"],
@@ -44,6 +44,13 @@ export const materialSchemas = {
           "失败条目的权威恢复标记；false需重新选择或移除，true允许人工重试准备/核对。旧草稿可缺省，恢复时由服务重新判定。",
       },
       thumbnail: s("固定图片缩略图；仅界面本地使用，不是请求必需字段"),
+      selectionKind: s("实际选区来源", { enum: ["source", "markdown", "pdf"] }),
+      lineStart: { type: "integer", minimum: 1 },
+      lineEnd: { type: "integer", minimum: 1 },
+      columnStart: { type: "integer", minimum: 1 },
+      columnEnd: { type: "integer", minimum: 1 },
+      pageStart: { type: "integer", minimum: 1 },
+      pageEnd: { type: "integer", minimum: 1 },
     },
     ["id", "name", "kind", "type", "status", "source"]
   ),
@@ -113,7 +120,7 @@ export const materialOperations = {
     input: ["sessionId", "cwd", "paths"],
     result: "MaterialReference[]",
     effect:
-      "图片最多8MiB，验证实际解码并按Pi官方尺寸与传输预算准备，历史保存原图；文件引用检查真实路径与可读性，目录引用检查真实目录及工作区范围，两者只保存路径身份，不读取正文或递归内容；Skill通过Pi目录识别。默认selected保留用户明确选择工作区外文件的能力；Agent正文或成果打开必须使用workspace，拒绝realpath越界及符号链接绕过。单项失败返回failed条目及权威retryable，内容/格式无效不可重复准备同一来源。",
+      "图片最多8MiB，验证实际解码并按Pi官方尺寸与传输预算准备，历史保存原图；文件引用检查真实路径与可读性，目录引用检查真实目录及工作区范围，两者只保存路径身份，不读取正文或递归内容；Skill通过Pi目录识别。默认selected保留用户明确选择工作区外文件的能力；Agent正文或成果打开必须使用workspace，拒绝realpath越界及符号链接绕过。单项失败返回failed条目及权威retryable，内容/格式无效不可重复准备同一来源。已知上传路径的归属记录缺失、损坏或身份不符需移除后重传，不可原地重试；暂时磁盘或权限故障保留重试，原记录和文件不改写。",
     example: {
       sessionId: "sample-session",
       cwd: "H:/workspace/moon",

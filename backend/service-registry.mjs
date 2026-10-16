@@ -1,5 +1,16 @@
 /** RPC 装配策略也是接口目录的事实来源；依赖按实际操作根选择，失败不扩散到独立领域。 */
 export const serviceRegistry = {
+  plugins: {
+    ready: [],
+    source: "backend/plugin-host.mjs",
+    storage: "插件应用配置、贡献和激活代次",
+  },
+  boot: {
+    ready: [],
+    source: "backend/boot.mjs",
+    storage:
+      "模型、会话、MCP、工作区、队列/控制与维护记录的必需存储schema；可选插件错误由插件列表呈现",
+  },
   models: {
     ready: ["models"],
     source: "backend/models.mjs",
@@ -59,9 +70,11 @@ export function operationDependencies(method) {
   // 命令原回执独立可读；命令接受流程自己捕获准备故障并保存拒绝终态。
   if (method.startsWith("conversations.commands.")) return []
   if (
-    ["conversations.queueReceiptRead", "conversations.readReceipt"].includes(
-      method
-    )
+    [
+      "conversations.queueReceiptRead",
+      "conversations.queueItemRead",
+      "conversations.readReceipt",
+    ].includes(method)
   )
     return []
   return serviceRegistry[serviceRoot(method)].ready

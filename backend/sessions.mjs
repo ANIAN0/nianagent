@@ -139,7 +139,19 @@ export class SessionService {
       })
     )
   }
-  availability(name) {
+  availability(name, session) {
+    const tool = session
+      ?.getAllTools()
+      .find((candidate) => candidate.name === name)
+    if (tool && tool.sourceInfo?.source !== "builtin") {
+      const actual = this.models.plugins?.currentTool(
+        tool,
+        session.getToolDefinition(name)
+      )
+      return actual?.entry && actual.entry.state !== "active"
+        ? "所属插件已停用或加载失败。"
+        : ""
+    }
     if (name === "bash" || name === "powershell") {
       try {
         ;(name === "bash" ? getShellConfig : getPowerShellConfig)()
@@ -228,24 +240,34 @@ export class SessionService {
       return {
         cwd,
         tools: [
-          ...session.getAllTools().map((tool) => ({
-            id: tool.name,
-            name:
-              names[tool.name] ||
-              this.resources
-                .get(session)
-                ?.extensionSnapshot.descriptors.flatMap(
-                  (descriptor) => descriptor.tools
-                )
-                .find((entry) => entry.id === tool.name)?.name ||
-              tool.name,
-            description: descriptions[tool.name] || tool.description,
-            group:
-              this.models.extensions?.toolSource(tool.name) || "Pi 内置工具",
-            detail: tool.description,
-            available: !this.availability(tool.name),
-            unavailableReason: this.availability(tool.name),
-          })),
+          ...session.getAllTools().map((tool) => {
+            const actual = this.models.plugins?.currentTool(
+              tool,
+              session.getToolDefinition(tool.name)
+            )
+            return {
+              id: tool.name,
+              name:
+                (actual ? actual.definition?.label : names[tool.name]) ||
+                this.resources
+                  .get(session)
+                  ?.extensionSnapshot.descriptors.flatMap(
+                    (descriptor) => descriptor.tools
+                  )
+                  .find((entry) => entry.id === tool.name)?.name ||
+                tool.name,
+              description: actual
+                ? tool.description
+                : descriptions[tool.name] || tool.description,
+              group:
+                actual?.source ||
+                this.models.extensions?.toolSource(tool.name) ||
+                "Pi 内置工具",
+              detail: tool.description,
+              available: !this.availability(tool.name, session),
+              unavailableReason: this.availability(tool.name, session),
+            }
+          }),
           ...(this.models.mcp ? await this.models.mcp.catalog() : []),
           ...extensionSnapshotTools(
             this.resources.get(session)?.extensionSnapshot,
@@ -254,7 +276,19 @@ export class SessionService {
         ],
         instructions,
         defaults: {
-          toolIds: session.getActiveToolNames(),
+          toolIds: [
+            ...session
+              .getAllTools()
+              .filter(
+                (tool) =>
+                  tool.exposure !== "hidden" &&
+                  !this.availability(tool.name, session)
+              )
+              .map((tool) => tool.name),
+            ...(this.models.mcp ? await this.models.mcp.catalog() : [])
+              .filter((tool) => tool.available)
+              .map((tool) => tool.id),
+          ],
           instructionScope: "all",
         },
       }
@@ -296,7 +330,7 @@ export class SessionService {
       (name) =>
         (name.startsWith("mcp__")
           ? configured.has(name)
-          : registered.has(name)) && !this.availability(name)
+          : registered.has(name)) && !this.availability(name, session)
     )
     if (session.isIdle) {
       const active = session.getActiveToolNames()
@@ -385,31 +419,35 @@ export class SessionService {
   // Fork owns a new identity but inherits the exact saved instruction snapshot;
   // re-discovering files here would silently change the confirmed configuration.
   async copyConfiguration(sessionId, source) {
-    return this.exclusive(sessionId, async () => {
-      this.identity(sessionId)
-      assertSchema(schemas.SessionConfiguration, source, "来源配置")
-      await mkdir(this.directory, { recursive: true, mode: 0o700 })
-      const unlock = await lockfile.lock(this.directory, {
-        realpath: false,
-        retries: { retries: 30, minTimeout: 30, maxTimeout: 300 },
-      })
-      return withAcquiredLock(unlock, async (committed) => {
-        const data = await this.document()
-        if (Object.hasOwn(data.sessions, sessionId))
-          return data.sessions[sessionId]
-        const record = { ...structuredClone(source), sessionId, revision: 1 }
-        assertSchema(schemas.SessionConfiguration, record)
-        data.sessions[sessionId] = record
-        const staged = await stageJson(this.file, data, { pretty: true })
-        return withCleanup(
-          async () => {
-            await staged.commit()
-            committed()
-            return record
-          },
-          () => staged.discard()
-        )
-      })
+    return this.exclusive(sessionId, () =>
+      this.copyConfigurationExclusive(sessionId, source)
+    )
+  }
+  // Caller already owns the target's session gate.
+  async copyConfigurationExclusive(sessionId, source) {
+    this.identity(sessionId)
+    assertSchema(schemas.SessionConfiguration, source, "来源配置")
+    await mkdir(this.directory, { recursive: true, mode: 0o700 })
+    const unlock = await lockfile.lock(this.directory, {
+      realpath: false,
+      retries: { retries: 30, minTimeout: 30, maxTimeout: 300 },
+    })
+    return withAcquiredLock(unlock, async (committed) => {
+      const data = await this.document()
+      if (Object.hasOwn(data.sessions, sessionId))
+        return data.sessions[sessionId]
+      const record = { ...structuredClone(source), sessionId, revision: 1 }
+      assertSchema(schemas.SessionConfiguration, record)
+      data.sessions[sessionId] = record
+      const staged = await stageJson(this.file, data, { pretty: true })
+      return withCleanup(
+        async () => {
+          await staged.commit()
+          committed()
+          return record
+        },
+        () => staged.discard()
+      )
     })
   }
   async applyExclusive(
@@ -588,14 +626,20 @@ export class SessionService {
         descriptor.tools.filter((tool) => tool.available).map((tool) => tool.id)
       )
     )
-    const unavailable = (resource.toolIds || []).filter(
-      (id) =>
-        (id.startsWith("mcp__") && !available.has(id)) ||
-        (id.startsWith("moon_ext__") && !extensionAvailable.has(id))
-    )
+    const unavailableTools = () => {
+      const registered = new Set(
+        live.session.getAllTools().map((tool) => tool.name)
+      )
+      return (resource.toolIds || []).filter((id) =>
+        id.startsWith("mcp__")
+          ? !available.has(id)
+          : !registered.has(id) || !!this.availability(id, live.session)
+      )
+    }
     if (
       snapshot.fingerprint !== resource.mcpSnapshot.fingerprint ||
-      extensions?.fingerprint !== resource.extensionSnapshot?.fingerprint
+      extensions?.fingerprint !== resource.extensionSnapshot?.fingerprint ||
+      this.models.plugins?.fingerprint() !== resource.pluginFingerprint
     ) {
       const previous = resource.mcpSnapshot
       const oldAvailable = resource.mcpAvailable
@@ -609,10 +653,12 @@ export class SessionService {
         // selection now blocks sending. The user selection remains unchanged.
         await live.session.reload()
         signal?.throwIfAborted()
+        const unavailable = unavailableTools()
         live.session.setActiveToolsByName([
           ...(resource.toolIds || []).filter(
             (name) =>
               !name.startsWith("mcp__") &&
+              !unavailable.includes(name) &&
               (!name.startsWith("moon_ext__") || extensionAvailable.has(name))
           ),
           ...((resource.toolIds || []).some(
@@ -631,7 +677,7 @@ export class SessionService {
       }
     }
     check(
-      !unavailable.length,
+      !unavailableTools().length,
       "已选择的 MCP 或扩展工具已停用、删除或失效，请在会话配置中取消后重试。"
     )
   }

@@ -69,6 +69,18 @@ export const queueOperationReceiptStorageSchema = obj(
   ]
 )
 export const queueSchemas = {
+  ConversationQueueItemReceipt: obj(
+    {
+      id,
+      clientRequestId: id,
+      status: str("原队列项当前或归档状态", {
+        enum: ["pending", "dispatching", "failed", "delivered", "removed"],
+      }),
+      editBaseRevision: { type: "integer", minimum: 0 },
+      editRequestId: id,
+    },
+    ["id", "clientRequestId", "status"]
+  ),
   ConversationQueueOperationReceipt: obj(
     {
       ...receiptFields,
@@ -134,7 +146,7 @@ export const queueSchemas = {
       retiredItems: {
         type: "array",
         description:
-          "已交付/已删除原项的最小终态回执，用于核对未知编辑；不返回文字、材料或媒体正文。",
+          "最近128项已交付/已删除回执；更旧原项通过conversationQueueItemRead按身份核对，不返回正文。",
         items: obj(
           {
             id,
@@ -161,7 +173,7 @@ export const queueSchemas = {
         type: "array",
         items: id,
         description:
-          "已持久接受的提交回执，用于原请求核对，已交付/已删除仍保留",
+          "活动项与最近128项终态的接受投影；更旧身份通过conversationReceiptRead核对归档，不因离开投影而失效",
       },
     },
     ["revision", "mode", "paused", "items", "acceptedRequestIds"]
@@ -177,6 +189,24 @@ const common = {
     "同会话串行处理；已进入交付的消息不能编辑或删除。停止不回滚已经执行的工具。",
 }
 export const queueOperations = {
+  conversationQueueItemRead: {
+    module: "运行中消息",
+    method: "conversations.queueItemRead",
+    args: ["sessionId", "itemId", "$signal"],
+    request: obj({ sessionId: id, itemId: id }),
+    response: {
+      anyOf: [ref("ConversationQueueItemReceipt"), { type: "null" }],
+    },
+    result: "ConversationQueueItemReceipt|null",
+    title: "核对原排队编辑",
+    input: ["sessionId", "itemId"],
+    condition:
+      "只读活动或已归档的原队列项，不restore/Pi/reconcile，不交付或重发。null不能证明未采用。",
+    errors: "身份无效、原队列或归档损坏、读取失败；原记录保留。",
+    effect:
+      "返回原项状态及最后成功编辑的editBaseRevision/editRequestId，需同时匹配冻结身份；不返回正文或材料。",
+    example: { sessionId: "sample-session", itemId: "original-queue-item" },
+  },
   conversationQueueEdit: {
     ...common,
     method: "conversations.queueEdit",

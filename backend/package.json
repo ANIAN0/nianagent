@@ -5,12 +5,16 @@
   "type": "module",
   "files": [
     "*.mjs",
-    "extensions/**/*.mjs"
+    "extensions/**/*.mjs",
+    "plugins/**/*.mjs",
+    "plugins/**/manifest.json"
   ],
   "dependencies": {
-    "@earendil-works/pi-ai": "1.0.0",
-    "@earendil-works/pi-coding-agent": "1.0.0",
-    "@earendil-works/pi-mcp": "1.0.0",
-    "proper-lockfile": "4.1.2"
+    "@earendil-works/pi-ai": "1.1.0",
+    "@earendil-works/pi-coding-agent": "1.1.0",
+    "@earendil-works/pi-mcp": "1.1.0",
+    "noise-handshake": "4.2.0",
+    "proper-lockfile": "4.1.2",
+    "ws": "8.22.0"
   }
 }

@@ -1,4 +1,6 @@
 import { workspaceOperations } from "./workspace-contract.mjs"
+import { bootOperations } from "./boot-contract.mjs"
+import { pluginOperations } from "./plugin-contract.mjs"
 import { conversationOperations as catalogOperations } from "./conversation-catalog-contract.mjs"
 import { conversationOperations } from "./conversation-contract.mjs"
 import { liveOperations } from "./conversation-live-contract.mjs"
@@ -18,6 +20,8 @@ import { object, ref, assertSchema } from "./schema.mjs"
 export { schemas, assertSchema } from "./schema.mjs"
 // Authority for RPC names, required input fields, documentation and dispatch.
 export const operations = {
+  ...bootOperations,
+  ...pluginOperations,
   ...extensionOperations,
   ...writeReceiptOperations,
   ...queueOperations,
@@ -175,7 +179,7 @@ export const operations = {
     ),
     response: ref("ModelConnection"),
     condition:
-      "提交前取消不写入；rename 为提交边界，提交后取消不回滚。新建不传 revision；编辑必须携带原版本。",
+      "提交前取消不写入；rename 为提交边界，提交后取消不回滚。新建不传 revision；编辑必须携带原版本。Chat Completions 可按模型保存 Pi 原生系统说明角色参数，未设置时保留 Pi 默认行为。",
     errors:
       "字段不合法、模型能力不完整、重名、旧版本、连接已删除、授权租约占用、文件写入失败。",
     title: "保存连接与模型",
@@ -224,7 +228,7 @@ export const operations = {
     request: object({ connection: ref("ModelConnection") }),
     response: { type: "array", items: ref("ModelDefinition") },
     condition:
-      "API 连接需端点和所选凭据；订阅读取内置目录。只返回候选，不保存。20秒内可取消。协议不因能力匹配改变。",
+      "API 连接需端点和所选凭据；订阅读取内置目录。只返回候选，不保存。20秒内可取消。协议不因能力匹配改变。排除本连接已注册模型的自身能力匹配，参考兼容参数仅来自 Pi 显式声明，来源分歧须用户确认。",
     errors:
       "端点/凭据无效、HTTP失败、非法目录、分页游标无效、超时；未知能力作为未匹配结果返回。",
     title: "发现候选模型",
@@ -255,8 +259,9 @@ export const operations = {
     }),
     response: { type: "null" },
     condition:
-      "需要完整模型能力和可用凭据；Pi 发起短推理，可能收费；30秒超时，取消不代表提供者退费。",
-    errors: "凭据/模型无效、提供者请求失败、超时或取消。",
+      "需要完整模型能力和可用凭据；Pi 发起带简短系统说明的短推理，使用模型原生角色兼容配置，可能收费；30秒超时，取消不代表提供者退费。",
+    errors:
+      "凭据/模型无效、模型或接口未找到、提供者请求参数或系统说明角色拒绝、超时或取消；仅返回固定安全分类及允许公开的状态/参数名，不回传提供方原始响应。",
     title: "检查模型调用",
     input: ["connection", "model"],
     result: "null",
@@ -388,6 +393,12 @@ export const operations = {
 // the authority for what callers may do after losing the response, not a regex
 // over operation names or translated error strings.
 export const transportRecoveryByOperation = {
+  ...Object.fromEntries(
+    Object.entries(pluginOperations).map(([name, definition]) => [
+      name,
+      definition.transportRecovery,
+    ])
+  ),
   list: "reload",
   revealKey: "reload",
   providers: "reload",
@@ -404,6 +415,7 @@ export const transportRecoveryByOperation = {
   authCancel: "check",
   logout: "check",
   workspaceList: "reload",
+  bootStatus: "reload",
   workspaceGet: "reload",
   workspaceAdd: "check",
   workspaceSelect: "check",
@@ -422,6 +434,7 @@ export const transportRecoveryByOperation = {
   conversationQueueMode: "check",
   conversationQueueDeliver: "check",
   conversationQueueReceiptRead: "reload",
+  conversationQueueItemRead: "reload",
   conversationFork: "check",
   conversationCompact: "check",
   conversationControlRead: "reload",

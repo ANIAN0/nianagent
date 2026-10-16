@@ -29,7 +29,7 @@ import { check } from "./session-core.mjs"
  * @param {string[] | undefined} toolIds
  * @param {AbortSignal} [signal]
  * @param {boolean} [recover]
- * @param {Partial<Parameters<typeof createAgentSession>[0]> & {extensionFactories?: import("@earendil-works/pi-coding-agent").InlineExtension[], uiContext?: import("@earendil-works/pi-coding-agent").ExtensionUIContext, thinking?: NonNullable<Parameters<typeof createAgentSession>[0]>["thinkingLevel"]}} [options]
+ * @param {Partial<Parameters<typeof createAgentSession>[0]> & {pluginScope?: any, extensionFactories?: import("@earendil-works/pi-coding-agent").InlineExtension[], uiContext?: import("@earendil-works/pi-coding-agent").ExtensionUIContext, thinking?: NonNullable<Parameters<typeof createAgentSession>[0]>["thinkingLevel"]}} [options]
  */
 export async function createPiSession(
   ports,
@@ -66,6 +66,7 @@ export async function createPiSession(
     transports: new Set(),
     disposed: false,
     generation: 0,
+    pluginFingerprint: "",
   }
   const owner = randomUUID()
   const gates = (pi) => {
@@ -87,100 +88,149 @@ export async function createPiSession(
       )
     )
   }
-  const resourceLoader = new DefaultResourceLoader({
+  const loadResources = async () =>
+    new DefaultResourceLoader({
+      cwd,
+      agentDir: ports.agentDir,
+      settingsManager,
+      noExtensions: true,
+      noSkills: false,
+      noPromptTemplates: true,
+      noThemes: true,
+      noContextFiles: true,
+      additionalExtensionPaths:
+        (await ports.models.plugins?.extensionPaths()) || [],
+      extensionFactories: [
+        gates,
+        ...(options.extensionFactories || []),
+        ...((await ports.models.plugins?.factories(
+          cwd,
+          options.pluginScope || {}
+        )) || []),
+        ...instructionState.extensionSnapshot.descriptors.map((descriptor) => ({
+          name: `moon-ext-${descriptor.id}`,
+          factory: (pi) => {
+            const entry = instructionState.extensionSnapshot.entries.find(
+              (candidate) => candidate.descriptor.id === descriptor.id
+            )
+            if (entry)
+              for (const factory of ports.models.extensions.factories(
+                { entries: [entry] },
+                cwd,
+                mcpEnabled,
+                instructionState.extensionClosers
+              ))
+                factory.factory(pi)
+          },
+        })),
+        ...(mcpEnabled
+          ? [
+              {
+                name: "moon-mcp-codemode",
+                factory: createCodemodeExtension({ mode: "on" }),
+              },
+              {
+                name: "moon-mcp-tool-search",
+                factory: createToolSearchExtension(),
+              },
+              (pi) => {
+                const generation = instructionState.generation
+                return createMcpExtension({
+                  loadConfig: () => instructionState.mcpSnapshot,
+                  credentials: mcp?.credentials,
+                  logPath: join(ports.agentDir, "mcp.log"),
+                  createTransport: (entry, sessionCwd, authProvider) => {
+                    check(
+                      !instructionState.disposed &&
+                        !ports.closed &&
+                        generation === instructionState.generation,
+                      "会话已关闭，不再启动 MCP 服务。"
+                    )
+                    instructionState.mcpStatuses.set(entry.name, {
+                      state: "connecting",
+                      error: "",
+                    })
+                    let transport
+                    try {
+                      transport = createMcpTransport(
+                        entry,
+                        sessionCwd,
+                        authProvider,
+                        (status) => {
+                          if (
+                            generation === instructionState.generation &&
+                            !instructionState.disposed
+                          )
+                            instructionState.mcpStatuses.set(entry.name, status)
+                        }
+                      )
+                    } catch (error) {
+                      instructionState.mcpStatuses.set(entry.name, {
+                        state: "failed",
+                        error: safeMcpError(error, entry.config),
+                      })
+                      throw error
+                    }
+                    instructionState.transports.add(transport)
+                    transport.onClose(() =>
+                      instructionState.transports.delete(transport)
+                    )
+                    return transport
+                  },
+                  // SDK slash commands must not silently edit Moon's revisioned file.
+                  updateConfig: () => {
+                    throw new Error("请在 Moon 的 MCP 服务设置中修改配置。")
+                  },
+                })(pi)
+              },
+            ]
+          : []),
+      ],
+      systemPrompt: "",
+      systemPromptOverride: () => undefined,
+      appendSystemPrompt: [ports.runtimePrompt(cwd)],
+      agentsFilesOverride: () => ({
+        agentsFiles: instructionState.files.map(({ path, content }) => ({
+          path,
+          content,
+        })),
+      }),
+    })
+  /** @type {DefaultResourceLoader | undefined} */
+  let loadedResources
+  // Pi 1.1 exposes cache invalidation through a previously loaded loader's
+  // reload(). An empty loader performs that step without invoking old sources.
+  const cacheResetLoader = new DefaultResourceLoader({
     cwd,
     agentDir: ports.agentDir,
-    settingsManager,
+    settingsManager: SettingsManager.inMemory({ packages: [] }),
     noExtensions: true,
-    noSkills: false,
+    noSkills: true,
     noPromptTemplates: true,
     noThemes: true,
     noContextFiles: true,
-    extensionFactories: [
-      gates,
-      ...(options.extensionFactories || []),
-      ...extensionSnapshot.descriptors.map((descriptor) => ({
-        name: `moon-ext-${descriptor.id}`,
-        factory: (pi) => {
-          const entry = instructionState.extensionSnapshot.entries.find(
-            (candidate) => candidate.descriptor.id === descriptor.id
-          )
-          if (entry)
-            for (const factory of ports.models.extensions.factories(
-              { entries: [entry] },
-              cwd,
-              mcpEnabled,
-              instructionState.extensionClosers
-            ))
-              factory.factory(pi)
-        },
-      })),
-      ...(mcpEnabled
-        ? [
-            createCodemodeExtension({ mode: "on" }),
-            createToolSearchExtension(),
-            (pi) => {
-              const generation = instructionState.generation
-              return createMcpExtension({
-                loadConfig: () => instructionState.mcpSnapshot,
-                credentials: mcp?.credentials,
-                logPath: join(ports.agentDir, "mcp.log"),
-                createTransport: (entry, sessionCwd, authProvider) => {
-                  check(
-                    !instructionState.disposed &&
-                      !ports.closed &&
-                      generation === instructionState.generation,
-                    "会话已关闭，不再启动 MCP 服务。"
-                  )
-                  instructionState.mcpStatuses.set(entry.name, {
-                    state: "connecting",
-                    error: "",
-                  })
-                  let transport
-                  try {
-                    transport = createMcpTransport(
-                      entry,
-                      sessionCwd,
-                      authProvider,
-                      (status) => {
-                        if (
-                          generation === instructionState.generation &&
-                          !instructionState.disposed
-                        )
-                          instructionState.mcpStatuses.set(entry.name, status)
-                      }
-                    )
-                  } catch (error) {
-                    instructionState.mcpStatuses.set(entry.name, {
-                      state: "failed",
-                      error: safeMcpError(error, entry.config),
-                    })
-                    throw error
-                  }
-                  instructionState.transports.add(transport)
-                  transport.onClose(() =>
-                    instructionState.transports.delete(transport)
-                  )
-                  return transport
-                },
-                // SDK slash commands must not silently edit Moon's revisioned file.
-                updateConfig: () => {
-                  throw new Error("请在 Moon 的 MCP 服务设置中修改配置。")
-                },
-              })(pi)
-            },
-          ]
-        : []),
-    ],
-    systemPrompt: "",
-    systemPromptOverride: () => undefined,
-    appendSystemPrompt: [ports.runtimePrompt(cwd)],
-    agentsFilesOverride: () => ({
-      agentsFiles: instructionState.files.map(({ path, content }) => ({
-        path,
-        content,
-      })),
-    }),
+  })
+  let cacheResetReady = false
+  // Pi retains this public ResourceLoader interface across session.reload().
+  // Rebuild the concrete loader from current explicit sources on every reload.
+  const resourceLoader = new Proxy(/** @type {DefaultResourceLoader} */ ({}), {
+    get(_target, key) {
+      if (key === "reload")
+        return async (reloadOptions) => {
+          if (!cacheResetReady) {
+            await cacheResetLoader.reload()
+            cacheResetReady = true
+          }
+          await cacheResetLoader.reload()
+          loadedResources = await loadResources()
+          await loadedResources.reload(reloadOptions)
+          ports.models.plugins?.observeNative(loadedResources.getExtensions())
+          instructionState.pluginFingerprint =
+            ports.models.plugins?.fingerprint() || ""
+        }
+      const value = Reflect.get(loadedResources, key)
+      return typeof value === "function" ? value.bind(loadedResources) : value
+    },
   })
   let session
   try {
@@ -259,7 +309,7 @@ export async function createPiSession(
         (name) =>
           (name.startsWith("mcp__")
             ? instructionState.mcpAvailable.has(name)
-            : available.has(name)) && !ports.availability(name)
+            : available.has(name)) && !ports.availability(name, session)
       )
       check(
         recover || selected.length === toolIds.length,
@@ -284,7 +334,9 @@ export async function createPiSession(
     }
     if (!toolIds)
       session.setActiveToolsByName(
-        session.getActiveToolNames().filter((name) => !ports.availability(name))
+        session
+          .getActiveToolNames()
+          .filter((name) => !ports.availability(name, session))
       )
     ports.resources.set(session, instructionState)
     return session

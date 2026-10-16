@@ -1,5 +1,10 @@
 // Generated from backend/schema.mjs and backend/contract.mjs. Do not edit.
 export const transportRecoveryByOperation = {
+  pluginList: "reload",
+  pluginConfigure: "check",
+  pluginCall: "none",
+  pluginImport: "check",
+  pluginPackage: "check",
   list: "reload",
   revealKey: "reload",
   providers: "reload",
@@ -16,6 +21,7 @@ export const transportRecoveryByOperation = {
   authCancel: "check",
   logout: "check",
   workspaceList: "reload",
+  bootStatus: "reload",
   workspaceGet: "reload",
   workspaceAdd: "check",
   workspaceSelect: "check",
@@ -34,6 +40,7 @@ export const transportRecoveryByOperation = {
   conversationQueueMode: "check",
   conversationQueueDeliver: "check",
   conversationQueueReceiptRead: "reload",
+  conversationQueueItemRead: "reload",
   conversationFork: "check",
   conversationCompact: "check",
   conversationControlRead: "reload",
@@ -69,6 +76,64 @@ export const queueReceiptOperationNames = [
   "conversationQueueMode",
   "conversationQueueDeliver",
 ] as const
+export type BrowserBootStatus = {
+  /** 启动所需模型、会话、MCP、工作区、队列/控制和维护记录通过纯schema读取验证；可选插件错误单独呈现 */
+  readable: boolean
+}
+export type PluginContribution = {
+  /** 受信清单声明的稳定标识 */
+  id: string
+  /** 网页贡献类型 */
+  kind: "page" | "workbench" | "result"
+  /** 贡献名称 */
+  title: string
+  /**  */
+  version: number
+  /**  */
+  remote: boolean
+}
+export type PluginDescriptor = {
+  /** 受信清单声明的稳定标识 */
+  id: string
+  /** 名称 */
+  name: string
+  /** 用途 */
+  description: string
+  /** 代码版本 */
+  version: string
+  /** 真实来源路径或包来源 */
+  source: string
+  /** 来源类型 */
+  sourceKind: "bundled" | "local" | "npm" | "git" | "legacy"
+  /**  */
+  installed: boolean
+  /**  */
+  enabled: boolean
+  /**  */
+  revision: number
+  /**  */
+  generation: number
+  /** 应用激活状态 */
+  state: "disabled" | "loading" | "active" | "stopping" | "failed"
+  /** 插件业务连接状态 */
+  businessState: string
+  /** 受控失败及恢复原因 */
+  error: string
+  /** 按所属插件原生操作schema验证的JSON对象；编码后最多16MiB，文件源字节限制独立 */
+  configuration: string
+  /** 按所属插件原生操作schema验证的JSON对象；编码后最多16MiB，文件源字节限制独立 */
+  configurationSchema: string
+  /**  */
+  contributions: PluginContribution[]
+  /**  */
+  tools: SessionTool[]
+}
+export type PluginResponse = {
+  /** 按所属插件原生操作schema验证的JSON对象；编码后最多16MiB，文件源字节限制独立 */
+  payload: string
+  /**  */
+  generation: number
+}
 export type ExtensionPresentation = {
   /** 声明中的稳定结果种类；按kind/version选择展示，不按工具或插件名称分支 */
   kind: string
@@ -147,6 +212,18 @@ export type RpcFailure = {
   /**  */
   issue: OperationIssue
 }
+export type ConversationQueueItemReceipt = {
+  /** 稳定会话、消息或提交标识 */
+  id: string
+  /** 稳定会话、消息或提交标识 */
+  clientRequestId: string
+  /** 原队列项当前或归档状态 */
+  status: "pending" | "dispatching" | "failed" | "delivered" | "removed"
+  /**  */
+  editBaseRevision?: number
+  /** 稳定会话、消息或提交标识 */
+  editRequestId?: string
+}
 export type ConversationQueueOperationReceipt = {
   /** 稳定会话、消息或提交标识 */
   sessionId: string
@@ -203,7 +280,7 @@ export type ConversationQueue = {
   paused: boolean
   /**  */
   items: ConversationQueueItem[]
-  /** 已交付/已删除原项的最小终态回执，用于核对未知编辑；不返回文字、材料或媒体正文。 */
+  /** 最近128项已交付/已删除回执；更旧原项通过conversationQueueItemRead按身份核对，不返回正文。 */
   retiredItems?: {
     /** 稳定会话、消息或提交标识 */
     id: string
@@ -216,7 +293,7 @@ export type ConversationQueue = {
     /** 最后成功编辑请求的clientEditId；与冻结提交身份核对，不返回编辑正文 */
     editRequestId?: string
   }[]
-  /** 已持久接受的提交回执，用于原请求核对，已交付/已删除仍保留 */
+  /** 活动项与最近128项终态的接受投影；更旧身份通过conversationReceiptRead核对归档，不因离开投影而失效 */
   acceptedRequestIds: string[]
 }
 export type MaterialDiagnostic = {
@@ -233,7 +310,7 @@ export type MaterialReference = {
   /** 材料类别 */
   kind: "附件" | "Skill"
   /** 实际交付方式 */
-  type: "file" | "directory" | "image" | "skill"
+  type: "file" | "directory" | "image" | "skill" | "selection"
   /** 准备状态；非 ready 不可交付 */
   status: "preparing" | "ready" | "failed"
   /** 实际绝对路径或图片来源说明 */
@@ -250,6 +327,20 @@ export type MaterialReference = {
   retryable?: boolean
   /** 固定图片缩略图；仅界面本地使用，不是请求必需字段 */
   thumbnail?: string
+  /** 实际选区来源 */
+  selectionKind?: "source" | "markdown" | "pdf"
+  /**  */
+  lineStart?: number
+  /**  */
+  lineEnd?: number
+  /**  */
+  columnStart?: number
+  /**  */
+  columnEnd?: number
+  /**  */
+  pageStart?: number
+  /**  */
+  pageEnd?: number
 }
 export type MaterialCatalog = {
   /** 当前会话真实工作目录 */
@@ -500,7 +591,7 @@ export type ConversationChatMessage = {
     /** 原始来源路径或固定图片说明 */
     source: string
     /** 材料真实类别 */
-    materialType: "file" | "directory" | "image" | "skill"
+    materialType: "file" | "directory" | "image" | "skill" | "selection"
   }[]
   /**  */
   tools?: ConversationChatTool[]
@@ -1096,6 +1187,11 @@ export type ModelDefinition = {
   reasoning?: boolean
   /**  */
   thinkingLevelMap?: ThinkingLevelMap
+  /** 仅适用于 Chat Completions；不覆盖未设置模型的 Pi 默认行为。 */
+  compat?: {
+    /** Pi Chat Completions 原生兼容参数；false 使用 system，true 允许思考模型使用 developer，缺省沿 Pi 自动判断。 */
+    supportsDeveloperRole?: boolean
+  }
   /** 只读；由 Pi 依据模型能力计算，不支持思考时为空。 */
   supportedThinkingLevels?: (
     "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
@@ -1222,6 +1318,40 @@ export type AuthState = {
   issue?: OperationIssue
 }
 export type RpcRequests = {
+  bootStatus: Record<string, never>
+  pluginList: Record<string, never>
+  pluginConfigure: {
+    /** 受信清单声明的稳定标识 */
+    id: string
+    /**  */
+    revision: number
+    /**  */
+    enabled: boolean
+    /** 按所属插件原生操作schema验证的JSON对象；编码后最多16MiB，文件源字节限制独立 */
+    configuration: string
+  }
+  pluginCall: {
+    /** 受信清单声明的稳定标识 */
+    id: string
+    /** 受信清单声明的稳定标识 */
+    operation: string
+    /** 按所属插件原生操作schema验证的JSON对象；编码后最多16MiB，文件源字节限制独立 */
+    payload: string
+    /** 受信清单声明的稳定标识 */
+    sessionId?: string
+    /**  */
+    generation?: number
+  }
+  pluginImport: {
+    /** 本地绝对路径、npm:包名或Git来源 */
+    source: string
+  }
+  pluginPackage: {
+    /** 受信清单声明的稳定标识 */
+    id: string
+    /** 显式包管理操作 */
+    action: "install" | "update" | "remove"
+  }
   extensionList: Record<string, never>
   extensionConfigure: {
     /** 已发现模块稳定ID */
@@ -1241,6 +1371,12 @@ export type RpcRequests = {
       "save" | "remove" | "mcpSave" | "mcpRemove" | "extensionConfigure"
     /** 客户端冻结的原写入身份；同标识不重复执行，结果未知只读原回执 */
     operationRequestId: string
+  }
+  conversationQueueItemRead: {
+    /** 稳定会话、消息或提交标识 */
+    sessionId: string
+    /** 稳定会话、消息或提交标识 */
+    itemId: string
   }
   conversationQueueEdit: {
     /** 稳定会话、消息或提交标识 */
@@ -1597,9 +1733,16 @@ export type RpcRequests = {
   }
 }
 export type RpcResults = {
+  bootStatus: BrowserBootStatus
+  pluginList: PluginDescriptor[]
+  pluginConfigure: PluginDescriptor
+  pluginCall: PluginResponse
+  pluginImport: PluginDescriptor
+  pluginPackage: PluginDescriptor[]
   extensionList: ExtensionDescriptor[]
   extensionConfigure: ExtensionDescriptor
   writeReceiptRead: WriteReceipt
+  conversationQueueItemRead: ConversationQueueItemReceipt | null
   conversationQueueEdit: ConversationSnapshot
   conversationQueueRemove: ConversationSnapshot
   conversationQueueMode: ConversationSnapshot

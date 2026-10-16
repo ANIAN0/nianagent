@@ -1,4 +1,6 @@
 import { workspaceSchemas } from "./workspace-contract.mjs"
+import { bootSchemas } from "./boot-contract.mjs"
+import { pluginSchemas } from "./plugin-contract.mjs"
 import { conversationSchemas as catalogSchemas } from "./conversation-catalog-contract.mjs"
 import { conversationSchemas } from "./conversation-contract.mjs"
 import { liveSchemas } from "./conversation-live-contract.mjs"
@@ -36,6 +38,8 @@ export const object = (
 export const ref = (name) => ({ $ref: name })
 const levels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
 export const schemas = {
+  ...bootSchemas,
+  ...pluginSchemas,
   ...extensionSchemas,
   ...writeReceiptSchemas,
   ...issueSchemas,
@@ -130,6 +134,15 @@ export const schemas = {
         "是否支持思考；未匹配时缺省，保存 API 模型前必须补全。"
       ),
       thinkingLevelMap: ref("ThinkingLevelMap"),
+      compat: object(
+        {
+          supportsDeveloperRole: boolean(
+            "Pi Chat Completions 原生兼容参数；false 使用 system，true 允许思考模型使用 developer，缺省沿 Pi 自动判断。"
+          ),
+        },
+        [],
+        "仅适用于 Chat Completions；不覆盖未设置模型的 Pi 默认行为。"
+      ),
       supportedThinkingLevels: array(
         enumeration(levels, "Pi 思考等级"),
         "只读；由 Pi 依据模型能力计算，不支持思考时为空。"

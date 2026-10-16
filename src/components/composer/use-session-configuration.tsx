@@ -1,4 +1,5 @@
 import { useContext, useEffect, useEffectEvent, useRef, useState } from "react"
+import { useRemoteConnectionRevision } from "@/lib/rpc/use-remote-connection"
 
 import { notifyComposer } from "@/components/composer/composer-notification"
 
@@ -80,6 +81,8 @@ export function useSessionConfiguration({
   onChange,
 }: SessionConfigProps) {
   const service = useContext(SessionServiceContext)
+  const connectionRevision = useRemoteConnectionRevision()
+  const observedConnection = useRef(connectionRevision)
   const extensions = useContext(ExtensionServiceContext)
   const extensionService = suppliedExtensions ?? extensions
   const [extensionOpen, setExtensionOpen] = useState(false)
@@ -471,6 +474,17 @@ export function useSessionConfiguration({
   useEffect(() => {
     if (open) openPanel()
   }, [open, service, sessionId, workspacePath])
+  const recoverPanel = useEffectEvent(() => {
+    if (!open || !service || !sessionId) return
+    if (submitted.current) {
+      if (phase !== "saving" && phase !== "checking") void checkSubmission()
+    } else void load(true)
+  })
+  useEffect(() => {
+    if (observedConnection.current === connectionRevision) return
+    observedConnection.current = connectionRevision
+    recoverPanel()
+  }, [connectionRevision])
   const availableTools = catalog?.tools ?? tools
   const displayTools = [
     ...availableTools,
