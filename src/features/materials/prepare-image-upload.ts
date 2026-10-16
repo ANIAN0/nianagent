@@ -1,4 +1,6 @@
 import type { MaterialService } from "./material-service"
+import { isRemoteWeb } from "@/lib/rpc/remote-transport"
+import { uploadRemoteFile } from "../../../backend/plugins/remote-access/upload-client"
 
 /** Read and upload one immutable File under the same cancellable operation. */
 export async function prepareImageUpload({
@@ -17,6 +19,7 @@ export async function prepareImageUpload({
   signal: AbortSignal
 }) {
   signal.throwIfAborted()
+  if (isRemoteWeb()) return uploadRemoteFile(sessionId, cwd, file, signal)
   const data = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
     let settled = false

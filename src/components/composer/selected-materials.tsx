@@ -6,6 +6,7 @@ import { InputGroupAddon } from "@/components/ui/input-group"
 import { MaterialPreviewDialog } from "@/features/materials/material-preview"
 import { MaterialChip } from "@/components/composer/material-chip"
 import type { Material } from "@/lib/composer/types"
+import { usePluginPaths } from "@/features/plugins/plugin-path-context"
 
 export type SelectedMaterialsProps = {
   inlineReferences?: boolean
@@ -36,6 +37,8 @@ export function SelectedMaterials({
       )
     : allMaterials
   const [active, setActive] = useState<Material | null>(null)
+  const paths = usePluginPaths()
+  const [previewError, setPreviewError] = useState("")
   const rail = useRef<HTMLDivElement>(null)
   const previousCount = useRef(materials.length)
   const [edges, setEdges] = useState({ left: false, right: false })
@@ -147,7 +150,24 @@ export function SelectedMaterials({
                 material={item}
                 cwd={cwd}
                 onRemove={onRemove}
-                onPreview={setActive}
+                onPreview={(material) => {
+                  setPreviewError("")
+                  if (
+                    paths &&
+                    material.type === "file" &&
+                    material.status === "ready"
+                  )
+                    void paths
+                      .openPath(material.source)
+                      .catch((error) =>
+                        setPreviewError(
+                          error instanceof Error
+                            ? error.message
+                            : "文件未能打开，请重试。"
+                        )
+                      )
+                  else setActive(material)
+                }}
                 onRetry={
                   onRetry && (canRetry?.(item) ?? item.status === "failed")
                     ? onRetry
@@ -157,6 +177,7 @@ export function SelectedMaterials({
               />
             ))}
           </AttachmentGroup>
+          {previewError && <p role="alert">{previewError}</p>}
           <MaterialRailNavigation
             left={edges.left}
             right={edges.right}

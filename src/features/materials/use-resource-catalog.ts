@@ -5,6 +5,7 @@ import type {
   MaterialDiagnostic,
 } from "@/contracts/rpc.generated"
 import { MaterialServiceContext } from "./material-service"
+import { useRemoteConnectionRevision } from "@/lib/rpc/use-remote-connection"
 import {
   feedbackFromError,
   type FeedbackDescription,
@@ -24,6 +25,7 @@ export function useResourceCatalog({
   fallback: Material[]
 }) {
   const service = useContext(MaterialServiceContext)
+  const connectionRevision = useRemoteConnectionRevision()
   const [revision, setRevision] = useState(0)
   const [result, setResult] = useState<{
     key: string
@@ -34,7 +36,7 @@ export function useResourceCatalog({
     error?: string
     issue?: FeedbackDescription
   }>()
-  const key = `${sessionId}:${cwd}:${query}:${revision}`
+  const key = `${sessionId}:${cwd}:${query}:${revision}:${connectionRevision}`
   useEffect(() => {
     if (!enabled || !service || !sessionId || !cwd) return
     const controller = new AbortController()

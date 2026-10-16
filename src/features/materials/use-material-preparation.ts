@@ -1,4 +1,17 @@
-import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react"
+import {
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react"
+import {
+  materialPreparations,
+  MaterialPreparationSet,
+} from "./material-preparations"
+import { isRemoteWeb } from "@/lib/rpc/remote-transport"
+import { discardRemoteFile } from "../../../backend/plugins/remote-access/upload-client"
 
 import type { Material } from "@/lib/composer/types"
 import {
@@ -74,6 +87,13 @@ export function useMaterialPreparation({
 }) {
   const service = useContext(MaterialServiceContext)
   const scope = `${sessionId}:${cwd}`
+  const preparationRegistry = materialPreparations(service)
+  const [preparing] = useState(
+    () => new MaterialPreparationSet({ registry: preparationRegistry, scope })
+  )
+  useLayoutEffect(() => {
+    preparing.setContext({ registry: preparationRegistry, scope })
+  }, [preparing, preparationRegistry, scope])
   const scopeOwner = useRef({ scope })
   const latest = useRef({
     materials,
@@ -141,7 +161,21 @@ export function useMaterialPreparation({
     scope: string
     items: Material[]
   }>({ scope, items: [] })
-  const preparing = useRef(new Set<string>())
+  const preparationRevision = useSyncExternalStore(
+    preparationRegistry.subscribe,
+    () =>
+      materials
+        .filter((item) =>
+          preparing.hasBorrowed(item.id, {
+            registry: preparationRegistry,
+            scope,
+          })
+        )
+        .map((item) => item.id)
+        .sort()
+        .join("\n"),
+    () => ""
+  )
   // Only retain sources for unfinished preparation. Prepared images continue
   // to use their fixed host identity instead of silently rereading a disk file.
   const retrySources = useRef(new Map<string, RetrySource>())
@@ -155,7 +189,7 @@ export function useMaterialPreparation({
   }
   useLayoutEffect(() => {
     const pendingRequests = requests.current
-    const pendingMaterials = preparing.current
+    const pendingMaterials = preparing
     const verifiedMaterials = verified.current
     const pendingSources = retrySources.current
     const pendingSelections = selectionReleases.current
@@ -180,7 +214,7 @@ export function useMaterialPreparation({
       // The bounded service-owned registry expires abandoned Files separately.
       pendingUploads.clear()
     }
-  }, [scope, service, sessionId, cwd])
+  }, [scope, service, sessionId, cwd, preparing])
   const referenceSignature = materials
     .map((item) => `${item.id}:${item.source}`)
     .join("\n")
@@ -205,8 +239,7 @@ export function useMaterialPreparation({
     const owner = scopeOwner.current
     const pending = materials.filter(
       (item) =>
-        !verified.current.has(`${scope}:${item.id}`) &&
-        !preparing.current.has(item.id)
+        !verified.current.has(`${scope}:${item.id}`) && !preparing.has(item.id)
     )
     // A provisional browser upload has no host record. Restore its local failure,
     // not an unknown RPC identity; a retained File is the only retry source.
@@ -250,6 +283,13 @@ export function useMaterialPreparation({
     if (!unverified.length) return
     const controller = new AbortController()
     const ids = new Set(unverified.map((item) => item.id))
+    for (const id of ids) preparing.add(id)
+    let released = false
+    const release = () => {
+      if (released) return
+      released = true
+      if (owns(owner)) for (const id of ids) preparing.delete(id)
+    }
     update((current) =>
       current.map((item) =>
         ids.has(item.id) ? { ...item, status: "preparing" } : item
@@ -325,10 +365,22 @@ export function useMaterialPreparation({
           )
         )
       })
-    return () => controller.abort()
+      .finally(release)
+    return () => {
+      controller.abort()
+      release()
+    }
     // Whole drafts are owned and persisted by the application, not this hook.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [service, sessionId, cwd, scope, referenceSignature, validationRevision])
+  }, [
+    service,
+    sessionId,
+    cwd,
+    scope,
+    referenceSignature,
+    validationRevision,
+    preparationRevision,
+  ])
   function append(items: Material[]) {
     latest.current.update((current) => appendPreparedMaterials(current, items))
   }
@@ -427,7 +479,7 @@ export function useMaterialPreparation({
     }
     if (latest.current.materials.some((item) => sameMaterial(item, source)))
       return
-    preparing.current.add(placeholder.id)
+    preparing.add(placeholder.id)
     retrySources.current.set(placeholder.id, {
       type: "path",
       path: source.source,
@@ -493,7 +545,7 @@ export function useMaterialPreparation({
         }
       }
     } finally {
-      if (owns(owner)) preparing.current.delete(placeholder.id)
+      if (owns(owner)) preparing.delete(placeholder.id)
     }
   }
   async function upload(file: File) {
@@ -515,12 +567,12 @@ export function useMaterialPreparation({
         ? "粘贴或拖入的图片"
         : "浏览器拖入的文件",
     }
-    preparing.current.add(placeholder.id)
+    preparing.add(placeholder.id)
     append([placeholder])
     let invalidInput = false
     try {
       if (!service) throw new Error("当前环境未连接材料服务。")
-      if (!/^image\/(png|jpeg|webp|gif)$/.test(file.type)) {
+      if (!isRemoteWeb() && !/^image\/(png|jpeg|webp|gif)$/.test(file.type)) {
         invalidInput = true
         throw new Error(
           file.type.startsWith("image/")
@@ -530,7 +582,7 @@ export function useMaterialPreparation({
       }
       if (file.size > 8 * 1024 * 1024) {
         invalidInput = true
-        throw new Error("图片超过8MiB，请选择较小图片或移除。")
+        throw new Error("文件超过8MiB，请选择较小文件或移除。")
       }
       rememberUploadRetrySource(service, sessionId, cwd, placeholder.id, file)
       selectedUploads.current.add(placeholder.id)
@@ -600,7 +652,7 @@ export function useMaterialPreparation({
         }
       }
     } finally {
-      if (owns(owner)) preparing.current.delete(placeholder.id)
+      if (owns(owner)) preparing.delete(placeholder.id)
     }
   }
   function canRetry(id: string) {
@@ -613,8 +665,7 @@ export function useMaterialPreparation({
       item?.status === "failed" &&
       item.retryable !== false &&
       ((retrySourceKeys.scope === scope && retrySourceKeys.ids.has(id)) ||
-        (item.type === "image" &&
-          getUploadRetrySource(service, sessionId, cwd, id)) ||
+        getUploadRetrySource(service, sessionId, cwd, id) ||
         /^[a-f0-9]{64}$/.test(id) ||
         canPreparePath(item))
     )
@@ -635,14 +686,11 @@ export function useMaterialPreparation({
       latest.current.disabled ||
       latest.current.scope !== scope ||
       original?.status !== "failed" ||
-      preparing.current.has(id)
+      preparing.has(id)
     )
       return
     const owner = scopeOwner.current
-    const file =
-      original.type === "image"
-        ? getUploadRetrySource(service, sessionId, cwd, id)
-        : undefined
+    const file = getUploadRetrySource(service, sessionId, cwd, id)
     if (
       original.type === "image" &&
       /^preparing:/.test(id) &&
@@ -674,7 +722,7 @@ export function useMaterialPreparation({
       (canPreparePath(original)
         ? { type: "path" as const, path: original.source! }
         : undefined)
-    preparing.current.add(id)
+    preparing.add(id)
     if (file) rememberUploadRetrySource(service, sessionId, cwd, id, file)
     verified.current.delete(`${scope}:${id}`)
     setVerifiedKeys(new Set(verified.current))
@@ -788,7 +836,7 @@ export function useMaterialPreparation({
           },
         })
     } finally {
-      if (owns(owner)) preparing.current.delete(id)
+      if (owns(owner)) preparing.delete(id)
     }
   }
 
@@ -821,6 +869,17 @@ export function useMaterialPreparation({
     error,
     feedback,
     choose,
+    discard: (id: string) => {
+      if (!isRemoteWeb()) return
+      const owner = scopeOwner.current
+      void discardRemoteFile(id).catch((error) => {
+        if (owns(owner))
+          setAction((current) => ({
+            ...current,
+            feedback: feedbackFromError(error, "附件副本未确认清理，已保留。"),
+          }))
+      })
+    },
     prepare,
     retry,
     canRetry,

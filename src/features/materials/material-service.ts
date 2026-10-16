@@ -1,5 +1,7 @@
 import { createContext } from "react"
 import { rpcCall } from "@/lib/rpc/client"
+import { isRemoteWeb } from "@/lib/rpc/remote-transport"
+import { chooseRemoteFiles } from "../../../backend/plugins/remote-access/upload-client"
 import type { MaterialReference } from "@/contracts/rpc.generated"
 import type { Material } from "@/lib/composer/types"
 
@@ -9,7 +11,13 @@ export function materialReference(value: Material): MaterialReference {
     !value.type ||
     value.status !== "ready" ||
     !value.source ||
-    !/^[a-f0-9]{64}$/.test(value.id)
+    !(
+      /^[a-f0-9]{64}$/.test(value.id) ||
+      (value.type === "selection" &&
+        /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(
+          value.id
+        ))
+    )
   )
     throw new Error(`材料“${value.name}”未完成准备，请重新选择或移除。`)
   return {
@@ -19,6 +27,21 @@ export function materialReference(value: Material): MaterialReference {
     type: value.type,
     status: value.status,
     source: value.source,
+    ...(value.type === "selection"
+      ? Object.fromEntries(
+          [
+            "selectionKind",
+            "lineStart",
+            "lineEnd",
+            "columnStart",
+            "columnEnd",
+            "pageStart",
+            "pageEnd",
+          ]
+            .filter((key) => value[key as keyof Material] !== undefined)
+            .map((key) => [key, value[key as keyof Material]])
+        )
+      : {}),
     ...(value.description ? { description: value.description } : {}),
     ...(value.mimeType ? { mimeType: value.mimeType } : {}),
     ...(value.bytes !== undefined ? { bytes: value.bytes } : {}),
@@ -31,7 +54,9 @@ export function materialReference(value: Material): MaterialReference {
 export function createMaterialService() {
   return {
     choose: (sessionId: string, cwd: string, signal?: AbortSignal) =>
-      rpcCall("materialChoose", { sessionId, cwd }, signal),
+      isRemoteWeb()
+        ? chooseRemoteFiles(sessionId, cwd, signal)
+        : rpcCall("materialChoose", { sessionId, cwd }, signal),
     prepare: (
       sessionId: string,
       cwd: string,
@@ -95,7 +120,7 @@ export function materialsReady(materials: Material[]) {
 export function sameMaterial(left: Material, right: Material) {
   return (
     left.id === right.id ||
-    (left.type !== "image" &&
+    (!["image", "selection"].includes(left.type) &&
       !!left.source &&
       left.source === right.source &&
       left.type === right.type)

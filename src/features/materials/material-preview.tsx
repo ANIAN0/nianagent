@@ -82,7 +82,7 @@ function MaterialPreviewContent({
   const current =
     result?.key === key && result.service === service ? result : undefined
   const label =
-    material?.type === "image"
+    material?.type === "selection" ? "选择时的文字" : material?.type === "image"
       ? history
         ? "发送时的图片"
         : "待发送图片"

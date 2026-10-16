@@ -1,4 +1,5 @@
 import { replaceJson } from "./atomic-file.mjs"
+import { beginUploadUse } from "./material-upload-use.mjs"
 import {
   access,
   readFile,
@@ -16,8 +17,9 @@ import {
   isAbsolute,
   extname,
   resolve,
+  sep,
 } from "node:path"
-import { createHash } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { pickNativeFiles } from "./native-directory.mjs"
 import { operationError } from "./operation-issue.mjs"
 import { sortMaterialCatalogFiles } from "./material-catalog-sort.mjs"
@@ -32,7 +34,7 @@ const same = (a, b) =>
   process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b
 const within = (root, path) => {
   const value = relative(root, path)
-  return !value.startsWith("..") && !isAbsolute(value)
+  return value !== ".." && !value.startsWith(`..${sep}`) && !isAbsolute(value)
 }
 const bodyOf = (text) =>
   text.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, "").trim()
@@ -40,13 +42,14 @@ const safe = (error, kind = "文件") =>
   /[\u4e00-\u9fff]/u.test(error?.message || "")
     ? error.message
     : `${kind}无法读取，请检查路径与权限。`
-async function readableSource(path, cwd, scope) {
-  const file = await open(path, "r")
+async function readableSource(path, cwd, scope, allowLink = false) {
+  const target = allowLink ? await realpath(path) : path
+  const file = await open(target, "r")
   try {
     const current = await realpath(path)
     const [opened, resolved] = await Promise.all([file.stat(), stat(current)])
     if (
-      !same(current, path) ||
+      !same(current, target) ||
       (scope === "workspace" && !within(cwd, current)) ||
       !opened.isFile() ||
       opened.dev !== resolved.dev ||
@@ -57,14 +60,14 @@ async function readableSource(path, cwd, scope) {
         "文件来源已改变，未读取新的目标；请重新选择。",
         "none"
       )
-    return { file, size: opened.size }
+    return { file, size: opened.size, opened }
   } catch (error) {
     await file.close()
     throw error
   }
 }
 async function boundedSource(path, cwd, scope, maximum) {
-  const { file, size } = await readableSource(path, cwd, scope)
+  const { file, size, opened } = await readableSource(path, cwd, scope)
   try {
     if (size > maximum)
       throw operationError(
@@ -84,7 +87,17 @@ async function boundedSource(path, cwd, scope, maximum) {
       if (!read.bytesRead) break
       bytesRead += read.bytesRead
     }
-    if (bytesRead > maximum || bytesRead > size)
+    const after = await file.stat()
+    const current = await stat(path)
+    if (
+      bytesRead !== size ||
+      after.size !== size ||
+      after.mtimeMs !== opened.mtimeMs ||
+      after.ctimeMs !== opened.ctimeMs ||
+      current.dev !== opened.dev ||
+      current.ino !== opened.ino ||
+      !same(await realpath(path), path)
+    )
       throw operationError(
         "material_source_changed",
         "材料在读取期间变化或超过限制，请重新选择。",
@@ -111,10 +124,80 @@ function imageType(data) {
   return ""
 }
 export class MaterialService {
-  constructor(directory, sessions, commandCatalog = () => []) {
+  constructor(
+    directory,
+    sessions,
+    commandCatalog = () => [],
+    uploadAdoption = async () => "unknown"
+  ) {
     this.directory = join(directory, "materials")
     this.sessions = sessions
     this.commandCatalog = commandCatalog
+    this.uploadAdoption = uploadAdoption
+  }
+  beginUploadUse(cwd, references, identity, signal) {
+    return beginUploadUse(this, cwd, references, identity, signal)
+  }
+  async uploadOwnerForPath(path) {
+    if (!isAbsolute(path)) return null
+    const root = join(this.directory, "uploads")
+    const parts = relative(root, path).split(/[\\/]/)
+    if (!/^[a-f0-9-]{36}$/i.test(parts[0] || "")) return null
+    if (parts.length !== 2 && !(parts.length === 3 && parts[1] === "file"))
+      return null
+    const invalid = () =>
+      operationError(
+        "material_invalid",
+        "上传归属记录缺失或损坏，请移除后重新上传。",
+        "none"
+      )
+    let owner
+    try {
+      owner = JSON.parse(
+        await readFile(join(root, parts[0], "owner.json"), "utf8")
+      )
+    } catch (error) {
+      if (error instanceof SyntaxError || error.code === "ENOENT")
+        throw invalid()
+      throw error
+    }
+    if (
+      !owner ||
+      typeof owner !== "object" ||
+      Array.isArray(owner) ||
+      typeof owner.id !== "string" ||
+      !owner.id ||
+      typeof owner.name !== "string" ||
+      !owner.name ||
+      ![undefined, "file"].includes(owner.storageDirectory) ||
+      !["receiving", "prepared", "discarded"].includes(owner.phase) ||
+      (owner.phase === "prepared" &&
+        (typeof owner.cwd !== "string" ||
+          !isAbsolute(owner.cwd) ||
+          !owner.material ||
+          typeof owner.material !== "object" ||
+          Array.isArray(owner.material) ||
+          typeof owner.material.id !== "string" ||
+          !/^(?:[a-f0-9]{64}|[a-f0-9-]{36})$/.test(owner.material.id)))
+    )
+      throw invalid()
+    const ownedPath = join(
+      root,
+      owner.id,
+      ...(owner.storageDirectory === "file" ? ["file"] : []),
+      owner.name
+    )
+    if (
+      !same(owner.id, parts[0]) ||
+      basename(owner.name || "") !== owner.name ||
+      !same(resolve(ownedPath), resolve(path))
+    )
+      throw operationError(
+        "material_invalid",
+        "上传路径归属已变化，请移除后重新上传。",
+        "none"
+      )
+    return owner
   }
   reference(record) {
     return {
@@ -125,19 +208,40 @@ export class MaterialService {
       status: "ready",
       source: record.source,
       description: record.description || "",
+      ...(record.type === "selection"
+        ? Object.fromEntries(
+            [
+              "selectionKind",
+              "lineStart",
+              "lineEnd",
+              "columnStart",
+              "columnEnd",
+              "pageStart",
+              "pageEnd",
+            ]
+              .filter((key) => record[key] !== undefined)
+              .map((key) => [key, record[key]])
+          )
+        : {}),
       ...(record.mimeType
         ? { mimeType: record.mimeType, bytes: record.bytes }
         : {}),
     }
   }
-  async save(record, signal) {
+  async save(record, signal, uploadIdentity) {
+    if (uploadIdentity)
+      record = {
+        ...record,
+        id: uploadIdentity.materialId,
+        uploadToken: uploadIdentity.token,
+      }
     await replaceJson(join(this.directory, record.id + ".json"), record, {
       signal,
     })
     return this.reference(record)
   }
   async record(cwd, id) {
-    if (!/^[a-f0-9]{64}$/.test(id))
+    if (!/^(?:[a-f0-9]{64}|[a-f0-9-]{36})$/.test(id))
       throw operationError(
         "material_invalid",
         "材料标识无效，请重新选择。",
@@ -170,7 +274,9 @@ export class MaterialService {
       typeof record.source !== "string" ||
       !record.source ||
       !same(record.cwd, cwd) ||
-      !["file", "directory", "image", "skill"].includes(record.type)
+      !["file", "directory", "image", "skill", "selection"].includes(
+        record.type
+      )
     )
       throw operationError(
         "material_invalid",
@@ -179,13 +285,75 @@ export class MaterialService {
       )
     return record
   }
+  async selection(context, input, signal) {
+    if (
+      !input.text ||
+      Buffer.byteLength(input.text) > 2 * 1024 * 1024 ||
+      !["source", "markdown", "pdf"].includes(input.selectionKind)
+    )
+      throw new Error("请引用实际非空选区；选区须在当前文本页范围内。")
+    const positive = (value) => Number.isSafeInteger(value) && value > 0
+    if (
+      input.selectionKind === "source" &&
+      (!positive(input.lineStart) ||
+        !positive(input.lineEnd) ||
+        input.lineEnd < input.lineStart ||
+        !positive(input.columnStart) ||
+        !positive(input.columnEnd) ||
+        (input.lineStart === input.lineEnd &&
+          input.columnEnd <= input.columnStart))
+    )
+      throw new Error("源码选区须提供实际行列范围。")
+    if (
+      input.selectionKind === "pdf" &&
+      (!positive(input.pageStart) ||
+        !positive(input.pageEnd) ||
+        input.pageEnd < input.pageStart)
+    )
+      throw new Error("PDF选区须提供实际页范围。")
+    const source = resolve(context.cwd, input.path)
+    if (!basename(source))
+      throw operationError(
+        "material_invalid",
+        "选区须来自具体文件，请重新选择。",
+        "none"
+      )
+    const description =
+      input.selectionKind === "pdf"
+        ? `选区文字 · 第${input.pageStart}–${input.pageEnd}页`
+        : input.selectionKind === "markdown"
+          ? "Markdown可见选区文字"
+          : `选区文字 · 第${input.lineStart}–${input.lineEnd}行`
+    const record = {
+      ...input,
+      id: randomUUID(),
+      cwd: context.cwd,
+      sessionId: context.sessionId,
+      type: "selection",
+      name: basename(source),
+      source,
+      description,
+      content: input.text,
+    }
+    delete record.path
+    delete record.text
+    await this.verify(record, context.sessionId, signal)
+    return this.save(record, signal)
+  }
   async choose(sessionId, cwd, signal) {
     this.sessions.identity(sessionId)
     cwd = await this.sessions.cwd(cwd)
     const paths = await pickNativeFiles(signal)
     return paths ? this.prepare(sessionId, cwd, paths, signal) : []
   }
-  async prepare(sessionId, cwd, paths, scope = "selected", signal) {
+  async prepare(
+    sessionId,
+    cwd,
+    paths,
+    scope = "selected",
+    signal,
+    uploadIdentity
+  ) {
     // Keep existing direct/native callers' AbortSignal position compatible.
     if (scope instanceof AbortSignal) {
       signal = scope
@@ -241,6 +409,34 @@ export class MaterialService {
           )
           continue
         }
+        const owner = await this.uploadOwnerForPath(path)
+        if (owner) {
+          if (owner.phase === "prepared" && owner.material) {
+            const original = await this.record(owner.cwd, owner.material.id)
+            if (original.uploadToken !== owner.id)
+              throw new Error("上传材料归属变化，请重新选择。")
+            results.push(
+              same(cwd, original.cwd)
+                ? this.reference(original)
+                : await this.save(
+                    {
+                      ...original,
+                      id: (randomUUID() + randomUUID()).replaceAll("-", ""),
+                      cwd,
+                      source: path,
+                      scope,
+                      uploadMaterialId: original.id,
+                    },
+                    signal
+                  )
+            )
+            continue
+          }
+          // Only uploadFinish can prepare its receiving copy. Ordinary path
+          // references must wait for its original material/owner boundary.
+          if (owner.phase !== "receiving" || owner.id !== uploadIdentity?.token)
+            throw new Error("上传尚未准备或已移除，请完成上传后重新引用。")
+        }
         const skill = resources.skills.find((item) => same(item.filePath, path))
         if (skill) {
           if (
@@ -287,24 +483,26 @@ export class MaterialService {
               basename(path),
               path,
               await boundedSource(path, cwd, scope, maximumImage),
-              signal
+              signal,
+              uploadIdentity
             )
           )
         } else
           results.push(
             await this.save(
               {
-                id: hash(`${cwd}\0file\0${path}`),
+                id: hash(`${cwd}\0file\0${resolve(cwd, source)}`),
                 cwd,
                 type: "file",
                 name: basename(path),
-                source: path,
+                source: resolve(cwd, source),
                 description: within(cwd, path)
                   ? relative(cwd, path)
                   : dirname(path),
                 scope,
               },
-              signal
+              signal,
+              uploadIdentity
             )
           )
       } catch (error) {
@@ -323,7 +521,7 @@ export class MaterialService {
     }
     return results
   }
-  async saveImage(cwd, name, source, data, signal) {
+  async saveImage(cwd, name, source, data, signal, uploadIdentity) {
     if (data.length > maximumImage)
       throw operationError(
         "material_invalid",
@@ -363,7 +561,8 @@ export class MaterialService {
           ? {}
           : { piImage }),
       },
-      signal
+      signal,
+      uploadIdentity
     )
   }
   // Official Pi image outputs already belong to the transcript. Store their
@@ -426,7 +625,7 @@ export class MaterialService {
       return failure(error)
     }
   }
-  async upload(sessionId, cwd, name, mimeType, data, signal) {
+  async upload(sessionId, cwd, name, mimeType, data, signal, uploadIdentity) {
     this.sessions.identity(sessionId)
     cwd = await this.sessions.cwd(cwd)
     if (
@@ -448,9 +647,10 @@ export class MaterialService {
     return this.saveImage(
       cwd,
       name || "粘贴图片",
-      "粘贴或拖入的图片",
+      uploadIdentity?.source || "粘贴或拖入的图片",
       buffer,
-      signal
+      signal,
+      uploadIdentity
     )
   }
   async catalog(sessionId, cwd, query = "", signal) {
@@ -590,6 +790,16 @@ export class MaterialService {
     }
   }
   async verify(record, sessionId, signal) {
+    if (record.type === "selection") {
+      if (
+        typeof record.content !== "string" ||
+        !record.content ||
+        Buffer.byteLength(record.content) > 2 * 1024 * 1024 ||
+        !["source", "markdown", "pdf"].includes(record.selectionKind)
+      )
+        throw new Error("保存的选区文字损坏，请移除后重新引用。")
+      return
+    }
     signal?.throwIfAborted()
     if (record.type === "image") {
       const data =
@@ -599,20 +809,53 @@ export class MaterialService {
       if (
         !data ||
         !imageType(data) ||
-        record.id !==
-          hash(`${record.cwd}\0image\0${record.name}\0${hash(data)}`)
+        (!record.uploadToken &&
+          record.id !==
+            hash(`${record.cwd}\0image\0${record.name}\0${hash(data)}`))
       )
         throw operationError(
           "material_invalid",
           "保存的图片内容损坏，请重新选择。",
           "none"
         )
+      if (record.uploadToken) {
+        if (!/^[a-f0-9-]{36}$/.test(record.uploadToken))
+          throw new Error("上传图片归属无效，请重新选择。")
+        let owner
+        try {
+          owner = JSON.parse(
+            await readFile(
+              join(this.directory, "uploads", record.uploadToken, "owner.json"),
+              "utf8"
+            )
+          )
+        } catch (error) {
+          if (!(error instanceof SyntaxError) && error.code !== "ENOENT")
+            throw error
+          throw operationError(
+            "material_invalid",
+            "上传图片记录缺失或损坏，请移除后重新上传。",
+            "none"
+          )
+        }
+        if (
+          !owner ||
+          owner.id !== record.uploadToken ||
+          owner.phase !== "prepared" ||
+          owner.material?.id !== (record.uploadMaterialId || record.id)
+        )
+          throw operationError(
+            "material_invalid",
+            "上传图片记录已变化，请移除后重新上传。",
+            "none"
+          )
+      }
       return
     }
     try {
       const currentPath = await realpath(record.source)
       if (
-        !same(currentPath, record.source) ||
+        (record.type !== "file" && !same(currentPath, record.source)) ||
         (record.scope === "workspace" && !within(record.cwd, currentPath))
       )
         throw new Error()
@@ -710,6 +953,11 @@ export class MaterialService {
       truncated: false,
     }
     if (record.type === "skill") result.content = record.content
+    if (record.type === "selection") {
+      await this.verify(record, record.sessionId, signal)
+      result.label = record.description
+      result.content = record.content
+    }
     if (record.type === "directory") {
       await this.verify(record, "", signal)
       const entries = await readdir(record.source, { withFileTypes: true })
@@ -724,7 +972,8 @@ export class MaterialService {
       const { file, size } = await readableSource(
         record.source,
         cwd,
-        record.scope
+        record.scope,
+        true
       )
       if (size > 128 * 1024) {
         result.truncated = true
@@ -809,12 +1058,17 @@ export class MaterialService {
       if (material.status !== "ready")
         throw new Error(`材料“${material.name}”尚未就绪，请重新选择或移除。`)
       const record = await this.record(cwd, material.id)
-      const identity =
-        record.type === "image" ? record.id : `${record.type}:${record.source}`
+      const identity = ["selection", "image"].includes(record.type)
+        ? record.id
+        : `${record.type}:${record.source}`
       if (seen.has(identity)) continue
       seen.add(identity)
       await this.verify(record, sessionId, signal)
-      if (record.type === "image") {
+      if (record.type === "selection") {
+        parts.push(
+          `<selection source=${JSON.stringify(record.source)} kind=${JSON.stringify(record.selectionKind)} location=${JSON.stringify(record.description)}>\n${record.content}\n</selection>`
+        )
+      } else if (record.type === "image") {
         if (!model?.input?.includes("image"))
           throw new Error(
             `当前模型不支持图片“${record.name}”，请选择视觉模型或移除图片。`

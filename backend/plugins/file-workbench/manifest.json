@@ -1,0 +1,39 @@
+{
+  "id": "file-workbench",
+  "name": "文件",
+  "description": "查看当前文件、引用选区与交付文件链接。手动修改在外部编辑器完成。",
+  "version": "0.2.0",
+  "apiVersion": 2,
+  "sdkVersion": "1.1.0",
+  "defaultEnabled": true,
+  "entries": { "app": "host.mjs", "pi": "pi.mjs", "web": "web.tsx" },
+  "defaultConfiguration": { "editorPath": "" },
+  "configurationSchema": {
+    "type": "object",
+    "properties": {
+      "editorPath": {
+        "type": "string",
+        "title": "外部编辑器程序路径",
+        "description": "可留空使用系统关联程序；桌面窗口可选择已安装VS Code、VSCodium、Cursor、Windsurf、Zed或Sublime Text。"
+      }
+    },
+    "required": ["editorPath"],
+    "additionalProperties": false
+  },
+  "contributions": [
+    {
+      "id": "files",
+      "kind": "workbench",
+      "title": "文件",
+      "version": 1,
+      "remote": true
+    },
+    {
+      "id": "file-link",
+      "kind": "result",
+      "title": "文件链接",
+      "version": 1,
+      "remote": true
+    }
+  ]
+}
