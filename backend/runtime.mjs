@@ -4,6 +4,7 @@ import { readFile, writeFile, rename, unlink, mkdir } from "node:fs/promises"
 import { dirname } from "node:path"
 import lockfile from "proper-lockfile"
 import { readJsonBody } from "./http-body.mjs"
+import { withRequestContext } from "./request-context.mjs"
 export async function runtimeVersion() {
   // Explicit wire compatibility, never source-file hashing on an RPC request.
   // Backend edits take effect by restarting the dev host.
@@ -58,9 +59,10 @@ export async function startRuntime(file, dispatch, publicFailure) {
     try {
       const input = await readJsonBody(
         req,
-        operation === "materialUpload" ? 16 * 1024 * 1024 : 1024 * 1024
+        ["materialUpload", "pluginCall"].includes(operation) ? 16 * 1024 * 1024 : 1024 * 1024
       )
-      const result = await dispatch(operation, input, controller.signal)
+      const clientId = String(req.headers["x-moon-client"] || "browser")
+      const result = await withRequestContext({ source: "local", clientId, connectionId: instance, viewGeneration: 0 }, () => dispatch(operation, input, controller.signal))
       if (!res.destroyed) res.end(JSON.stringify({ result }))
     } catch (error) {
       if (!res.destroyed) {

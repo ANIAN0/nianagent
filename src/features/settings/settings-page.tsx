@@ -7,6 +7,8 @@ import type { LeaveGuard } from "@/lib/navigation/leave-guard"
 import { SettingsShell, type SettingsSection } from "./settings-shell"
 import { StorageSettings } from "./storage-settings"
 import { UpdateSettings } from "./update-settings"
+import { PluginSettings } from "@/features/plugins/plugin-settings"
+import "@/features/plugins/plugins.css"
 
 export type SettingsPageProps = Omit<ModelSettingsContentProps, "section"> & {
   onReturn: () => void
@@ -52,6 +54,7 @@ export function SettingsPage({
         />
       )}
       {section === "storage" && <StorageSettings />}
+      {section === "plugins" && <PluginSettings />}
       {section === "updates" && <UpdateSettings />}
     </SettingsShell>
   )

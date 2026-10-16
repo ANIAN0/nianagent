@@ -27,7 +27,7 @@ function unconfirmed(error) {
 export const bridgeWaitMs = (operation) =>
   ["workspaceChoose", "materialChoose"].includes(operation) ? 610_000 : 60_000
 
-function requestRuntime(runtime, operation, input, signal) {
+function requestRuntime(runtime, operation, input, signal, clientId) {
   signal?.throwIfAborted()
   return new Promise((resolve, reject) => {
     let response
@@ -43,6 +43,7 @@ function requestRuntime(runtime, operation, input, signal) {
           headers: {
             "content-type": "application/json",
             "x-moon-token": runtime.token,
+            ...(clientId ? { "x-moon-client": clientId } : {}),
           },
           signal,
         },
@@ -122,7 +123,7 @@ function requestRuntime(runtime, operation, input, signal) {
 export function modelBackendPlugin() {
   function configure(server) {
     const bridge = {
-      async call(operation, input, signal) {
+      async call(operation, input, signal, clientId) {
         let runtime
         try {
           // Tauri dev迁移后Vite可能仍存活；每次请求重新读取同一个bootstrap。
@@ -156,7 +157,7 @@ export function modelBackendPlugin() {
         // Built-in fetch has an implicit 300s Undici response-header deadline,
         // shorter than the user's native directory selection. Use node:http
         // with one explicit cancellable total deadline for both transports.
-        return requestRuntime(runtime, operation, input, signal)
+        return requestRuntime(runtime, operation, input, signal, clientId)
       },
     }
     server.middlewares.use("/api/models/", async (req, res) => {
@@ -190,9 +191,9 @@ export function modelBackendPlugin() {
       try {
         const input = await readJsonBody(
           req,
-          operation === "materialUpload" ? 16 * 1024 * 1024 : 1024 * 1024
+          ["materialUpload", "pluginCall"].includes(operation) ? 16 * 1024 * 1024 : 1024 * 1024
         )
-        const result = await bridge.call(operation, input, controller.signal)
+        const result = await bridge.call(operation, input, controller.signal, req.headers["x-moon-client"])
         res.setHeader("content-type", "application/json")
         res.setHeader("cache-control", "no-store")
         res.end(JSON.stringify({ result }))

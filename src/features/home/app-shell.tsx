@@ -21,6 +21,7 @@ export function AppShell({
   onNew,
   onSelectConversation,
   onSettings,
+  onPlugins,
   historyState,
   historyError,
   historyIssue,
@@ -32,6 +33,7 @@ export function AppShell({
   onNew: (workspaceId?: string) => void
   onSelectConversation: (conversation: Conversation) => void
   onSettings?: () => void
+  onPlugins?: () => void
   historyState?: HistoryState
   historyError?: string
   historyIssue?: FeedbackDescription
@@ -111,6 +113,13 @@ export function AppShell({
             onSettings()
           })
         }
+      : undefined,
+    onPlugins: onPlugins
+      ? () =>
+          runNavigation(() => {
+            setMobileOpen(false)
+            onPlugins()
+          })
       : undefined,
     onNotice: (message: string) => {
       runNavigation(() => {
@@ -198,7 +207,7 @@ export function AppShell({
                 ?.focus({ preventScroll: true })
             )
           }}
-          className="inset-y-0 left-0 h-dvh w-80 max-w-[calc(100vw-48px)] translate-x-0 translate-y-0 gap-0 rounded-none p-0"
+          className="inset-y-0 left-0 flex h-dvh min-h-0 w-80 min-w-0 max-w-[calc(100vw-48px)] translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none p-0"
           showCloseButton={false}
         >
           <DialogHeader className="sr-only">

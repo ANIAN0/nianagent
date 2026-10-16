@@ -5,6 +5,7 @@ import { validateStorage as validateSavedStorage } from "./storage-validation.mj
 import { DesktopMaintenance } from "./desktop-maintenance.mjs"
 import { startRuntime, runtimeVersion } from "./runtime.mjs"
 import { operationError, publicFailure } from "./operation-issue.mjs"
+import { withRequestContext } from "./request-context.mjs"
 import {
   connectDirectoryHost,
   acceptDirectoryReply,
@@ -31,7 +32,7 @@ async function initializeService() {
   // startup handshake must not wait for model libraries or user-data recovery.
   const { MoonServices } = await import("./services.mjs")
   if (closing) throw new Error("Moon 正在退出。")
-  const candidate = new MoonServices(directory)
+  const candidate = new MoonServices(directory, { dispatchRequest: dispatch })
   candidate.conversations.maintenanceFrozen = Boolean(maintenance.operationId)
   service = candidate
   try {
@@ -118,7 +119,10 @@ input.on("line", (line) => {
     return
   }
   if (acceptDirectoryReply(request)) return
-  if (request.operation !== "materialUpload" && line.length > 1024 * 1024) {
+  if (
+    !["materialUpload", "pluginCall"].includes(request.operation) &&
+    line.length > 1024 * 1024
+  ) {
     send({ id: request.id, error: "请求参数过大。" })
     return
   }
@@ -140,7 +144,16 @@ input.on("line", (line) => {
           })
         : request.operation === "$validateStorage"
           ? validateStorage()
-          : dispatch(request.operation, request.input, controller.signal)
+          : withRequestContext(
+              {
+                source: "local",
+                clientId: "desktop",
+                connectionId: "desktop",
+                viewGeneration: 0,
+              },
+              () =>
+                dispatch(request.operation, request.input, controller.signal)
+            )
   task
     .then((result) => send({ id: request.id, result }))
     .catch((error) =>

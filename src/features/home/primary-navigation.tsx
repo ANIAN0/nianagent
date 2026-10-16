@@ -7,12 +7,14 @@ export type PrimaryNavigationProps = {
   onNew: () => void
   onPlugins: () => void
   onScheduled: () => void
+  management?: boolean
 }
 export function PrimaryNavigation({
   collapsed = false,
   onNew,
   onPlugins,
   onScheduled,
+  management = true,
 }: PrimaryNavigationProps) {
   return (
     <nav
@@ -34,36 +36,40 @@ export function PrimaryNavigation({
           {!collapsed && "新建会话"}
         </Button>
       </HoverHint>
-      <HoverHint content="插件" label="插件">
-        <Button
-          variant="ghost"
-          className={cn(
-            "h-9 rounded-xl font-normal",
-            collapsed ? "size-9 p-0" : "justify-start px-2"
-          )}
-          aria-label="插件"
+      {management && (
+        <HoverHint content="插件" label="插件">
+          <Button
+            variant="ghost"
+            className={cn(
+              "h-9 rounded-xl font-normal",
+              collapsed ? "size-9 p-0" : "justify-start px-2"
+            )}
+            aria-label="插件"
 
-          onClick={onPlugins}
-        >
-          <Puzzle className={collapsed ? "size-[18px]" : "size-4"} />
-          {!collapsed && "插件"}
-        </Button>
-      </HoverHint>
-      <HoverHint content="定时任务" label="定时任务">
-        <Button
-          variant="ghost"
-          className={cn(
-            "h-9 rounded-xl font-normal",
-            collapsed ? "size-9 p-0" : "justify-start px-2"
-          )}
-          aria-label="定时任务"
+            onClick={onPlugins}
+          >
+            <Puzzle className={collapsed ? "size-[18px]" : "size-4"} />
+            {!collapsed && "插件"}
+          </Button>
+        </HoverHint>
+      )}
+      {management && (
+        <HoverHint content="定时任务" label="定时任务">
+          <Button
+            variant="ghost"
+            className={cn(
+              "h-9 rounded-xl font-normal",
+              collapsed ? "size-9 p-0" : "justify-start px-2"
+            )}
+            aria-label="定时任务"
 
-          onClick={onScheduled}
-        >
-          <Clock3 className={collapsed ? "size-[18px]" : "size-4"} />
-          {!collapsed && "定时任务"}
-        </Button>
-      </HoverHint>
+            onClick={onScheduled}
+          >
+            <Clock3 className={collapsed ? "size-[18px]" : "size-4"} />
+            {!collapsed && "定时任务"}
+          </Button>
+        </HoverHint>
+      )}
     </nav>
   )
 }

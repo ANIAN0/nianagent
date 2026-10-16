@@ -43,6 +43,7 @@
   grid-row: 2/-1;
   min-width: 0;
   min-height: 0;
+  overflow: auto;
   container: model-content / inline-size;
 }
 .settings-page {

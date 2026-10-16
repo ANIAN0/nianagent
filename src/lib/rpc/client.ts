@@ -8,6 +8,15 @@ import type {
 } from "@/contracts/rpc.generated"
 import { invoke, isTauri } from "@tauri-apps/api/core"
 import { isOperationIssue } from "@/lib/operation-issue"
+import { isRemoteWeb, remoteCall } from "./remote-transport"
+let clientId = ""
+function localClientId() {
+  if (!clientId) {
+    clientId = sessionStorage.getItem("moon-transport-client") || crypto.randomUUID()
+    sessionStorage.setItem("moon-transport-client", clientId)
+  }
+  return clientId
+}
 // 明确拒绝与传输未知分别处理；取消或丢失回复不能证明副作用尚未执行。
 export class RpcRequestRejected extends Error {
   readonly issue?: OperationIssue
@@ -55,6 +64,15 @@ export async function rpcCall<K extends ModelOperation>(
   signal?: AbortSignal
 ): Promise<RpcResults[K]> {
   signal?.throwIfAborted()
+  if (isRemoteWeb()) {
+    try { return await remoteCall(operation, input, signal) }
+    catch (error) {
+      if (signal?.aborted) signal.throwIfAborted()
+      if (error && typeof error === "object" && "remoteRejected" in error)
+        throw rejected(error instanceof Error ? error.message : "远程请求被拒绝。", "issue" in error ? error.issue : undefined)
+      throw new RpcTransportError(transportIssue(operation), error)
+    }
+  }
   if (!maintenanceAllowsRpc(operation))
     throw new RpcRequestRejected("Moon 正在维护，暂不能提交新的变更。", {
       code: "maintenance_busy",
@@ -108,7 +126,7 @@ export async function rpcCall<K extends ModelOperation>(
   try {
     const response = await fetch(`/api/models/${operation}`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", "x-moon-client": localClientId() },
       body: JSON.stringify(input),
       signal,
     })

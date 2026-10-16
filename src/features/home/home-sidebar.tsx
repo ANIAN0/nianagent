@@ -4,6 +4,7 @@ import { PanelLeft, Search, FolderOpen, Settings } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { PrimaryNavigation } from "./primary-navigation"
+import { isRemoteWeb } from "@/lib/rpc/remote-transport"
 import { ConversationHistory } from "./conversation-history"
 import { UserMenu } from "./user-menu"
 import type { ComposerData, Conversation } from "@/lib/composer/types"
@@ -18,6 +19,7 @@ export type HomeSidebarProps = {
   onNew: (workspaceId?: string) => void
   onSearch: () => void
   onSettings?: () => void
+  onPlugins?: () => void
   onNotice: (message: string) => void
   historyState?: HistoryState
   historyError?: string
@@ -34,6 +36,7 @@ export function HomeSidebar({
   onSearch,
   onNotice,
   onSettings,
+  onPlugins,
   historyState,
   historyError,
   historyIssue,
@@ -42,7 +45,7 @@ export function HomeSidebar({
   return (
     <div
       className={cn(
-        "flex h-full flex-col bg-sidebar text-sidebar-foreground",
+        "flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-sidebar text-sidebar-foreground",
         collapsed ? "px-2.5 pt-[18px] pb-1.5" : "px-3 py-1.5"
       )}
     >
@@ -86,9 +89,10 @@ export function HomeSidebar({
         )}
       </div>
       <PrimaryNavigation
+        management={!isRemoteWeb()}
         collapsed={collapsed}
         onNew={() => onNew()}
-        onPlugins={() => onNotice("插件页面尚未实现，本次实现首页与对话。")}
+        onPlugins={onPlugins ?? (() => onSettings?.())}
         onScheduled={() =>
           onNotice("定时任务页面尚未实现，本次实现首页与对话。")
         }
@@ -150,17 +154,19 @@ export function HomeSidebar({
                 : onNotice(`选择会话：${item.title}`)
             }
           />
-          <div className="mt-2 shrink-0 border-t pt-2">
-            <UserMenu
-              onSettings={
-                onSettings ??
-                (() => onNotice("当前为独立组件预览，请从正式页面打开设置。"))
-              }
-            />
-          </div>
+          {!isRemoteWeb() && (
+            <div className="mt-2 shrink-0 border-t pt-2">
+              <UserMenu
+                onSettings={
+                  onSettings ??
+                  (() => onNotice("当前为独立组件预览，请从正式页面打开设置。"))
+                }
+              />
+            </div>
+          )}
         </>
       )}
-      {collapsed && onSettings && (
+      {collapsed && onSettings && !isRemoteWeb() && (
         <div className="mt-auto pb-2">
           <HoverHint content="设置" label="设置">
             <Button
