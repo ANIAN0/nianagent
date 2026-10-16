@@ -5,6 +5,10 @@ import { spawnSync } from "node:child_process"
 import { backendSourceFiles } from "../backend/extensions/source-files.mjs"
 import { packageNodeRuntime } from "./package-node-runtime.mjs"
 import { packagingEnvironment } from "./release-settings.mjs"
+import {
+  verifyRuntimeResources,
+  writeRuntimeInventory,
+} from "./runtime-packaging.mjs"
 const root = fileURLToPath(new URL("../", import.meta.url))
 const output = resolve(root, "src-tauri/runtime")
 const sourceFiles = await backendSourceFiles(resolve(root, "backend"))
@@ -30,6 +34,8 @@ const result = spawnSync(
     "deploy",
     "--prod",
     "--ignore-scripts",
+    // Tauri 不展开目录 junction；发行依赖必须完整落为普通目录，开发布局不变。
+    "--config.node-linker=hoisted",
     "--registry=https://registry.npmjs.org",
     "src-tauri/runtime",
   ],
@@ -41,6 +47,8 @@ const result = spawnSync(
   }
 )
 if (result.status !== 0) process.exit(result.status ?? 1)
+// Includes bundled plugin server modules and manifests; web-only sources stay
+// in the frontend graphs. Compare actual bytes rather than file fingerprints.
 for (const file of sourceFiles) {
   const [source, packaged] = await Promise.all([
     readFile(resolve(root, "backend", file)),
@@ -50,3 +58,5 @@ for (const file of sourceFiles) {
     throw new Error(`Backend deployment omitted or changed ${file}`)
 }
 await packageNodeRuntime(output)
+await writeRuntimeInventory(output)
+await verifyRuntimeResources(output)

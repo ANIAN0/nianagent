@@ -1,5 +1,11 @@
 import { spawnSync } from "node:child_process"
-import { projectRoot, windowsTarget } from "./release-settings.mjs"
+import {
+  projectRoot,
+  windowsTarget,
+  productVersion,
+} from "./release-settings.mjs"
+import { resolve } from "node:path"
+import { verifyRuntimePackage } from "./runtime-packaging.mjs"
 import "./prepare-desktop-release.mjs"
 
 if (!process.env.TAURI_SIGNING_PRIVATE_KEY)
@@ -23,4 +29,12 @@ const result = spawnSync(
   ],
   { cwd: projectRoot, stdio: "inherit", shell: process.platform === "win32" }
 )
-process.exit(result.status ?? 1)
+if (result.status !== 0) process.exit(result.status ?? 1)
+await verifyRuntimePackage(
+  resolve(
+    process.env.CARGO_TARGET_DIR ?? resolve(projectRoot, "src-tauri/target"),
+    windowsTarget,
+    "release/bundle/nsis",
+    `moon_${await productVersion()}_x64-setup.exe`
+  )
+)

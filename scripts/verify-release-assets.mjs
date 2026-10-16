@@ -8,6 +8,7 @@ import {
   updaterPublicKey,
 } from "./release-settings.mjs"
 import { githubRequest, releaseAssets } from "./github-release.mjs"
+import { verifyRuntimePackage } from "./runtime-packaging.mjs"
 
 updaterPublicKey()
 const version = await productVersion()
@@ -121,4 +122,5 @@ const verify = spawnSync(
   { cwd: projectRoot, stdio: "inherit" }
 )
 if (verify.status !== 0) throw new Error("安装包真实签名或绑定版本验证失败")
+await verifyRuntimePackage(resolve(directory, installer))
 console.info(`Moon ${version} 的安装包、签名和清单完整且对应，可发布草稿`)

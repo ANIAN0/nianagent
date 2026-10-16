@@ -8,6 +8,7 @@ import {
 import { dirname, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 import { build, loadConfigFromFile } from "vite"
+import { assertWebBase } from "./web-base.mjs"
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const defaultManifest = ".vite/manifest.json"
@@ -155,6 +156,7 @@ export async function createBuildGraphs(options = {}) {
 
 /** Two official Vite builds, one production directory and the original four URLs. */
 export async function buildFrontend(options = {}) {
+  if (options.base !== undefined) assertWebBase(options.base)
   const outDir = resolve(projectRoot, "dist")
   if (existsSync(outDir) && lstatSync(outDir).isSymbolicLink())
     throw new Error("Refusing to build into a linked dist directory")

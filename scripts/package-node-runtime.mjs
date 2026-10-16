@@ -90,13 +90,17 @@ export async function packageNodeRuntime(output) {
       )
     }
     const executable = resolve(output, "node.exe")
+    const runtimeEnvironment = packagingEnvironment()
+    // 版本探针与完整 loader 均不得继承外部模块路径或自动加载选项。
+    delete runtimeEnvironment.NODE_OPTIONS
+    delete runtimeEnvironment.NODE_PATH
     const result = spawnSync(
       executable,
       [
         "-e",
         "process.stdout.write(JSON.stringify({version:process.versions.node,platform:process.platform,architecture:process.arch}))",
       ],
-      { encoding: "utf8", timeout: 15_000, env: packagingEnvironment() }
+      { encoding: "utf8", timeout: 15_000, env: runtimeEnvironment }
     )
     if (result.status !== 0) throw new Error("包内 Node 无法运行")
     const actual = JSON.parse(result.stdout)
@@ -106,28 +110,7 @@ export async function packageNodeRuntime(output) {
       actual.architecture !== "x64"
     )
       throw new Error("包内 Node 版本或目标架构不符")
-    const temporary = resolve(cache, "runtime-smoke")
-    await mkdir(temporary, { recursive: true })
-    const imports = spawnSync(
-      executable,
-      [
-        "--input-type=module",
-        "-e",
-        "await import('@earendil-works/pi-coding-agent'); await import('@earendil-works/pi-mcp'); console.info('包内后端依赖加载通过')",
-      ],
-      {
-        cwd: output,
-        stdio: "inherit",
-        timeout: 30_000,
-        env: {
-          ...packagingEnvironment(),
-          PI_CODING_AGENT_DIR: resolve(temporary, "agent"),
-          TEMP: temporary,
-          TMP: temporary,
-        },
-      }
-    )
-    if (imports.status !== 0) throw new Error("包内 Node 无法加载正式后端依赖")
+    // 完整依赖/worker 加载由资源清单门禁统一验证，最终 NSIS 还须静态解包复验。
     console.info(
       `已打包并运行 Node ${nodeVersion} / Windows x64（含第三方许可）`
     )
