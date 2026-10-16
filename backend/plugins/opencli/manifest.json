@@ -1,0 +1,40 @@
+{
+  "id": "opencli",
+  "name": "OpenCLI浏览器",
+  "description": "管理官方全局OpenCLI的安装、升级、卸载和后台启停，通过官方Browser Bridge操作已有Chrome或Edge。",
+  "version": "0.2.0",
+  "apiVersion": 2,
+  "sdkVersion": "1.1.0",
+  "defaultEnabled": false,
+  "entries": { "app": "host.mjs", "pi": "pi.mjs", "web": "web.tsx" },
+  "defaultConfiguration": { "profile": "", "background": false },
+  "configurationSchema": {
+    "type": "object",
+    "properties": {
+      "profile": {
+        "type": "string",
+        "title": "Browser Bridge连接ID或别名",
+        "description": "选择实际在线连接；失联不会自动换浏览器。"
+      },
+      "background": { "type": "boolean", "title": "使用上游后台窗口模式" }
+    },
+    "required": ["profile", "background"],
+    "additionalProperties": false
+  },
+  "contributions": [
+    {
+      "id": "browser",
+      "kind": "page",
+      "title": "浏览器连接",
+      "version": 1,
+      "remote": false
+    },
+    {
+      "id": "browser-control",
+      "kind": "workbench",
+      "title": "浏览器目标",
+      "version": 1,
+      "remote": false
+    }
+  ]
+}
