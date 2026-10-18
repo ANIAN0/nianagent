@@ -1,76 +1,95 @@
-/* 沿用旧 StartupSurface 的居中阅读轴与20px环；阶段由真实宿主或加载动作提供。 */
+/* 初始 HTML、模块保护和 React 共用安静骨架：画布直铺，一颗呼吸点，超时后才开口。 */
 .startup-surface {
-  display: grid;
-  place-items: center;
+  --startup-background: var(--background, Canvas);
+  --startup-foreground: var(--foreground, CanvasText);
+  --startup-muted: var(--muted-foreground, GrayText);
+  --startup-border: var(--border, GrayText);
+  --startup-primary: var(--primary-strong, LinkText);
+  --startup-primary-ink: var(--primary-foreground, #ffffff);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: safe center;
+  gap: 12px;
+  box-sizing: border-box;
   min-height: 100dvh;
-  padding: 24px;
-  background: var(--background, Canvas);
-  color: var(--foreground, CanvasText);
+  padding: 32px 24px;
+  background: var(--startup-background);
+  color: var(--startup-foreground);
   font-family: var(--font-sans, "Source Han Sans SC", sans-serif);
 }
-.startup-surface > section {
+/* profile 尚未核对时仅跟随系统配色，不提前读取持久主题。 */
+:root:not(.light):not(.dark) .startup-surface {
+  color-scheme: light dark;
+  --startup-background: light-dark(#f8f9fb, #12151d);
+  --startup-foreground: light-dark(#17202f, #edf0f5);
+  --startup-muted: light-dark(#5b6574, #a0a9b7);
+  --startup-border: light-dark(#e3e8f0, #303846);
+  --startup-primary: light-dark(#3568d4, #6c9aef);
+  --startup-primary-ink: light-dark(#ffffff, #0b1220);
+}
+/* 常态：全页只有一颗呼吸点；阶段提示是慢启动才出现的附属信息。 */
+.startup-wait {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
-  width: min(100%, 480px);
-  min-width: 0;
+  gap: 12px;
 }
-.startup-surface h1 {
+.startup-dot {
+  display: inline-block;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--startup-muted);
+  animation: startup-breathe 3s ease-in-out infinite;
+}
+.startup-stage {
   margin: 0;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-}
-.startup-progress {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
-}
-.startup-progress p,
-.startup-failure p,
-.startup-exit-instruction {
-  margin: 0;
-  color: var(--muted-foreground, GrayText);
+  color: var(--startup-muted);
   font-size: 12px;
-  line-height: 18px;
+  line-height: 20px;
   text-align: center;
   overflow-wrap: anywhere;
+  animation: startup-fade 300ms ease-out;
 }
-.startup-spinner {
-  display: inline-block;
-  flex-shrink: 0;
-  width: 20px;
-  height: 20px;
-  border: 2px solid var(--border, GrayText);
-  border-top-color: var(--foreground, CanvasText);
-  border-radius: 50%;
-  animation: startup-spin 0.8s linear infinite;
-}
+/* 失败：呼吸点熄灭，原位呈现图标、原因与可恢复动作。 */
 .startup-failure {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  width: 100%;
+  align-items: center;
+  gap: 10px;
+  width: min(100%, 480px);
 }
 .startup-failure h2 {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   margin: 0;
   font-size: 14px;
   line-height: 22px;
   font-weight: 600;
+  text-align: center;
   overflow-wrap: anywhere;
+  text-wrap: pretty;
+  animation: startup-fade 150ms ease-out;
 }
 .startup-failure h2 > svg {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   flex-shrink: 0;
   color: var(--destructive, CanvasText);
+}
+.startup-failure > p {
+  margin: 0;
+  color: var(--startup-muted);
+  font-size: 12px;
+  line-height: 20px;
+  text-align: center;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
 }
 .startup-failure .startup-retrying {
   display: flex;
@@ -78,29 +97,28 @@
   align-items: center;
   gap: 6px;
 }
-.startup-retrying .startup-spinner,
-.startup-details .startup-spinner {
-  width: 14px;
-  height: 14px;
-}
 .startup-disclosure {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 12px;
-  width: 100%;
+  width: min(100%, 480px);
+  animation: startup-fade 300ms ease-out;
 }
 .startup-disclosure > [data-slot="collapsible-content"] {
+  display: flex;
+  flex-direction: column;
   width: 100%;
 }
+/* 详情与触发器之间用间距分组，不用分隔线。 */
 .startup-details {
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-height: 40dvh;
+  max-height: min(32dvh, 240px);
   overflow: auto;
   margin: 0;
-  padding: 12px 0;
+  padding: 4px 0 0;
   list-style: none;
   gap: 12px;
 }
@@ -110,13 +128,13 @@
   align-items: start;
   gap: 8px;
   font-size: 12px;
-  line-height: 18px;
+  line-height: 20px;
 }
 .startup-details li > svg,
 .startup-details li > span:first-child {
   width: 14px;
   height: 14px;
-  margin-top: 2px;
+  margin-top: 3px;
 }
 .startup-details li > span:nth-child(2) {
   display: flex;
@@ -130,24 +148,79 @@
 }
 .startup-details small,
 .startup-details [data-status="pending"] {
-  color: var(--muted-foreground, GrayText);
+  color: var(--startup-muted);
   font-size: 12px;
 }
 .startup-details [data-status="complete"] > svg {
-  color: var(--semantic-success, var(--foreground, CanvasText));
+  color: var(--startup-muted);
 }
 .startup-details [data-status="failed"] > svg {
   color: var(--destructive, CanvasText);
 }
 .startup-step-pending {
-  border: 1px solid var(--border, GrayText);
-  border-radius: 50%;
+  box-sizing: border-box;
+  border: 1px solid var(--startup-border);
+  border-radius: 9999px;
 }
+/* 失败恢复只有一个决定（是否重试）：实体按钮全页唯一，居中、按内容定宽。 */
 .startup-actions {
   display: flex;
-  flex-wrap: wrap;
   justify-content: center;
-  gap: 8px;
+  width: min(100%, 480px);
+  animation: startup-fade 150ms ease-out;
+}
+.startup-surface[data-status="failed"] .startup-actions {
+  margin-top: 4px;
+}
+/* 次要动作是文字级操作行：披露与退出同级安静，不以按钮外观争抢主操作。 */
+.startup-secondary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  animation: startup-fade 300ms ease-out;
+}
+.startup-secondary-sep {
+  margin: 0 6px;
+  color: var(--startup-muted);
+  font-size: 12px;
+  line-height: 20px;
+  user-select: none;
+}
+/* 详情触发器与详情内动作是文字级披露：无底无按钮高度，与呼吸状态同级安静。 */
+.startup-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--startup-muted);
+  font: inherit;
+  font-size: 12px;
+  line-height: 20px;
+  cursor: pointer;
+}
+.startup-toggle:hover:not(:disabled) {
+  color: var(--startup-foreground);
+}
+.startup-toggle:focus-visible {
+  outline: 2px solid var(--ring, Highlight);
+  outline-offset: 2px;
+}
+.startup-toggle:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+/* 复制诊断作用于详情内容，放在列表文字列同一左缘，靠近其作用对象。 */
+.startup-details-action {
+  align-self: flex-start;
+  margin: 12px 0 0 24px;
+}
+.startup-toggle [data-icon="inline-end"] {
+  width: 12px;
+  height: 12px;
 }
 .startup-toggle [data-icon="inline-end"] {
   transition: transform 150ms ease;
@@ -155,36 +228,82 @@
 .startup-toggle[aria-expanded="true"] [data-icon="inline-end"] {
   transform: rotate(180deg);
 }
-@keyframes startup-spin {
-  to {
-    transform: rotate(360deg);
+.startup-exit-instruction {
+  margin: 0;
+  color: var(--startup-muted);
+  font-size: 12px;
+  line-height: 20px;
+  text-align: center;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+@keyframes startup-breathe {
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: scale(0.75);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
   }
 }
+@keyframes startup-fade {
+  from {
+    opacity: 0;
+  }
+}
+/* React尚未可用的备用控件必须是原生控件；结构与正式组件一致：
+   唯一实心主按钮，复制与退出是文字级动作，指引是静态文本。 */
 .startup-initial-actions {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: min(100%, 480px);
 }
 .startup-initial-actions[hidden] {
   display: none;
 }
 .startup-initial-actions > p {
-  flex-basis: 100%;
-  color: var(--muted-foreground, GrayText);
-}
-/* React尚未可用的备用按钮必须是原生控件；正式页面仍只复用共享Button。 */
-.startup-initial-button {
-  min-height: 28px;
-  padding: 4px 10px;
-  border: 1px solid var(--border, GrayText);
-  border-radius: 8px;
-  background: var(--background, Canvas);
-  color: inherit;
-  font: inherit;
+  margin: 0;
+  color: var(--startup-muted);
   font-size: 12px;
-  line-height: 18px;
+  line-height: 20px;
+  text-align: center;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+.startup-initial-secondary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+.startup-initial-sep {
+  margin: 0 6px;
+  color: var(--startup-muted);
+  font-size: 12px;
+  line-height: 20px;
+  user-select: none;
+}
+/* 主按钮对齐共享 Button default 规格：这页上按钮就是全部内容，不用密集尺寸。 */
+.startup-initial-button {
+  height: 32px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 8px;
+  background: var(--startup-primary);
+  color: var(--startup-primary-ink);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
   cursor: pointer;
+}
+.startup-initial-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--startup-primary) 92%, #000000);
+  color: var(--startup-primary-ink);
 }
 .startup-initial-button:focus-visible {
   outline: 2px solid var(--ring, Highlight);
@@ -194,8 +313,36 @@
   opacity: 0.5;
   cursor: default;
 }
+/* 文字级动作：与正式组件 startup-toggle 同规格。 */
+.startup-initial-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--startup-muted);
+  font: inherit;
+  font-size: 12px;
+  line-height: 20px;
+  cursor: pointer;
+}
+.startup-initial-link:hover:not(:disabled) {
+  color: var(--startup-foreground);
+}
+.startup-initial-link:focus-visible {
+  outline: 2px solid var(--ring, Highlight);
+  outline-offset: 2px;
+}
+.startup-initial-link:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 @media (prefers-reduced-motion: reduce) {
-  .startup-spinner {
+  .startup-dot,
+  .startup-stage,
+  .startup-failure h2 {
     animation: none;
   }
   .startup-toggle [data-icon="inline-end"] {

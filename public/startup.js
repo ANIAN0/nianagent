@@ -1,12 +1,33 @@
 /* global window, document, navigator, HTMLScriptElement */
 // 入口脚本自身失效时不能依赖同一模块显示错误，也不公开原始异常。
 window.moonInitialBootState = { deadline: Date.now() + 30000, failed: false }
+const moonInitialStage = document.getElementById("moon-initial-stage")
+// 快启动保持安静：超过1.5秒仍没就绪才显示阶段文本。
+window.setTimeout(function () {
+  if (!window.moonInitialBootState.failed && moonInitialStage)
+    moonInitialStage.hidden = false
+}, 1500)
 window.moonInitialBootFailure = function () {
-  if (!document.getElementById("moon-initial-boot")) return
+  const surface = document.getElementById("moon-initial-boot")
+  if (!surface) return
+  // 临时资源等待（如开发环境依赖重优化）先静默重载一次；重载仍失败才亮恢复页。
+  try {
+    if (window.sessionStorage.getItem("moon-boot-reload") !== "1") {
+      window.sessionStorage.setItem("moon-boot-reload", "1")
+      window.location.reload()
+      return
+    }
+  } catch (error) {
+    /* 存储不可用时直接显示失败。 */
+  }
   window.moonInitialBootState.failed = true
-  const stage = document.getElementById("moon-initial-stage")
+  surface.dataset.status = "failed"
+  const dot = document.getElementById("moon-initial-dot")
+  if (dot) dot.remove()
+  const stage = document.getElementById("moon-initial-stage-text")
   const actions = document.getElementById("moon-initial-actions")
-  if (stage) stage.textContent = "启动界面加载失败，请重新加载。"
+  if (moonInitialStage) moonInitialStage.hidden = false
+  if (stage) stage.textContent = "界面加载超时，请重新加载。"
   if (actions) actions.hidden = false
 }
 document

@@ -12,68 +12,230 @@
       type="font/woff2"
       crossorigin
     />
+    <!-- 入口模块失效时仍有完整兜底；尺度与 startup-surface.css 保持一致。 -->
+    <style>
+      @font-face {
+        font-family: "Source Han Sans SC";
+        src: url("%BASE_URL%fonts/source-han-sans/SourceHanSansSC-VF.woff2")
+          format("woff2");
+        font-style: normal;
+        font-weight: 250 900;
+        font-display: swap;
+      }
+      body { margin: 0; }
+      #moon-initial-boot {
+        --startup-background: light-dark(#f8f9fb, #12151d);
+        --startup-foreground: light-dark(#17202f, #edf0f5);
+        --startup-muted: light-dark(#5b6574, #a0a9b7);
+        --startup-border: light-dark(#e3e8f0, #303846);
+        --startup-primary: light-dark(#3568d4, #6c9aef);
+        --startup-primary-ink: light-dark(#ffffff, #0b1220);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: safe center;
+        gap: 12px;
+        box-sizing: border-box;
+        min-height: 100dvh;
+        padding: 32px 24px;
+        color-scheme: light dark;
+        background: var(--startup-background);
+        color: var(--startup-foreground);
+        font-family: "Source Han Sans SC", sans-serif;
+      }
+      #moon-initial-title {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        margin: -1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+      }
+      #moon-initial-progress {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+      }
+      #moon-initial-dot {
+        display: inline-block;
+        box-sizing: border-box;
+        width: 6px;
+        height: 6px;
+        border-radius: 9999px;
+        background: var(--startup-muted);
+        animation: moon-initial-breathe 3s ease-in-out infinite;
+      }
+      #moon-initial-stage {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        margin: 0;
+        color: var(--startup-muted);
+        font-size: 12px;
+        line-height: 20px;
+        text-align: center;
+        overflow-wrap: anywhere;
+        text-wrap: pretty;
+      }
+      #moon-initial-stage[hidden] {
+        display: none;
+      }
+      /* Chromium 的 hidden UA 规则只覆盖 HTML 元素，SVG 必须由 CSS 显式隐藏。 */
+      #moon-initial-alert {
+        display: none;
+        width: 18px;
+        height: 18px;
+        flex-shrink: 0;
+        color: light-dark(oklch(0.577 0.245 27.325), oklch(0.704 0.191 22.216));
+      }
+      #moon-initial-boot[data-status="failed"] #moon-initial-alert {
+        display: inline-block;
+      }
+      #moon-initial-boot[data-status="failed"] #moon-initial-stage {
+        color: var(--startup-foreground);
+        font-size: 14px;
+        line-height: 22px;
+        font-weight: 600;
+      }
+      /* 失败恢复只有一个决定：唯一实心主按钮，其余动作是文字级。 */
+      #moon-initial-actions {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        width: min(100%, 480px);
+      }
+      #moon-initial-actions[hidden] { display: none; }
+      #moon-initial-boot[data-status="failed"] #moon-initial-actions {
+        margin-top: 4px;
+      }
+      #moon-initial-actions > p {
+        margin: 0;
+        color: var(--startup-muted);
+        font-size: 12px;
+        line-height: 20px;
+        text-align: center;
+        overflow-wrap: anywhere;
+        text-wrap: balance;
+      }
+      .startup-initial-secondary {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 2px;
+      }
+      .startup-initial-sep {
+        margin: 0 6px;
+        color: var(--startup-muted);
+        font-size: 12px;
+        line-height: 20px;
+        user-select: none;
+      }
+      /* 主按钮对齐共享 Button default 规格：这页上按钮就是全部内容，不用密集尺寸。 */
+      #moon-initial-actions .startup-initial-button {
+        height: 32px;
+        padding: 0 12px;
+        border: none;
+        border-radius: 8px;
+        background: var(--startup-primary);
+        color: var(--startup-primary-ink);
+        font: inherit;
+        font-size: 14px;
+        font-weight: 500;
+        line-height: 20px;
+        cursor: pointer;
+      }
+      #moon-initial-actions .startup-initial-button:hover:not(:disabled) {
+        background: color-mix(in srgb, var(--startup-primary) 92%, #000000);
+        color: var(--startup-primary-ink);
+      }
+      #moon-initial-actions .startup-initial-button:focus-visible {
+        outline: 2px solid Highlight;
+        outline-offset: 2px;
+      }
+      #moon-initial-actions .startup-initial-button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      /* 文字级动作：复制诊断与退出不与主按钮同行同级。 */
+      #moon-initial-actions .startup-initial-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 2px 4px;
+        border: none;
+        border-radius: 4px;
+        background: transparent;
+        color: var(--startup-muted);
+        font: inherit;
+        font-size: 12px;
+        line-height: 20px;
+        cursor: pointer;
+      }
+      #moon-initial-actions .startup-initial-link:hover:not(:disabled) {
+        color: var(--startup-foreground);
+      }
+      #moon-initial-actions .startup-initial-link:focus-visible {
+        outline: 2px solid Highlight;
+        outline-offset: 2px;
+      }
+      #moon-initial-actions .startup-initial-link:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      @keyframes moon-initial-breathe {
+        0%, 100% { opacity: 0.3; transform: scale(0.75); }
+        50% { opacity: 1; transform: scale(1); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #moon-initial-dot { animation: none; }
+      }
+    </style>
   </head>
   <body>
     <div id="root">
       <!-- React或模块尚未加载时也保留可读的启动入口。 -->
-      <main
-        id="moon-initial-boot"
-        style="
-          display: grid;
-          place-items: center;
-          min-height: 100dvh;
-          padding: 24px;
-          box-sizing: border-box;
-          background: Canvas;
-          color: CanvasText;
-          font-family: sans-serif;
-        "
-      >
-        <section
-          style="
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 16px;
-            width: min(100%, 480px);
-          "
-        >
-          <h1
-            style="
-              margin: 0;
-              font-size: 16px;
-              line-height: 24px;
-              font-weight: 600;
-              letter-spacing: 0.04em;
-            "
-          >
-            Moon
-          </h1>
-          <p
-            id="moon-initial-stage"
-            role="status"
-            style="
-              margin: 0;
-              font-size: 12px;
-              line-height: 18px;
-              text-align: center;
-            "
-          >
-            加载启动界面
+      <main id="moon-initial-boot" class="startup-surface">
+        <h1 id="moon-initial-title">Moon</h1>
+        <div id="moon-initial-progress" role="status">
+          <span
+            id="moon-initial-dot"
+            class="startup-dot"
+            aria-hidden="true"
+          ></span>
+          <p id="moon-initial-stage" class="startup-stage" hidden>
+            <svg
+              id="moon-initial-alert"
+              viewBox="0 0 24 24"
+              fill="none"
+              aria-hidden="true"
+            ><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" /><line x1="12" x2="12" y1="8" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round" /><line x1="12" x2="12.01" y1="16" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg><span id="moon-initial-stage-text">加载启动界面</span>
           </p>
-          <div id="moon-initial-actions" hidden>
-            <button id="moon-initial-retry" type="button">重新加载界面</button>
-            <button id="moon-initial-copy" type="button">复制诊断信息</button>
-            <p style="font-size: 12px; line-height: 18px; text-align: center">
-              若仍无法加载，请关闭此窗口。若桌面窗口仍留在托盘，请从托盘菜单退出
-              Moon 后重新打开。
-            </p>
+        </div>
+        <div id="moon-initial-actions" class="startup-initial-actions" hidden>
+          <button
+            id="moon-initial-retry"
+            class="startup-initial-button"
+            type="button"
+          >重新加载</button>
+          <div class="startup-initial-secondary">
+            <button
+              id="moon-initial-copy"
+              class="startup-initial-link"
+              type="button"
+            >复制诊断信息</button>
           </div>
-        </section>
+          <p>
+            若仍无法加载，请关闭此窗口。若桌面窗口仍留在托盘，请从托盘菜单退出
+            Moon 后重新打开。
+          </p>
+        </div>
       </main>
     </div>
     <script src="%BASE_URL%startup.js"></script>
-
     <script
       id="moon-main-module"
       type="module"

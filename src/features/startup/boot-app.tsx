@@ -124,8 +124,8 @@ export default function BootApp() {
             stage: currentStage,
             message:
               currentStage === "workbench"
-                ? "工作台界面未能加载，已保存的数据保留，请重新加载界面。"
-                : "本机草稿或配置恢复副本未能读取或保存，原数据和请求身份保留。",
+                ? "工作台暂时无法显示，已保存的数据保留，请重新加载。"
+                : "本机草稿或配置副本读取或保存失败，原数据和请求身份保留。",
           })
       }
       if (disposed) return
@@ -170,7 +170,7 @@ export default function BootApp() {
         if (!disposed)
           setFailure({
             stage: "workbench",
-            message: "工作台界面未能加载，请重新加载界面。已保存的数据保留。",
+            message: "工作台暂时无法显示，请重新加载。已保存的数据保留。",
           })
       })
     return () => {
@@ -301,7 +301,7 @@ export default function BootApp() {
         diagnostics={diagnostics}
         pending={pending}
         retryLabel={
-          reloadModule ? "重新加载界面" : view.issue ? "重新连接" : "重试"
+          reloadModule ? "重新加载" : view.issue ? "重新连接" : "重试"
         }
         onRetry={
           canRetry

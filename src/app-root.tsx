@@ -63,11 +63,11 @@ class StartupEntryBoundary extends Component<
         <StartupSurface
           status="failed"
           steps={[{ id: "interface", label: "加载启动界面", status: "failed" }]}
-          message="启动界面未能加载，请重新加载界面。已保存的数据保留。"
+          message="工作台暂时无法显示，请重新加载。已保存的数据保留。"
           diagnostics={
             "Moon 启动诊断\n阶段：加载启动界面\n原因：界面资源未能加载或显示。"
           }
-          retryLabel="重新加载界面"
+          retryLabel="重新加载"
           onRetry={() => window.location.reload()}
           pending={this.state.pending ? "exit" : null}
           onExit={
