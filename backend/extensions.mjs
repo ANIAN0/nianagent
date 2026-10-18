@@ -225,6 +225,7 @@ export class ExtensionService {
           "模块路径不能超出正式目录。"
         )
         const { default: manifest } = await import(pathToFileURL(file).href)
+        if (manifest?.migratedTo) continue
         validateManifest(manifest, entry.name)
         const namespace = manifest.id.replaceAll("-", "_")
         check(!normalized.has(namespace), "模块工具命名空间重复。")

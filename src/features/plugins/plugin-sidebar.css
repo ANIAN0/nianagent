@@ -1,0 +1,205 @@
+.plugin-session-host {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.plugin-session-main {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+}
+.plugin-session-host [data-slot="resizable-handle"] {
+  z-index: 1;
+}
+.plugin-sidebar-toggle {
+  position: relative;
+}
+.plugin-sidebar-attention {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary);
+}
+.plugin-session-pane {
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: var(--plugin-pane-width);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  background: var(--background);
+  color: var(--foreground);
+  outline: none;
+}
+.plugin-session-pane[hidden],
+.plugin-pane-body[hidden] {
+  display: none;
+}
+[data-sidebar-presentation="fullscreen"] > .plugin-session-pane {
+  width: 100%;
+}
+.plugin-pane-tabs {
+  flex: 1;
+  min-height: 0;
+  gap: 0;
+}
+.plugin-pane-strip {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 4px;
+  min-height: 56px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.plugin-pane-tab-scroll {
+  min-width: 0;
+  flex: 1;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.plugin-pane-tab-scroll [data-slot="tabs-list"] {
+  justify-content: flex-start;
+  gap: 4px;
+  height: 32px;
+}
+.plugin-pane-tab {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 2px;
+  border-radius: var(--radius-md);
+}
+.plugin-pane-tab[data-selected="true"] {
+  background: var(--muted);
+}
+.plugin-pane-tab:has([data-state="active"]) {
+  background: var(--muted);
+}
+.plugin-pane-tab [role="tab"] {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 180px;
+}
+.plugin-pane-tab [role="tab"]::after {
+  display: none;
+}
+.plugin-pane-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.plugin-tab-pending {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--primary);
+}
+.plugin-pane-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  overflow: hidden;
+}
+.plugin-pane-error {
+  flex-shrink: 0;
+  border-radius: 0;
+  border-width: 0 0 1px;
+}
+.plugin-interaction {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 20px;
+  overflow: auto;
+}
+.plugin-interaction-copy {
+  margin: 0;
+  font-size: 13px;
+  line-height: 22px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.plugin-interaction-request {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.plugin-interaction-request + .plugin-interaction-request {
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+.plugin-interaction-request h3 {
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 500;
+}
+.plugin-interaction-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.plugin-guide {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 30px;
+  padding: 24px;
+  overflow: auto;
+}
+.plugin-guide::after {
+  content: "";
+  flex: 0 1 10%;
+}
+.plugin-guide-compass {
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+  opacity: 0.3;
+}
+.plugin-guide-entries {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 380px;
+  max-width: 100%;
+}
+.plugin-guide-entry-icon {
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+}
+.plugin-guide-entry-text {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  text-align: left;
+}
+.plugin-guide-entry-text > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.plugin-guide-description {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 18px;
+}

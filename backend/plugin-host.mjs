@@ -1,5 +1,13 @@
-import { mkdir, readFile, readdir, stat } from "node:fs/promises"
-import { join, resolve, isAbsolute } from "node:path"
+import { mkdir, readFile, readdir, stat, realpath } from "node:fs/promises"
+import {
+  join,
+  resolve,
+  isAbsolute,
+  relative,
+  sep,
+  dirname,
+  extname,
+} from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { randomUUID } from "node:crypto"
 import {
@@ -9,6 +17,7 @@ import {
 import { validateToolArguments } from "@earendil-works/pi-ai"
 import { replaceJson, withAcquiredLock } from "./atomic-file.mjs"
 import lockfile from "proper-lockfile"
+import { ActivityLog, safeSummary, valueSummary } from "./activity-log.mjs"
 import {
   requestContext,
   registerRemoteContextResolver,
@@ -19,9 +28,32 @@ const root = fileURLToPath(new URL("./plugins/", import.meta.url))
 // not erase the fact that Node has already executed that same physical source.
 const executedSources = new Set()
 const identifier = /^[a-z][a-z0-9-]{0,63}$/
+const samePath = (a, b) =>
+  typeof a === "string" &&
+  typeof b === "string" &&
+  (process.platform === "win32"
+    ? resolve(a).toLowerCase() === resolve(b).toLowerCase()
+    : resolve(a) === resolve(b))
 const check = (value, message) => {
   if (!value) throw new Error(message)
 }
+const base64Image = (data) =>
+  typeof data === "string" &&
+  data.length <= 16 * 1024 * 1024 &&
+  data.length % 4 === 0 &&
+  /^[A-Za-z0-9+/]*={0,2}$/.test(data)
+const jsonValue = (value, depth = 0) =>
+  depth <= 32 &&
+  (value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean" ||
+    (typeof value === "number" && Number.isFinite(value)) ||
+    (Array.isArray(value)
+      ? value.every((item) => jsonValue(item, depth + 1))
+      : value &&
+        typeof value === "object" &&
+        Object.getPrototypeOf(value) === Object.prototype &&
+        Object.values(value).every((item) => jsonValue(item, depth + 1))))
 const safeError = (error) =>
   /[\u4e00-\u9fff]/u.test(error?.message || "")
     ? error.message
@@ -31,9 +63,13 @@ export function validatePluginValue(schema, value) {
     schema?.type === "object" && schema.additionalProperties === false,
     "插件操作须声明严格对象schema。"
   )
-  validateToolArguments(
+  const validated = validateToolArguments(
     { name: "plugin", parameters: schema },
     { id: "validation", name: "plugin", arguments: structuredClone(value) }
+  )
+  check(
+    JSON.stringify(validated) === JSON.stringify(value),
+    "插件字段类型不符合声明。"
   )
   return value
 }
@@ -66,6 +102,8 @@ export class PluginHost {
     this.closed = false
     this.frozen = false
     this.changing = false
+    this.logs = new ActivityLog(directory)
+    this.sharedListeners = new Set()
   }
   async document() {
     try {
@@ -115,7 +153,10 @@ export class PluginHost {
       error: "",
       configuration: "{}",
       leases: new Set(),
+      sharedCalls: new Set(),
+      sharedPending: new Set(),
       tools: new Map(),
+      registrations: { events: [], commands: [], providers: [] },
     }
   }
   async load() {
@@ -147,11 +188,10 @@ export class PluginHost {
         )
         check(
           manifest.id === entry.id &&
-            manifest.sdkVersion === "1.1.0" &&
-            manifest.apiVersion === 2 &&
+            manifest.apiVersion === 1 &&
             typeof manifest.name === "string" &&
             typeof manifest.version === "string",
-          "插件身份或SDK版本无效。"
+          "插件身份或Moon接口版本无效。"
         )
         check(
           manifest.entries &&
@@ -168,8 +208,32 @@ export class PluginHost {
           !manifest.tools,
           "工具应由Pi原生factory注册，清单不重复声明工具。"
         )
+        this.validateContributions(manifest.contributions || [])
         entry.manifest = manifest
-        const saved = configuration.entries[entry.id]
+        let saved = configuration.entries[entry.id]
+        if (!saved && manifest.migrateFrom?.legacyModule) {
+          try {
+            const previous = JSON.parse(
+              await readFile(
+                join(
+                  dirname(this.directory),
+                  "extensions",
+                  "configuration.json"
+                ),
+                "utf8"
+              )
+            )
+            const old = previous.modules?.[manifest.migrateFrom.legacyModule]
+            if (old)
+              saved = {
+                enabled: old.enabled,
+                configuration: JSON.stringify(old.configuration),
+                revision: 0,
+              }
+          } catch (error) {
+            if (error.code !== "ENOENT") throw error
+          }
+        }
         entry.enabled = this.storageError
           ? false
           : (saved?.enabled ?? manifest.defaultEnabled ?? false)
@@ -250,7 +314,61 @@ export class PluginHost {
     entry.paths = resolved.extensions
       .filter((item) => item.enabled)
       .map((item) => item.path)
-    check(entry.paths.length > 0, "该来源没有可加载的Pi扩展入口。")
+
+    entry.installed = true
+    const manifestPath = (await stat(path)).isDirectory()
+      ? join(path, "package.json")
+      : join(resolve(path, ".."), "package.json")
+    try {
+      const metadata = JSON.parse(await readFile(manifestPath, "utf8"))
+      entry.manifest.version = metadata.version || "未提供"
+      entry.packageRoot = (await stat(path)).isDirectory()
+        ? path
+        : dirname(path)
+      const moon = metadata.moon
+      if (moon) {
+        check(moon.apiVersion === 1, "该插件的Moon Web接口版本不兼容。")
+        this.validateContributions(moon.contributions || [])
+        for (const file of [moon.web, moon.app, moon.pi].filter(Boolean))
+          check(
+            typeof file === "string" &&
+              !isAbsolute(file) &&
+              !file.split(/[\\/]/).includes(".."),
+            "插件资源入口须位于包内。"
+          )
+        Object.assign(entry.manifest, {
+          name: metadata.displayName || metadata.name || entry.id,
+          description: metadata.description || "Pi与Moon插件",
+          webApiVersion: 1,
+          webEntry: moon.web || "",
+          entries: {
+            ...(moon.app ? { app: moon.app } : {}),
+            ...(moon.pi ? { pi: moon.pi } : {}),
+          },
+          contributions: moon.contributions || [],
+          effects: moon.effects || [],
+          configurationSchema:
+            moon.configurationSchema || entry.manifest.configurationSchema,
+        })
+        if (
+          entry.revision === 0 &&
+          entry.configuration === "{}" &&
+          moon.defaultConfiguration
+        )
+          entry.configuration = JSON.stringify(moon.defaultConfiguration)
+      }
+    } catch (error) {
+      if (error.code !== "ENOENT" && error.code !== "ENOTDIR") throw error
+      /* A single Pi source has no Moon frontend. */
+    }
+    for (const file of [
+      entry.manifest.entries.pi,
+      entry.manifest.entries.app,
+    ].filter(Boolean)) {
+      const absolute = resolve(entry.packageRoot || entry.source, file)
+      if (!entry.paths.some((path) => samePath(path, absolute)))
+        entry.paths.push(absolute)
+    }
     if (
       !entry.loadedSignature &&
       entry.paths.some((path) => executedSources.has(path))
@@ -270,16 +388,72 @@ export class PluginHost {
       entry.paths.some((path) => /\.(?:m?js|cjs)$/i.test(path))
     )
       entry.restartRequired = true
-    entry.installed = true
-    const manifestPath = (await stat(path)).isDirectory()
-      ? join(path, "package.json")
-      : join(resolve(path, ".."), "package.json")
-    try {
-      const metadata = JSON.parse(await readFile(manifestPath, "utf8"))
-      entry.manifest.version = metadata.version || "未提供"
-    } catch {
-      /* Single-file imports need not have package metadata. */
+    check(
+      entry.paths.length > 0 ||
+        entry.manifest.webEntry ||
+        entry.manifest.entries.app,
+      "该来源没有Pi或Moon插件入口。"
+    )
+  }
+  validateContributions(items) {
+    const keys = new Set()
+    for (const item of items) {
+      check(
+        item &&
+          identifier.test(item.id) &&
+          ["page", "session-tab", "delivery"].includes(item.kind) &&
+          typeof item.title === "string" &&
+          Number.isInteger(item.version) &&
+          item.version > 0 &&
+          typeof item.remote === "boolean",
+        "插件界面贡献声明无效。"
+      )
+      const key = `${item.kind}:${item.id}:${item.version}`
+      check(!keys.has(key), "插件贡献重复。")
+      keys.add(key)
     }
+  }
+  async resource(id, path, generation, signal) {
+    await this.initialize()
+    const entry = this.entries.get(id)
+    check(
+      entry?.state === "active" && entry.generation === generation,
+      "插件已停用或资源代次已变化。"
+    )
+    check(
+      typeof path === "string" &&
+        path.length &&
+        !isAbsolute(path) &&
+        !path.split(/[\\/]/).includes(".."),
+      "插件资源路径无效。"
+    )
+    const root = await realpath(entry.packageRoot || entry.source)
+    const file = await realpath(resolve(root, path))
+    const local = relative(root, file)
+    check(
+      local &&
+        !isAbsolute(local) &&
+        local !== ".." &&
+        !local.startsWith(`..${sep}`),
+      "插件资源不能越出安装目录。"
+    )
+    const size = await stat(file)
+    check(
+      size.isFile() && size.size <= 8 * 1024 * 1024,
+      "插件资源超过8MiB或不是文件。"
+    )
+    const data = await readFile(file, { signal })
+    const mime =
+      {
+        ".js": "text/javascript",
+        ".mjs": "text/javascript",
+        ".css": "text/css",
+        ".svg": "image/svg+xml",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".woff2": "font/woff2",
+      }[extname(file)] || "application/octet-stream"
+    return { data: data.toString("base64"), mime }
   }
   async initialize() {
     await this.discover()
@@ -329,8 +503,9 @@ export class PluginHost {
         if (inactive()) return
         const app = entry.manifest.entries.app
         if (app) {
+          this.recordExecution(entry)
           const module = await import(
-            pathToFileURL(join(entry.source, app)).href
+            pathToFileURL(join(entry.packageRoot || entry.source, app)).href
           )
           const directory = join(this.directory, entry.id)
           await mkdir(directory, { recursive: true })
@@ -349,11 +524,21 @@ export class PluginHost {
               !this.closed &&
               !this.frozen,
             lease: (action) => this.lease(entry, action),
+            logs: this.logs,
+            sharedTools: {
+              list: () => this.sharedToolCatalog(),
+              call: (...args) => this.callSharedTool(...args),
+              subscribe: (listener) => {
+                this.sharedListeners.add(listener)
+                return () => this.sharedListeners.delete(listener)
+              },
+            },
           })
           check(
             application && typeof application.close === "function",
             "应用入口须声明实际资源释放方法。"
           )
+          this.validateSharedTools(application.sharedTools || [])
         }
         if (!current()) {
           await application?.close()
@@ -365,6 +550,7 @@ export class PluginHost {
         entry.applicationGeneration = generation
         entry.state = "active"
         entry.error = ""
+        this.sharedChanged()
       } catch (error) {
         let failure = error
         try {
@@ -417,6 +603,14 @@ export class PluginHost {
         }
       ),
       contributions: entry.manifest?.contributions || [],
+      webEntry: entry.manifest?.webEntry || "",
+      webApiVersion: 1,
+      effects: entry.manifest?.effects || [],
+      registrations: entry.registrations || {
+        events: [],
+        commands: [],
+        providers: [],
+      },
       tools: [...entry.tools.values()].map((tool) => ({
         id: tool.name,
         name: tool.label || tool.name,
@@ -462,6 +656,8 @@ export class PluginHost {
           configurationSchema: item.configurationSchema,
           contributions: [],
           tools: item.tools,
+          effects: [],
+          registrations: { events: [], commands: [], providers: [] },
         }))
       )
   }
@@ -710,6 +906,8 @@ export class PluginHost {
     if (entry.stopping) return entry.stopping
     entry.state = "stopping"
     entry.generation++
+    for (const controller of entry.sharedCalls) controller.abort()
+    this.sharedChanged()
     const stopping = (async () => {
       const application = entry.application
       const closing = this.releaseApplication(entry, "close")
@@ -722,6 +920,7 @@ export class PluginHost {
               quiesced,
               entry.starting,
               ...entry.leases,
+              ...entry.sharedPending,
             ])
             const releases = settled.slice(0, 3)
             // activate may finish after stop began. Its failed cleanup must remain
@@ -771,6 +970,218 @@ export class PluginHost {
       ...(await this.ports.authorizeSession(sessionId, base)),
     })
   }
+  validateSharedTools(tools) {
+    check(Array.isArray(tools) && tools.length <= 128, "共享工具声明无效。")
+    const seen = new Set()
+    for (const tool of tools) {
+      check(
+        /^[a-z][a-z0-9_]{0,47}$/.test(tool.name) &&
+          !seen.has(tool.name) &&
+          typeof tool.description === "string" &&
+          tool.description.length <= 8000 &&
+          typeof tool.execute === "function" &&
+          tool.inputSchema?.type === "object" &&
+          tool.inputSchema.additionalProperties === false,
+        "共享工具须使用唯一名称、说明、严格参数schema和执行方法。"
+      )
+      seen.add(tool.name)
+      check(
+        tool.annotations === undefined ||
+          (tool.annotations &&
+            typeof tool.annotations === "object" &&
+            !Array.isArray(tool.annotations) &&
+            Object.entries(tool.annotations).every(
+              ([key, value]) =>
+                [
+                  "readOnlyHint",
+                  "destructiveHint",
+                  "idempotentHint",
+                  "openWorldHint",
+                ].includes(key) && typeof value === "boolean"
+            )),
+        "共享工具annotations只允许声明的布尔影响提示。"
+      )
+    }
+  }
+  sharedChanged() {
+    for (const listener of this.sharedListeners) {
+      try {
+        listener()
+      } catch {
+        /* Notifications cannot change lifecycle results. */
+      }
+    }
+  }
+  sharedToolCatalog() {
+    if (this.closed || this.frozen) return []
+    return [...this.entries.values()]
+      .filter((entry) => entry.enabled && entry.state === "active")
+      .flatMap((entry) =>
+        (entry.application?.sharedTools || [])
+          .filter((tool) => tool.shareable === true)
+          .map((tool) => ({
+            name: `${entry.id}__${tool.name}`,
+            plugin: entry.id,
+            generation: entry.generation,
+            description: tool.description,
+            inputSchema: tool.inputSchema,
+            annotations: tool.annotations || {},
+          }))
+      )
+  }
+  callSharedTool(name, ...args) {
+    const descriptor = this.sharedToolCatalog().find(
+      (tool) => tool.name === name
+    )
+    const entry = descriptor && this.entries.get(descriptor.plugin)
+    const pending = this.executeSharedTool(name, ...args)
+    if (entry) {
+      entry.sharedPending.add(pending)
+      void pending.then(
+        () => entry.sharedPending.delete(pending),
+        () => entry.sharedPending.delete(pending)
+      )
+    }
+    return pending
+  }
+  async executeSharedTool(
+    name,
+    input,
+    { allowed, generation, client = "未提供", signal } = {}
+  ) {
+    const callId = randomUUID(),
+      started = Date.now()
+    const descriptor = this.sharedToolCatalog().find(
+      (tool) => tool.name === name
+    )
+    const entry = descriptor && this.entries.get(descriptor.plugin)
+    const definition = entry?.application?.sharedTools?.find(
+      (tool) => `${entry.id}__${tool.name}` === name
+    )
+    const controller = new AbortController()
+    const abort = () => controller.abort()
+    signal?.addEventListener("abort", abort, { once: true })
+    if (signal?.aborted) abort()
+    entry?.sharedCalls.add(controller)
+    const metadata = {
+      callId,
+      source: "tool",
+      plugin: descriptor?.plugin || "",
+      tool: descriptor?.name || "未注册工具",
+      client,
+    }
+    let admitted = false
+    let inputSummary = ""
+    try {
+      check(
+        descriptor && definition?.shareable === true,
+        "共享工具已停用或未声明。"
+      )
+      check(allowed?.(name) === true, "共享工具未获用户授权。")
+      check(
+        generation === undefined || generation === descriptor.generation,
+        "共享工具代次已变化，请刷新目录。"
+      )
+      controller.signal.throwIfAborted()
+      validatePluginValue(definition.inputSchema, input)
+      inputSummary = safeSummary(definition, { phase: "input", input }, input)
+      await this.logs.append({
+        ...metadata,
+        status: "started",
+        input: inputSummary,
+      })
+      admitted = true
+      const result = await this.lease(entry, async () => {
+        check(
+          entry.generation === descriptor.generation && allowed(name),
+          "共享工具授权或代次已变化。"
+        )
+        controller.signal.throwIfAborted()
+        return definition.execute(
+          input,
+          { callId, source: "mcp" },
+          controller.signal
+        )
+      })
+      controller.signal.throwIfAborted()
+      check(
+        entry.state === "active" &&
+          entry.generation === descriptor.generation &&
+          allowed(name),
+        "共享工具已停止或授权已变化；请核对操作实际结果。"
+      )
+      check(
+        Buffer.byteLength(JSON.stringify(result)) <= 16 * 1024 * 1024 &&
+          result &&
+          typeof result === "object" &&
+          !Array.isArray(result) &&
+          (result.isError === undefined ||
+            typeof result.isError === "boolean") &&
+          (result.structuredContent === undefined ||
+            (result.structuredContent !== null &&
+              typeof result.structuredContent === "object" &&
+              !Array.isArray(result.structuredContent) &&
+              jsonValue(result.structuredContent))) &&
+          Array.isArray(result.content) &&
+          result.content.every(
+            (block) =>
+              block &&
+              typeof block === "object" &&
+              (block.type === "text"
+                ? typeof block.text === "string"
+                : block.type === "image" &&
+                  base64Image(block.data) &&
+                  typeof block.mimeType === "string" &&
+                  /^image\/[a-z0-9.+-]+$/i.test(block.mimeType))
+          ),
+        "共享工具结果格式或大小无效。"
+      )
+      await this.logs.append({
+        ...metadata,
+        status: result.isError ? "failed" : "succeeded",
+        durationMs: Date.now() - started,
+        input: inputSummary,
+        result: safeSummary(
+          definition,
+          { phase: "result", input, result },
+          result
+        ),
+        error: result.isError ? "工具返回失败；详细内容仅交给调用方。" : "",
+      })
+      return result
+    } catch (error) {
+      await this.logs.append({
+        ...metadata,
+        status: controller.signal.aborted
+          ? "cancelled"
+          : admitted
+            ? "failed"
+            : "rejected",
+        durationMs: Date.now() - started,
+        input: inputSummary || valueSummary(input),
+        error: controller.signal.aborted
+          ? "调用已取消；已等待执行收尾。"
+          : admitted
+            ? "工具执行失败；日志不保存原始错误内容。"
+            : "工具未启用、未授权、代次失效或参数无效。",
+      })
+      // The authorized caller gets actionable business diagnostics. Only the
+      // separate persisted log is restricted to the safe category above.
+      throw new Error(
+        controller.signal.aborted
+          ? "共享工具调用已取消。"
+          : admitted
+            ? String(
+                error?.message || "共享工具执行失败，请核对实际结果。"
+              ).slice(0, 2000)
+            : "共享工具不可调用：请刷新目录并核对授权、代次和参数。",
+        { cause: error }
+      )
+    } finally {
+      signal?.removeEventListener("abort", abort)
+      entry?.sharedCalls.delete(controller)
+    }
+  }
   async call(id, operation, payload, sessionId, generation, signal) {
     await this.initialize()
     const entry = this.entries.get(id)
@@ -779,7 +1190,9 @@ export class PluginHost {
       generation === undefined || generation === entry.generation,
       "插件已重新激活，请重新读取。"
     )
-    const definition = entry.application?.operations?.[operation]
+    const application = entry.application
+    const admittedGeneration = entry.generation
+    const definition = application?.operations?.[operation]
     check(definition, "插件未注册此操作。")
     const context = await this.context(sessionId, signal)
     check(
@@ -791,9 +1204,17 @@ export class PluginHost {
       "此操作需要真实会话。"
     )
     const input = validatePluginValue(definition.input, JSON.parse(payload))
-    const result = await this.lease(entry, () =>
-      definition.execute(input, context, signal)
-    )
+    const current = () =>
+      this.entries.get(id) === entry &&
+      entry.state === "active" &&
+      entry.application === application &&
+      entry.generation === admittedGeneration
+    const result = await this.lease(entry, () => {
+      check(current(), "插件实例已变化，请重新读取后操作。")
+      signal?.throwIfAborted()
+      return definition.execute(input, context, signal)
+    })
+    check(current(), "插件执行期间已停止；请核对操作实际结果。")
     validatePluginValue(definition.output, result)
     // A 2MiB UTF-8 page can expand to 12MiB in JSON (control characters).
     // This bound includes that encoding; source-page limits remain unchanged.
@@ -801,13 +1222,22 @@ export class PluginHost {
       Buffer.byteLength(JSON.stringify(result)) <= 16 * 1024 * 1024,
       "插件返回超过编码后传输上限。"
     )
-    return { payload: JSON.stringify(result), generation: entry.generation }
+    return { payload: JSON.stringify(result), generation: admittedGeneration }
   }
   async extensionPaths() {
     await this.initialize()
     return [...this.entries.values()]
       .filter((entry) => entry.state === "active")
-      .flatMap((entry) => entry.paths || [])
+      .flatMap((entry) =>
+        (entry.paths || []).filter(
+          (path) =>
+            ![entry.manifest.entries.pi, entry.manifest.entries.app]
+              .filter(Boolean)
+              .some((file) =>
+                samePath(resolve(entry.packageRoot || entry.source, file), path)
+              )
+        )
+      )
   }
   async factories(cwd, scope) {
     await this.initialize()
@@ -817,8 +1247,11 @@ export class PluginHost {
         name: `moon-plugin-${entry.id}`,
         factory: async (pi) => {
           const generation = entry.generation
+          this.recordExecution(entry)
           const module = await import(
-            pathToFileURL(join(entry.source, entry.manifest.entries.pi)).href
+            pathToFileURL(
+              join(entry.packageRoot || entry.source, entry.manifest.entries.pi)
+            ).href
           )
           const native = new Proxy(pi, {
             get: (target, key) =>
@@ -855,6 +1288,7 @@ export class PluginHost {
           })
           await module.default(native, {
             application: entry.application,
+            configuration: JSON.parse(entry.configuration),
             cwd,
             context: () =>
               this.context(
@@ -867,19 +1301,131 @@ export class PluginHost {
         },
       }))
   }
+  prepareNative(result, scope = {}) {
+    for (const extension of result.extensions) {
+      const entry = [...this.entries.values()].find(
+        (candidate) =>
+          candidate.paths?.some(
+            (path) =>
+              samePath(path, extension.path) ||
+              samePath(path, extension.resolvedPath)
+          ) || extension.path === `<inline:moon-plugin-${candidate.id}>`
+      )
+      if (!entry) continue
+      entry.registrations = {
+        ...entry.registrations,
+        events: [
+          ...new Set([
+            ...(entry.registrations?.events || []),
+            ...extension.handlers.keys(),
+          ]),
+        ],
+        commands: [
+          ...new Set([
+            ...(entry.registrations?.commands || []),
+            ...extension.commands.keys(),
+          ]),
+        ],
+        providers: [
+          ...new Set(
+            [
+              ...(result.runtime.pendingProviderRegistrations || []),
+              ...(result.runtime.pendingNativeProviderRegistrations || []),
+              ...(result.runtime.pendingVirtualModelRegistrations || []),
+            ]
+              .filter((item) => item.extensionPath === extension.path)
+              .map((item) =>
+                String(
+                  item.name ||
+                    item.provider?.id ||
+                    item.definition?.id ||
+                    "自定义提供方"
+                )
+              )
+          ),
+        ],
+      }
+      const context = (ctx) =>
+        scope.uiFor ? { ...ctx, ui: scope.uiFor(entry.id) } : ctx
+      for (const [event, handlers] of extension.handlers)
+        extension.handlers.set(
+          event,
+          handlers.map((handler) => async (value, ctx) => {
+            const answer = await handler(value, context(ctx))
+            return answer?.details
+              ? {
+                  ...answer,
+                  details: this.deliveryDetails(entry, answer.details),
+                }
+              : answer
+          })
+        )
+      for (const registered of extension.tools.values()) {
+        const execute = registered.definition.execute
+        registered.definition.execute = async (...args) => {
+          args[4] = context(args[4])
+          const value = await execute(...args)
+          return {
+            ...value,
+            details: this.deliveryDetails(entry, value.details),
+          }
+        }
+      }
+      for (const command of extension.commands.values()) {
+        const handler = command.handler
+        command.handler = (args, ctx) => handler(args, context(ctx))
+      }
+    }
+    return this.observeNative(result)
+  }
+  deliveryDetails(entry, details) {
+    const value = details?.moonDelivery
+    if (!value) return details
+    check(
+      entry.manifest.contributions?.some(
+        (c) =>
+          c.kind === "delivery" &&
+          c.id === value.kind &&
+          c.version === value.version
+      ),
+      "交付类型未在插件清单中声明。"
+    )
+    check(
+      typeof value.summary === "string" &&
+        value.summary.length <= 16000 &&
+        typeof value.payload === "string" &&
+        value.payload.length <= 65536,
+      "交付数据或摘要无效。"
+    )
+    JSON.parse(value.payload)
+    return {
+      ...details,
+      moonDelivery: {
+        ...value,
+        pluginId: entry.id,
+        source: entry.manifest.name,
+      },
+    }
+  }
+  recordExecution(entry) {
+    if (entry.sourceKind === "bundled") return
+    entry.loadedSignature = entry.sourceSignature
+    for (const path of entry.paths || []) executedSources.add(path)
+  }
   observeNative(result) {
     const winners = new Map()
     this.toolOwners.clear()
     for (const extension of result.extensions) {
       const entry = [...this.entries.values()].find(
         (entry) =>
-          entry.paths?.includes(extension.path) ||
-          entry.paths?.includes(extension.resolvedPath) ||
-          extension.path === `<inline:moon-plugin-${entry.id}>`
+          entry.paths?.some(
+            (path) =>
+              samePath(path, extension.path) ||
+              samePath(path, extension.resolvedPath)
+          ) || extension.path === `<inline:moon-plugin-${entry.id}>`
       )
       if (entry && entry.sourceKind !== "bundled") {
-        entry.loadedSignature = entry.sourceSignature
-        for (const path of entry.paths || []) executedSources.add(path)
+        this.recordExecution(entry)
       }
       for (const [name, tool] of extension.tools) {
         if (entry) entry.tools.set(name, tool.definition)
@@ -919,7 +1465,7 @@ export class PluginHost {
     const origin = tool.sourceInfo?.path
     const entry = [...this.entries.values()].find(
       (candidate) =>
-        candidate.paths?.includes(origin) ||
+        candidate.paths?.some((path) => samePath(path, origin)) ||
         origin === `<inline:moon-plugin-${candidate.id}>`
     )
     return {
@@ -949,18 +1495,33 @@ export class PluginHost {
     const entry =
       this.entries.get(result?.details?.moonPlugin?.id) ||
       this.toolOwners.get(name)
-    const value = result?.details?.moonPresentation
+    const value = result?.details?.moonDelivery
     if (
-      entry?.manifest.contributions?.some(
-        (item) =>
-          item.kind === "result" &&
-          item.id === value?.kind &&
-          item.version === value?.version
-      ) &&
-      typeof value.payload === "string" &&
-      value.payload.length <= 65536
+      !value ||
+      typeof value.kind !== "string" ||
+      !Number.isInteger(value.version) ||
+      typeof value.payload !== "string" ||
+      value.payload.length > 65536
     )
-      return value
+      return
+    const summary =
+      typeof value.summary === "string"
+        ? value.summary
+        : (result.content || [])
+            .filter((p) => p.type === "text")
+            .map((p) => p.text)
+            .join("\n")
+            .slice(0, 16000)
+    return {
+      kind: value.kind,
+      version: value.version,
+      payload: value.payload,
+      summary,
+      ...(value.pluginId || entry?.id
+        ? { pluginId: value.pluginId || entry.id }
+        : {}),
+      source: value.source || entry?.manifest.name || "插件交付",
+    }
   }
   fingerprint() {
     return JSON.stringify(
@@ -978,15 +1539,21 @@ export class PluginHost {
     const results = await Promise.allSettled(
       [...this.entries.values()].reverse().map((entry) => this.stop(entry))
     )
+    const logging = await Promise.allSettled([this.logs.close()])
+    results.push(...logging)
     if (strict && results.some((result) => result.status === "rejected"))
       throw new Error("插件资源释放未确认，请重启Moon。")
   }
   async freeze() {
     this.frozen = true
+    for (const entry of this.entries.values())
+      for (const controller of entry.sharedCalls) controller.abort()
+    this.sharedChanged()
     const results = await Promise.allSettled(
       [...this.entries.values()].flatMap((entry) => [
         Promise.resolve().then(() => entry.application?.quiesce?.()),
         entry.starting,
+        Promise.allSettled([...entry.sharedPending]),
       ])
     )
     if (results.some((result) => result.status === "rejected"))
@@ -996,6 +1563,7 @@ export class PluginHost {
     for (const entry of this.entries.values())
       await entry.application?.resume?.()
     this.frozen = false
+    this.sharedChanged()
     await this.initialize()
   }
 }

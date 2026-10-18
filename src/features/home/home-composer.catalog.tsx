@@ -6,7 +6,7 @@ export default {
   name: "首页输入区",
   source: "src/features/home/home-composer.tsx",
   group: "首页",
-  layer: "页面",
+  layer: "复合组件",
   order: 200,
   pages: ["首页"],
   stage: "content",

@@ -456,10 +456,9 @@ export class ConversationTranscript {
             const target = toolTarget(part, state.record.cwd)
             const details = projectedDetails(result)
             const artifact = fileArtifact(part, target, status)
-            const presentation = this.ports.models.extensions?.presentation(
-              result,
-              part.name
-            ) || this.ports.models.plugins?.presentation(result, part.name)
+            const presentation =
+              this.ports.models.extensions?.presentation(result, part.name) ||
+              this.ports.models.plugins?.presentation(result, part.name)
             const images = (
               Array.isArray(result?.content) ? result.content : []
             )
@@ -490,7 +489,17 @@ export class ConversationTranscript {
               ...(target ? { target } : {}),
               ...(details ? { details } : {}),
               ...(artifact ? { artifact } : {}),
-              ...(presentation ? { presentation } : {}),
+              ...(presentation
+                ? {
+                    presentation: {
+                      ...presentation,
+                      originId:
+                        stableEntryIds && call?.key
+                          ? call.key
+                          : toolOccurrenceKey(id, index),
+                    },
+                  }
+                : {}),
               ...(images.length ? { images } : {}),
               ...metadata,
             }

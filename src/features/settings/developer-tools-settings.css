@@ -1,0 +1,66 @@
+.developer-tool-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.developer-tool-entry {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.developer-tool-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--muted);
+  color: var(--muted-foreground);
+}
+
+.developer-tool-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.developer-tool-copy {
+  min-width: 0;
+}
+
+.developer-tool-copy p {
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+
+.developer-tool-action {
+  width: 112px;
+}
+
+.developer-tool-group-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--muted-foreground);
+}
+
+@container model-content (width < 560px) {
+  .developer-tool-entry {
+    grid-template-columns: 36px minmax(0, 1fr);
+    align-items: start;
+    gap: 12px;
+  }
+
+  .developer-tool-action {
+    grid-column: 2;
+    justify-self: start;
+  }
+}

@@ -7,12 +7,15 @@
     "*.mjs",
     "extensions/**/*.mjs",
     "plugins/**/*.mjs",
-    "plugins/**/manifest.json"
+    "plugins/**/manifest.json",
+    "plugins/**/package.json"
   ],
   "dependencies": {
-    "@earendil-works/pi-ai": "1.1.0",
-    "@earendil-works/pi-coding-agent": "1.1.0",
-    "@earendil-works/pi-mcp": "1.1.0",
+    "@earendil-works/pi-ai": "1.3.0",
+    "@earendil-works/pi-coding-agent": "1.3.0",
+    "@earendil-works/pi-mcp": "1.3.0",
+    "@modelcontextprotocol/node": "2.1.1",
+    "@modelcontextprotocol/server": "2.3.1",
     "noise-handshake": "4.2.0",
     "proper-lockfile": "4.1.2",
     "ws": "8.22.0"

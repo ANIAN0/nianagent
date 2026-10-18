@@ -1,0 +1,30 @@
+{
+  "id": "mcp-service",
+  "name": "MCP 服务",
+  "description": "通过同一本机 MCP 地址，向外部 Agent 共享明确授权的插件工具。",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "defaultEnabled": false,
+  "entries": { "app": "host.mjs", "web": "web.tsx" },
+  "defaultConfiguration": {},
+  "configurationSchema": {
+    "type": "object",
+    "properties": {},
+    "required": [],
+    "additionalProperties": false
+  },
+  "contributions": [
+    {
+      "id": "service",
+      "kind": "page",
+      "title": "管理 MCP 服务",
+      "version": 1,
+      "remote": false
+    }
+  ],
+  "effects": [
+    "仅监听 127.0.0.1 的固定可配置端口，使用独立本机 token",
+    "持 token 客户端可调用用户选择的共享工具，可能读写网站或文件；逐次审批由客户端负责",
+    "记录 MCP 接入与共享工具的安全摘要；SDK 协议连接不管理浏览器 session"
+  ]
+}

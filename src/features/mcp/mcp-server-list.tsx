@@ -384,9 +384,6 @@ export function McpServerList({
           </Table>
         </div>
       )}
-      <p className="text-xs leading-relaxed text-muted-foreground">
-        保存和启用不会立即建立会话连接；测试通过只验证当时的协议与工具目录。工具需在会话配置中选中，下一次发送或应用配置时生效；正在执行的工作继续使用本轮配置。
-      </p>
     </section>
   )
 }

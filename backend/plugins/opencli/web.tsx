@@ -2,14 +2,8 @@ import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { callPlugin } from "@/features/plugins/plugin-service"
-import type { PluginWorkspaceProps } from "@/features/plugins/plugin-web"
-import { isRemoteWeb } from "@/lib/rpc/remote-transport"
-import type {
-  OpenCliAction,
-  OpenCliService,
-  OpenCliStatus,
-  OpenCliTarget,
-} from "./types"
+import type { PluginWebModule } from "@/features/plugins/plugin-api"
+import type { OpenCliAction, OpenCliService, OpenCliStatus } from "./types"
 export type { OpenCliStatus } from "./types"
 export const id = "opencli"
 const service: OpenCliService = {
@@ -370,100 +364,9 @@ export function OpenCliConnectionView({
   )
 }
 
-export function Workspace({
-  sessionId,
-  active,
-  children,
-}: PluginWorkspaceProps) {
-  const [target, setTarget] = useState<OpenCliTarget>()
-  const [error, setError] = useState("")
-  const [busy, setBusy] = useState(false)
-  const owner = useRef(sessionId)
-  const action = async (operation: "bind" | "unbind") => {
-    if (busy) return
-    const current = sessionId
-    setBusy(true)
-    try {
-      await callPlugin(id, operation, {}, current)
-      const result = await callPlugin<{ value: OpenCliTarget }>(
-        id,
-        "target",
-        {},
-        current
-      )
-      if (owner.current === current) {
-        setTarget(result.value)
-        setError("")
-      }
-    } catch (error) {
-      if (owner.current === current) setError(errorText(error))
-    } finally {
-      if (owner.current === current) setBusy(false)
-    }
-  }
-  useEffect(() => {
-    owner.current = sessionId
-    if (!active || isRemoteWeb()) return
-    const controller = new AbortController()
-    void callPlugin<{ value: OpenCliTarget }>(
-      id,
-      "target",
-      {},
-      sessionId,
-      controller.signal
-    )
-      .then((result) => {
-        if (!controller.signal.aborted) {
-          setTarget(result.value)
-          setBusy(false)
-          setError("")
-        }
-      })
-      .catch((error) => {
-        if (!controller.signal.aborted) setError(errorText(error))
-      })
-    return () => {
-      controller.abort()
-      if (owner.current === sessionId) owner.current = ""
-    }
-  }, [sessionId, active])
-  return (
-    <>
-      {active && !isRemoteWeb() && (
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b p-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={busy}
-            onClick={() => void action("bind")}
-          >
-            {busy
-              ? "操作中…"
-              : target?.bound
-                ? "重新绑定当前页"
-                : "绑定浏览器当前页"}
-          </Button>
-          {target?.bound && (
-            <>
-              <span className="text-sm break-all">
-                {target.bound.title || target.bound.url} ·{" "}
-                {target.bound.targetId}
-              </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={busy}
-                onClick={() => void action("unbind")}
-              >
-                解绑
-              </Button>
-              {target.bound.issue && <p role="alert">{target.bound.issue}</p>}
-            </>
-          )}
-          {error && <p role="alert">{error}</p>}
-        </div>
-      )}
-      {children}
-    </>
-  )
+const plugin: PluginWebModule = {
+  id,
+  apiVersion: 1,
+  pages: [{ id: "browser", component: () => <Page /> }],
 }
+export default plugin

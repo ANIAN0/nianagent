@@ -313,6 +313,12 @@ export const conversationSchemas = {
         approvals: arr(ref("ConversationApproval")),
         statistics: ref("ConversationStatistics"),
         command: ref("ConversationCommandReceipt"),
+        pluginUi: arr(
+          obj({
+            pluginId: str("插件身份"),
+            lines: arr(str("插件状态、通知或文本widget")),
+          })
+        ),
         extensionNotifications: arr(
           obj({
             id,

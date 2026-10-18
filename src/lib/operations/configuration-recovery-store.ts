@@ -1,3 +1,4 @@
+import { profileLocalStorage as localStorage } from "@/lib/rpc/profile-storage"
 import { useSyncExternalStore } from "react"
 import {
   receiptOperationNames,

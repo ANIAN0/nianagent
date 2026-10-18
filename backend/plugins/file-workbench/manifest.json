@@ -3,11 +3,16 @@
   "name": "文件",
   "description": "查看当前文件、引用选区与交付文件链接。手动修改在外部编辑器完成。",
   "version": "0.2.0",
-  "apiVersion": 2,
-  "sdkVersion": "1.1.0",
+  "apiVersion": 1,
   "defaultEnabled": true,
-  "entries": { "app": "host.mjs", "pi": "pi.mjs", "web": "web.tsx" },
-  "defaultConfiguration": { "editorPath": "" },
+  "entries": {
+    "app": "host.mjs",
+    "pi": "pi.mjs",
+    "web": "web.tsx"
+  },
+  "defaultConfiguration": {
+    "editorPath": ""
+  },
   "configurationSchema": {
     "type": "object",
     "properties": {
@@ -22,18 +27,52 @@
   },
   "contributions": [
     {
+      "id": "editor",
+      "kind": "page",
+      "title": "外部编辑器",
+      "version": 1,
+      "remote": false
+    },
+    {
       "id": "files",
-      "kind": "workbench",
+      "kind": "session-tab",
       "title": "文件",
       "version": 1,
       "remote": true
     },
     {
+      "id": "preview",
+      "kind": "session-tab",
+      "title": "文件预览",
+      "version": 1,
+      "remote": true
+    },
+    {
+      "id": "changes",
+      "kind": "session-tab",
+      "title": "变更",
+      "version": 1,
+      "remote": true
+    },
+    {
       "id": "file-link",
-      "kind": "result",
-      "title": "文件链接",
+      "kind": "delivery",
+      "title": "交付文件",
+      "version": 1,
+      "remote": true
+    },
+    {
+      "id": "file-change",
+      "kind": "delivery",
+      "title": "变更文件",
       "version": 1,
       "remote": true
     }
+  ],
+  "effects": [
+    "读取会话工作区目录、文件与Git差异",
+    "引用选区与文件路径到当前草稿",
+    "按用户操作下载文件或调用本机外部编辑器",
+    "请求打开文件标签，记录明确交付与成功文件变更"
   ]
 }

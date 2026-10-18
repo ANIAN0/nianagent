@@ -38,7 +38,8 @@ export function ChangesViewer({
     return () => controller.abort()
   }, [sessionId, revision, service])
   const current = tools.find(
-    (tool) => (tool.occurrenceId || tool.id) === selected
+    (tool) =>
+      (tool.occurrenceId || tool.id) === selected || tool.id === selected
   )
   return (
     <section className="file-changes">

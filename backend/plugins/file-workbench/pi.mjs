@@ -15,6 +15,28 @@ export const toolPolicy = (name) =>
     ? { effect: "read", resource: "file" }
     : undefined
 export default function fileExtension(pi, { application, context }) {
+  pi.on("tool_result", (event) => {
+    if (
+      event.isError ||
+      !["write", "edit"].includes(event.toolName) ||
+      typeof event.input?.path !== "string"
+    )
+      return
+    const tool = pi.getAllTools().find((tool) => tool.name === event.toolName)
+    if (tool?.sourceInfo?.source !== "builtin") return
+    const path = event.input.path
+    return {
+      details: {
+        ...event.details,
+        moonDelivery: {
+          kind: "file-change",
+          version: 1,
+          summary: `${event.toolName === "write" ? "写入" : "修改"}：${path}`,
+          payload: JSON.stringify({ path, name: path.split(/[\\/]/).at(-1) }),
+        },
+      },
+    }
+  })
   pi.registerTool({
     name: "open_file",
     label: "打开文件",
@@ -36,16 +58,7 @@ export default function fileExtension(pi, { application, context }) {
               : `当前客户端未在前台查看本会话，未发送打开请求：${result.path}`,
           },
         ],
-        details: {
-          moonPresentation: {
-            kind: "file-link",
-            version: 1,
-            payload: JSON.stringify({
-              path: result.requestedPath,
-              name: result.name,
-            }),
-          },
-        },
+        details: undefined,
       }
     },
   })
@@ -53,7 +66,7 @@ export default function fileExtension(pi, { application, context }) {
     name: "send_file_link",
     label: "交付文件链接",
     description:
-      "在当前工具结果提供文件路径链接。用户查看、引用或下载时读取当前文件；文件后续变化不保留历史文件版本。",
+      "明确将文件交付给用户，在本轮末尾的文件清单展示。查看、引用或下载时读取当前文件，不保存整文件历史快照。",
     parameters,
     async execute(_id, input, signal) {
       const target = await application.documents.info(
@@ -65,9 +78,10 @@ export default function fileExtension(pi, { application, context }) {
       return {
         content: [{ type: "text", text: `文件链接：${target.requested}` }],
         details: {
-          moonPresentation: {
+          moonDelivery: {
             kind: "file-link",
             version: 1,
+            summary: `文件：${target.name} · ${target.requested}`,
             payload: JSON.stringify({
               path: target.requested,
               name: target.name,

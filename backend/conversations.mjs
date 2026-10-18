@@ -446,6 +446,7 @@ export class ConversationService {
         thinking: selected.thinking,
         pluginScope: {
           sessionId: record.id,
+          uiFor: (id) => this.permissions.ui(state, id),
           clientContext: () => state.clientContext || requestContext(),
           runId: () => state.record.runId,
           occurrence: (toolCallId, toolName) => {
@@ -523,7 +524,10 @@ export class ConversationService {
   }
   nativeInputFactory(state) {
     return (pi) => {
-      pi.on("before_agent_start", () => {
+      pi.on("before_agent_start", (event) => {
+        // Pi 1.2+ also emits this event for extension-triggered custom runs.
+        // Materials belong to the pending user prompt, not that custom run.
+        if (event.messageType !== "user") return
         const prompt = state.nativePrompt
         if (!prompt?.context || prompt.contextConsumed) return
         prompt.contextConsumed = true
@@ -656,6 +660,16 @@ export class ConversationService {
       approvals: this.permissions.pendingFor(record.id),
       statistics: conversationStatistics(state),
       ...(state.command ? { command: state.command } : {}),
+      pluginUi: Object.entries(state.pluginUi || {}).map(
+        ([pluginId, value]) => ({
+          pluginId,
+          lines: [
+            ...(value.notices || []),
+            ...Object.values(value.statuses || {}),
+            ...Object.values(value.widgets || {}).flat(),
+          ],
+        })
+      ),
       ...(state.extensionNotifications?.length
         ? { extensionNotifications: state.extensionNotifications }
         : {}),

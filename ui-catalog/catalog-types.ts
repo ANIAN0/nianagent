@@ -10,6 +10,10 @@ export type CatalogEntry = {
   pages: string[]
   group: string
   source: string
+  /** Explicit business operation associations; navigation and reverse links derive from these. */
+  relatedOperations?: string[]
+  /** Page anatomy: object identity and visible region; module prose remains in its own definition. */
+  modules?: { id: string; region: string }[]
   description: string
   boundary: string
   story?: {

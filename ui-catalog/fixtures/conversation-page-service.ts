@@ -213,7 +213,13 @@ const lostResponse = () =>
 
 /** 隔离的整页会话环境：提供源/可切会话与派生会话，写操作明确拒绝，终态由演示控制发布。 */
 export function createConversationPageEnvironment(
-  scenario: ConversationPageScenario
+  scenario: ConversationPageScenario,
+  initial?: {
+    cwd: string
+    title: string
+    messages: ConversationChatMessage[]
+    snapshot?: Partial<ConversationSnapshot>
+  }
 ) {
   const runningScenario = scenario === "page-running"
   const recoveryScenario = scenario === "page-recovery"
@@ -221,7 +227,7 @@ export function createConversationPageEnvironment(
   const sourceId = `catalog-page-source-${crypto.randomUUID()}`
   const derivedId = `catalog-page-derived-${crypto.randomUUID()}`
   const otherId = `${sourceId}-other`
-  const cwd = "/catalog/conversation-page"
+  const cwd = initial?.cwd || "/catalog/conversation-page"
   const workspaceId = `${sourceId}-workspace`
   let disposed = false
   let readState: PageDriver["readState"] = recoveryScenario
@@ -496,6 +502,17 @@ export function createConversationPageEnvironment(
       throw new Error("此隔离会话已关闭或不存在。")
     return snapshots.get(sessionId)!
   }
+  if (initial) {
+    const snapshot = snapshots.get(sourceId)!
+    snapshots.set(sourceId, {
+      ...snapshot,
+      title: initial.title,
+      messages: initial.messages,
+      compactions: [],
+      ...initial.snapshot,
+    })
+  }
+
   const publish = (snapshot: ConversationSnapshot) => {
     if (disposed) return
     snapshots.set(snapshot.id, { ...snapshot, version: snapshot.version + 1 })
@@ -1641,7 +1658,7 @@ export function createConversationPageEnvironment(
         },
         lineage: {
           sourceSessionId: sourceId,
-          sourceTitle: SOURCE_TITLE,
+          sourceTitle: initial?.title || SOURCE_TITLE,
           sourceEntryId: entryId,
         },
       })
@@ -1675,7 +1692,7 @@ export function createConversationPageEnvironment(
     sourceId,
     derivedId,
     otherId,
-    sourceTitle: SOURCE_TITLE,
+    sourceTitle: initial?.title || SOURCE_TITLE,
     derivedTitle: DERIVED_TITLE,
     cwd,
     workspaceId,

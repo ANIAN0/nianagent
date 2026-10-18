@@ -3,6 +3,26 @@ import { ConversationPageExample } from "../../../ui-catalog/fixtures/conversati
 
 export default {
   id: "conversation-page",
+  relatedOperations: [
+    "conversationSend",
+    "conversationReceiptRead",
+    "conversationRead",
+    "conversationStop",
+  ],
+  modules: [
+    { id: "conversation-reading", region: "主区消息流与右侧轮次定位" },
+    { id: "conversation-execution", region: "当前轮次的回复与工具记录" },
+    { id: "conversation-idle-input", region: "会话底部的消息输入区" },
+    { id: "running-message-input", region: "运行中输入区与上沿待处理队列" },
+    {
+      id: "conversation-recovery",
+      region: "运行状态、终态反馈与原操作恢复入口",
+    },
+    { id: "conversation-materials", region: "用户消息材料条及材料预览弹层" },
+    { id: "conversation-approval", region: "待确认操作所属的输入区域" },
+    { id: "conversation-context", region: "输入卡下方的上下文与用量入口" },
+    { id: "conversation-fork", region: "已完成回复末尾的消息操作" },
+  ],
   name: "会话页面",
   group: "会话",
   layer: "页面",

@@ -3,6 +3,7 @@ import {
   useEffect,
   useEffectEvent,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react"
@@ -11,35 +12,25 @@ import remarkGfm from "remark-gfm"
 import {
   Folder,
   File,
-  X,
-  PanelRight,
-  Maximize2,
-  Minimize2,
+  FileDiff,
   RefreshCw,
   Download,
   Quote,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import type { PanelImperativeHandle } from "react-resizable-panels"
 import { SourceViewer } from "./source-viewer"
 import { ChangesViewer } from "./changes-viewer"
-import {
-  ResizablePanelGroup,
-  ResizablePanel,
-  ResizableHandle,
-} from "@/components/ui/resizable"
 import {
   FileWorkbenchServiceContext,
   useFileWorkbenchService,
   fileWorkbenchService,
   type FileWorkbenchService,
 } from "./file-service"
-import {
-  PluginPathContext,
-  usePluginPaths,
-} from "@/features/plugins/plugin-path-context"
-import type { PluginWorkspaceProps } from "@/features/plugins/plugin-web"
-import type { ResultRendererProps } from "@/features/extensions/result-renderers"
+import type {
+  PluginContext,
+  PluginDeliveryProps,
+  PluginWebModule,
+} from "@/features/plugins/plugin-api"
 import type { MaterialReference } from "@/contracts/rpc.generated"
 import { invoke, isTauri } from "@tauri-apps/api/core"
 import { rpcCall } from "@/lib/rpc/client"
@@ -155,15 +146,7 @@ type FileTab = {
   source: boolean
   media?: MediaPosition
 }
-type Layout = {
-  changes?: boolean
-  requestedChange?: string
-  tabs: FileTab[]
-  selected: string
-  visible: boolean
-  expanded: boolean
-  width: number
-}
+type Layout = { tab?: FileTab }
 const layouts = new Map<string, Layout>()
 const nameOf = (path: string) => path.split(/[\\/]/).at(-1) || path
 async function readComplete(
@@ -304,7 +287,7 @@ function FileBody({
   tab: FileTab
   sessionId: string
   onUpdate: (update: Partial<FileTab>) => void
-  onMaterial: PluginWorkspaceProps["onMaterial"]
+  onMaterial: PluginContext["reference"]
 }) {
   const { call } = useFileWorkbenchService()
   const [text, setText] = useState<{
@@ -726,7 +709,7 @@ function PdfBody(props: {
   data: Uint8Array
   path: string
   sessionId: string
-  onMaterial: PluginWorkspaceProps["onMaterial"]
+  onMaterial: PluginContext["reference"]
   position?: MediaPosition
   onPosition: (position: MediaPosition) => void
 }) {
@@ -752,22 +735,71 @@ function PdfBody(props: {
     <p role="status">{error || "正在加载PDF查看器…"}</p>
   )
 }
-export function Workspace(
-  props: PluginWorkspaceProps & { service?: FileWorkbenchService }
+function useSessionFileService(
+  props: PluginContext & { service?: FileWorkbenchService }
+) {
+  const call = props.call
+  return useMemo(
+    () =>
+      props.service || {
+        ...fileWorkbenchService,
+        call: async <T,>(
+          operation: string,
+          input: object,
+          _sessionId: string,
+          signal?: AbortSignal
+        ) => (await call<{ value: T }>(operation, input, signal)).value,
+      },
+    [props.service, call]
+  )
+}
+
+export function FileDirectory(
+  props: PluginContext & { service?: FileWorkbenchService }
 ) {
   return (
-    <FileWorkbenchServiceContext value={props.service || fileWorkbenchService}>
-      <WorkspaceContent {...props} />
+    <FileWorkbenchServiceContext value={useSessionFileService(props)}>
+      <nav className="file-directory" aria-label="工作区文件">
+        <Tree
+          sessionId={props.sessionId}
+          path={props.cwd}
+          onOpen={(path) => props.openTab("preview", { path })}
+        />
+      </nav>
     </FileWorkbenchServiceContext>
   )
 }
-function WorkspaceContent({
+export function FileChanges(
+  props: PluginContext & { service?: FileWorkbenchService }
+) {
+  const payload = props.payload as { occurrenceId?: string } | undefined
+  return (
+    <FileWorkbenchServiceContext value={useSessionFileService(props)}>
+      <ChangesViewer
+        key={payload?.occurrenceId || "git"}
+        sessionId={props.sessionId}
+        requested={payload?.occurrenceId}
+        onOpen={async (path) => props.openTab("preview", { path })}
+      />
+    </FileWorkbenchServiceContext>
+  )
+}
+export function FilePanel(
+  props: PluginContext & { service?: FileWorkbenchService }
+) {
+  return (
+    <FileWorkbenchServiceContext value={useSessionFileService(props)}>
+      <FilePanelContent {...props} />
+    </FileWorkbenchServiceContext>
+  )
+}
+function FilePanelContent({
   sessionId,
-  cwd,
+  resource,
   active,
-  onMaterial,
-  children,
-}: PluginWorkspaceProps) {
+  reference: onMaterial,
+  payload,
+}: PluginContext) {
   const { call, desktop } = useFileWorkbenchService()
   const [foreground, setForeground] = useState(() => !document.hidden)
   useEffect(() => {
@@ -776,18 +808,13 @@ function WorkspaceContent({
     return () => document.removeEventListener("visibilitychange", changed)
   }, [])
   const visibleConsumer = active && foreground
+  const path =
+    resource || (payload as { path?: string } | undefined)?.path || ""
+  const cacheKey = JSON.stringify([sessionId, path])
   const [layout, setLayout] = useState<Layout>(
-    () =>
-      layouts.get(sessionId) || {
-        tabs: [],
-        selected: "",
-        visible: false,
-        expanded: false,
-        width: 420,
-      }
+    () => layouts.get(cacheKey) || {}
   )
   const [editorPath, setEditorPath] = useState("")
-  const filePanel = useRef<PanelImperativeHandle>(null)
   useEffect(() => {
     if (!desktop || !active) return
     const controller = new AbortController()
@@ -816,11 +843,11 @@ function WorkspaceContent({
     (action: (previous: Layout) => Layout) => {
       setLayout((previous) => {
         const next = action(previous)
-        layouts.set(sessionId, next)
+        layouts.set(cacheKey, next)
         return next
       })
     },
-    [sessionId]
+    [cacheKey]
   )
   useEffect(() => {
     mounted.current = true
@@ -837,41 +864,28 @@ function WorkspaceContent({
       downloadRequest.current?.abort()
     }
   }, [visibleConsumer])
-  const openPath = useCallback(
-    async (path: string) => {
-      if (!active) return
-      const request = new AbortController()
-      reads.current.add(request)
-      try {
-        const info = await call<FileInfo>(
-          "info",
-          { path },
-          sessionId,
-          request.signal
-        )
-        if (!mounted.current || request.signal.aborted) return
+  useEffect(() => {
+    if (!visibleConsumer || !path) return
+    const request = new AbortController()
+    const owned = reads.current
+    owned.add(request)
+    void call<FileInfo>("info", { path }, sessionId, request.signal)
+      .then((info) => {
+        if (request.signal.aborted) return
+        setError("")
         update((previous) => ({
-          ...previous,
-          visible: true,
-          changes: false,
-          selected: info.path,
-          tabs: previous.tabs.some((tab) => tab.info.path === info.path)
-            ? previous.tabs.map((tab) =>
-                tab.info.path === info.path ? { ...tab, info } : tab
-              )
-            : [
-                ...previous.tabs,
-                { info, offset: 0, line: 1, scroll: 0, source: false },
-              ],
+          tab:
+            previous.tab?.info.path === info.path
+              ? { ...previous.tab, info }
+              : { info, offset: 0, line: 1, scroll: 0, source: false },
         }))
-      } catch (error) {
-        if (!request.signal.aborted) throw error
-      } finally {
-        reads.current.delete(request)
-      }
-    },
-    [sessionId, update, call, active]
-  )
+      })
+      .catch((error) => {
+        if (!request.signal.aborted) setError(messageOf(error))
+      })
+      .finally(() => owned.delete(request))
+    return () => request.abort()
+  }, [path, sessionId, update, call, visibleConsumer])
   const reference = useCallback(
     async (path: string) => {
       if (!active) return
@@ -945,93 +959,9 @@ function WorkspaceContent({
     },
     [sessionId, call, desktop, active]
   )
-  useEffect(() => {
-    if (!cwd || !active) return
-    const controller = new AbortController()
-    const token = crypto.randomUUID()
-    const generation =
-      (Number(sessionStorage.getItem("moon-file-view-generation")) || 0) + 1
-    sessionStorage.setItem("moon-file-view-generation", String(generation))
-    let reading = false
-    const follow = () => {
-      if (reading) return
-      reading = true
-      void call<{ requests: { path: string; token: string }[] }>(
-        "view",
-        { token, generation, active: visibleConsumer },
-        sessionId,
-        controller.signal
-      )
-        .then((result) => {
-          if (!controller.signal.aborted && visibleConsumer)
-            for (const request of result.requests)
-              if (request.token === token)
-                void openPath(request.path).catch((error) =>
-                  setError(error.message)
-                )
-        })
-        .catch(() => {})
-        .finally(() => {
-          reading = false
-        })
-    }
-    follow()
-    const timer = visibleConsumer ? window.setInterval(follow, 2000) : undefined
-    return () => {
-      clearInterval(timer)
-      controller.abort()
-      void call("view", { token, generation, active: false }, sessionId).catch(
-        () => {}
-      )
-    }
-  }, [sessionId, cwd, active, visibleConsumer, openPath, call])
-  const tab = layout.tabs.find((tab) => tab.info.path === layout.selected)
-  const pane = (
-    <aside className="file-rail" aria-label="文件工作栏">
-      <div className="file-rail-header">
-        <strong>文件</strong>
-        <div className="flex gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() =>
-              update((previous) => ({
-                ...previous,
-                changes: !previous.changes,
-              }))
-            }
-          >
-            {layout.changes ? "文件预览" : "变更"}
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label={layout.expanded ? "还原文件栏" : "展开文件栏"}
-            onClick={() =>
-              update((previous) => ({
-                ...previous,
-                expanded: !previous.expanded,
-              }))
-            }
-          >
-            {layout.expanded ? <Minimize2 /> : <Maximize2 />}
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="返回会话并收起文件栏"
-            onClick={() =>
-              update((previous) => ({
-                ...previous,
-                visible: false,
-                expanded: false,
-              }))
-            }
-          >
-            <X />
-          </Button>
-        </div>
-      </div>
+  const tab = layout.tab
+  return (
+    <section className="file-rail" aria-label="文件预览">
       {error && (
         <p className="file-message" role="alert">
           {error}
@@ -1055,288 +985,237 @@ function WorkspaceContent({
           </Button>
         </div>
       )}
-      {!layout.changes && (
-        <div className="file-tabs" role="tablist">
-          {layout.tabs.map((item) => (
-            <div key={item.info.path} className="file-tab">
+      <div className="file-viewer">
+        {tab ? (
+          <>
+            <div className="file-actions">
               <Button
                 variant="ghost"
                 size="sm"
-                role="tab"
-                aria-selected={item.info.path === layout.selected}
-                title={item.info.path}
                 onClick={() =>
-                  update((previous) => ({
-                    ...previous,
-                    selected: item.info.path,
-                  }))
+                  void reference(tab.info.requested).catch((error) =>
+                    setError(error.message)
+                  )
                 }
               >
-                {nameOf(item.info.path)}
+                <Quote />
+                引用文件路径
               </Button>
               <Button
                 variant="ghost"
-                size="icon-sm"
-                aria-label={`关闭${item.info.name}`}
+                size="sm"
                 onClick={() =>
-                  update((previous) => {
-                    const tabs = previous.tabs.filter((tab) => tab !== item)
-                    return {
-                      ...previous,
-                      tabs,
-                      selected:
-                        previous.selected === item.info.path
-                          ? tabs.at(-1)?.info.path || ""
-                          : previous.selected,
-                    }
-                  })
+                  void download(tab.info.requested).catch((error) =>
+                    setError(error.message)
+                  )
                 }
               >
-                <X />
+                <Download />
+                下载原文件
               </Button>
-            </div>
-          ))}
-        </div>
-      )}
-      {layout.changes ? (
-        <ChangesViewer
-          key={layout.requestedChange || "changes"}
-          sessionId={sessionId}
-          requested={layout.requestedChange}
-          onOpen={openPath}
-        />
-      ) : (
-        <div className="file-rail-main">
-          <nav className="file-tree" aria-label="会话文件目录">
-            <Tree
-              sessionId={sessionId}
-              path={cwd}
-              onOpen={(path) =>
-                void openPath(path).catch((error) => setError(error.message))
-              }
-            />
-          </nav>
-          <div className="file-viewer">
-            {tab ? (
-              <>
-                <div className="file-actions">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() =>
-                      void reference(tab.info.requested).catch((error) =>
-                        setError(error.message)
+              {desktop && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() =>
+                    void desktop
+                      .open(
+                        tab.info.requested,
+                        ["text", "markdown"].includes(tab.info.kind)
+                          ? editorPath || null
+                          : null
                       )
-                    }
-                  >
-                    <Quote />
-                    引用文件路径
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() =>
-                      void download(tab.info.requested).catch((error) =>
-                        setError(error.message)
-                      )
-                    }
-                  >
-                    <Download />
-                    下载原文件
-                  </Button>
-                  {desktop && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() =>
-                        void desktop
-                          .open(
-                            tab.info.requested,
-                            ["text", "markdown"].includes(tab.info.kind)
-                              ? editorPath || null
-                              : null
-                          )
-                          .catch((failure) =>
-                            setError(
-                              typeof failure === "string"
-                                ? failure
-                                : failure instanceof Error
-                                  ? failure.message
-                                  : "外部程序未能打开，请重新选择程序或重试。"
-                            )
-                          )
-                      }
-                    >
-                      外部打开
-                    </Button>
-                  )}
-                </div>
-                <FileBody
-                  key={tab.info.path}
-                  tab={tab}
-                  sessionId={sessionId}
-                  onUpdate={(changes) =>
-                    update((previous) => ({
-                      ...previous,
-                      selected:
-                        changes.info && previous.selected === tab.info.path
-                          ? changes.info.path
-                          : previous.selected,
-                      tabs: previous.tabs
-                        .filter(
-                          (item) =>
-                            !changes.info ||
-                            changes.info.path === tab.info.path ||
-                            item.info.path !== changes.info.path
+                      .catch((failure) =>
+                        setError(
+                          typeof failure === "string"
+                            ? failure
+                            : failure instanceof Error
+                              ? failure.message
+                              : "外部程序未能打开，请重新选择程序或重试。"
                         )
-                        .map((item) =>
-                          item.info.path === tab.info.path
-                            ? {
-                                ...item,
-                                ...changes,
-                                media: changes.media
-                                  ? { ...item.media, ...changes.media }
-                                  : item.media,
-                              }
-                            : item
-                        ),
-                    }))
+                      )
                   }
-                  onMaterial={onMaterial}
-                />
-              </>
-            ) : (
-              <p className="file-message">
-                从目录选择文件，或点击会话中的文件路径。
-              </p>
-            )}
-          </div>
-        </div>
-      )}
-    </aside>
-  )
-  return (
-    <PluginPathContext
-      value={
-        active
-          ? {
-              openPath,
-              reference,
-              download,
-              openChange: (tool) =>
+                >
+                  外部打开
+                </Button>
+              )}
+            </div>
+            <FileBody
+              key={tab.info.path}
+              tab={tab}
+              sessionId={sessionId}
+              onUpdate={(changes) =>
                 update((previous) => ({
-                  ...previous,
-                  visible: true,
-                  changes: true,
-                  requestedChange: tool.occurrenceId || tool.id,
-                })),
-            }
-          : null
-      }
-    >
-      <div
-        className="file-workspace"
-        data-expanded={active && layout.expanded && layout.visible}
-      >
-        {active && !layout.visible && (
-          <div className="file-workspace-actions">
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={!cwd}
-              onClick={() =>
-                update((previous) => ({
-                  ...previous,
-                  visible: !previous.visible,
-                  expanded: false,
+                  tab: previous.tab
+                    ? {
+                        ...previous.tab,
+                        ...changes,
+                        media: changes.media
+                          ? { ...previous.tab.media, ...changes.media }
+                          : previous.tab.media,
+                      }
+                    : previous.tab,
                 }))
               }
-            >
-              <PanelRight />
-              {layout.visible ? "收起文件栏" : "文件"}
-            </Button>
-          </div>
-        )}
-        <ResizablePanelGroup
-          orientation="horizontal"
-          onLayoutChanged={(_sizes, meta) => {
-            if (!meta.isUserInteraction) return
-            const width = filePanel.current?.getSize().inPixels
-            if (width && width > 0)
-              update((previous) =>
-                Math.abs(previous.width - width) < 1
-                  ? previous
-                  : { ...previous, width }
-              )
-          }}
-        >
-          <ResizablePanel className="file-chat" minSize="250px">
-            {children}
-          </ResizablePanel>
-          {visibleConsumer && layout.visible && !layout.expanded && (
-            <>
-              <ResizableHandle withHandle />
-              <ResizablePanel
-                panelRef={filePanel}
-                defaultSize={`${layout.width}px`}
-                minSize="280px"
-              >
-                {pane}
-              </ResizablePanel>
-            </>
-          )}
-        </ResizablePanelGroup>
-        {visibleConsumer && layout.visible && layout.expanded && (
-          <div className="file-expanded">{pane}</div>
+              onMaterial={onMaterial}
+            />
+          </>
+        ) : (
+          <p className="file-message">
+            从目录选择文件，或点击会话中的文件路径。
+          </p>
         )}
       </div>
-    </PluginPathContext>
+    </section>
   )
 }
-export function FileLink({ payload }: ResultRendererProps) {
-  const paths = usePluginPaths()
-  const [error, setError] = useState("")
-  const value = payload as { path?: string; name?: string }
-  if (!value || typeof value.path !== "string") return null
-  const path = value.path
-  const run = (action: () => Promise<void>) => {
-    setError("")
-    void action().catch((error) => setError(error.message))
+
+/** Nonvisual subscription, disposed by the host independently of tab mounting. */
+function connectSession(context: PluginContext) {
+  if (!context.active || !context.cwd) return
+  const controller = new AbortController()
+  const signal = AbortSignal.any([controller.signal, context.signal])
+  let view: { token: string; generation: number; reading: boolean } | undefined
+  const follow = async () => {
+    const current = view
+    if (!current || current.reading || signal.aborted || document.hidden) return
+    current.reading = true
+    try {
+      const { value } = await context.call<{
+        value: { requests: { path: string; token: string }[] }
+      }>(
+        "view",
+        { token: current.token, generation: current.generation, active: true },
+        signal
+      )
+      if (!signal.aborted && !document.hidden && view === current)
+        for (const request of value.requests)
+          if (request.token === current.token)
+            context.openTab("preview", { path: request.path })
+    } catch {
+      /* An inactive client must not replay an old open request. */
+    } finally {
+      current.reading = false
+    }
+  }
+  const release = () => {
+    const current = view
+    view = undefined
+    if (current)
+      void context
+        .call(
+          "view",
+          {
+            token: current.token,
+            generation: current.generation,
+            active: false,
+          },
+          new AbortController().signal
+        )
+        .catch(() => {})
+  }
+  const visibilityChanged = () => {
+    release()
+    if (!document.hidden && !signal.aborted) {
+      view = {
+        token: crypto.randomUUID(),
+        generation: ++viewGeneration,
+        reading: false,
+      }
+      void follow()
+    }
+  }
+  visibilityChanged()
+  const timer = window.setInterval(() => {
+    void follow()
+  }, 2000)
+  document.addEventListener("visibilitychange", visibilityChanged)
+  return () => {
+    controller.abort()
+    clearInterval(timer)
+    document.removeEventListener("visibilitychange", visibilityChanged)
+    release()
+  }
+}
+let viewGeneration = Date.now()
+export function FileDelivery({
+  delivery,
+  deliveries = [delivery],
+  context,
+}: PluginDeliveryProps) {
+  const files = new Map<
+    string,
+    { record: typeof delivery; path: string; name: string }
+  >()
+  for (const record of deliveries) {
+    const value = JSON.parse(record.payload) as { path: string; name?: string }
+    if (typeof value.path !== "string") throw new Error("交付文件路径无效。")
+    files.set(value.path, {
+      record,
+      path: value.path,
+      name: value.name || nameOf(value.path),
+    })
   }
   return (
-    <div className="file-result-card">
-      <strong>{value.name || nameOf(path)}</strong>
-      <span title={path}>{path}</span>
-      <div className="flex flex-wrap gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={!paths}
-          onClick={() => run(() => paths!.openPath(path))}
+    <section className="file-result-card">
+      <strong>
+        {delivery.kind === "file-change" ? "变更文件" : "交付文件"}
+      </strong>
+      {[...files.values()].map(({ record, path, name }) => (
+        <div
+          key={path}
+          className="flex flex-wrap items-center justify-between gap-2"
         >
-          打开当前文件
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={!paths}
-          onClick={() => run(() => paths!.reference(path))}
-        >
-          引用
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={!paths}
-          onClick={() => run(() => paths!.download(path))}
-        >
-          下载
-        </Button>
-      </div>
-      {error && <p role="alert">{error}</p>}
-    </div>
+          <span title={path}>{name}</span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              context.openTab(
+                record.kind === "file-change" ? "changes" : "preview",
+                record.kind === "file-change"
+                  ? { changes: true, occurrenceId: record.originId }
+                  : { path }
+              )
+            }
+          >
+            {record.kind === "file-change" ? "查看变更" : "打开文件"}
+          </Button>
+        </div>
+      ))}
+    </section>
   )
 }
-export const results = [
-  { kind: "file-link", version: 1, persistent: true, component: FileLink },
-]
+const plugin: PluginWebModule = {
+  id,
+  apiVersion: 1,
+  pages: [{ id: "editor", component: Page }],
+  tabs: [
+    {
+      id: "files",
+      component: FileDirectory,
+      icon: Folder,
+      description: "浏览工作区目录与文件",
+    },
+    {
+      id: "preview",
+      component: FilePanel,
+      icon: File,
+      resourceKey: (payload) =>
+        (payload as { path?: string } | undefined)?.path || "",
+      title: (path) => nameOf(path),
+    },
+    {
+      id: "changes",
+      component: FileChanges,
+      icon: FileDiff,
+      description: "查看会话操作与 Git 差异",
+    },
+  ],
+  deliveries: [
+    { id: "file-link", version: 1, component: FileDelivery },
+    { id: "file-change", version: 1, component: FileDelivery },
+  ],
+  connectSession,
+}
+export default plugin

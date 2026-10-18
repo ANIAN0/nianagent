@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ComponentProps,
+} from "react"
 import {
   ModelSettingsContent,
   type ModelSettingsContentProps,
@@ -9,15 +15,18 @@ import { StorageSettings } from "./storage-settings"
 import { UpdateSettings } from "./update-settings"
 import { PluginSettings } from "@/features/plugins/plugin-settings"
 import "@/features/plugins/plugins.css"
+import { DeveloperToolsSettings } from "./developer-tools-settings"
 
 export type SettingsPageProps = Omit<ModelSettingsContentProps, "section"> & {
   onReturn: () => void
   initialSection?: SettingsSection
+  pluginManagement?: ComponentProps<typeof PluginSettings>
 }
 export function SettingsPage({
   onReturn,
   registerLeave,
   initialSection = "models",
+  pluginManagement,
   ...models
 }: SettingsPageProps) {
   const [section, setSection] = useState<SettingsSection>(initialSection)
@@ -54,8 +63,9 @@ export function SettingsPage({
         />
       )}
       {section === "storage" && <StorageSettings />}
-      {section === "plugins" && <PluginSettings />}
+      {section === "plugins" && <PluginSettings {...pluginManagement} />}
       {section === "updates" && <UpdateSettings />}
+      {section === "developer" && <DeveloperToolsSettings />}
     </SettingsShell>
   )
 }

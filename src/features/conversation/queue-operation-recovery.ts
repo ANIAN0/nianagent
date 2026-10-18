@@ -1,3 +1,4 @@
+import { profileLocalStorage as localStorage } from "@/lib/rpc/profile-storage"
 import type { ConversationQueueOperationReceipt } from "@/contracts/rpc.generated"
 
 /** Only immutable routing metadata is retained; message content never enters this store. */

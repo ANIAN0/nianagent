@@ -1,3 +1,4 @@
+import { profileSessionStorage as sessionStorage } from "@/lib/rpc/profile-storage"
 import { callPlugin } from "@/features/plugins/plugin-service"
 import type { MaterialReference } from "@/contracts/rpc.generated"
 
@@ -12,9 +13,16 @@ function restoreCopies() {
   try {
     const saved = JSON.parse(sessionStorage.getItem(copyKey) || "[]")
     for (const [id, copy] of saved) {
-      if (/^[a-f0-9]{64}$/.test(id) && /^[a-f0-9-]{36}$/.test(copy.token) && typeof copy.sessionId === "string") copies.set(id, copy)
+      if (
+        /^[a-f0-9]{64}$/.test(id) &&
+        /^[a-f0-9-]{36}$/.test(copy.token) &&
+        typeof copy.sessionId === "string"
+      )
+        copies.set(id, copy)
     }
-  } catch { /* Unknown records are never used for deletion. */ }
+  } catch {
+    /* Unknown records are never used for deletion. */
+  }
 }
 export async function uploadRemoteFile(
   sessionId: string,
@@ -64,11 +72,13 @@ export async function uploadRemoteFile(
     // A failed transport may already have prepared the copy. Read status only;
     // never repeat writes or remove an uncertain prepared/accepted attachment.
     const status = await callPlugin<{
-        value: { phase: string; material: MaterialReference | null }
-      }>("remote-access", "uploadStatus", { token }).catch(() => null)
+      value: { phase: string; material: MaterialReference | null }
+    }>("remote-access", "uploadStatus", { token }).catch(() => null)
     if (signal.aborted || status?.value.phase === "receiving") {
       if (status && ["receiving", "prepared"].includes(status.value.phase)) {
-        await callPlugin("remote-access", "uploadDiscard", { token }).catch(() => {})
+        await callPlugin("remote-access", "uploadDiscard", { token }).catch(
+          () => {}
+        )
       }
     } else {
       if (status?.value.phase === "prepared" && status.value.material) {
@@ -123,9 +133,12 @@ export function chooseRemoteFiles(
         const result: MaterialReference[] = []
         try {
           for (const file of files)
-            result.push(await uploadRemoteFile(sessionId, cwd, file, controller.signal))
+            result.push(
+              await uploadRemoteFile(sessionId, cwd, file, controller.signal)
+            )
         } catch (error) {
-          for (const material of result) await discardRemoteFile(material.id).catch(() => {})
+          for (const material of result)
+            await discardRemoteFile(material.id).catch(() => {})
           throw error
         }
         return result

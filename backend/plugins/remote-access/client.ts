@@ -18,6 +18,10 @@ import {
   clearRemoteTransport,
   type RemoteCall,
 } from "@/lib/rpc/remote-transport"
+import {
+  bindRemoteStorage,
+  profileSessionStorage,
+} from "@/lib/rpc/profile-storage"
 
 export type ConnectionInfo = { server: string; key: string; gateway: string }
 export function readConnection(value: string): ConnectionInfo {
@@ -153,8 +157,8 @@ export async function connectRemote(
       pending.set(id, {
         resolve: (value) => {
           if (operation === "workspaceSelect" || operation === "workspaceAdd")
-            sessionStorage.setItem(
-              `moon.remote.workspace.${info.server}`,
+            profileSessionStorage.setItem(
+              "moon.remote.workspace",
               (value as { id: string }).id
             )
           if (operation === "workspaceList") {
@@ -162,8 +166,8 @@ export async function connectRemote(
               items: { id: string }[]
               selectedId: string | null
             }
-            const chosen = sessionStorage.getItem(
-              `moon.remote.workspace.${info.server}`
+            const chosen = profileSessionStorage.getItem(
+              "moon.remote.workspace"
             )
             if (chosen && result.items.some((item) => item.id === chosen))
               result.selectedId = chosen
@@ -241,6 +245,15 @@ export async function connectRemote(
           if (packet.type === "ready") {
             if (packet.version !== wireVersion)
               throw new Error("Moon主机版本不兼容，请更新后重新连接。")
+            if (!bindRemoteStorage({ ...info, profileId: packet.profileId })) {
+              closed = true
+              clearRemoteTransport(call)
+              rejectPending()
+              status(false, "主机数据集已变化，正在重新打开工作台。")
+              current.close()
+              window.location.reload()
+              return
+            }
             clearTimeout(timeout)
             ready = true
             connectionIssue = ""

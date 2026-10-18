@@ -146,3 +146,105 @@ export const fileOperations = {
     "租约15秒，打开请求5秒/最多8项。旧token/代次不能替换当前消费者；active=false只结束匹配者。"
   ),
 }
+
+// Observed output shapes for documentation only. Runtime output remains open.
+const described = (type, description) => ({ type, description })
+const text = (description) => described("string", description)
+const number = (description) => described("integer", description)
+const flag = (description) => described("boolean", description)
+const list = (items) => ({ type: "array", items })
+const material = object({ material: { $ref: "MaterialReference" } })
+const fileIdentity = {
+  path: text("解析后的实际绝对文件路径"),
+  version: text("当前文件观察版本；供后续读取 expected 核对"),
+}
+export const fileDocumentationOutputs = {
+  git: {
+    anyOf: [
+      object({
+        available: { type: "boolean", enum: [false] },
+        error: text("仓库定位失败原因"),
+      }),
+      object({
+        available: { type: "boolean", enum: [true] },
+        root: text("Git 仓库绝对根目录"),
+        entries: list(
+          object(
+            {
+              name: text("Git 路径名称"),
+              path: text("变更文件绝对路径"),
+              status: text("Git porcelain 双字符状态"),
+              previous: text("重命名或复制前路径；只有 R/C 时返回"),
+              stage: {
+                ...text("差异来源"),
+                enum: ["staged", "unstaged", "untracked"],
+              },
+            },
+            ["name", "path", "status", "stage"]
+          )
+        ),
+      }),
+    ],
+  },
+  gitDiff: object({
+    patch: text("Git 原始 unified diff"),
+    path: text("匹配当前状态的绝对路径"),
+    stage: text("原 staged / unstaged / untracked 来源"),
+    root: text("仓库根目录"),
+  }),
+  tree: object({
+    cwd: text("会话工作目录"),
+    path: text("当前层实际绝对目录"),
+    entries: list(
+      object({
+        name: text("直属文件或目录名"),
+        path: text("直属条目的绝对路径"),
+        directory: flag("是否目录"),
+        linked: flag("是否符号链接"),
+      })
+    ),
+    truncated: flag("超过2000项截断"),
+  }),
+  info: object({
+    ...fileIdentity,
+    requested: text("原请求路径，保留符号链接名称"),
+    name: text("原请求文件名"),
+    displayPath: text("相对会话cwd的展示路径"),
+    bytes: number("实际文件总字节数"),
+    kind: {
+      ...text("实际可预览类别"),
+      enum: ["image", "pdf", "unsupported", "markdown", "text"],
+    },
+    mimeType: text("内容识别出的 MIME 类型"),
+  }),
+  text: object({
+    ...fileIdentity,
+    content: text("当前 UTF-8 文本页"),
+    offset: number("本页开始字节偏移；省略时0"),
+    next: number("下一页字节偏移"),
+    line: number("本页起始行，1基"),
+    nextLine: number("下一页起始行，按实际换行计数"),
+    complete: flag("已读至文件末尾"),
+  }),
+  bytes: object({
+    ...fileIdentity,
+    name: text("实际文件名"),
+    bytes: number("总字节数"),
+    data: text("当前窗口的 base64 编码字节"),
+    offset: number("本窗口开始字节偏移"),
+    next: number("下一窗口偏移"),
+    complete: flag("已到文件末尾"),
+  }),
+  state: object(fileIdentity),
+  reference: material,
+  selection: material,
+  view: object({
+    requests: list(
+      object({
+        path: text("原请求文件路径"),
+        until: number("打开请求失效时间，Unix毫秒"),
+        token: text("匹配的可见消费者令牌"),
+      })
+    ),
+  }),
+}

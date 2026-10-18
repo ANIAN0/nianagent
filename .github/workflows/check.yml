@@ -34,7 +34,7 @@ jobs:
           pnpm contract:check
           pnpm typecheck
           pnpm lint --max-warnings 0
-          pnpm exec prettier --check "{src,backend,scripts,ui-catalog,api-catalog}/**/*.{ts,tsx,mjs}"
+          pnpm exec prettier --check "{src,backend,scripts,ui-catalog,api-catalog,devtools}/**/*.{ts,tsx,mjs}"
           cargo fmt --manifest-path src-tauri/Cargo.toml --check
           cargo fmt --manifest-path scripts/release-verifier/Cargo.toml --check
           cargo check --locked --manifest-path src-tauri/Cargo.toml

@@ -10,7 +10,7 @@ import {
 import worker from "pdfjs-dist/build/pdf.worker.min.mjs?url"
 import "pdfjs-dist/web/pdf_viewer.css"
 import { Button } from "@/components/ui/button"
-import type { PluginWorkspaceProps } from "@/features/plugins/plugin-web"
+import type { PluginContext } from "@/features/plugins/plugin-api"
 import { useFileWorkbenchService } from "./file-service"
 import type { MaterialReference } from "@/contracts/rpc.generated"
 
@@ -26,7 +26,7 @@ export function PdfViewer({
   data: Uint8Array
   path: string
   sessionId: string
-  onMaterial: PluginWorkspaceProps["onMaterial"]
+  onMaterial: PluginContext["reference"]
   position?: MediaPosition
   onPosition: (position: MediaPosition) => void
 }) {

@@ -3,8 +3,12 @@ import tailwindcss from "@tailwindcss/vite"
 import react from "@vitejs/plugin-react"
 import { defineConfig, type ResolvedConfig } from "vite"
 import { modelBackendPlugin } from "./backend/bridge.mjs"
-import { uiCatalogPlugin } from "./scripts/ui-catalog-plugin.ts"
+import {
+  uiCatalogPlugin,
+  catalogContentValidationPlugin,
+} from "./scripts/ui-catalog-plugin.ts"
 import { apiCatalogPlugin } from "./scripts/api-catalog-plugin.ts"
+import { developerToolsPlugin } from "./scripts/devtools-plugin.ts"
 import { pdfAssetsPlugin } from "./scripts/pdf-assets-plugin.ts"
 import { assertWebBase } from "./scripts/web-base.mjs"
 
@@ -15,22 +19,27 @@ export function createMoonViteConfig() {
     plugins: [
       {
         name: "moon-supported-web-base",
-        configResolved: (config: ResolvedConfig) => { assertWebBase(config.base) },
+        configResolved: (config: ResolvedConfig) => {
+          assertWebBase(config.base)
+        },
       },
       react(),
       tailwindcss(),
       modelBackendPlugin(),
-      uiCatalogPlugin(),
-      apiCatalogPlugin(),
+      { ...uiCatalogPlugin(), apply: "serve" as const },
+      catalogContentValidationPlugin(),
+      { ...apiCatalogPlugin(), apply: "serve" as const },
+      developerToolsPlugin(),
       pdfAssetsPlugin(),
     ],
     build: {
       rolldownOptions: {
         input: {
           app: resolve(import.meta.dirname, "index.html"),
-          apiCatalog: resolve(import.meta.dirname, "api-catalog/index.html"),
-          catalog: resolve(import.meta.dirname, "ui-catalog/index.html"),
-          preview: resolve(import.meta.dirname, "ui-catalog/preview.html"),
+          pluginDevelopment: resolve(
+            import.meta.dirname,
+            "devtools/plugin-development.html"
+          ),
         },
       },
     },

@@ -56,17 +56,29 @@ export function loadContract() {
   )
   return pendingContract
 }
-export const loadArchitecture = () =>
-  import("./architecture-data").then((module) => module.architectureText())
 export function readLocation(search = location.search) {
   const params = new URLSearchParams(search)
-  const operation = params.get("operation") ?? "list"
+  const operation = params.get("operation") ?? ""
   const module = params.get("module")
-  return { operation, module }
+  return {
+    operation: params.get("desktop") ?? operation,
+    module:
+      module ??
+      (!params.has("operation") && !params.has("desktop") ? "all" : null),
+  }
 }
 export function operationUrl(operation: string) {
-  return `?${new URLSearchParams({ operation })}`
+  return catalogUrl({ operation })
 }
 export function moduleUrl(module: string) {
-  return `?${new URLSearchParams({ module })}`
+  return catalogUrl({ module })
+}
+function catalogUrl(selection: Record<string, string>) {
+  const params = new URLSearchParams(selection)
+  const current = new URLSearchParams(location.search)
+  for (const key of ["theme", "q"]) {
+    const value = current.get(key)
+    if (value) params.set(key, value)
+  }
+  return `/api-catalog/?${params}`
 }

@@ -20,7 +20,8 @@ import { SettingsPage } from "./settings-page"
 import { MaintenanceStatus } from "./maintenance-status"
 import type { SettingsSection } from "./settings-shell"
 
-type Scenario = "storage" | "updates" | "retained" | "unavailable" | "failure"
+type Scenario =
+  "storage" | "updates" | "developer" | "retained" | "unavailable" | "failure"
 function previewService(scenario: Scenario): DesktopService {
   const emptyMaintenance: DesktopSnapshot["maintenance"] = {
     operationId: null,
@@ -189,7 +190,31 @@ function previewService(scenario: Scenario): DesktopService {
     call,
   }
 }
-function SettingsExample({ scenario }: { scenario: Scenario }) {
+export function SettingsExample({
+  scenario,
+  onReturn = () => {},
+}: {
+  scenario: Scenario
+  onReturn?: () => void
+}) {
+  const [pluginManagement] = useState(() => ({
+    service: {
+      list: async () => [],
+      configure: async () => {
+        throw new Error("设置演示没有安装插件；请使用插件管理的独立隔离场景。")
+      },
+      add: async () => {
+        throw new Error(
+          "设置演示不导入真实插件；请使用插件管理的独立隔离场景。"
+        )
+      },
+      package: async () => {
+        throw new Error(
+          "设置演示不管理真实软件包；请使用插件管理的独立隔离场景。"
+        )
+      },
+    },
+  }))
   const [service] = useState(() => previewService(scenario))
   const [modelService] = useState<ModelService>(() => {
     const unavailable = async (): Promise<never> => {
@@ -224,7 +249,11 @@ function SettingsExample({ scenario }: { scenario: Scenario }) {
     }
   })
   const section: SettingsSection =
-    scenario === "updates" ? "updates" : "storage"
+    scenario === "updates"
+      ? "updates"
+      : scenario === "developer"
+        ? "developer"
+        : "storage"
   return (
     <DesktopServiceProvider value={service}>
       <div className="flex h-full min-h-0 flex-col">
@@ -233,8 +262,9 @@ function SettingsExample({ scenario }: { scenario: Scenario }) {
           <SettingsPage
             service={modelService}
             mcpService={mcpService}
+            pluginManagement={pluginManagement}
             initialSection={section}
-            onReturn={() => {}}
+            onReturn={onReturn}
           />
         </div>
       </div>
@@ -250,7 +280,8 @@ export default {
   stage: "content",
   order: 240,
   pages: ["设置"],
-  description: "正式设置壳复用模型/MCP编辑，并组合数据迁移与版本更新。",
+  description:
+    "正式设置壳复用模型/MCP编辑，并组合数据迁移、版本更新与开发资料入口。",
   boundary:
     "直接使用SettingsPage、StorageSettings、UpdateSettings，原生服务只在预览内存替换；不访问真实磁盘、GitHub、配置恢复存储或安装器。预览通过不能证明原生维护通过。",
   inputs: [
@@ -260,10 +291,19 @@ export default {
     "分区导航沿原编辑leave guard；迁移先预检再确认，安装必须明确确认；真实App全局负责flush",
   ],
   composition: [
-    "SettingsShell / ModelSettingsContent / StorageSettings / UpdateSettings / MaintenanceStatus / DesktopFeedback / Dialog / Button / Checkbox / Switch",
+    "SettingsShell / ModelSettingsContent / StorageSettings / UpdateSettings / DeveloperToolsSettings / MaintenanceStatus / DesktopFeedback / Dialog / Button / Badge / Checkbox / Switch",
   ],
   consumers: ["App完整设置入口"],
   standards: [
+    {
+      id: "developer-entry",
+      name: "开发资料入口",
+      rule: "插件规范与仅开发可用的资料分组展示；入口名称、说明与操作保持一致布局。宽容器操作右对齐，窄容器跟随说明换行，不压缩文字。进入规范后能返回原入口列表。",
+      reason:
+        "设置入口需要先说明资料用途，再明确阅读位置和当前环境的可用范围。",
+      check:
+        "从其他设置分区切到开发工具，核对四项入口、三个网页目标及插件规范返回；在宽/窄容器和浅/深主题中检查操作与文字。",
+    },
     {
       id: "settings-task",
       name: "完整设置任务",
@@ -282,6 +322,21 @@ export default {
       steps: ["选择目录并预检。", "检查源、目标和规模，稍后迁移或明确确认。"],
       expected: "确认前不变更数据，原副本保留说明明确。",
       render: () => <SettingsExample scenario="storage" />,
+    },
+    {
+      id: "developer",
+      name: "开发工具入口与规范阅读",
+      section: "normal",
+      condition:
+        "完整设置页面已切到开发工具，插件规范可读，开发模式另有三项资料入口。",
+      steps: [
+        "查看入口的名称、用途和分组，核对三项网页目标。",
+        "打开插件规范、选择章节，再返回开发工具。",
+        "切换到其他设置分区后返回，调整视口与主题核对文字和操作布局。",
+      ],
+      expected:
+        "入口行对齐、说明完整可读，窄容器操作换行；插件规范返回原列表，开发资料只链接各自正式入口。",
+      render: () => <SettingsExample scenario="developer" />,
     },
     {
       id: "updates",

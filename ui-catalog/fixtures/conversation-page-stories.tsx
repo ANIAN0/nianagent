@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react"
+import {
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react"
 import { LiveConversationView } from "@/features/conversation/live-conversation-view"
 import { useLiveConversation } from "@/features/conversation/use-live-conversation"
 import { queueOperationIssueKey } from "@/features/conversation/queue-operation-recovery"
@@ -12,6 +18,11 @@ import type { ComposerData } from "@/lib/composer/types"
 import type { ModelConnection } from "@/features/models/model-types"
 import { notifyComposer } from "@/components/composer/composer-notification"
 import { Button } from "@/components/ui/button"
+import type {
+  ConversationSnapshot,
+  MaterialReference,
+} from "@/contracts/rpc.generated"
+import { appendPreparedMaterials } from "@/features/materials/material-service"
 import {
   createConversationPageEnvironment,
   type ConversationPageScenario,
@@ -51,14 +62,37 @@ const connections: ModelConnection[] = [
 const explainSettings = () =>
   notifyComposer("整页会话示例使用隔离模型目录，不打开真实模型设置。")
 
+export type ConversationPageFrameProps = {
+  sessionId: string
+  cwd: string
+  snapshot?: ConversationSnapshot
+  onReload: () => void
+  onMaterial: (material: MaterialReference) => void
+  children: ReactNode
+}
+function ConversationFrame({
+  render,
+  ...props
+}: ConversationPageFrameProps & {
+  render?: (props: ConversationPageFrameProps) => ReactNode
+}) {
+  return render ? render(props) : props.children
+}
+
 /** 只放数据与服务端口；整页会话 UI 与 hook 均为正式实现。 */
 export function ConversationPageExample({
   scenario,
+  environment: suppliedEnvironment,
+  frame,
+  showControls = true,
 }: {
   scenario: ConversationPageScenario
+  environment?: ReturnType<typeof createConversationPageEnvironment>
+  frame?: (props: ConversationPageFrameProps) => ReactNode
+  showControls?: boolean
 }) {
-  const [environment] = useState(() =>
-    createConversationPageEnvironment(scenario)
+  const [environment] = useState(
+    () => suppliedEnvironment || createConversationPageEnvironment(scenario)
   )
   const runningExample = scenario === "page-running"
   const recoveryExample = scenario === "page-recovery"
@@ -131,354 +165,384 @@ export function ConversationPageExample({
         <MaterialServiceContext value={environment.materials}>
           <ExtensionServiceContext value={environment.extensions}>
             <CommandServiceContext value={environment.command}>
-              <div className="flex h-svh min-h-0 flex-col bg-background text-foreground">
-                <div className="min-h-0 flex-1">
-                  <LiveConversationView
-                    key={selected}
-                    id={selected}
-                    title={titleFor()}
-                    workspacePath={environment.cwd}
+              <div
+                className={
+                  frame
+                    ? "flex h-full min-h-0 flex-col bg-background text-foreground"
+                    : "flex h-svh min-h-0 flex-col bg-background text-foreground"
+                }
+              >
+                <div className="flex min-h-0 flex-1">
+                  <ConversationFrame
+                    render={frame}
+                    sessionId={selected}
+                    cwd={environment.cwd}
                     snapshot={snapshot}
-                    readIssue={chat.readIssues[selected]}
-                    readPending={chat.readPending[selected]}
-                    actionIssue={chat.actionIssues[selected]}
-                    draftError={chat.draftErrors[selected]}
-                    receiptIssue={chat.receiptIssues[selected]}
-                    queueIssues={chat.queueIssues[selected]}
-                    queueRecoveryReason={chat.queueRecoveryReason[selected]}
-                    queueRecoveryRecords={chat.queueRecoveryRecords.filter(
-                      (value) => value.sessionId === selected
-                    )}
-                    queueRecoveryIssuesByRequest={
-                      chat.queueRecoveryIssuesByRequest[selected]
+                    onReload={chat.reload}
+                    onMaterial={(material) =>
+                      chat.change(selected, {
+                        ...draft,
+                        materials: appendPreparedMaterials(draft.materials, [
+                          material,
+                        ]),
+                      })
                     }
-                    queueOriginalRetryAllowed={
-                      chat.queueOriginalRetryAllowedByRequest[selected]
-                    }
-                    queueStorageIssue={chat.queueStorageIssue}
-                    queueOperationPendingByRequest={
-                      chat.queueOperationPendingByRequest
-                    }
-                    pending={chat.pending[selected]}
-                    stopPending={chat.stopPending[selected]}
-                    stopUnconfirmed={chat.stopUnconfirmed[selected]}
-                    pendingSubmission={chat.submissionEcho(selected)}
-                    unconfirmed={chat.unconfirmed[selected]}
-                    data={data}
-                    draft={draft}
-                    positions={positions}
-                    controlService={environment.controls}
-                    onChange={(value) => chat.change(selected, value)}
-                    onRecoverDraft={(value) =>
-                      chat.adoptRecoveredDraft(selected, value)
-                    }
-                    onSend={(value, delivery) =>
-                      action(
-                        chat.send(
-                          selected,
-                          value,
-                          connections,
-                          undefined,
-                          undefined,
-                          delivery
+                  >
+                    <LiveConversationView
+                      key={selected}
+                      id={selected}
+                      title={titleFor()}
+                      workspacePath={environment.cwd}
+                      snapshot={snapshot}
+                      readIssue={chat.readIssues[selected]}
+                      readPending={chat.readPending[selected]}
+                      actionIssue={chat.actionIssues[selected]}
+                      draftError={chat.draftErrors[selected]}
+                      receiptIssue={chat.receiptIssues[selected]}
+                      queueIssues={chat.queueIssues[selected]}
+                      queueRecoveryReason={chat.queueRecoveryReason[selected]}
+                      queueRecoveryRecords={chat.queueRecoveryRecords.filter(
+                        (value) => value.sessionId === selected
+                      )}
+                      queueRecoveryIssuesByRequest={
+                        chat.queueRecoveryIssuesByRequest[selected]
+                      }
+                      queueOriginalRetryAllowed={
+                        chat.queueOriginalRetryAllowedByRequest[selected]
+                      }
+                      queueStorageIssue={chat.queueStorageIssue}
+                      queueOperationPendingByRequest={
+                        chat.queueOperationPendingByRequest
+                      }
+                      pending={chat.pending[selected]}
+                      stopPending={chat.stopPending[selected]}
+                      stopUnconfirmed={chat.stopUnconfirmed[selected]}
+                      pendingSubmission={chat.submissionEcho(selected)}
+                      unconfirmed={chat.unconfirmed[selected]}
+                      data={data}
+                      draft={draft}
+                      positions={positions}
+                      controlService={environment.controls}
+                      onChange={(value) => chat.change(selected, value)}
+                      onRecoverDraft={(value) =>
+                        chat.adoptRecoveredDraft(selected, value)
+                      }
+                      onSend={(value, delivery) =>
+                        action(
+                          chat.send(
+                            selected,
+                            value,
+                            connections,
+                            undefined,
+                            undefined,
+                            delivery
+                          )
                         )
-                      )
-                    }
-                    onStop={() => action(chat.stop(selected))}
-                    onContinue={() =>
-                      action(chat.retry(selected, draft, connections))
-                    }
-                    onReload={
-                      recoveryExample && selected === environment.sourceId
-                        ? reload
-                        : chat.reload
-                    }
-                    onSaveDraft={() => chat.saveDraft(selected)}
-                    onReconcile={() => action(chat.reconcile(selected))}
-                    onCleanReceipt={() => chat.cleanReceipt(selected)}
-                    onQueueEdit={(
-                      itemId,
-                      text,
-                      materials,
-                      revision,
-                      clientEditId
-                    ) =>
-                      chat.queueEdit(
-                        selected,
+                      }
+                      onStop={() => action(chat.stop(selected))}
+                      onContinue={() =>
+                        action(chat.retry(selected, draft, connections))
+                      }
+                      onReload={
+                        recoveryExample && selected === environment.sourceId
+                          ? reload
+                          : chat.reload
+                      }
+                      onSaveDraft={() => chat.saveDraft(selected)}
+                      onReconcile={() => action(chat.reconcile(selected))}
+                      onCleanReceipt={() => chat.cleanReceipt(selected)}
+                      onQueueEdit={(
                         itemId,
                         text,
                         materials,
                         revision,
                         clientEditId
-                      )
-                    }
-                    onQueueRemove={(itemId) =>
-                      action(chat.queueRemove(selected, itemId))
-                    }
-                    onQueueDeliver={(itemId) =>
-                      action(chat.queueDeliver(selected, itemId))
-                    }
-                    onRetryQueueOriginal={(record) =>
-                      action(
-                        chat.retryQueueOriginal(
+                      ) =>
+                        chat.queueEdit(
                           selected,
-                          queueOperationIssueKey(record),
-                          record.operationRequestId
+                          itemId,
+                          text,
+                          materials,
+                          revision,
+                          clientEditId
                         )
-                      )
-                    }
-                    onOpenConversation={(id) => setSelected(id)}
-                    onOpenSettings={explainSettings}
-                  />
+                      }
+                      onQueueRemove={(itemId) =>
+                        action(chat.queueRemove(selected, itemId))
+                      }
+                      onQueueDeliver={(itemId) =>
+                        action(chat.queueDeliver(selected, itemId))
+                      }
+                      onRetryQueueOriginal={(record) =>
+                        action(
+                          chat.retryQueueOriginal(
+                            selected,
+                            queueOperationIssueKey(record),
+                            record.operationRequestId
+                          )
+                        )
+                      }
+                      onOpenConversation={(id) => setSelected(id)}
+                      onOpenSettings={explainSettings}
+                    />
+                  </ConversationFrame>
                 </div>
-                <details className="shrink-0 border-t px-4 py-2 text-xs text-muted-foreground">
-                  <summary className="cursor-pointer">演示控制</summary>
-                  <div className="flex flex-wrap items-center gap-2 pt-2">
-                    {recoveryExample && selected === environment.sourceId && (
+                {showControls && (
+                  <details className="shrink-0 border-t px-4 py-2 text-xs text-muted-foreground">
+                    <summary className="cursor-pointer">演示控制</summary>
+                    <div className="flex flex-wrap items-center gap-2 pt-2">
+                      {recoveryExample && selected === environment.sourceId && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={driver.readState !== "held"}
+                          onClick={() => environment.failRead()}
+                        >
+                          使首次读取失败
+                        </Button>
+                      )}
+                      {readyExample && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={
+                              snapshot?.phase !== "running" ||
+                              !!snapshot.approvals?.length ||
+                              driver.approvalToolSession === selected
+                            }
+                            onClick={() =>
+                              environment.requestApproval(selected, "tool")
+                            }
+                          >
+                            请求执行命令
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={
+                              driver.approvalPendingSession !== selected
+                            }
+                            onClick={() =>
+                              environment.acknowledgeApproval(selected)
+                            }
+                          >
+                            确认收到本次决定
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={driver.approvalToolSession !== selected}
+                            onClick={() =>
+                              environment.completeApprovalTool(selected)
+                            }
+                          >
+                            发布示例工具结果
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={!snapshot?.approvals?.length}
+                            onClick={() =>
+                              environment.withdrawApproval(selected)
+                            }
+                          >
+                            撤回当前确认请求
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              environment.showContextReading(selected, true)
+                            }
+                          >
+                            发布当前读数
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              environment.showContextReading(selected, false)
+                            }
+                          >
+                            改为无对应读数
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={!driver.compactActive}
+                            onClick={() =>
+                              environment.finishCompact(selected, "completed")
+                            }
+                          >
+                            完成压缩并发布示例摘要
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={!driver.compactActive}
+                            onClick={() =>
+                              environment.finishCompact(selected, "failed")
+                            }
+                          >
+                            令压缩失败
+                          </Button>
+                        </>
+                      )}
                       <Button
                         size="sm"
                         variant="outline"
-                        disabled={driver.readState !== "held"}
-                        onClick={() => environment.failRead()}
+                        disabled={!driver.pending}
+                        onClick={() => environment.acceptNext()}
                       >
-                        使首次读取失败
+                        {driver.pendingKind === "retry"
+                          ? "确认接收继续请求"
+                          : "确认接收原消息"}
                       </Button>
-                    )}
-                    {readyExample && (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={
-                            snapshot?.phase !== "running" ||
-                            !!snapshot.approvals?.length ||
-                            driver.approvalToolSession === selected
-                          }
-                          onClick={() =>
-                            environment.requestApproval(selected, "tool")
-                          }
-                        >
-                          请求执行命令
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={driver.approvalPendingSession !== selected}
-                          onClick={() =>
-                            environment.acknowledgeApproval(selected)
-                          }
-                        >
-                          确认收到本次决定
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={driver.approvalToolSession !== selected}
-                          onClick={() =>
-                            environment.completeApprovalTool(selected)
-                          }
-                        >
-                          发布示例工具结果
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={!snapshot?.approvals?.length}
-                          onClick={() => environment.withdrawApproval(selected)}
-                        >
-                          撤回当前确认请求
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() =>
-                            environment.showContextReading(selected, true)
-                          }
-                        >
-                          发布当前读数
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() =>
-                            environment.showContextReading(selected, false)
-                          }
-                        >
-                          改为无对应读数
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={!driver.compactActive}
-                          onClick={() =>
-                            environment.finishCompact(selected, "completed")
-                          }
-                        >
-                          完成压缩并发布示例摘要
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={!driver.compactActive}
-                          onClick={() =>
-                            environment.finishCompact(selected, "failed")
-                          }
-                        >
-                          令压缩失败
-                        </Button>
-                      </>
-                    )}
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={!driver.pending}
-                      onClick={() => environment.acceptNext()}
-                    >
-                      {driver.pendingKind === "retry"
-                        ? "确认接收继续请求"
-                        : "确认接收原消息"}
-                    </Button>
-                    {recoveryExample && (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={!driver.pending}
-                          onClick={() => environment.rejectNext()}
-                        >
-                          明确拒绝本次请求
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => environment.armRejectSend()}
-                        >
-                          令下次发送明确拒绝
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => environment.armUnknownSend()}
-                        >
-                          令下次发送结果未知
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={!driver.unknown || driver.confirmable}
-                          onClick={() => environment.allowOriginalReceipt()}
-                        >
-                          令原消息回执可确认
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={!snapshot?.queue?.items.length}
-                          onClick={() => environment.armQueueRemoveUnknown()}
-                        >
-                          令下次移除结果未知
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={!driver.queueUnknown}
-                          onClick={() => environment.confirmQueueReceipt()}
-                        >
-                          令原队列操作回执可确认
-                        </Button>
-                      </>
-                    )}
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={
-                        snapshot?.phase !== "running" ||
-                        !!snapshot.approvals?.length ||
-                        driver.approvalToolSession === selected
-                      }
-                      onClick={() => environment.generateAnswer(selected)}
-                    >
-                      生成回复正文
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={
-                        snapshot?.phase !== "running" ||
-                        !!snapshot.approvals?.length ||
-                        driver.approvalToolSession === selected
-                      }
-                      onClick={() => environment.finish(selected)}
-                    >
-                      结束本次演示工作
-                    </Button>
-                    {runningExample && (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={
-                            snapshot?.phase !== "running" ||
-                            !snapshot.queue?.items.some(
-                              (item) => item.delivery === "steer"
-                            )
-                          }
-                          onClick={() => environment.deliveryBoundary(selected)}
-                        >
-                          进入补充交付边界
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={snapshot?.phase !== "stopping"}
-                          onClick={() => environment.stopCompleted(selected)}
-                        >
-                          确认本次停止完成
-                        </Button>
-                      </>
-                    )}
-                    {readyExample && (
+                      {recoveryExample && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={!driver.pending}
+                            onClick={() => environment.rejectNext()}
+                          >
+                            明确拒绝本次请求
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => environment.armRejectSend()}
+                          >
+                            令下次发送明确拒绝
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => environment.armUnknownSend()}
+                          >
+                            令下次发送结果未知
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={!driver.unknown || driver.confirmable}
+                            onClick={() => environment.allowOriginalReceipt()}
+                          >
+                            令原消息回执可确认
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={!snapshot?.queue?.items.length}
+                            onClick={() => environment.armQueueRemoveUnknown()}
+                          >
+                            令下次移除结果未知
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={!driver.queueUnknown}
+                            onClick={() => environment.confirmQueueReceipt()}
+                          >
+                            令原队列操作回执可确认
+                          </Button>
+                        </>
+                      )}
                       <Button
                         size="sm"
                         variant="outline"
                         disabled={
-                          !driver.derivedReady ||
-                          selected === environment.derivedId
+                          snapshot?.phase !== "running" ||
+                          !!snapshot.approvals?.length ||
+                          driver.approvalToolSession === selected
                         }
-                        onClick={() => setSelected(environment.derivedId)}
+                        onClick={() => environment.generateAnswer(selected)}
                       >
-                        打开派生会话
+                        生成回复正文
                       </Button>
-                    )}
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={selected === environment.sourceId}
-                      onClick={() => setSelected(environment.sourceId)}
-                    >
-                      返回原会话
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={!canDrive}
-                      onClick={() =>
-                        setSelected(
-                          selected === environment.otherId
-                            ? environment.sourceId
-                            : environment.otherId
-                        )
-                      }
-                    >
-                      {selected === environment.otherId
-                        ? "切回原会话"
-                        : "切到另一个会话"}
-                    </Button>
-                    <span>
-                      隔离数据与服务，不连接真实宿主；接收、审批、压缩、分支和终态由这里驱动，不运行真实模型。
-                    </span>
-                  </div>
-                </details>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={
+                          snapshot?.phase !== "running" ||
+                          !!snapshot.approvals?.length ||
+                          driver.approvalToolSession === selected
+                        }
+                        onClick={() => environment.finish(selected)}
+                      >
+                        结束本次演示工作
+                      </Button>
+                      {runningExample && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={
+                              snapshot?.phase !== "running" ||
+                              !snapshot.queue?.items.some(
+                                (item) => item.delivery === "steer"
+                              )
+                            }
+                            onClick={() =>
+                              environment.deliveryBoundary(selected)
+                            }
+                          >
+                            进入补充交付边界
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={snapshot?.phase !== "stopping"}
+                            onClick={() => environment.stopCompleted(selected)}
+                          >
+                            确认本次停止完成
+                          </Button>
+                        </>
+                      )}
+                      {readyExample && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={
+                            !driver.derivedReady ||
+                            selected === environment.derivedId
+                          }
+                          onClick={() => setSelected(environment.derivedId)}
+                        >
+                          打开派生会话
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={selected === environment.sourceId}
+                        onClick={() => setSelected(environment.sourceId)}
+                      >
+                        返回原会话
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={!canDrive}
+                        onClick={() =>
+                          setSelected(
+                            selected === environment.otherId
+                              ? environment.sourceId
+                              : environment.otherId
+                          )
+                        }
+                      >
+                        {selected === environment.otherId
+                          ? "切回原会话"
+                          : "切到另一个会话"}
+                      </Button>
+                      <span>
+                        隔离数据与服务，不连接真实宿主；接收、审批、压缩、分支和终态由这里驱动，不运行真实模型。
+                      </span>
+                    </div>
+                  </details>
+                )}
               </div>
             </CommandServiceContext>
           </ExtensionServiceContext>

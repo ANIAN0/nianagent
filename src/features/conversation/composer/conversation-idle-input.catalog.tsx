@@ -3,6 +3,7 @@ import { ConversationIdleInputExample } from "../../../../ui-catalog/fixtures/co
 
 export default {
   id: "conversation-idle-input",
+  relatedOperations: ["conversationSend", "conversationReceiptRead"],
   name: "空闲时继续输入",
   order: 303,
   source: "src/features/conversation/composer/conversation-composer.tsx",

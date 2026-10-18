@@ -1,60 +1,117 @@
-import { useEffect, useEffectEvent, useState } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
   connectRemote,
   readConnection,
+  type ConnectionInfo,
 } from "../../../backend/plugins/remote-access/client"
 import BootApp from "./boot-app"
 
 const savedKey = "moon.remote.connection"
+function hasConnectionParameters() {
+  const fields = new URLSearchParams(window.location.hash.slice(1))
+  return ["server", "key", "gateway"].some((field) => fields.has(field))
+}
 export default function RemoteEntry() {
   const [link, setLink] = useState(() =>
-    window.location.hash
+    hasConnectionParameters()
       ? window.location.href
       : localStorage.getItem(savedKey) || ""
   )
-  const [attempt, setAttempt] = useState(0)
   const [readyOnce, setReadyOnce] = useState(false)
   const [ready, setReady] = useState(false)
   const [issue, setIssue] = useState("")
-  const submittedLink = useEffectEvent(() => link)
+  const [submittedLink] = useState(link)
   useEffect(() => {
-    const value = submittedLink()
-    if (!attempt && !value) return
+    const value = submittedLink
     let active = true,
       close: (() => void) | undefined
-    void Promise.resolve().then(() => {
-      if (!active) return () => {}
-      const info = readConnection(value)
-      localStorage.setItem(savedKey, value)
-      return connectRemote(info, (connected, message) => {
-        if (active) {
-          setReady(connected)
-          setIssue(message)
-          if (connected) setReadyOnce(true)
-        }
-      })
-    }).then((stop) => {
+    let connection: ConnectionInfo | undefined
+    const connectionChanged = () => {
+      if (!hasConnectionParameters()) return
+      let next: ConnectionInfo
+      try {
+        next = readConnection(window.location.href)
+      } catch {
+        return
+      }
+      if (
+        next.server === connection?.server &&
+        next.key === connection?.key &&
+        next.gateway === connection?.gateway
+      )
+        return
+      // Only a different valid connection retires the current document's owners.
+      active = false
+      close?.()
+      setReady(false)
+      setReadyOnce(false)
+      window.location.reload()
+    }
+    window.addEventListener("hashchange", connectionChanged)
+    if (value)
+      void Promise.resolve()
+        .then(() => {
+          if (!active) return () => {}
+          const info = readConnection(value)
+          connection = info
+          localStorage.setItem(savedKey, value)
+          return connectRemote(info, (connected, message) => {
+            if (active) {
+              setReady(connected)
+              setIssue(message)
+              if (connected) setReadyOnce(true)
+            }
+          })
+        })
+        .then((stop) => {
           if (active) close = stop
           else stop()
         })
         .catch((error) => {
-          if (active) setIssue(error instanceof Error ? error.message : "连接未能建立，请检查链接和本机Moon。")
+          if (active)
+            setIssue(
+              error instanceof Error
+                ? error.message
+                : "连接未能建立，请检查链接和本机Moon。"
+            )
         })
     return () => {
       active = false
+      window.removeEventListener("hashchange", connectionChanged)
       close?.()
     }
     // A typed link is submitted explicitly; typing must not change the live connection.
-  }, [attempt])
+  }, [submittedLink])
+  const connect = () => {
+    try {
+      readConnection(link)
+      localStorage.setItem(savedKey, link)
+      // Reset all module owners and pending work before accepting another host.
+      window.history.replaceState(
+        null,
+        "",
+        window.location.pathname + window.location.search
+      )
+      window.location.reload()
+    } catch (error) {
+      setIssue(error instanceof Error ? error.message : "连接链接无法保存。")
+    }
+  }
   if (readyOnce)
     return (
       <div className="flex h-dvh flex-col">
         {!ready && (
           <p role="status" className="border-b p-2 text-sm">
             {issue}
-            <Button variant="link" size="sm" onClick={() => setReadyOnce(false)}>连接设置</Button>
+            <Button
+              variant="link"
+              size="sm"
+              onClick={() => setReadyOnce(false)}
+            >
+              连接设置
+            </Button>
           </p>
         )}
         <BootApp />
@@ -69,7 +126,7 @@ export default function RemoteEntry() {
         value={link}
         onChange={(event) => setLink(event.target.value)}
       />
-      <Button onClick={() => setAttempt((value) => value + 1)}>连接</Button>
+      <Button onClick={connect}>连接</Button>
       {issue && <p role="status">{issue}</p>}
     </main>
   )

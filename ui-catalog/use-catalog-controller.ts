@@ -4,8 +4,7 @@ import { readSelection, type CatalogMetadata } from "./catalog"
 import { buildCatalogHref, readViewportDimension } from "./catalog-controls"
 import type { StorySection } from "./catalog-sections"
 
-const locationEvent = "moon-catalog-location"
-const narrowMedia = window.matchMedia("(max-width: 959px)")
+const locationEvent = "moon-devtools-location"
 const subscribeLocation = (callback: () => void) => {
   window.addEventListener("popstate", callback)
   window.addEventListener(locationEvent, callback)
@@ -13,10 +12,6 @@ const subscribeLocation = (callback: () => void) => {
     window.removeEventListener("popstate", callback)
     window.removeEventListener(locationEvent, callback)
   }
-}
-const subscribeNarrow = (callback: () => void) => {
-  narrowMedia.addEventListener("change", callback)
-  return () => narrowMedia.removeEventListener("change", callback)
 }
 function updateLocation(params: URLSearchParams, replace: boolean) {
   const next = `${location.pathname}?${params}`
@@ -28,17 +23,13 @@ function updateLocation(params: URLSearchParams, replace: boolean) {
 /** The URL owns selection and viewport; presentation state never modifies demos. */
 export function useCatalogController() {
   const search = useSyncExternalStore(subscribeLocation, () => location.search)
-  const narrow = useSyncExternalStore(
-    subscribeNarrow,
-    () => narrowMedia.matches
-  )
   const selection = readSelection(search)
   const params = new URLSearchParams(search)
   const pageFilter = selection.pageFilter
   const { theme, setTheme } = useTheme()
   const urlTheme = params.get("theme")
   const observedUrlTheme = useRef(urlTheme)
-  const resolvedTheme = theme === "dark" ? "dark" : "light"
+  const resolvedTheme: "dark" | "light" = theme === "dark" ? "dark" : "light"
   const width = readViewportDimension(
     params.get("width"),
     "width",
@@ -49,8 +40,15 @@ export function useCatalogController() {
     "height",
     selection.entry?.viewport.height ?? 600
   )
-  const [panel, setPanel] = useState("preview")
-  const [query, setQuery] = useState("")
+  const query = params.get("q") ?? ""
+  const layerFilter = params.get("layer") ?? ""
+  const fixedViewport = params.has("width") || params.has("height")
+  const setQuery = (value: string) => {
+    const next = new URLSearchParams(location.search)
+    if (value) next.set("q", value)
+    else next.delete("q")
+    updateLocation(next, true)
+  }
   const [revision, setRevision] = useState(0)
   useEffect(() => {
     const current = new URLSearchParams(location.search)
@@ -77,7 +75,7 @@ export function useCatalogController() {
     theme: resolvedTheme,
   })
   if (selection.section) previewParams.set("section", selection.section)
-  const previewUrl = `./preview.html?${previewParams}`
+  const previewUrl = `/ui-catalog/preview.html?${previewParams}`
 
   function hrefFor(entry: CatalogMetadata, state?: string) {
     const href = buildCatalogHref(
@@ -92,7 +90,13 @@ export function useCatalogController() {
       state
     )
     const next = new URLSearchParams(href.slice(1))
+    if (!fixedViewport) {
+      next.delete("width")
+      next.delete("height")
+    }
+    if (query) next.set("q", query)
     if (pageFilter) next.set("page", pageFilter)
+    if (layerFilter) next.set("layer", layerFilter)
     if (entry.layer === "复合组件")
       next.set(
         "section",
@@ -105,7 +109,6 @@ export function useCatalogController() {
   }
   function navigate(entry: CatalogMetadata, state?: string) {
     updateLocation(new URLSearchParams(hrefFor(entry, state).slice(1)), false)
-    setPanel("preview")
   }
   function hrefForSection(entry: CatalogMetadata, section: StorySection) {
     const next = new URLSearchParams(hrefFor(entry).slice(1))
@@ -119,7 +122,6 @@ export function useCatalogController() {
       new URLSearchParams(hrefForSection(entry, section).slice(1)),
       false
     )
-    setPanel("preview")
   }
   function setPageFilter(page: string) {
     const next = new URLSearchParams(search)
@@ -134,25 +136,6 @@ export function useCatalogController() {
     next.set("theme", resolvedTheme)
     updateLocation(next, true)
   }
-  function inspectState(stateId: string) {
-    const next = new URLSearchParams(search)
-    next.set("component", selection.component)
-    next.set("view", "docs")
-    next.set("state", stateId)
-    const section = selection.entry?.states.find(
-      (item) => item.id === stateId
-    )?.section
-    if (selection.entry?.layer === "复合组件" && section)
-      next.set("section", section)
-    next.set("theme", resolvedTheme)
-    updateLocation(next, true)
-  }
-  function toggleTheme() {
-    const nextTheme = resolvedTheme === "dark" ? "light" : "dark"
-    const next = new URLSearchParams(search)
-    next.set("theme", nextTheme)
-    updateLocation(next, true)
-  }
   function shareUrl() {
     const next = new URL(location.href)
     next.searchParams.set("component", selection.component)
@@ -161,16 +144,37 @@ export function useCatalogController() {
     else next.searchParams.delete("state")
     next.searchParams.set("view", selection.view)
     next.searchParams.set("theme", resolvedTheme)
-    next.searchParams.set("width", String(width))
-    next.searchParams.set("height", String(height))
+    if (fixedViewport) {
+      next.searchParams.set("width", String(width))
+      next.searchParams.set("height", String(height))
+    } else {
+      next.searchParams.delete("width")
+      next.searchParams.delete("height")
+    }
     return next.href
   }
   return {
     selection,
-    narrow,
-    panel,
-    setPanel,
     query,
+    layerFilter,
+    fixedViewport,
+    setLayerFilter: (layer: string) => {
+      const next = new URLSearchParams(search)
+      if (layer) next.set("layer", layer)
+      else next.delete("layer")
+      updateLocation(next, false)
+    },
+    clearFilters: () => {
+      const next = new URLSearchParams(search)
+      for (const key of ["q", "page", "layer"]) next.delete(key)
+      updateLocation(next, false)
+    },
+    fitViewport: () => {
+      const next = new URLSearchParams(search)
+      next.delete("width")
+      next.delete("height")
+      updateLocation(next, true)
+    },
     pageFilter,
     setPageFilter,
     setQuery,
@@ -181,12 +185,10 @@ export function useCatalogController() {
     revision,
     navigate,
     setViewport,
-    toggleTheme,
     shareUrl,
     hrefFor,
     hrefForSection,
     navigateSection,
-    inspectState,
     reset: () => setRevision((value) => value + 1),
   }
 }

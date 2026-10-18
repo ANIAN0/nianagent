@@ -1,5 +1,7 @@
 import type { CatalogEntry } from "../../../ui-catalog/catalog-types"
 import { BasicControlExample } from "../../../ui-catalog/fixtures/basic-controls"
+import { Button } from "./button"
+import { Folder } from "lucide-react"
 
 export default {
   id: "button",
@@ -8,7 +10,7 @@ export default {
   group: "操作与选择",
   layer: "基础组件",
   order: 10,
-  pages: ["首页"],
+  pages: ["首页", "会话"],
   stage: "content",
   description: "触发动作，按主次区分应用、取消与图标动作。",
   boundary: "按钮只发出事件，不自行保存配置；业务决定禁用和忙状态。",
@@ -29,6 +31,7 @@ export default {
     },
   ],
   inputs: [
+    "sidebar-entry 变体与尺寸用于会话右栏入口：56px最小高度、20px圆角、图标与标题左对齐。",
     "variant: default / outline / ghost / composer / insight / send / approval / approval-reject；insight 为会话用量入口，悬停及展开使用局部底色、按下不位移、内侧焦点圈。",
     "size: default / sm / composer / insight（22px、12px/20px统计入口、圆形边角）/ icon / approval（36px审批动作）；disabled 阻止操作",
     "asChild 由调用方保留按钮或链接语义",
@@ -39,6 +42,22 @@ export default {
   ],
   consumers: ["首页输入区及其选择、配置、材料相关复合组件"],
   states: [
+    {
+      id: "sidebar-entry",
+      name: "右栏入口",
+      section: "states",
+      condition: "用于宿主右栏入口页的页面入口。",
+      expected: "整行可操作，图标和文字形成一致的左侧阅读起点。",
+      steps: ["用Tab聚焦，查看焦点和悬停状态。"],
+      render: () => (
+        <div className="p-6">
+          <Button variant="sidebar-entry" size="sidebar-entry">
+            <Folder />
+            文件
+          </Button>
+        </div>
+      ),
+    },
     {
       id: "normal",
       name: "默认与实际操作",

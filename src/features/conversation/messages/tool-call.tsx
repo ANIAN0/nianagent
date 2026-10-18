@@ -21,10 +21,7 @@ import {
 import { MessageAttachments } from "./message-attachments"
 import { useFilePreview } from "./use-file-preview"
 import { RecoveryAction } from "@/components/feedback/recovery-action"
-import { ToolResultPresentation } from "@/features/extensions/tool-result-presentation"
 import { ReadOnlyPatch } from "@/components/read-only-patch"
-import { findPluginResult } from "@/features/plugins/plugin-web"
-import { usePluginPaths } from "@/features/plugins/plugin-path-context"
 import "./messages.css"
 
 const labels = {
@@ -101,7 +98,6 @@ export function ToolCall({
   awaitingApproval?: boolean
 }) {
   const environment = useMessageEnvironment()
-  const paths = usePluginPaths()
   // Display block identity remains stable when Pi assigns a durable entryId.
   // tool.occurrenceId is authority metadata, not the streaming disclosure key.
   const occurrence = occurrenceId ?? tool.occurrenceId ?? tool.id
@@ -205,28 +201,14 @@ export function ToolCall({
               firstChangedLine={tool.details?.firstChangedLine}
             />
           ) : (
-            <ToolResultPresentation
-              tool={
-                tool.presentation &&
-                findPluginResult(
-                  tool.presentation.kind,
-                  tool.presentation.version
-                )?.persistent
-                  ? { ...tool, presentation: undefined }
-                  : tool
-              }
-              fallback={
-                <div className="conversation-tool-output">
-                  {tool.result
-                    ? full
-                      ? tool.result
-                      : lines.slice(0, 20).join("\n")
-                    : emptyResult(tool, status)}
-                </div>
-              }
-            />
+            <div className="conversation-tool-output">
+              {tool.result
+                ? full
+                  ? tool.result
+                  : lines.slice(0, 20).join("\n")
+                : emptyResult(tool, status)}
+            </div>
           )}
-          {status === "success" && tool.artifact && paths?.openChange && <Button variant="link" size="sm" onClick={() => paths.openChange?.(tool)}>在文件栏查看操作</Button>}
           {status === "success" &&
             tool.name === "write" &&
             !tool.details?.patch && (

@@ -1,9 +1,13 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { isTauri } from "@tauri-apps/api/core"
+import { ToolLayout } from "../devtools/tool-layout"
+import { useToolSearch, navigateTool } from "../devtools/location"
+import { apiDocuments } from "virtual:moon-api-documents"
+import { ModuleOverview } from "./module-overview"
+import { schemaRows } from "./components/schema-field-table"
 import { FlaskConical } from "lucide-react"
-import { useTheme } from "@/components/theme-provider"
 import { OperationFeedback } from "@/components/feedback/operation-feedback"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import {
   Empty,
   EmptyHeader,
@@ -12,27 +16,24 @@ import {
   EmptyContent,
 } from "@/components/ui/empty"
 import { Skeleton } from "@/components/ui/skeleton"
-import { CatalogHeader } from "./components/catalog-header"
 import { ModuleNavigation } from "./components/module-navigation"
 import { OperationDocs } from "./components/operation-docs"
 import { DeferredContent } from "./components/deferred-content"
-import {
-  operationIndex,
-  fileOperationIndex,
-  operationUrl,
-  moduleUrl,
-} from "./catalog-data"
+import { operationIndex, operationUrl, moduleUrl } from "./catalog-data"
 import type { FileApiDrafts } from "./file-plugin-operation"
 import { useCatalogController } from "./use-catalog-controller"
 import type { ModelOperation } from "@/contracts/rpc.generated"
 
-const loadArchitecturePanel = () => import("./architecture-panel")
 const loadDebugPanel = () => import("./components/debug-panel")
-const loadNavigationDialog = () => import("./components/navigation-dialog")
 const loadFilePluginOperation = () => import("./file-plugin-operation")
 const Documentation = memo(OperationDocs)
 const Navigation = memo(ModuleNavigation)
-const navigationItems = [...operationIndex, ...fileOperationIndex]
+const navigationItems = Object.entries(apiDocuments).map(([id, doc]) => ({
+  id,
+  title: doc.definition.title,
+  module: doc.module,
+  effect: `${doc.definition.effect} ${[...schemaRows(doc.definition.request, doc.schemas), ...schemaRows(doc.definition.response, doc.schemas)].map((field) => `${field.path} ${field.description}`).join(" ")}`,
+}))
 
 export function ApiCatalogApp() {
   const [debugOperation, setDebugOperation] = useState<ModelOperation | null>(
@@ -58,27 +59,30 @@ export function ApiCatalogApp() {
     }
   }, [cancelFileCalls])
   const navigate = page.navigate
-  const { theme, setTheme } = useTheme()
-  const [query, setQuery] = useState("")
-  const [navigationOpen, setNavigationOpen] = useState(false)
-  const navigationTrigger = useRef<HTMLElement | null>(null)
+  const search = useToolSearch()
+  const query = new URLSearchParams(search).get("q") ?? ""
+  const setQuery = (query: string) => {
+    const params = new URLSearchParams(location.search)
+    if (query) params.set("q", query)
+    else params.delete("q")
+    navigateTool(`/api-catalog/?${params}`, true)
+  }
   const debugTrigger = useRef<HTMLButtonElement>(null)
-  const closePendingNavigation = useCallback(() => {
-    setNavigationOpen(false)
-    requestAnimationFrame(() => navigationTrigger.current?.focus())
-  }, [])
   const selected = page.selection.module
     ? undefined
     : operationIndex.find((item) => item.id === page.selection.operation)
   const moduleValid =
     page.selection.module &&
-    navigationItems.some((item) => item.module === page.selection.module)
+    (page.selection.module === "all" ||
+      navigationItems.some((item) => item.module === page.selection.module))
+  const selectedDocument = !page.selection.module
+    ? apiDocuments[page.selection.operation]
+    : undefined
   const selectedFile =
-    !page.selection.module &&
-    fileOperationIndex.find((item) => item.id === page.selection.operation)
-  const environment = isTauri()
-    ? "Tauri → Moon 共享宿主"
-    : "浏览器同源代理 → Moon 共享宿主"
+    selectedDocument?.kind === "plugin" ? selectedDocument : undefined
+  const desktop =
+    selectedDocument?.kind === "desktop" ? selectedDocument : undefined
+  const environment = "浏览器同源代理 → 当前 Moon 共享宿主"
   const definition = selected && page.documentation?.definition
   const draft = selected && page.drafts[selected.id]
   const input = draft?.input
@@ -103,7 +107,6 @@ export function ApiCatalogApp() {
     (operation: string) => {
       cancelFileCalls()
       navigate(operationUrl(operation))
-      setNavigationOpen(false)
     },
     [navigate, cancelFileCalls]
   )
@@ -111,15 +114,14 @@ export function ApiCatalogApp() {
     (module: string) => {
       cancelFileCalls()
       navigate(moduleUrl(module))
-      setNavigationOpen(false)
     },
     [navigate, cancelFileCalls]
   )
   const nav = (
     <Navigation
       items={navigationItems}
-      selected={selectedFile ? selectedFile.id : selected?.id}
-      selectedModule={page.selection.module ?? undefined}
+      selected={!page.selection.module ? page.selection.operation : undefined}
+      selectedModule={page.selection.module ?? selectedDocument?.module}
       query={query}
       onQueryChange={setQuery}
       onSelect={selectOperation}
@@ -127,231 +129,209 @@ export function ApiCatalogApp() {
     />
   )
   const unknown =
-    (!page.selection.module && !selected && !selectedFile) ||
+    (!page.selection.module && !selected && !selectedDocument) ||
     (page.selection.module && !moduleValid)
   return (
-    <div className="api-catalog-root">
-      <CatalogHeader
-        environment={environment}
-        theme={theme}
-        onThemeChange={setTheme}
-        onOpenNavigation={() => {
-          navigationTrigger.current =
-            document.activeElement instanceof HTMLElement
-              ? document.activeElement
-              : null
-          setNavigationOpen(true)
-        }}
-        onLeave={() => {
-          page.requests.cancel()
-          cancelFileCalls()
-        }}
-      />
-      <div className="api-catalog-layout">
-        <aside className="api-catalog-sidebar">{nav}</aside>
-        <main className="api-catalog-workspace">
-          {unknown ? (
-            <Empty>
-              <EmptyHeader>
-                <EmptyTitle>找不到指定接口或模块</EmptyTitle>
-                <EmptyDescription>
-                  {page.selection.module ?? page.selection.operation}{" "}
-                  不在当前正式契约目录中。请从导航选择，也可以返回连接目录。
-                </EmptyDescription>
-              </EmptyHeader>
-              <EmptyContent>
-                <Button
-                  variant="outline"
-                  onClick={() => page.navigate(operationUrl("list"))}
-                >
-                  返回连接目录
-                </Button>
-              </EmptyContent>
-            </Empty>
-          ) : selectedFile ? (
-            <DeferredContent
-              key={selectedFile.id}
-              load={loadFilePluginOperation}
-              props={{
-                operation: selectedFile.name,
-                environment,
-                drafts: fileDrafts,
-              }}
-              label="文件插件接口"
-              fallback={<div role="status">正在载入正式插件契约…</div>}
-            />
-          ) : page.selection.module ? (
-            <DeferredContent
-              load={loadArchitecturePanel}
-              props={{ module: page.selection.module }}
-              label="模块架构"
-              fallback={
-                <div className="api-deferred-loading" role="status">
-                  正在载入模块架构…
-                </div>
-              }
-            />
-          ) : page.error ? (
-            <OperationFeedback
-              title="接口文档载入失败"
-              message={page.error}
-              notify={false}
-              actions={
-                <Button variant="outline" onClick={page.retry}>
-                  重新载入
-                </Button>
-              }
-            />
-          ) : !definition || !draft || !page.documentation ? (
-            <div
-              role="status"
-              aria-label="载入接口详情"
-              className="flex flex-col gap-4 p-6"
-            >
-              <Skeleton className="h-8 w-64" />
-              <Skeleton className="h-64 w-full" />
-            </div>
-          ) : (
-            <div
-              className="api-catalog-detail-grid"
-              data-debug-open={debugOpen}
-            >
-              <section className="api-catalog-docs">
-                <Documentation
-                  key={selected!.id}
-                  operation={selected!.id}
-                  definition={definition}
-                  schemas={page.documentation.schemas}
-                />
-              </section>
-              <section
-                className="api-catalog-tester"
-                aria-label="接口调试"
-                id="api-catalog-debug"
-              >
-                {debugOpen && page.contractError ? (
-                  <OperationFeedback
-                    title="调试契约载入失败"
-                    message={page.contractError}
-                    notify={false}
-                    actions={
-                      <>
-                        <Button variant="outline" onClick={page.retry}>
-                          重新载入
-                        </Button>
-                        <Button variant="ghost" onClick={closeDebug}>
-                          收起调试
-                        </Button>
-                      </>
-                    }
-                  />
-                ) : debugOpen && !page.contract ? (
-                  <div className="api-deferred-loading" role="status">
-                    正在载入调试契约…
-                    <Button variant="ghost" size="sm" onClick={closeDebug}>
-                      取消打开
-                    </Button>
-                  </div>
-                ) : debugOpen ? (
-                  <DeferredContent
-                    load={loadDebugPanel}
-                    label="接口调试面板"
-                    onDismiss={closeDebug}
-                    fallback={
-                      <div className="api-deferred-loading" role="status">
-                        正在载入调试面板…
-                        <Button variant="ghost" size="sm" onClick={closeDebug}>
-                          取消打开
-                        </Button>
-                      </div>
-                    }
-                    props={{
-                      focusOnMount: true,
-                      request: {
-                        operation: selected!.id,
-                        title: definition.title,
-                        value: draft.input,
-                        dirty: draft.dirty,
-                        validationError,
-                        busy: draft.response.status === "running",
-                        environment,
-                        effect: definition.effect,
-                        onChange: (value: string) =>
-                          page.requests.setInput(selected!.id, value),
-                        onRestoreExample: () =>
-                          page.requests.restore(selected!.id),
-                        onClear: () => page.requests.setInput(selected!.id, ""),
-                        onRun: () => {
-                          void page.requests.run(
-                            selected!.id,
-                            page.contract!.validateRequest
-                          )
-                        },
-                        onCancel: page.requests.cancel,
-                      },
-                      response: {
-                        response: draft.response,
-                        onClear: () =>
-                          page.requests.clearResponse(selected!.id),
-                      },
-                      onClose: closeDebug,
-                    }}
-                  />
-                ) : (
-                  <div className="api-debug-launcher">
-                    <FlaskConical aria-hidden="true" />
-                    <h3>调试此接口</h3>
-                    <p>编辑请求参数，查看真实返回。打开面板不会发起调用。</p>
-                    <dl>
-                      <dt>调用环境</dt>
-                      <dd>{environment}</dd>
-                      <dt>数据影响</dt>
-                      <dd>{definition.effect}</dd>
-                    </dl>
-                    {draft.response.status !== "idle" && (
-                      <p className="api-debug-draft-note">
-                        本接口的草稿与上次调用结果已保留。
-                      </p>
-                    )}
-                    <Button
-                      ref={debugTrigger}
-                      onClick={() => setDebugOperation(selected!.id)}
-                      aria-controls="api-catalog-debug"
-                      aria-expanded={false}
-                    >
-                      打开调试面板
-                    </Button>
-                  </div>
-                )}
-              </section>
-            </div>
-          )}
-        </main>
-      </div>
-      {navigationOpen && (
+    <ToolLayout
+      navigation={nav}
+      navigationLabel="接口目录"
+      selectionKey={
+        page.selection.module
+          ? `module:${page.selection.module}`
+          : `operation:${page.selection.operation}`
+      }
+    >
+      {unknown ? (
+        <Empty>
+          <EmptyHeader>
+            <EmptyTitle>找不到指定接口或模块</EmptyTitle>
+            <EmptyDescription>
+              {page.selection.module ?? page.selection.operation}{" "}
+              不在当前正式契约目录中。请从导航选择，也可以返回连接目录。
+            </EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <Button variant="outline" onClick={() => selectModule("all")}>
+              返回全部模块
+            </Button>
+          </EmptyContent>
+        </Empty>
+      ) : selectedFile ? (
         <DeferredContent
-          load={loadNavigationDialog}
-          label="接口导航"
-          onDismiss={closePendingNavigation}
+          key={page.selection.operation}
+          load={loadFilePluginOperation}
           props={{
-            children: nav,
-            onOpenChange: setNavigationOpen,
-            onReturnFocus: () => navigationTrigger.current?.focus(),
+            operation: page.selection.operation,
+            document: selectedFile,
+            environment,
+            drafts: fileDrafts,
           }}
-          fallback={
-            <div className="api-navigation-pending" role="status">
-              正在打开接口导航…
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={closePendingNavigation}
-              >
-                取消
-              </Button>
-            </div>
+          label="文件插件接口"
+          fallback={<div role="status">正在载入正式插件契约…</div>}
+        />
+      ) : desktop ? (
+        <article className="devtools-document">
+          <Documentation
+            key={page.selection.operation}
+            operation={page.selection.operation}
+            definition={desktop.definition}
+            schemas={desktop.schemas}
+            facts={desktop}
+          />
+          <p className="devtools-muted">
+            这是 Tauri
+            原生命令。此网页不能执行原生调用；请从正式桌面功能入口操作。
+          </p>
+          {desktop.related && (
+            <details>
+              <summary>关联业务 RPC 契约（{desktop.related.length}）</summary>
+              <ul>
+                {desktop.related.map((id) => (
+                  <li key={id}>
+                    <a
+                      href={operationUrl(id)}
+                      onClick={(event) => {
+                        event.preventDefault()
+                        selectOperation(id)
+                      }}
+                    >
+                      {apiDocuments[id]!.definition.title} · {id}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </article>
+      ) : page.selection.module ? (
+        <ModuleOverview
+          module={page.selection.module}
+          documents={apiDocuments}
+          onSelect={selectOperation}
+          onModuleSelect={selectModule}
+        />
+      ) : page.error ? (
+        <OperationFeedback
+          title="接口文档载入失败"
+          message={page.error}
+          notify={false}
+          actions={
+            <Button variant="outline" onClick={page.retry}>
+              重新载入
+            </Button>
           }
         />
+      ) : !definition || !draft || !page.documentation ? (
+        <div
+          role="status"
+          aria-label="载入接口详情"
+          className="flex flex-col gap-4 p-6"
+        >
+          <Skeleton className="h-8 w-64" />
+          <Skeleton className="h-64 w-full" />
+        </div>
+      ) : (
+        <article className="api-catalog-detail">
+          <div className="api-document-actions">
+            <Button
+              ref={debugTrigger}
+              variant="outline"
+              size="sm"
+              onClick={() => setDebugOperation(selected!.id)}
+            >
+              <FlaskConical data-icon="inline-start" />
+              调试接口
+            </Button>
+          </div>
+          <section className="api-catalog-docs">
+            <Documentation
+              key={selected!.id}
+              operation={selected!.id}
+              definition={definition}
+              schemas={page.documentation.schemas}
+              facts={selectedDocument}
+            />
+          </section>
+          <Dialog
+            open={debugOpen}
+            onOpenChange={(open) => {
+              if (!open) closeDebug()
+            }}
+          >
+            <DialogContent variant="reader" className="api-debug-dialog">
+              <DialogTitle>调试 · {definition.title}</DialogTitle>
+              {debugOpen && page.contractError ? (
+                <OperationFeedback
+                  title="调试契约载入失败"
+                  message={page.contractError}
+                  notify={false}
+                  actions={
+                    <>
+                      <Button variant="outline" onClick={page.retry}>
+                        重新载入
+                      </Button>
+                      <Button variant="ghost" onClick={closeDebug}>
+                        收起调试
+                      </Button>
+                    </>
+                  }
+                />
+              ) : debugOpen && !page.contract ? (
+                <div className="api-deferred-loading" role="status">
+                  正在载入调试契约…
+                  <Button variant="ghost" size="sm" onClick={closeDebug}>
+                    取消打开
+                  </Button>
+                </div>
+              ) : debugOpen ? (
+                <DeferredContent
+                  load={loadDebugPanel}
+                  label="接口调试面板"
+                  onDismiss={closeDebug}
+                  fallback={
+                    <div className="api-deferred-loading" role="status">
+                      正在载入调试面板…
+                      <Button variant="ghost" size="sm" onClick={closeDebug}>
+                        取消打开
+                      </Button>
+                    </div>
+                  }
+                  props={{
+                    focusOnMount: true,
+                    request: {
+                      operation: selected!.id,
+                      title: definition.title,
+                      value: draft.input,
+                      dirty: draft.dirty,
+                      validationError,
+                      busy: draft.response.status === "running",
+                      environment,
+                      effect: definition.effect,
+                      onChange: (value: string) =>
+                        page.requests.setInput(selected!.id, value),
+                      onRestoreExample: () =>
+                        page.requests.restore(selected!.id),
+                      onClear: () => page.requests.setInput(selected!.id, ""),
+                      onRun: () => {
+                        void page.requests.run(
+                          selected!.id,
+                          page.contract!.validateRequest
+                        )
+                      },
+                      onCancel: page.requests.cancel,
+                    },
+                    response: {
+                      response: draft.response,
+                      onClear: () => page.requests.clearResponse(selected!.id),
+                    },
+                    onClose: closeDebug,
+                  }}
+                />
+              ) : null}
+            </DialogContent>
+          </Dialog>
+        </article>
       )}
-    </div>
+    </ToolLayout>
   )
 }

@@ -1,5 +1,5 @@
 import type { FeedbackDescription } from "@/lib/operation-issue"
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { PanelLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -14,6 +14,25 @@ import { ConversationSearch } from "./conversation-search"
 import type { ComposerData, Conversation } from "@/lib/composer/types"
 import type { HistoryState } from "@/features/conversation/conversation-catalog-service"
 import { useNavigationBoundary } from "@/lib/navigation/navigation-boundary"
+
+const sidebarLayoutKey = "moon.navigation.layout.v1"
+const wideNavigationQuery = "(min-width: 1024px)"
+const desktopNavigationQuery = "(min-width: 768px)"
+
+function readSidebarLayout() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(sidebarLayoutKey) ?? "null")
+    return {
+      open: typeof saved?.open === "boolean" ? saved.open : true,
+      width:
+        typeof saved?.width === "number" && Number.isFinite(saved.width)
+          ? Math.max(240, Math.min(360, saved.width))
+          : 280,
+    }
+  } catch {
+    return { open: true, width: 280 }
+  }
+}
 
 export function AppShell({
   data,
@@ -42,13 +61,45 @@ export function AppShell({
 }) {
   const { run: runNavigation, blocked: navigationBlocked } =
     useNavigationBoundary()
-  const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [sidebarWidth, setSidebarWidth] = useState(280)
+  const [sidebarLayout, setSidebarLayout] = useState(readSidebarLayout)
+  const [wideNavigation, setWideNavigation] = useState(
+    () => window.matchMedia(wideNavigationQuery).matches
+  )
+  const [compactSidebarOpen, setCompactSidebarOpen] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [notice, setNotice] = useState("")
   const main = useRef<HTMLElement>(null)
   const focusNewHomeAfterClose = useRef(false)
+  const sidebarOpen = wideNavigation ? sidebarLayout.open : compactSidebarOpen
+  const sidebarWidth = sidebarLayout.width
+  const toggleSidebar = useCallback(() => {
+    if (wideNavigation)
+      setSidebarLayout((layout) => ({ ...layout, open: !layout.open }))
+    else setCompactSidebarOpen((open) => !open)
+  }, [wideNavigation])
+  useEffect(() => {
+    try {
+      localStorage.setItem(sidebarLayoutKey, JSON.stringify(sidebarLayout))
+    } catch {
+      /* Resizing and toggling remain available without persistent storage. */
+    }
+  }, [sidebarLayout])
+  useEffect(() => {
+    const wide = window.matchMedia(wideNavigationQuery)
+    const desktop = window.matchMedia(desktopNavigationQuery)
+    function updateNavigation() {
+      setWideNavigation(wide.matches)
+      setCompactSidebarOpen(false)
+      if (desktop.matches) setMobileOpen(false)
+    }
+    wide.addEventListener("change", updateNavigation)
+    desktop.addEventListener("change", updateNavigation)
+    return () => {
+      wide.removeEventListener("change", updateNavigation)
+      desktop.removeEventListener("change", updateNavigation)
+    }
+  }, [])
   useEffect(() => {
     function handleKey(event: KeyboardEvent) {
       if (
@@ -69,15 +120,14 @@ export function AppShell({
       ) {
         event.preventDefault()
         runNavigation(() => {
-          if (window.matchMedia("(min-width: 768px)").matches)
-            setSidebarOpen((open) => !open)
+          if (window.matchMedia(desktopNavigationQuery).matches) toggleSidebar()
           else setMobileOpen((open) => !open)
         })
       }
     }
     window.addEventListener("keydown", handleKey)
     return () => window.removeEventListener("keydown", handleKey)
-  }, [runNavigation])
+  }, [runNavigation, toggleSidebar])
   const sidebarProps = {
     data,
     activeConversationId,
@@ -91,7 +141,7 @@ export function AppShell({
         onSelectConversation(item)
       })
     },
-    onClose: () => runNavigation(() => setSidebarOpen((open) => !open)),
+    onClose: () => runNavigation(toggleSidebar),
     onNew: (id?: string) => {
       runNavigation(() => {
         focusNewHomeAfterClose.current = mobileOpen
@@ -129,7 +179,10 @@ export function AppShell({
     },
   }
   function resize(width: number) {
-    setSidebarWidth(Math.max(240, Math.min(360, width)))
+    setSidebarLayout((layout) => ({
+      ...layout,
+      width: Math.max(240, Math.min(360, width)),
+    }))
   }
   return (
     <div
@@ -207,7 +260,7 @@ export function AppShell({
                 ?.focus({ preventScroll: true })
             )
           }}
-          className="inset-y-0 left-0 flex h-dvh min-h-0 w-80 min-w-0 max-w-[calc(100vw-48px)] translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none p-0"
+          className="inset-y-0 left-0 flex h-dvh min-h-0 w-80 max-w-[calc(100vw-48px)] min-w-0 translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none p-0"
           showCloseButton={false}
         >
           <DialogHeader className="sr-only">

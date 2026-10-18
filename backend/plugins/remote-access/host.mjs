@@ -23,13 +23,8 @@ import {
 import { browseDirectories } from "./directories.mjs"
 import { uploadOperations } from "./uploads.mjs"
 
-const object = (properties) => ({
-  type: "object",
-  properties,
-  required: Object.keys(properties),
-  additionalProperties: false,
-})
-const output = object({ value: { type: "object", additionalProperties: true } })
+import { remoteOperations } from "./contract.mjs"
+
 // Keep the approved current surface explicit. New contracts require an explicit
 // decision here; a conversation prefix must never grant access by itself.
 const safeOperations = new Set([
@@ -49,6 +44,7 @@ const safeOperations = new Set([
   "workspaceSelect",
   "pluginList",
   "pluginCall",
+  "pluginResource",
   "conversationQueueEdit",
   "conversationQueueRemove",
   "conversationQueueMode",
@@ -418,23 +414,17 @@ export async function activate(host) {
     operations: {
       ...uploadOperations(host),
       connection: {
-        remote: false,
-        input: object({}),
-        output,
+        ...remoteOperations.connection,
         execute: async () => ({ value: status() }),
       },
       directories: {
-        remote: true,
-        input: object({ path: { type: "string", maxLength: 4096 } }),
-        output,
+        ...remoteOperations.directories,
         execute: async (input, _context, signal) => ({
           value: await browseDirectories(input.path, signal),
         }),
       },
       reset: {
-        remote: false,
-        input: object({}),
-        output,
+        ...remoteOperations.reset,
         execute: async () => {
           const nextKeys = generateNoiseKeyPair()
           const nextIdentity = {

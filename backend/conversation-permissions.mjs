@@ -231,17 +231,33 @@ export class ConversationPermissions {
           return { block: true, reason: "用户拒绝或取消了本次操作。" }
       })
   }
-  ui(state) {
+  ui(state, pluginId = "pi") {
     const ask = (kind, title, message, options, opts) =>
       this.ask(
         state,
-        { kind, title, message, ...(options ? { options } : {}) },
+        { kind, title, message, pluginId, ...(options ? { options } : {}) },
         opts
       )
     const unsupported = () => {
       throw new Error(
         "Moon 不支持终端组件交互，请使用 confirm/select/input/editor。"
       )
+    }
+    const update = (kind, key, value) => {
+      state.pluginUi ||= {}
+      const record = (state.pluginUi[pluginId] ||= {
+        notices: [],
+        statuses: {},
+        widgets: {},
+      })
+      if (kind === "notices")
+        record.notices = [...record.notices, value.slice(0, 4000)].slice(-20)
+      else if (value === undefined) delete record[kind][key]
+      else
+        record[kind][key] = Array.isArray(value)
+          ? value.map((line) => String(line).slice(0, 4000)).slice(0, 128)
+          : String(value).slice(0, 4000)
+      this.conversations.touch(state)
     }
     return {
       confirm: async (title, message, opts) =>
@@ -264,26 +280,25 @@ export class ConversationPermissions {
         const answer = await ask("input", title, prefill || "请输入", undefined)
         return answer === "cancel" ? undefined : answer
       },
-      notify: (message, type = "info") => {
-        state.extensionNotifications ||= []
-        state.extensionNotifications.push({
-          id: randomUUID(),
-          message: String(message).slice(0, 4000),
-          severity: type,
-        })
-        state.extensionNotifications = state.extensionNotifications.slice(-5)
-        this.conversations.touch(state)
-      },
+      notify: (message, type = "info") =>
+        update(
+          "notices",
+          "",
+          `${type === "error" ? "错误：" : type === "warning" ? "提醒：" : ""}${String(message)}`
+        ),
       onTerminalInput: () => () => {},
-      setStatus: () => {},
-      setWorkingMessage: () => {},
+      setStatus: (key, text) => update("statuses", key, text),
+      setWorkingMessage: (text) => update("statuses", "working", text),
       setWorkingVisible: () => {},
       setWorkingIndicator: () => {},
       setHiddenThinkingLabel: () => {},
-      setWidget: unsupported,
+      setWidget: (key, lines) => {
+        if (lines !== undefined && !Array.isArray(lines)) return
+        update("widgets", key, lines)
+      },
       setFooter: unsupported,
       setHeader: unsupported,
-      setTitle: () => {},
+      setTitle: (text) => update("statuses", "title", text),
       custom: unsupported,
       pasteToEditor: unsupported,
       setEditorText: unsupported,

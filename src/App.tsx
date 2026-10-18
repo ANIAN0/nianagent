@@ -1,3 +1,4 @@
+import { profileLocalStorage as localStorage } from "@/lib/rpc/profile-storage"
 import {
   DesktopServiceProvider,
   useDesktopLifecycle,
@@ -31,7 +32,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { AppShell } from "@/features/home/app-shell"
-import { PluginWorkspace } from "@/features/plugins/plugin-workspace"
+import { PluginSessionHost } from "@/features/plugins/plugin-workspace"
 import { appendPreparedMaterials } from "@/features/materials/material-service"
 
 import {
@@ -390,7 +391,10 @@ export default function App() {
                             }
                           >
                             <PageErrorBoundary key={selected}>
-                              <PluginWorkspace
+                              <PluginSessionHost
+                                key={selected}
+                                snapshot={current}
+                                onReload={chat.reload}
                                 sessionId={selected}
                                 cwd={
                                   current?.cwd ??
@@ -567,7 +571,7 @@ export default function App() {
                                   }}
                                   captureNavigation={homeNavigation.capture}
                                 />
-                              </PluginWorkspace>
+                              </PluginSessionHost>
                             </PageErrorBoundary>
                           </Suspense>
                         ) : null}

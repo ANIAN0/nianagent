@@ -1,3 +1,4 @@
+import { profileLocalStorage as localStorage } from "@/lib/rpc/profile-storage"
 import type { ComposerDraft } from "@/lib/composer/types"
 import type { FeedbackDescription } from "@/lib/operation-issue"
 import type { MaterialService } from "@/features/materials/material-service"

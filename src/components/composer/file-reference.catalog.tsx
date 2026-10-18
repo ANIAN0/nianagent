@@ -72,7 +72,7 @@ export default {
         "输入@并选择README.md。",
         "等待prepare完成，继续输入“请解释这个文件”。",
         "打开事件记录比较prepared与restore标识。",
-        "发送，核对payload及阻塞反馈。",
+        "发送，查看已提交的材料和正文；不可用时查看阻止发送的原因。",
       ],
       expected: "正文引用只出现一次，继续编辑不使材料失效；提交包含权威id。",
       render: () => <HomeStoryExample scenario="normal" />,
@@ -100,7 +100,7 @@ export default {
         "输入@选择README.md，打开预览后关闭。",
         "在末尾输入“请解释 @README.md.backup”，按Esc关闭候选。",
         "Ctrl+Home后Delete删除真正引用，再发送。",
-        "在折叠的演示数据与事件核对home.submit及home.accepted。",
+        "展开操作反馈，查看提交内容和已接收次数。",
       ],
       expected:
         "保留完整普通backup文字，正式回调materials为空；不隐藏传递已删README。",

@@ -21,7 +21,6 @@ import { MessageEnvironmentProvider } from "./messages/message-environment"
 import { SubmissionReceipt } from "@/components/feedback/submission-receipt"
 import type { ConversationSubmissionEchoValue } from "./conversation-submission"
 import { MaterialServiceContext } from "@/features/materials/material-service"
-import { useConversationNotifications } from "./use-conversation-notifications"
 import { QueueDock } from "./composer/queue-dock"
 import { QueueOperationRecovery } from "./composer/queue-operation-recovery"
 import {
@@ -30,7 +29,6 @@ import {
 } from "./queue-operation-recovery"
 import type { Material } from "@/lib/composer/types"
 import { MaterialPreviewDialog } from "@/features/materials/material-preview"
-import { usePluginPaths } from "@/features/plugins/plugin-path-context"
 import {
   useContext,
   useEffect,
@@ -153,9 +151,7 @@ export function LiveConversationView({
   controlService,
 }: LiveConversationViewProps) {
   const [activeMaterial, setActiveMaterial] = useState<Material | null>(null)
-  const [fileOpenIssue, setFileOpenIssue] = useState<FeedbackDescription>()
   const materialService = useContext(MaterialServiceContext)
-  const pluginPaths = usePluginPaths()
   const permissionService = useContext(PermissionServiceContext)
   const previewRequest = useRef<AbortController | undefined>(undefined)
   const [disclosures] = useState(() => {
@@ -182,21 +178,6 @@ export function LiveConversationView({
       onOpenAttachment: (
         attachment: import("./conversation-types").MessageAttachment
       ) => {
-        if (
-          pluginPaths &&
-          attachment.materialType === "file" &&
-          attachment.source
-        ) {
-          setFileOpenIssue(undefined)
-          void pluginPaths
-            .openPath(attachment.source)
-            .catch((error) =>
-              setFileOpenIssue(
-                feedbackFromError(error, "当前文件无法打开，请重试。")
-              )
-            )
-          return
-        }
         setActiveMaterial({
           ...attachment,
           source: attachment.source ?? "",
@@ -205,50 +186,48 @@ export function LiveConversationView({
           status: "ready",
         })
       },
-      onOpenPath:
-        pluginPaths?.openPath ??
-        (materialService
-          ? async (path: string) => {
-              previewRequest.current?.abort()
-              const request = new AbortController()
-              previewRequest.current = request
-              const prepared = await materialService.prepare(
-                id,
-                cwd,
-                [path],
-                request.signal,
-                { scope: "workspace" }
-              )
-              if (request.signal.aborted || previewRequest.current !== request)
-                return
-              const material = prepared[0]
-              if (!material || material.status !== "ready")
-                throw Object.assign(new Error("文件无法预览。"), {
-                  issue: {
-                    code: "material_preview_failed",
-                    summary: material?.error || "文件无法预览。",
-                    severity: "error",
-                    recovery: material?.retryable === false ? "none" : "retry",
-                  },
-                })
-              setActiveMaterial(material)
-            }
-          : undefined),
+      onOpenPath: materialService
+        ? async (path: string) => {
+            previewRequest.current?.abort()
+            const request = new AbortController()
+            previewRequest.current = request
+            const prepared = await materialService.prepare(
+              id,
+              cwd,
+              [path],
+              request.signal,
+              { scope: "workspace" }
+            )
+            if (request.signal.aborted || previewRequest.current !== request)
+              return
+            const material = prepared[0]
+            if (!material || material.status !== "ready")
+              throw Object.assign(new Error("文件无法预览。"), {
+                issue: {
+                  code: "material_preview_failed",
+                  summary: material?.error || "文件无法预览。",
+                  severity: "error",
+                  recovery: material?.retryable === false ? "none" : "retry",
+                },
+              })
+            setActiveMaterial(material)
+          }
+        : undefined,
     }),
     [
       id,
       cwd,
       disclosures,
       materialService,
-      pluginPaths,
       snapshot?.approvals,
       onOpenSettings,
       data.modelCatalog?.onOpenSettings,
     ]
   )
   const running = snapshot?.phase === "running"
-  useConversationNotifications(id, snapshot)
-  const approval = snapshot?.approvals?.[0]
+  const approval = snapshot?.approvals?.find(
+    (request) => request.kind === "tool"
+  )
   const command = useConversationCommand(id, snapshot?.command)
   const acknowledgedCommand = useRef<string | undefined>(undefined)
   const controls = useConversationControls(id, snapshot, controlService)
@@ -712,9 +691,15 @@ export function LiveConversationView({
                       onReload()
                     }}
                   />
-                  {(snapshot?.approvals?.length ?? 0) > 1 && (
+                  {(snapshot?.approvals?.filter(
+                    (request) => request.kind === "tool"
+                  ).length ?? 0) > 1 && (
                     <p className="conversation-approval-count">
-                      还有 {snapshot!.approvals!.length - 1} 项等待确认
+                      还有{" "}
+                      {snapshot!.approvals!.filter(
+                        (request) => request.kind === "tool"
+                      ).length - 1}{" "}
+                      项等待确认
                     </p>
                   )}
                 </>
@@ -972,9 +957,6 @@ export function LiveConversationView({
           />
         }
       />
-      {fileOpenIssue && (
-        <OperationFeedback title="文件未能打开" {...fileOpenIssue} />
-      )}
       <MaterialPreviewDialog
         key={`${id}:materials`}
         history

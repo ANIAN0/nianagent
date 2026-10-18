@@ -20,8 +20,7 @@ import { MessageAttachments } from "./message-attachments"
 import { MessageActions } from "./message-actions"
 import type { ConversationStatistics } from "@/contracts/rpc.generated"
 import { useMessageEnvironment } from "./message-environment"
-import { ToolResultPresentation } from "@/features/extensions/tool-result-presentation"
-import { findPluginResult } from "@/features/plugins/plugin-web"
+import { PluginDeliveryList } from "@/features/plugins/plugin-workspace"
 
 export interface ConversationTurnRecord {
   id: string
@@ -96,7 +95,11 @@ export function ConversationTurnView({
     // Historical failures belong to this turn and remain readable even while
     // its execution details are collapsed. The authoritative current failure
     // is already deduplicated by the Live view's exact issueEntryId.
-    const issueKey = JSON.stringify([message.issue?.code, message.issue?.summary, turn.recoveredAttemptIds?.has(message.id) ?? false])
+    const issueKey = JSON.stringify([
+      message.issue?.code,
+      message.issue?.summary,
+      turn.recoveredAttemptIds?.has(message.id) ?? false,
+    ])
     if (issue && !issueKeys.has(issueKey)) {
       issueKeys.add(issueKey)
       visibleIssues.push({ id: message.id, content: issue })
@@ -197,7 +200,20 @@ export function ConversationTurnView({
               ))}
             </div>
           )}
-          {tools.filter(tool => tool.status === "success" && tool.presentation && findPluginResult(tool.presentation.kind, tool.presentation.version)?.persistent).map(tool => <ToolResultPresentation key={tool.occurrenceId || tool.id} tool={tool} fallback={null} />)}
+          {(closed || showStoppedNotice) && (
+            <PluginDeliveryList
+              records={tools
+                .filter(
+                  (tool) =>
+                    tool.status === "success" && tool.presentation?.pluginId
+                )
+                .map((tool) => ({
+                  ...tool.presentation!,
+                  summary:
+                    tool.presentation!.summary || tool.result || "交付记录",
+                }))}
+            />
+          )}
           {visibleIssues.map((issue) => (
             <div key={issue.id} data-issue-entry={issue.id}>
               {issue.content}

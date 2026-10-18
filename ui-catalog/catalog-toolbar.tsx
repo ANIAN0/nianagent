@@ -1,24 +1,19 @@
 import { useEffect, useRef, useState } from "react"
-import { ArrowUpRight, RotateCcw } from "lucide-react"
+import { ArrowUpRight, ChevronDown, RotateCcw } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import { CatalogViewportControls } from "./catalog-viewport-controls"
 import type { useCatalogController } from "./use-catalog-controller"
-
 export function CatalogToolbar({
   controller,
 }: {
   controller: ReturnType<typeof useCatalogController>
 }) {
-  const { selection, theme, width, height, previewUrl } = controller
+  const { selection, width, height, previewUrl, fixedViewport } = controller
   const { entry, state } = selection
   const [copyStatus, setCopyStatus] = useState("")
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
@@ -33,84 +28,55 @@ export function CatalogToolbar({
     }
     timer.current = setTimeout(() => setCopyStatus(""), 3000)
   }
+  if (!entry || !state) return null
   return (
     <div className="catalog-toolbar">
-      <div className="catalog-viewbar">
-        <Tabs
-          value={selection.view}
-          onValueChange={(view) => {
-            if (entry)
-              controller.navigate(
-                entry,
-                view === "canvas"
-                  ? (state?.id ?? entry.states[0]?.id)
-                  : undefined
-              )
-          }}
-        >
-          <TabsList aria-label="组件查看方式">
-            <TabsTrigger value="docs">设计标准</TabsTrigger>
-            <TabsTrigger value="canvas">交互预览</TabsTrigger>
-          </TabsList>
-        </Tabs>
-        <div className="catalog-tools-actions">
-          <Button variant="ghost" size="sm" onClick={controller.toggleTheme}>
-            {theme === "dark" ? "浅色" : "深色"}
-          </Button>
-          <Button variant="ghost" size="sm" onClick={copyLink}>
-            复制链接
-          </Button>
-        </div>
+      <strong className="catalog-scene-label" title={state.name}>
+        {state.name}
+      </strong>
+      <div className="catalog-tools-actions">
+        <Button variant="ghost" size="sm" onClick={copyLink}>
+          复制链接
+        </Button>
+        <Button variant="ghost" size="sm" onClick={controller.reset}>
+          <RotateCcw data-icon="inline-start" />
+          重置
+        </Button>
+        <Button variant="ghost" size="sm" asChild>
+          <a href={previewUrl} target="_blank" rel="noreferrer">
+            独立打开
+            <ArrowUpRight data-icon="inline-end" />
+          </a>
+        </Button>
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" size="sm">
+              {fixedViewport ? `${width} × ${height}` : "自适应"}
+              <ChevronDown data-icon="inline-end" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="catalog-display-panel">
+            <Button
+              variant={fixedViewport ? "outline" : "secondary"}
+              size="sm"
+              onClick={controller.fitViewport}
+            >
+              适应空间
+            </Button>
+            <CatalogViewportControls
+              width={width}
+              height={height}
+              defaultViewport={entry.viewport}
+              onChange={controller.setViewport}
+            />
+          </PopoverContent>
+        </Popover>
+        {copyStatus && (
+          <span role="status" className="devtools-muted">
+            {copyStatus}
+          </span>
+        )}
       </div>
-      {entry && state && selection.view === "canvas" && (
-        <div className="catalog-tools">
-          <Select
-            value={state.id}
-            onValueChange={(id) => controller.navigate(entry, id)}
-          >
-            <SelectTrigger size="sm" aria-label="预览状态">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {entry.states
-                  .filter(
-                    (item) =>
-                      !selection.section || item.section === selection.section
-                  )
-                  .map((item) => (
-                    <SelectItem value={item.id} key={item.id}>
-                      {item.name}
-                    </SelectItem>
-                  ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-          <CatalogViewportControls
-            width={width}
-            height={height}
-            defaultViewport={entry.viewport}
-            onChange={controller.setViewport}
-          />
-          <div className="catalog-tools-actions">
-            <Button variant="ghost" size="sm" onClick={controller.reset}>
-              <RotateCcw data-icon="inline-start" />
-              重置
-            </Button>
-            <Button variant="outline" size="sm" asChild>
-              <a href={previewUrl} target="_blank" rel="noreferrer">
-                独立打开
-                <ArrowUpRight data-icon="inline-end" />
-              </a>
-            </Button>
-          </div>
-        </div>
-      )}
-      {copyStatus && (
-        <p className="catalog-tool-feedback" role="status">
-          {copyStatus}
-        </p>
-      )}
     </div>
   )
 }

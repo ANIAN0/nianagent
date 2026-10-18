@@ -392,6 +392,8 @@ export async function verifyRuntimeResources(directory) {
     "plugins/file-workbench/manifest.json",
     "plugins/opencli/manifest.json",
     "plugins/remote-access/manifest.json",
+    "plugins/mcp-service/manifest.json",
+    "plugins/logs/manifest.json",
   ])
     if (!files.has(name)) throw new Error(`安装包缺少正式运行入口：${name}`)
   const pluginEntries = []

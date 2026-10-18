@@ -1,3 +1,4 @@
+import { profileLocalStorage as localStorage } from "@/lib/rpc/profile-storage"
 export type PendingCommand = {
   version: 1
   sessionId: string

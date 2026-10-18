@@ -363,21 +363,6 @@ export function useMaterialPicker({
               ]
             : []),
           ...materialRows,
-          ...(inputMode === "slash" && queryRange.current.start === 0
-            ? resources.commands
-                .filter((command) => command.kind === "extension")
-                .map((command) => ({
-                  id: `command:${command.name}`,
-                  group: "扩展命令",
-                  name: `/${command.name}`,
-                  description: command.available
-                    ? command.description
-                    : command.reason || "当前不可用",
-                  icon: Terminal,
-                  disabled: !command.available,
-                  text: `/${command.name} `,
-                }))
-            : []),
         ]
       : [
           {

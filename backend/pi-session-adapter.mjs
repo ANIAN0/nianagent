@@ -224,7 +224,10 @@ export async function createPiSession(
           await cacheResetLoader.reload()
           loadedResources = await loadResources()
           await loadedResources.reload(reloadOptions)
-          ports.models.plugins?.observeNative(loadedResources.getExtensions())
+          ports.models.plugins?.prepareNative(
+            loadedResources.getExtensions(),
+            options.pluginScope
+          )
           instructionState.pluginFingerprint =
             ports.models.plugins?.fingerprint() || ""
         }

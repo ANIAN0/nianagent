@@ -1,5 +1,11 @@
-import { useEffect, useRef, type KeyboardEvent } from "react"
-import { Search, X, SearchX } from "lucide-react"
+import { useEffect, useRef, useState, type KeyboardEvent } from "react"
+import { Search, X, ChevronRight } from "lucide-react"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
+import { operationUrl } from "../catalog-data"
 import { Button } from "@/components/ui/button"
 import {
   InputGroup,
@@ -7,17 +13,7 @@ import {
   InputGroupAddon,
   InputGroupButton,
 } from "@/components/ui/input-group"
-import {
-  Empty,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-  EmptyDescription,
-  EmptyContent,
-} from "@/components/ui/empty"
-import { cn } from "@/lib/utils"
 import type { NavigationItem } from "./types"
-
 export function ModuleNavigation({
   items,
   selected,
@@ -38,30 +34,34 @@ export function ModuleNavigation({
   const root = useRef<HTMLElement>(null)
   const search = useRef<HTMLInputElement>(null)
   const normalized = query.trim().toLocaleLowerCase()
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const filtered = normalized
     ? items.filter((item) =>
-        `${item.id} ${item.title} ${item.module}`
+        `${item.id} ${item.title} ${item.module} ${item.effect ?? ""}`
           .toLocaleLowerCase()
           .includes(normalized)
       )
     : items
   const modules = [...new Set(filtered.map((item) => item.module))]
-
+  const [previousModule, setPreviousModule] = useState(selectedModule)
+  if (previousModule !== selectedModule) {
+    setPreviousModule(selectedModule)
+    if (selectedModule)
+      setExpanded((current) => ({ ...current, [selectedModule]: true }))
+  }
   useEffect(() => {
-    if (!normalized)
-      root.current
-        ?.querySelector<HTMLElement>("[aria-current='page']")
-        ?.scrollIntoView({ block: "nearest" })
-  }, [selected, normalized])
-
+    root.current
+      ?.querySelector<HTMLElement>("[aria-current='page']")
+      ?.scrollIntoView({ block: "nearest" })
+  }, [selected, selectedModule])
   function focusAdjacent(event: KeyboardEvent<HTMLElement>) {
     if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return
     const links = [
-      ...(root.current?.querySelectorAll<HTMLAnchorElement>(
+      ...(root.current?.querySelectorAll<HTMLElement>(
         "[data-operation-link]"
       ) ?? []),
     ]
-    const index = links.indexOf(event.target as HTMLAnchorElement)
+    const index = links.indexOf(event.target as HTMLElement)
     if (index < 0 || !links.length) return
     event.preventDefault()
     const next =
@@ -73,7 +73,6 @@ export function ModuleNavigation({
             links.length
     links[next]?.focus()
   }
-
   return (
     <nav
       ref={root}
@@ -82,10 +81,6 @@ export function ModuleNavigation({
       onKeyDown={focusAdjacent}
     >
       <div className="api-navigation-search">
-        <div className="api-navigation-label">
-          <span>功能接口</span>
-          <span>{items.length}</span>
-        </div>
         <InputGroup>
           <InputGroupAddon>
             <Search />
@@ -93,7 +88,7 @@ export function ModuleNavigation({
           <InputGroupInput
             ref={search}
             aria-label="搜索接口"
-            placeholder="搜索名称、标识或模块"
+            placeholder="搜索功能、接口或模块"
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
             onKeyDown={(event) => {
@@ -104,7 +99,7 @@ export function ModuleNavigation({
               if (event.key === "ArrowDown") {
                 event.preventDefault()
                 root.current
-                  ?.querySelector<HTMLAnchorElement>("[data-operation-link]")
+                  ?.querySelector<HTMLElement>("[data-operation-link]")
                   ?.focus()
               }
             }}
@@ -126,91 +121,111 @@ export function ModuleNavigation({
         </InputGroup>
         {normalized && (
           <p className="api-search-count" role="status">
-            找到 {filtered.length} 个接口
+            {filtered.length} 个匹配接口
           </p>
         )}
       </div>
       <div className="api-navigation-list moon-scrollbar">
-        {filtered.length ? (
-          modules.map((module) => (
-            <section className="api-navigation-group" key={module}>
-              <h2>
-                {onModuleSelect ? (
+        {!normalized && (
+          <Button
+            data-select-item
+            data-operation-link
+            variant="section"
+            className="api-module-heading"
+            aria-current={selectedModule === "all" ? "page" : undefined}
+            onClick={() => onModuleSelect?.("all")}
+          >
+            全部模块<span>{items.length}</span>
+          </Button>
+        )}
+        {modules.map((module) => {
+          const expansionKey = normalized ? `${normalized}:${module}` : module
+          return (
+            <Collapsible
+              className="api-navigation-group"
+              key={module}
+              open={
+                expanded[expansionKey] ??
+                (!!normalized || selectedModule === module)
+              }
+              onOpenChange={(open) =>
+                setExpanded((current) => ({ ...current, [expansionKey]: open }))
+              }
+            >
+              <div className="api-module-row">
+                <CollapsibleTrigger asChild>
                   <Button
-                    variant="section"
-                    className="api-module-heading"
-                    aria-current={
-                      selectedModule === module ? "page" : undefined
-                    }
-                    onClick={() => onModuleSelect(module)}
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label={`${module}的接口`}
                   >
-                    {module}
-                    <span>
-                      {filtered.filter((item) => item.module === module).length}
-                    </span>
+                    <ChevronRight />
                   </Button>
-                ) : (
-                  module
-                )}
-              </h2>
-              {filtered
-                .filter((item) => item.module === module)
-                .map((item) => (
-                  <a
-                    href={`?operation=${encodeURIComponent(item.id)}`}
-                    key={item.id}
-                    data-operation-link
-                    aria-current={item.id === selected ? "page" : undefined}
-                    className={cn(
-                      "api-operation-link",
-                      item.id === selected && "api-operation-link-active"
-                    )}
-                    onClick={(event) => {
-                      if (
-                        event.button !== 0 ||
-                        event.ctrlKey ||
-                        event.metaKey ||
-                        event.shiftKey ||
-                        event.altKey
-                      )
-                        return
-                      event.preventDefault()
-                      onSelect(item.id)
-                    }}
-                  >
-                    <span>{item.title}</span>
-                    <code>{item.id}</code>
-                  </a>
-                ))}
-            </section>
-          ))
-        ) : (
-          <Empty className="api-navigation-empty">
-            <EmptyHeader>
-              <EmptyMedia variant="icon">
-                <SearchX />
-              </EmptyMedia>
-              <EmptyTitle>没有匹配的接口</EmptyTitle>
-              <EmptyDescription>
-                尝试接口名称、调用标识或模块名称。
-              </EmptyDescription>
-            </EmptyHeader>
-            <EmptyContent>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  onQueryChange("")
-                  search.current?.focus()
-                }}
-              >
-                清除搜索
-              </Button>
-            </EmptyContent>
-          </Empty>
+                </CollapsibleTrigger>
+                <Button
+                  data-select-item
+                  data-operation-link={!normalized ? true : undefined}
+                  variant="section"
+                  className="api-module-heading"
+                  aria-current={
+                    !selected && selectedModule === module ? "page" : undefined
+                  }
+                  onClick={() => onModuleSelect?.(module)}
+                >
+                  {module}
+                  <span>
+                    {filtered.filter((item) => item.module === module).length}
+                  </span>
+                </Button>
+              </div>
+              <CollapsibleContent>
+                {filtered
+                  .filter((item) => item.module === module)
+                  .map((item) => (
+                    <a
+                      href={operationUrl(item.id)}
+                      key={item.id}
+                      data-operation-link
+                      aria-current={item.id === selected ? "page" : undefined}
+                      className="api-operation-link"
+                      onClick={(event) => {
+                        if (
+                          event.button !== 0 ||
+                          event.ctrlKey ||
+                          event.metaKey ||
+                          event.shiftKey ||
+                          event.altKey
+                        )
+                          return
+                        event.preventDefault()
+                        onSelect(item.id)
+                      }}
+                    >
+                      <span>{item.title}</span>
+                      <code>{item.id}</code>
+                    </a>
+                  ))}
+              </CollapsibleContent>
+            </Collapsible>
+          )
+        })}
+        {!filtered.length && (
+          <div className="api-navigation-empty" role="status">
+            <p>没有匹配的接口</p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                onQueryChange("")
+                search.current?.focus()
+              }}
+            >
+              清除搜索
+            </Button>
+          </div>
         )}
       </div>
-      <p className="api-navigation-hint">↑ ↓ 定位接口 · Enter 打开</p>
+      <p className="api-navigation-hint">↑ ↓ 定位 · Enter 打开</p>
     </nav>
   )
 }

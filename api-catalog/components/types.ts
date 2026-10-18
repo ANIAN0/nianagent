@@ -11,3 +11,18 @@ export type NavigationItem = {
   effect?: string
 }
 export type { ResponseState as CatalogResponse } from "../request-controller"
+
+export type ApiDocument = {
+  definition: OperationDefinition
+  schemas: SchemaRegistry
+  kind: "rpc" | "plugin" | "desktop"
+  module: string
+  source: string
+  storage: string
+  responsibility: string
+  consumers: string[]
+  plugin?: string
+  name?: string
+  envelope?: OperationDefinition
+  related?: string[]
+}

@@ -9,6 +9,7 @@ export function CatalogPreviewFrame({
   mode = "overview",
   width,
   height: canvasHeight,
+  theme,
 }: {
   src: string
   title: string
@@ -16,6 +17,7 @@ export function CatalogPreviewFrame({
   mode?: "overview" | "canvas"
   width?: number
   height?: number
+  theme?: "light" | "dark"
 }) {
   const container = useRef<HTMLDivElement>(null)
   const frame = useRef<HTMLIFrameElement>(null)
@@ -34,7 +36,8 @@ export function CatalogPreviewFrame({
     width: number
     height: number
   }>()
-  const url = new URL(src, location.href)
+  const [initialSrc] = useState(src)
+  const url = new URL(initialSrc, location.href)
   url.searchParams.set("embedded", "1")
   if (mode === "overview") url.searchParams.set("mode", "overview")
   const previewUrl = url.href
@@ -43,6 +46,13 @@ export function CatalogPreviewFrame({
     status?.src === previewUrl && status.state === "error"
       ? status.message
       : undefined
+  useEffect(() => {
+    if (ready && theme)
+      frame.current?.contentWindow?.postMessage(
+        { type: "moon-preview-theme", theme },
+        location.origin
+      )
+  }, [ready, theme])
   useLayoutEffect(() => {
     const element = container.current
     if (!element || ready) return

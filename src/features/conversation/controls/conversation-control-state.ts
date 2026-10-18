@@ -1,3 +1,4 @@
+import { profileLocalStorage as localStorage } from "@/lib/rpc/profile-storage"
 import type { ConversationControlOperation } from "@/contracts/rpc.generated"
 import { RpcRequestRejected } from "@/lib/rpc/client"
 import { feedbackFromError } from "@/lib/operation-issue"

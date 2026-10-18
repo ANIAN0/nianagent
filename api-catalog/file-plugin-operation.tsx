@@ -1,5 +1,7 @@
-import { useEffect, useState, useSyncExternalStore } from "react"
-import { fileApiDocs } from "virtual:moon-file-api-docs"
+import { useEffect, useRef, useState, useSyncExternalStore } from "react"
+import type { ApiDocument } from "./components/types"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import { FlaskConical } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { loadContract } from "./catalog-data"
 import { createRequestController } from "./request-controller"
@@ -15,14 +17,17 @@ export type FileApiDrafts = Map<
 /** One existing pluginCall envelope; documented submethods never become RPCs. */
 export default function FilePluginOperation({
   operation,
+  document,
   environment,
   drafts,
 }: {
   operation: string
+  document: ApiDocument
   environment: string
   drafts: FileApiDrafts
 }) {
-  const document = fileApiDocs[operation]!
+  const plugin = document.plugin!
+  const name = document.name!
   const [requests] = useState(() => {
     let controller = drafts.get(operation)
     if (!controller) {
@@ -37,7 +42,7 @@ export default function FilePluginOperation({
           return JSON.parse(result.payload)
         }
       )
-      controller.initialize({ pluginCall: document.envelope })
+      controller.initialize({ pluginCall: document.envelope! })
       drafts.set(operation, controller)
     }
     return controller
@@ -48,6 +53,7 @@ export default function FilePluginOperation({
   )
   const draft = snapshot.pluginCall!
   const [debug, setDebug] = useState(false)
+  const debugTrigger = useRef<HTMLButtonElement>(null)
   const [contract, setContract] =
     useState<Awaited<ReturnType<typeof loadContract>>>()
   const [loadError, setLoadError] = useState("")
@@ -73,7 +79,7 @@ export default function FilePluginOperation({
   const validate = (_operation: string, value: unknown) => {
     contract!.validateRequest("pluginCall", value)
     const input = value as { id: string; operation: string; payload: string }
-    if (input.id !== "file-workbench" || input.operation !== operation)
+    if (input.id !== plugin || input.operation !== name)
       throw new Error("请保持当前插件及操作标识；从导航切换其他接口。")
     contract!.assertSchema(
       document.definition.request,
@@ -90,72 +96,96 @@ export default function FilePluginOperation({
     }
   }
   return (
-    <div className="api-catalog-detail-grid" data-debug-open={debug}>
+    <article className="api-catalog-detail">
+      <div className="api-document-actions">
+        <Button
+          ref={debugTrigger}
+          variant="outline"
+          size="sm"
+          onClick={() => setDebug(true)}
+        >
+          <FlaskConical data-icon="inline-start" />
+          调试接口
+        </Button>
+      </div>
       <section className="api-catalog-docs">
         <OperationDocs
-          operation={`file-workbench.${operation}`}
+          operation={operation}
           definition={document.definition}
           schemas={document.schemas}
+          facts={document}
         />
-        <p className="api-return-summary">
-          实际传输使用 pluginCall。请求中的 payload 是上方业务参数的 JSON
-          字符串；填写真实会话 ID 后手动执行。返回展示已解码的原插件结果。
-        </p>
       </section>
-      <section className="api-catalog-tester" aria-label="接口调试">
-        {!debug ? (
-          <div className="api-debug-launcher">
-            <h3>调试此接口</h3>
-            <p>打开面板只载入原契约，不发起调用。</p>
-            <Button onClick={() => setDebug(true)}>打开调试</Button>
-          </div>
-        ) : !contract ? (
-          <div role="status" className="api-deferred-loading">
-            {loadError || "正在载入调用契约…"}
-            <Button
-              variant="ghost"
-              onClick={() => {
-                requests.cancel()
-                setDebug(false)
-                setLoadError("")
-              }}
-            >
-              收起调试
-            </Button>
-          </div>
-        ) : (
-          <div className="api-debug-panel">
-            <Button
-              variant="ghost"
-              onClick={() => {
-                requests.cancel()
-                setDebug(false)
-              }}
-            >
-              收起调试
-            </Button>
-            <RequestEditor
-              operation="pluginCall"
-              title={document.definition.title}
-              value={draft.input}
-              dirty={draft.dirty}
-              busy={draft.response.status === "running"}
-              validationError={validationError}
-              environment={environment}
-              effect={document.definition.effect}
-              onChange={(value) => requests.setInput("pluginCall", value)}
-              onRestoreExample={() => requests.restore("pluginCall")}
-              onClear={() => requests.setInput("pluginCall", "")}
-              onRun={() => void requests.run("pluginCall", validate)}
-              onCancel={requests.cancel}
-            />
-            <ResponseViewer
-              response={draft.response}
-              onClear={() => requests.clearResponse("pluginCall")}
-            />
-          </div>
-        )}
-      </section>
-    </div>
+      <Dialog
+        open={debug}
+        onOpenChange={(open) => {
+          if (!open) {
+            requests.cancel()
+            setDebug(false)
+            setLoadError("")
+          }
+        }}
+      >
+        <DialogContent
+          variant="reader"
+          className="api-debug-dialog"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            debugTrigger.current?.focus()
+          }}
+        >
+          <DialogTitle>调试 · {document.definition.title}</DialogTitle>
+          <p className="devtools-muted">
+            pluginCall 的 payload 为业务参数 JSON 字符串。
+          </p>
+          {!contract ? (
+            <div role="status" className="api-deferred-loading">
+              {loadError || "正在载入调用契约…"}
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  requests.cancel()
+                  setDebug(false)
+                  setLoadError("")
+                }}
+              >
+                收起调试
+              </Button>
+            </div>
+          ) : (
+            <div className="api-debug-panel">
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  requests.cancel()
+                  setDebug(false)
+                }}
+              >
+                收起调试
+              </Button>
+              <RequestEditor
+                operation="pluginCall"
+                title={document.definition.title}
+                value={draft.input}
+                dirty={draft.dirty}
+                busy={draft.response.status === "running"}
+                validationError={validationError}
+                environment={environment}
+                effect={document.definition.effect}
+                onChange={(value) => requests.setInput("pluginCall", value)}
+                onRestoreExample={() => requests.restore("pluginCall")}
+                onClear={() => requests.setInput("pluginCall", "")}
+                onRun={() => void requests.run("pluginCall", validate)}
+                onCancel={requests.cancel}
+              />
+              <ResponseViewer
+                response={draft.response}
+                onClear={() => requests.clearResponse("pluginCall")}
+              />
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </article>
   )
 }

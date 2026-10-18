@@ -1,0 +1,45 @@
+{
+  "id": "example-note",
+  "name": "短记录",
+  "description": "通过Pi工具生成短记录，并在轮次末尾交付。",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "defaultEnabled": false,
+  "migrateFrom": {
+    "legacyModule": "example-note"
+  },
+  "entries": {
+    "pi": "pi.mjs",
+    "web": "web.tsx"
+  },
+  "defaultConfiguration": {
+    "prefix": "记录"
+  },
+  "configurationSchema": {
+    "type": "object",
+    "properties": {
+      "prefix": {
+        "type": "string",
+        "title": "记录前缀",
+        "minLength": 1,
+        "maxLength": 24
+      }
+    },
+    "required": [
+      "prefix"
+    ],
+    "additionalProperties": false
+  },
+  "effects": [
+    "根据工具输入生成记录；不读取或修改用户文件"
+  ],
+  "contributions": [
+    {
+      "id": "note",
+      "kind": "delivery",
+      "title": "短记录",
+      "version": 1,
+      "remote": true
+    }
+  ]
+}

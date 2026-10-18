@@ -1,5 +1,6 @@
 // Generated from backend/schema.mjs and backend/contract.mjs. Do not edit.
 export const transportRecoveryByOperation = {
+  pluginResource: "reload",
   pluginList: "reload",
   pluginConfigure: "check",
   pluginCall: "none",
@@ -84,7 +85,7 @@ export type PluginContribution = {
   /** 受信清单声明的稳定标识 */
   id: string
   /** 网页贡献类型 */
-  kind: "page" | "workbench" | "result"
+  kind: "page" | "session-tab" | "delivery"
   /** 贡献名称 */
   title: string
   /**  */
@@ -127,6 +128,27 @@ export type PluginDescriptor = {
   contributions: PluginContribution[]
   /**  */
   tools: SessionTool[]
+  /** 预构建单文件ES模块，相对插件包根目录 */
+  webEntry?: string
+  /**  */
+  webApiVersion?: 1
+  /**  */
+  effects?: string[]
+  /**  */
+  registrations?: {
+    /**  */
+    events: string[]
+    /**  */
+    commands: string[]
+    /**  */
+    providers: string[]
+  }
+}
+export type PluginResource = {
+  /** 资源base64编码 */
+  data: string
+  /** 资源MIME */
+  mime: string
 }
 export type PluginResponse = {
   /** 按所属插件原生操作schema验证的JSON对象；编码后最多16MiB，文件源字节限制独立 */
@@ -135,11 +157,19 @@ export type PluginResponse = {
   generation: number
 }
 export type ExtensionPresentation = {
+  /** 所属真实工具调用位置，跟随会话分支恢复 */
+  originId?: string
+  /** 交付所属插件；卸载后仍保留身份 */
+  pluginId?: string
+  /** 交付插件名称 */
+  source?: string
+  /** 保存的可读交付摘要 */
+  summary?: string
   /** 声明中的稳定结果种类；按kind/version选择展示，不按工具或插件名称分支 */
   kind: string
   /** 结果协议版本；不支持的版本仍呈现原始文本 */
   version: number
-  /** 经过声明结果schema核对的JSON对象字符串，最多64KiB；不含宿主对象或函数 */
+  /** 插件显式提交的JSON展示数据，最多64KiB；不含宿主对象或函数 */
   payload: string
 }
 export type ExtensionResultKind = {
@@ -686,6 +716,13 @@ export type ConversationSnapshot = {
   /**  */
   command?: ConversationCommandReceipt
   /**  */
+  pluginUi?: {
+    /** 插件身份 */
+    pluginId: string
+    /**  */
+    lines: string[]
+  }[]
+  /**  */
   extensionNotifications?: {
     /** 稳定的业务会话/请求标识 */
     id: string
@@ -804,6 +841,13 @@ export type ConversationMetadata = {
   /**  */
   command?: ConversationCommandReceipt
   /**  */
+  pluginUi?: {
+    /** 插件身份 */
+    pluginId: string
+    /**  */
+    lines: string[]
+  }[]
+  /**  */
   extensionNotifications?: {
     /** 稳定的业务会话/请求标识 */
     id: string
@@ -910,6 +954,8 @@ export type ConversationApproval = {
   title: string
   /** 请求说明 */
   message: string
+  /** 插件业务交互归属；宿主工具审批不设置 */
+  pluginId?: string
   /** 工具名称 */
   toolName?: string
   /** Pi 工具调用标识，与 runId 共同关联当前待执行工具 */
@@ -1319,6 +1365,14 @@ export type AuthState = {
 }
 export type RpcRequests = {
   bootStatus: Record<string, never>
+  pluginResource: {
+    /** 受信清单声明的稳定标识 */
+    id: string
+    /** 插件包内相对资源路径 */
+    path: string
+    /**  */
+    generation: number
+  }
   pluginList: Record<string, never>
   pluginConfigure: {
     /** 受信清单声明的稳定标识 */
@@ -1734,6 +1788,7 @@ export type RpcRequests = {
 }
 export type RpcResults = {
   bootStatus: BrowserBootStatus
+  pluginResource: PluginResource
   pluginList: PluginDescriptor[]
   pluginConfigure: PluginDescriptor
   pluginCall: PluginResponse

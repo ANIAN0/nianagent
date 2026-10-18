@@ -30,40 +30,11 @@ export function associatedPagesOf(entry: CatalogMetadata) {
   return [...pages]
 }
 
-/** The source import map itself is deferred until the documentation asks for an implementation. */
-export async function loadSource(
-  entry: CatalogMetadata,
-  signal?: AbortSignal
-): Promise<string> {
-  const loader = await import("./source-loader")
-  return loader.loadSource(entry, signal)
-}
-
-export const symbolOf = (entry: CatalogMetadata) =>
-  entry.source
-    .split("/")
-    .pop()!
-    .replace(/\.tsx$/, "")
-    .split("-")
-    .map((part) => part[0]!.toUpperCase() + part.slice(1))
-    .join("")
-export function dependenciesOf(entry: CatalogMetadata) {
-  const ids = new Set(manifest.dependencies[entry.id] ?? [])
-  return entries.filter((candidate) => ids.has(candidate.id))
-}
-export const consumersOf = (entry: CatalogMetadata) =>
-  entries.filter((candidate) =>
-    manifest.dependencies[candidate.id]?.includes(entry.id)
-  )
-
-export function catalogUrl(entry: CatalogMetadata, state?: string) {
-  return `?${new URLSearchParams({ component: entry.id, ...(state ? { state } : { view: "docs" }) })}`
-}
 export function readSelection(search = location.search) {
   const params = new URLSearchParams(search)
   const pageFilter =
     params.get("page") === "对话" ? "会话" : (params.get("page") ?? "")
-  const component = params.get("component") ?? "prompt-input"
+  const component = params.get("component") ?? ""
   const entry = entries.find((item) => item.id === component)
   const explicitState = entry?.states.find(
     (item) => item.id === params.get("state")
@@ -84,7 +55,6 @@ export function readSelection(search = location.search) {
     stateId,
     selectedStateId: explicitState?.id,
     section,
-    view:
-      params.get("view") === "docs" || !params.has("state") ? "docs" : "canvas",
+    view: params.get("view") === "docs" ? "docs" : "canvas",
   }
 }

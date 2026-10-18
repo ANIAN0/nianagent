@@ -259,3 +259,9 @@ export function RemoteConnectionView({
     </div>
   )
 }
+
+export default {
+  id,
+  apiVersion: 1 as const,
+  pages: [{ id: "remote", component: Page }],
+}

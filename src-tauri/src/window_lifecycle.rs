@@ -1,7 +1,7 @@
 use tauri::{
+    AppHandle, Manager, WindowEvent,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager, WindowEvent,
 };
 
 pub fn report_host_error(message: &str) {
@@ -11,7 +11,7 @@ pub fn report_host_error(message: &str) {
     }
     #[cfg(windows)]
     {
-        use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
+        use windows_sys::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW};
         let title: Vec<u16> = "Moon".encode_utf16().chain(Some(0)).collect();
         let text: Vec<u16> = message
             .replace('\0', "")

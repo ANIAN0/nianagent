@@ -14,7 +14,6 @@ const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const defaultManifest = ".vite/manifest.json"
 const graphManifests = {
   app: ".vite/app-manifest.json",
-  catalogs: ".vite/catalogs-manifest.json",
 }
 
 /** Keep CLI flags used by the existing build command; internal manifests are always generated. */
@@ -55,50 +54,6 @@ export function outputPath(outDir, fileName) {
   return target
 }
 
-/** The second graph may reuse an identical output, never replace different App bytes. */
-export function assertCompatibleOutput(outDir, fileName, contents) {
-  const target = outputPath(outDir, fileName)
-  if (!existsSync(target)) return
-  const stat = lstatSync(target)
-  if (!stat.isFile() || stat.isSymbolicLink())
-    throw new Error(`Build output is not a regular file: ${fileName}`)
-  if (!readFileSync(target).equals(Buffer.from(contents)))
-    throw new Error(
-      `Catalog build would overwrite different App output: ${fileName}`
-    )
-}
-
-/** Preserve ordinary unique keys; namespace collisions and every reference to them. */
-export function mergeGraphManifests(graphs) {
-  const occurrences = new Map()
-  for (const manifest of Object.values(graphs))
-    for (const key of Object.keys(manifest))
-      occurrences.set(key, (occurrences.get(key) ?? 0) + 1)
-  const merged = Object.create(null)
-  const rename = (graph, key) =>
-    occurrences.get(key) > 1 ? `${graph}:${key}` : key
-  for (const [graph, manifest] of Object.entries(graphs)) {
-    for (const [key, entry] of Object.entries(manifest)) {
-      const destination = rename(graph, key)
-      if (Object.hasOwn(merged, destination))
-        throw new Error(`Build manifest key collision: ${destination}`)
-      const copy = { ...entry }
-      for (const field of ["imports", "dynamicImports"]) {
-        if (!entry[field]) continue
-        copy[field] = entry[field].map((dependency) => {
-          if (!Object.hasOwn(manifest, dependency))
-            throw new Error(
-              `Build manifest ${graph}:${key} references missing ${dependency}`
-            )
-          return rename(graph, dependency)
-        })
-      }
-      merged[destination] = copy
-    }
-  }
-  return merged
-}
-
 /** Let Vite transpile its TypeScript config, including on Node without native TS support. */
 export async function loadMoonViteConfig(options = {}) {
   const result = await loadConfigFromFile(
@@ -118,21 +73,15 @@ export async function loadMoonViteConfig(options = {}) {
 
 export async function createBuildGraphs(options = {}) {
   const appConfig = await loadMoonViteConfig(options)
-  const catalogConfig = await loadMoonViteConfig(options)
   const allEntries = appConfig.build.rolldownOptions.input
   const graphs = [
-    ["app", { app: allEntries.app }],
     [
-      "catalogs",
-      {
-        apiCatalog: allEntries.apiCatalog,
-        catalog: allEntries.catalog,
-        preview: allEntries.preview,
-      },
+      "app",
+      { app: allEntries.app, pluginDevelopment: allEntries.pluginDevelopment },
     ],
   ]
   return graphs.map(([name, input], index) => {
-    const config = index === 0 ? appConfig : catalogConfig
+    const config = appConfig
     return {
       name,
       manifest: graphManifests[name],
@@ -143,7 +92,7 @@ export async function createBuildGraphs(options = {}) {
         build: {
           ...config.build,
           outDir: "dist",
-          assetsDir: name === "app" ? "assets" : "assets/catalogs",
+          assetsDir: "assets",
           manifest: graphManifests[name],
           emptyOutDir: index === 0,
           copyPublicDir: index === 0,
@@ -154,7 +103,7 @@ export async function createBuildGraphs(options = {}) {
   })
 }
 
-/** Two official Vite builds, one production directory and the original four URLs. */
+/** Ship the app and read-only plugin guide; inspection and debugging tools remain dev-only. */
 export async function buildFrontend(options = {}) {
   if (options.base !== undefined) assertWebBase(options.base)
   const outDir = resolve(projectRoot, "dist")
@@ -166,22 +115,6 @@ export async function buildFrontend(options = {}) {
   outputPath(outDir, manifestName)
   const manifests = {}
   for (const graph of await createBuildGraphs(options)) {
-    if (graph.name === "catalogs") {
-      graph.config.plugins.push({
-        name: "moon-protect-app-output",
-        generateBundle: {
-          order: "post",
-          handler(_options, bundle) {
-            for (const output of Object.values(bundle))
-              assertCompatibleOutput(
-                outDir,
-                output.fileName,
-                output.type === "chunk" ? output.code : output.source
-              )
-          },
-        },
-      })
-    }
     await build({
       ...graph.config,
       ...(options.mode ? { mode: options.mode } : {}),
@@ -191,14 +124,9 @@ export async function buildFrontend(options = {}) {
       readFileSync(outputPath(outDir, graph.manifest), "utf8")
     )
   }
-  const combined = mergeGraphManifests(manifests)
+  const combined = manifests.app
   const destination = outputPath(outDir, manifestName)
   mkdirSync(dirname(destination), { recursive: true })
-  assertCompatibleOutput(
-    outDir,
-    manifestName,
-    JSON.stringify(combined, null, 2) + "\n"
-  )
   writeFileSync(destination, JSON.stringify(combined, null, 2) + "\n")
   return combined
 }

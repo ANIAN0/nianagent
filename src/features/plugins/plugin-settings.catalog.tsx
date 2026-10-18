@@ -18,7 +18,7 @@ import { Button } from "@/components/ui/button"
 import { pluginsChanged } from "./plugin-service"
 import "./plugins.css"
 
-function SettingsExample({
+export function SettingsExample({
   failure = false,
   connected = true,
   externalChange = false,
@@ -99,6 +99,8 @@ function SettingsExample({
       contributions:
         manifest.contributions as PluginDescriptor["contributions"],
       tools: [],
+      effects: manifest.effects,
+      registrations: { events: [], commands: [], providers: [] },
     }))
     return {
       list: async () => {
@@ -286,7 +288,7 @@ function SettingsWorkspaceExample() {
 
 export default {
   id: "plugin-settings",
-  name: "插件设置完整组合",
+  name: "插件管理完整组合",
   source: "src/features/plugins/plugin-settings.tsx",
   group: "插件设置",
   layer: "复合组件",
@@ -294,22 +296,22 @@ export default {
   pages: ["设置"],
   stage: "content",
   description:
-    "完整正式PluginSettings、配置schema字段、来源管理及文件/OpenCLI/远程业务内容组合。",
+    "正式PluginSettings列表与单插件详情；配置草稿按插件保留，文件/OpenCLI/远程功能仅在选中功能页时挂载。",
   boundary:
     "manifest与正式组件直接复用；管理和业务回调限预览内存，不访问用户文件、修改全局配置、启动后台或连接真实远程。示例状态不证明实际宿主验收。",
   story: {
-    goal: "在完整插件组合中管理来源、启停和配置，并阅读各插件的业务状态。",
+    goal: "从精简插件列表选择详情，管理启停和配置，按需打开所属功能。",
     preconditions: ["正式组件、manifest和隔离预览服务就绪。"],
     result:
-      "动作后读取真实状态；失败说明与读取失败分别保留，草稿不丢；连接状态与启用状态分别可读。",
+      "仅选中插件显示详情；切换插件仍保留配置草稿，业务页离开后卸载；动作后读取真实状态，失败与读取错误分别保留。",
   },
   standards: [
     {
       id: "P1",
       name: "真实值与来源",
-      rule: "启用、安装、版本、加载及业务状态分别展示；来源保持可读。",
+      rule: "列表只显示名称、简要状态和启停；详情呈现配置与按需打开的功能，版本和来源收在插件信息中。",
       reason: "安装或启用不是连接成功。",
-      check: "核对源版本与实际manifest，启停其他插件不联动。",
+      check: "选择不同插件，核对单个详情与来源信息；启停不联动其他插件。",
     },
     {
       id: "P2",
@@ -322,17 +324,18 @@ export default {
     {
       id: "P4",
       name: "配置草稿与冲突",
-      rule: "启停只保存已保存配置；重读及启停保留草稿。外部配置变化须明确采用或确认覆盖，保存按当前revision核对。",
+      rule: "草稿由插件管理页按稳定id持有，切换详情、重读及启停保留；启停只使用已保存配置。外部配置变化须明确采用或确认覆盖，保存按当前revision核对。",
       reason: "启用状态更新不应静默丢弃编辑，也不能默默覆盖另一处保存的值。",
       check:
-        "修改字段后启停/重读仍保留；触发另一处保存后核对草稿、保存门禁与两个明确处理入口。",
+        "修改字段后切换到其他插件再返回，启停/重读仍保留；触发另一处保存后核对草稿、保存门禁与两个明确处理入口。",
     },
     {
       id: "P3",
-      name: "设置长页可达",
-      rule: "正式设置壳保持标题和分区导航，插件长内容在有界内容区滚动；底部操作可到达。",
+      name: "列表与详情可达",
+      rule: "正式设置壳保留标题和分区导航，宽窗并列列表与详情，窄窗上下排列；只挂载当前选中功能，长内容底部可到达。",
       reason: "工作台裁切溢出内容时，自然高度插件页仍需要真实滚动入口。",
-      check: "在完整设置壳中向下滚动到远程插件底部，再回到页首；不执行重置。",
+      check:
+        "在完整设置壳中选择远程插件并打开功能，滚动到底部再回到列表；不执行重置。",
     },
   ],
   inputs: [
@@ -342,11 +345,12 @@ export default {
   events: [
     "启停/配置后读取权威值",
     "导入、安装与启用分别表达",
+    "选中功能标签才挂载业务页，离开插件详情卸载",
     "各插件业务动作由其owner处理",
   ],
   composition: [
     "SettingsShell / 有界设置内容区",
-    "PluginSettings / Field / Switch / Input / Button / ExtensionConfigurationFields",
+    "PluginSettings / 列表 / 单插件详情 / Tabs / Dialog / ExtensionConfigurationFields",
     "文件Page / OpenCliConnectionView / RemoteConnectionView / QRCode",
   ],
   consumers: ["正式SettingsPage插件分区"],
@@ -356,7 +360,10 @@ export default {
       name: "单插件配置损坏",
       section: "exception",
       condition: "文件插件的隔离已保存配置不是有效JSON，其他插件保持正常。",
-      steps: ["读取插件页，核对损坏行说明。", "停用该行，再管理其他插件。"],
+      steps: [
+        "选择文件插件，核对配置无法解析说明。",
+        "在列表停用此插件，再选择其他插件管理。",
+      ],
       expected: "坏配置原文保持，插件页不崩溃，其他插件可继续管理。",
       render: () => <SettingsExample badConfiguration />,
     },
@@ -365,7 +372,10 @@ export default {
       name: "取消中断上传的接收占位",
       section: "exception",
       condition: "远程插件展示准备结果待核对的隔离接收项。",
-      steps: ["滚动到未完成上传。", "取消接收并保留副本，再重新读取。"],
+      steps: [
+        "选择远程插件并打开功能，滚动到未完成上传。",
+        "取消接收并保留副本，再重新读取。",
+      ],
       expected: "移出接收列表，明确原副本保留；不删除或重置真实远程连接。",
       render: () => <SettingsExample abandonedUpload />,
     },
@@ -403,7 +413,7 @@ export default {
       section: "exception",
       condition: "正式PluginSettings与隔离服务；先输入草稿，再触发另一处保存。",
       steps: [
-        "在文件插件输入草稿，启停并重新读取，核对原草稿和开关。",
+        "在文件插件输入草稿，选择其他插件后再返回，启停并重新读取，核对原草稿和开关。",
         "点击模拟另一处保存配置，保存应阻止，原草稿仍可编辑。",
         "分别核对采用已保存配置和保留草稿并确认覆盖后的显式保存。",
       ],
@@ -413,16 +423,16 @@ export default {
     },
     {
       id: "scroll-workspace",
-      name: "完整设置壳长页滚动",
+      name: "完整设置壳列表与详情",
       section: "states",
       condition:
         "正式SettingsShell包裹原插件隔离组合，导航固定在插件分区，仅核对布局。",
       steps: [
-        "从插件页首滚动到远程访问的底部按钮，再返回页首。",
+        "依次选择插件，配置和功能分开呈现；选择远程访问并打开功能后滚动到底部，再返回列表。",
         "将视口缩至窄窗，核对标题、分区导航和内容滚动区。",
       ],
       expected:
-        "长内容与底部操作可达，标题和导航保留；不执行重置或写入正式配置。",
+        "宽窗并列列表和单个详情，窄窗上下排列；长内容可达，配置草稿在切换后保留，不执行真实重置或写入。",
       render: () => <SettingsWorkspaceExample />,
     },
     {
@@ -432,8 +442,8 @@ export default {
       condition: "三个正式manifest与隔离状态就绪。",
       steps: [
         "停用再启用单个插件。",
-        "修改配置并保存。",
-        "添加一个来源并移除。",
+        "选择详情修改配置，切换其他插件再返回后保存。",
+        "打开导入插件对话框，添加一个来源并在其详情移除。",
       ],
       expected:
         "仅所属插件及预览候选变化，原组件组合完整，没有真实后台副作用。",
@@ -453,7 +463,10 @@ export default {
       name: "启用但未连接",
       section: "states",
       condition: "插件已启用，浏览器和远程业务连接尚未就绪。",
-      steps: ["查看启用开关与各业务连接说明。", "触发刷新或连接回调。"],
+      steps: [
+        "选择浏览器或远程插件，再打开功能查看连接状态。",
+        "触发刷新或连接回调。",
+      ],
       expected: "启用不显示为业务已连接；动作仅回传预览事件。",
       render: () => <SettingsExample connected={false} />,
     },

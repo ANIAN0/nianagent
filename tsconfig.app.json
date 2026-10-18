@@ -26,5 +26,11 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src", "backend/plugins/**/*.tsx", "ui-catalog", "api-catalog"]
+  "include": [
+    "src",
+    "backend/plugins/**/*.tsx",
+    "ui-catalog",
+    "api-catalog",
+    "devtools"
+  ]
 }

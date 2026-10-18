@@ -51,10 +51,6 @@ export type OpenCliStatus = {
   status: object | null
   issue: string
 }
-export type OpenCliTarget = {
-  bound: { title: string; url: string; targetId: string; issue?: string } | null
-  session: string
-}
 export type OpenCliService = {
   read: (signal?: AbortSignal) => Promise<OpenCliStatus>
   manage: (

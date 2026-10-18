@@ -2,16 +2,20 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { ComposerToaster } from "@/components/composer/composer-notification"
 import { Component, useEffect, useState, type ReactNode } from "react"
 import { createRoot } from "react-dom/client"
-import { ThemeProvider } from "@/components/theme-provider"
+import { ThemeProvider, useTheme } from "@/components/theme-provider"
 import { loadCatalogEntry } from "./catalog-loader"
 import type { CatalogEntry } from "./catalog-types"
 import { CatalogComponentShell } from "./catalog-component-shell"
 import { readStorySection } from "./catalog-sections"
 import "@/index.css"
-import { installPreviewStorage } from "./fixtures/memory-storage"
+import {
+  installPreviewStorage,
+  installPreviewNetwork,
+} from "./fixtures/memory-storage"
 import { CatalogPreviewStatus } from "./catalog-preview-status"
 
 installPreviewStorage()
+installPreviewNetwork()
 const embedded =
   new URLSearchParams(location.search).get("embedded") === "1" &&
   window.parent !== window
@@ -73,6 +77,22 @@ function PreviewSizeReporter() {
     report()
     return () => observer.disconnect()
   }, [])
+  return null
+}
+function PreviewThemeReceiver() {
+  const { setTheme } = useTheme()
+  useEffect(() => {
+    const receive = (event: MessageEvent) => {
+      if (event.origin !== location.origin || event.source !== parent) return
+      if (
+        event.data?.type === "moon-preview-theme" &&
+        (event.data.theme === "light" || event.data.theme === "dark")
+      )
+        setTheme(event.data.theme)
+    }
+    window.addEventListener("message", receive)
+    return () => window.removeEventListener("message", receive)
+  }, [setTheme])
   return null
 }
 const params = new URLSearchParams(location.search)
@@ -160,6 +180,7 @@ const root = createRoot(document.getElementById("root")!)
 if (import.meta.hot) import.meta.hot.dispose(() => root.unmount())
 root.render(
   <ThemeProvider defaultTheme={theme} storageKey={null}>
+    <PreviewThemeReceiver />
     <PreviewSizeReporter />
     <TooltipProvider>
       <PreviewApplication />

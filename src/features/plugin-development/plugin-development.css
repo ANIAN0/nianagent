@@ -1,0 +1,45 @@
+.plugin-development-navigation {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+.plugin-development-search {
+  padding: 16px 12px;
+}
+.plugin-development-chapters {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow: auto;
+  padding: 0 12px 24px;
+}
+.plugin-development-chapters > a {
+  display: block;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  line-height: 22px;
+  color: var(--foreground);
+  text-decoration: none;
+}
+.plugin-development-chapters > a:hover {
+  background: var(--accent);
+}
+.plugin-development-chapters > a[aria-current] {
+  color: var(--primary);
+  background: var(--accent);
+  font-weight: 500;
+}
+.plugin-development-reading [data-slot="table-container"] {
+  margin: 20px 0;
+}
+.plugin-development-reading table {
+  min-width: 540px;
+}
+.plugin-development-reading th {
+  white-space: normal;
+}
+.plugin-development-reading td:first-child {
+  min-width: 112px;
+}

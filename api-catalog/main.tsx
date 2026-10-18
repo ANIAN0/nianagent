@@ -1,20 +1,5 @@
-import { DesktopApiCatalog } from "./desktop-catalog"
-import { createRoot } from "react-dom/client"
-import { ThemeProvider } from "@/components/theme-provider"
-import { NotificationToaster } from "@/components/ui/notification-toast"
 import { ApiCatalogApp } from "./app"
-import "@/index.css"
+import { mountTool } from "../devtools/tool-root"
 import "./catalog.css"
 
-const root = createRoot(document.getElementById("root")!)
-if (import.meta.hot) import.meta.hot.dispose(() => root.unmount())
-root.render(
-  <ThemeProvider storageKey={null} defaultTheme="light">
-    {new URLSearchParams(location.search).has("desktop") ? (
-      <DesktopApiCatalog />
-    ) : (
-      <ApiCatalogApp />
-    )}
-    <NotificationToaster />
-  </ThemeProvider>
-)
+mountTool("接口查询", <ApiCatalogApp />)

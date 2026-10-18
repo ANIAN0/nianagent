@@ -13,20 +13,27 @@ const obj = (properties, required = Object.keys(properties)) => ({
 const ref = ($ref) => ({ $ref })
 const arr = (items) => ({ type: "array", items })
 export const extensionSchemas = {
-  ExtensionPresentation: obj({
-    kind: str(
-      "声明中的稳定结果种类；按kind/version选择展示，不按工具或插件名称分支"
-    ),
-    version: {
-      type: "integer",
-      minimum: 1,
-      description: "结果协议版本；不支持的版本仍呈现原始文本",
+  ExtensionPresentation: obj(
+    {
+      originId: str("所属真实工具调用位置，跟随会话分支恢复"),
+      pluginId: str("交付所属插件；卸载后仍保留身份"),
+      source: str("交付插件名称"),
+      summary: str("保存的可读交付摘要", { maxLength: 16000 }),
+      kind: str(
+        "声明中的稳定结果种类；按kind/version选择展示，不按工具或插件名称分支"
+      ),
+      version: {
+        type: "integer",
+        minimum: 1,
+        description: "结果协议版本；不支持的版本仍呈现原始文本",
+      },
+      payload: str(
+        "插件显式提交的JSON展示数据，最多64KiB；不含宿主对象或函数",
+        { maxLength: 65536 }
+      ),
     },
-    payload: str(
-      "经过声明结果schema核对的JSON对象字符串，最多64KiB；不含宿主对象或函数",
-      { maxLength: 65536 }
-    ),
-  }),
+    ["kind", "version", "payload"]
+  ),
   ExtensionResultKind: obj({
     kind: str("稳定展示种类"),
     version: { type: "integer", minimum: 1 },

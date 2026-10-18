@@ -1,0 +1,46 @@
+{
+  "name": "moon-example-note",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "通过Pi工具生成短记录，并在轮次末尾交付。",
+  "pi": {
+    "extensions": [
+      "./pi.mjs"
+    ]
+  },
+  "moon": {
+    "apiVersion": 1,
+    "pi": "pi.mjs",
+    "web": "web.mjs",
+    "defaultConfiguration": {
+      "prefix": "记录"
+    },
+    "configurationSchema": {
+      "type": "object",
+      "properties": {
+        "prefix": {
+          "type": "string",
+          "title": "记录前缀",
+          "minLength": 1,
+          "maxLength": 24
+        }
+      },
+      "required": [
+        "prefix"
+      ],
+      "additionalProperties": false
+    },
+    "effects": [
+      "根据工具输入生成记录；不读取或修改用户文件"
+    ],
+    "contributions": [
+      {
+        "id": "note",
+        "kind": "delivery",
+        "title": "短记录",
+        "version": 1,
+        "remote": true
+      }
+    ]
+  }
+}

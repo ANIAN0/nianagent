@@ -8,7 +8,7 @@ import { withRequestContext } from "./request-context.mjs"
 export async function runtimeVersion() {
   // Explicit wire compatibility, never source-file hashing on an RPC request.
   // Backend edits take effect by restarting the dev host.
-  return "moon-host-protocol-3"
+  return "moon-host-protocol-4"
 }
 export async function startRuntime(file, dispatch, publicFailure) {
   const version = await runtimeVersion()
@@ -59,10 +59,20 @@ export async function startRuntime(file, dispatch, publicFailure) {
     try {
       const input = await readJsonBody(
         req,
-        ["materialUpload", "pluginCall"].includes(operation) ? 16 * 1024 * 1024 : 1024 * 1024
+        ["materialUpload", "pluginCall"].includes(operation)
+          ? 16 * 1024 * 1024
+          : 1024 * 1024
       )
       const clientId = String(req.headers["x-moon-client"] || "browser")
-      const result = await withRequestContext({ source: "local", clientId, connectionId: instance, viewGeneration: 0 }, () => dispatch(operation, input, controller.signal))
+      const result = await withRequestContext(
+        {
+          source: "local",
+          clientId,
+          connectionId: instance,
+          viewGeneration: 0,
+        },
+        () => dispatch(operation, input, controller.signal)
+      )
       if (!res.destroyed) res.end(JSON.stringify({ result }))
     } catch (error) {
       if (!res.destroyed) {

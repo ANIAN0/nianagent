@@ -18,3 +18,10 @@ declare module "virtual:moon-api-docs" {
     () => Promise<import("./catalog-data").OperationDocumentation>
   >
 }
+
+declare module "virtual:moon-api-documents" {
+  export const apiDocuments: Record<
+    string,
+    import("./components/types").ApiDocument
+  >
+}

@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type ReactNode,
 } from "react"
 import {
   HomeComposer,
@@ -1149,10 +1150,12 @@ export function HomeStoryExample({
   scenario = "normal",
   consumer = "home",
   conversationRunning = false,
+  frame,
 }: {
   scenario?: HomeScenario
   consumer?: "home" | "conversation"
   conversationRunning?: boolean
+  frame?: (content: ReactNode, data: ComposerData) => ReactNode
 }) {
   const [environment] = useState(() => createEnvironment(scenario))
   const [materialService, setMaterialService] = useState(environment.materials)
@@ -1375,209 +1378,262 @@ export function HomeStoryExample({
       },
     })
   )
+  const content = (
+    <div className="flex min-h-svh flex-col bg-background text-foreground">
+      <div className="flex min-h-[420px] flex-1 items-center justify-center p-4">
+        <div ref={composerContainer} className="w-full max-w-[760px]">
+          {consumer === "conversation" ? (
+            <ConversationComposer
+              sessionId={seed.sessionId}
+              workspacePath={workspaces[0]!.path}
+              running={conversationRunning}
+              data={data}
+              draft={conversationDraft}
+              onChange={setConversationDraft}
+              onSubmit={(draft, delivery) =>
+                environment.record("conversation.submit", {
+                  draft: structuredClone(draft),
+                  delivery,
+                })
+              }
+              onStop={() => environment.record("conversation.stop")}
+            />
+          ) : (
+            <>
+              <div hidden={otherOwner}>
+                <HomeComposer
+                  key={composerRevision}
+                  inactive={otherOwner}
+                  data={data}
+                  initialDraft={seed}
+                  draftStore={environment.draftStore}
+                  onSubmit={environment.submit}
+                  onSubmissionPrepare={
+                    isRecoveryScenario(scenario)
+                      ? environment.prepareSubmission
+                      : undefined
+                  }
+                  restoredSubmission={environment.restoredSubmission}
+                  onCheckSubmission={
+                    scenario === "send-unknown" ||
+                    scenario === "send-recovery-auto-pending" ||
+                    scenario === "send-recovery-manual-pending"
+                      ? environment.checkSubmission
+                      : undefined
+                  }
+                  onChooseWorkspace={environment.chooseWorkspace}
+                  onWorkspaceSelect={environment.selectWorkspace}
+                  workspaceLoading={
+                    (scenario === "workspace-pending" ||
+                      scenario === "workspace-empty-pending") &&
+                    !environment.released
+                  }
+                  workspaceError={
+                    workspaceStatus === "error"
+                      ? "工作目录列表未能读取，请重新读取。"
+                      : undefined
+                  }
+                  onWorkspaceRetry={() => {
+                    environment.record("workspace.retry")
+                    setWorkspaceStatus("ready")
+                  }}
+                />
+              </div>
+              {otherOwner && (
+                <HomeComposer
+                  data={data}
+                  initialDraft={{
+                    workspaceId: workspaces[1]!.id,
+                    sessionId: otherSessionId,
+                  }}
+                  draftStore={environment.draftStore}
+                  onSubmit={environment.submit}
+                  restoredSubmission={environment.restoredSubmission}
+                />
+              )}
+            </>
+          )}
+        </div>
+      </div>
+      <aside
+        className="border-t p-4 text-[13px] leading-5"
+        aria-label="演示环境"
+      >
+        <div className="flex flex-wrap items-center gap-3 text-muted-foreground">
+          <span>
+            内存演示 · 正式
+            {consumer === "conversation" ? "会话输入组合" : "首页组件"}
+            {" · 不连接模型"}
+          </span>
+          {isRecoveryScenario(scenario) ? (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!environment.recoveryReady}
+                onClick={environment.advanceRecovery}
+              >
+                {environment.recoveryAction}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setOtherOwner((current) => !current)}
+              >
+                {otherOwner ? "返回原任务" : "切换演示所有者"}
+              </Button>
+            </>
+          ) : (
+            (scenario.endsWith("pending") || scenario === "send-unknown") && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={environment.released}
+                onClick={environment.release}
+              >
+                {scenario === "send-unknown"
+                  ? "模拟接收原提交"
+                  : "完成等待（Alt+Shift+R）"}
+              </Button>
+            )
+          )}
+        </div>
+        <details className="mt-2">
+          <summary className="cursor-pointer">
+            操作反馈（已接收 {environment.submissions.length} 次提交）
+          </summary>
+          {scenario === "preview-error" && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!thumbnailSettled}
+              onClick={environment.armPreviewFailure}
+            >
+              让下一次图片弹窗读取失败
+            </Button>
+          )}
+          {scenario === "preview-pending" && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!thumbnailSettled}
+              onClick={environment.armPreviewWait}
+            >
+              让下一次图片弹窗等待读取
+            </Button>
+          )}
+          {scenario === "preview-decode" && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!thumbnailSettled}
+              onClick={environment.armDecodeFailure}
+            >
+              让下一次图片弹窗无法解码
+            </Button>
+          )}
+          {scenario === "upload-restore" && (
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setComposerRevision((value) => value + 1)}
+              >
+                重开输入（保留临时图片源）
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  // A fresh service instance has no browser File registry.
+                  // Saved drafts and fixed host substitutes remain intact.
+                  setMaterialService({ ...environment.materials })
+                  setComposerRevision((value) => value + 1)
+                }}
+              >
+                模拟重启（不保留临时图片源）
+              </Button>
+            </div>
+          )}
+          <p className="my-2 text-muted-foreground">
+            演示只接收输入，不连接模型或执行Agent。
+          </p>
+          {environment.submissions.map((draft, index) => (
+            <section className="my-3" key={index}>
+              <strong>第{index + 1}次已接收提交</strong>
+              <p className="whitespace-pre-wrap">
+                {draft.text || "（仅材料）"}
+              </p>
+              <p>
+                模型：{draft.modelLabel || draft.model}；工具：
+                {draft.session.toolIds.join("、") || "未选择"}
+                ；指令范围：{draft.session.instructionScope}
+              </p>
+            </section>
+          ))}
+          <ul>
+            {environment.events
+              .filter((event) =>
+                [
+                  "session.applied",
+                  "permission.saved",
+                  "home.rejected",
+                  "home.result_unknown",
+                  "home.check.rejected",
+                ].includes(event.operation)
+              )
+              .slice(-6)
+              .map((event, index) => (
+                <li key={index}>
+                  {
+                    (
+                      {
+                        "session.applied": "会话配置已应用",
+                        "permission.saved": "会话权限已保存",
+                        "home.rejected": "本次提交被明确拒绝，原稿可恢复",
+                        "home.result_unknown":
+                          "发送结果未确认，请检查原发送状态",
+                        "home.check.rejected": "已确认原提交未被接收",
+                      } as Record<string, string>
+                    )[event.operation]
+                  }
+                </li>
+              ))}
+          </ul>
+          <details>
+            <summary>维护核验记录</summary>
+            <pre
+              className="max-h-60 overflow-auto rounded-md bg-muted p-3 text-xs break-all whitespace-pre-wrap"
+              aria-label="服务调用记录"
+            >
+              {JSON.stringify(environment.events, null, 2)}
+            </pre>
+          </details>
+        </details>
+      </aside>
+    </div>
+  )
   return (
     <SessionServiceContext value={environment.session}>
       <PermissionServiceContext value={environment.permission}>
         <MaterialServiceContext value={materialService}>
           <ExtensionServiceContext value={extensionService}>
-            <div className="flex min-h-svh flex-col bg-background text-foreground">
-              <div className="flex min-h-[420px] flex-1 items-center justify-center p-4">
-                <div ref={composerContainer} className="w-full max-w-[760px]">
-                  {consumer === "conversation" ? (
-                    <ConversationComposer
-                      sessionId={seed.sessionId}
-                      workspacePath={workspaces[0]!.path}
-                      running={conversationRunning}
-                      data={data}
-                      draft={conversationDraft}
-                      onChange={setConversationDraft}
-                      onSubmit={(draft, delivery) =>
-                        environment.record("conversation.submit", {
-                          draft: structuredClone(draft),
-                          delivery,
-                        })
-                      }
-                      onStop={() => environment.record("conversation.stop")}
-                    />
-                  ) : (
-                    <>
-                      <div hidden={otherOwner}>
-                        <HomeComposer
-                          key={composerRevision}
-                          inactive={otherOwner}
-                          data={data}
-                          initialDraft={seed}
-                          draftStore={environment.draftStore}
-                          onSubmit={environment.submit}
-                          onSubmissionPrepare={
-                            isRecoveryScenario(scenario)
-                              ? environment.prepareSubmission
-                              : undefined
-                          }
-                          restoredSubmission={environment.restoredSubmission}
-                          onCheckSubmission={
-                            scenario === "send-unknown" ||
-                            scenario === "send-recovery-auto-pending" ||
-                            scenario === "send-recovery-manual-pending"
-                              ? environment.checkSubmission
-                              : undefined
-                          }
-                          onChooseWorkspace={environment.chooseWorkspace}
-                          onWorkspaceSelect={environment.selectWorkspace}
-                          workspaceLoading={
-                            (scenario === "workspace-pending" ||
-                              scenario === "workspace-empty-pending") &&
-                            !environment.released
-                          }
-                          workspaceError={
-                            workspaceStatus === "error"
-                              ? "工作目录列表未能读取，请重新读取。"
-                              : undefined
-                          }
-                          onWorkspaceRetry={() => {
-                            environment.record("workspace.retry")
-                            setWorkspaceStatus("ready")
-                          }}
-                        />
-                      </div>
-                      {otherOwner && (
-                        <HomeComposer
-                          data={data}
-                          initialDraft={{
-                            workspaceId: workspaces[1]!.id,
-                            sessionId: otherSessionId,
-                          }}
-                          draftStore={environment.draftStore}
-                          onSubmit={environment.submit}
-                          restoredSubmission={environment.restoredSubmission}
-                        />
-                      )}
-                    </>
-                  )}
-                </div>
-              </div>
-              <aside
-                className="border-t p-4 text-[13px] leading-5"
-                aria-label="演示环境"
-              >
-                <div className="flex flex-wrap items-center gap-3 text-muted-foreground">
-                  <span>
-                    内存演示 · 正式
-                    {consumer === "conversation" ? "会话输入组合" : "首页组件"}
-                    {" · 不连接模型"}
-                  </span>
-                  {isRecoveryScenario(scenario) ? (
-                    <>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={!environment.recoveryReady}
-                        onClick={environment.advanceRecovery}
-                      >
-                        {environment.recoveryAction}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setOtherOwner((current) => !current)}
-                      >
-                        {otherOwner ? "返回原任务" : "切换演示所有者"}
-                      </Button>
-                    </>
-                  ) : (
-                    (scenario.endsWith("pending") ||
-                      scenario === "send-unknown") && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={environment.released}
-                        onClick={environment.release}
-                      >
-                        {scenario === "send-unknown"
-                          ? "模拟接收原提交"
-                          : "完成等待（Alt+Shift+R）"}
-                      </Button>
-                    )
-                  )}
-                </div>
-                <details className="mt-2">
-                  <summary className="cursor-pointer">
-                    演示数据与事件（{eventsCount(environment.events)} 次，已接收{" "}
-                    {environment.submissions.length} 次提交）
-                  </summary>
-                  {scenario === "preview-error" && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={!thumbnailSettled}
-                      onClick={environment.armPreviewFailure}
-                    >
-                      让下一次图片弹窗读取失败
-                    </Button>
-                  )}
-                  {scenario === "preview-pending" && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={!thumbnailSettled}
-                      onClick={environment.armPreviewWait}
-                    >
-                      让下一次图片弹窗等待读取
-                    </Button>
-                  )}
-                  {scenario === "preview-decode" && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={!thumbnailSettled}
-                      onClick={environment.armDecodeFailure}
-                    >
-                      让下一次图片弹窗无法解码
-                    </Button>
-                  )}
-                  {scenario === "upload-restore" && (
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() =>
-                          setComposerRevision((value) => value + 1)
-                        }
-                      >
-                        重开输入（保留临时图片源）
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          // A fresh service instance has no browser File registry.
-                          // Saved drafts and fixed host substitutes remain intact.
-                          setMaterialService({ ...environment.materials })
-                          setComposerRevision((value) => value + 1)
-                        }}
-                      >
-                        模拟重启（不保留临时图片源）
-                      </Button>
-                    </div>
-                  )}
-                  <p className="my-2 text-muted-foreground">
-                    这里是示例观测区。发送仅核对正式输入组件回调数据；实际路由、Agent
-                    执行不在本页范围。
-                  </p>
-                  <pre
-                    className="max-h-60 overflow-auto rounded-md bg-muted p-3 text-xs break-all whitespace-pre-wrap"
-                    aria-label="服务调用记录"
-                  >
-                    {JSON.stringify(environment.events, null, 2)}
-                  </pre>
-                </details>
-              </aside>
-            </div>
+            {frame
+              ? frame(content, {
+                  ...data,
+                  conversations: data.workspaces
+                    .slice(0, 1)
+                    .map((workspace) => ({
+                      id: "home-history-example",
+                      workspaceId: workspace.id,
+                      title: "隔离会话示例",
+                      status: "completed",
+                    })),
+                })
+              : content}
           </ExtensionServiceContext>
         </MaterialServiceContext>
       </PermissionServiceContext>
     </SessionServiceContext>
   )
 }
-
-const eventsCount = (events: unknown[]) => events.length

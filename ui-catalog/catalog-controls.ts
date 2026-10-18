@@ -54,7 +54,7 @@ export function buildCatalogHref(
     : entry.states[0]?.id
   const params = new URLSearchParams({
     component: entry.id,
-    view: requestedState ? "canvas" : "docs",
+    view: "canvas",
     theme: current.theme,
     width: String(
       current.component === entry.id ? current.width : entry.viewport.width

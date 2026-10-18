@@ -1,3 +1,4 @@
+import { profileLocalStorage as localStorage } from "@/lib/rpc/profile-storage"
 import { createContext } from "react"
 import { rpcCall } from "@/lib/rpc/client"
 import type {

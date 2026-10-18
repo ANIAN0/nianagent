@@ -1,0 +1,29 @@
+{
+  "id": "logs",
+  "name": "日志",
+  "description": "查询本机 MCP 接入与对外工具调用的安全摘要。关闭查看插件仍继续记录。",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "defaultEnabled": false,
+  "entries": { "app": "host.mjs", "web": "web.tsx" },
+  "defaultConfiguration": {},
+  "configurationSchema": {
+    "type": "object",
+    "properties": {},
+    "required": [],
+    "additionalProperties": false
+  },
+  "contributions": [
+    {
+      "id": "viewer",
+      "kind": "page",
+      "title": "查看日志",
+      "version": 1,
+      "remote": false
+    }
+  ],
+  "effects": [
+    "只查询宿主 data/logs 中的 MCP 与共享工具日志，不监控全应用",
+    "保留30天，最多10000条及8MiB；不记录原始参数、正文、脚本、URL、stderr或图片base64"
+  ]
+}

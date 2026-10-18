@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { publicFailure } from "./operation-issue.mjs"
 import { replaceJson } from "./atomic-file.mjs"
+import { requestContext } from "./request-context.mjs"
 import {
   validateCommandReceipt,
   presentCommandReceipt,
@@ -109,6 +110,7 @@ export class ConversationCommands {
           !state.entry.busy && !state.controlBusy,
           "当前工作结束后可执行命令。"
         )
+        state.clientContext = requestContext()
         if (!state.session) {
           const slash = record.modelId.indexOf("/")
           await owner.activate(

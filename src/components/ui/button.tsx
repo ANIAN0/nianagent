@@ -8,6 +8,8 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
+        "sidebar-entry":
+          "justify-start border-border/60 bg-muted/30 font-normal text-foreground hover:bg-muted",
         insight:
           "font-normal text-muted-foreground tabular-nums hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset active:not-aria-[haspopup]:translate-y-0 aria-expanded:bg-muted aria-expanded:text-foreground",
         approval:
@@ -32,6 +34,8 @@ const buttonVariants = cva(
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {
+        "sidebar-entry":
+          "h-auto min-h-14 w-full gap-3.5 rounded-[20px] px-5 py-3.5 whitespace-normal [&_svg:not([class*='size-'])]:size-[22px]",
         insight:
           "h-[22px] max-w-full gap-1.5 rounded-full px-2 text-xs leading-5 [&_svg:not([class*='size-'])]:size-3.5",
         approval: "h-9 rounded-xl px-3.5 text-sm leading-[22px] font-normal",

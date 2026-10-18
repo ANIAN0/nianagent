@@ -9,6 +9,9 @@ export type Schema = {
   items?: Schema
   anyOf?: Schema[]
   minimum?: number
+  maximum?: number
+  default?: unknown
+  example?: unknown
   minLength?: number
   maxLength?: number
   maxItems?: number
@@ -36,7 +39,10 @@ export const operations: Record<
     queueReceipt?: true
   }
 >
-export const transportRecoveryByOperation: Record<ModelOperation, "reload" | "retry" | "check" | "none">
+export const transportRecoveryByOperation: Record<
+  ModelOperation,
+  "reload" | "retry" | "check" | "none"
+>
 export function validateRequest(
   operation: string,
   input: unknown
@@ -47,4 +53,9 @@ export function assertSchema(
   path?: string
 ): void
 
-export function dispatchOperation(service: object, operation: string, input: unknown, signal?: AbortSignal): Promise<unknown>
+export function dispatchOperation(
+  service: object,
+  operation: string,
+  input: unknown,
+  signal?: AbortSignal
+): Promise<unknown>

@@ -5,14 +5,15 @@ import { createConnection } from "node:net"
 import { randomUUID } from "node:crypto"
 import { managedProcess } from "./processes.mjs"
 import { softwareService } from "./software.mjs"
+import {
+  openCliArguments,
+  openCliBrowserCommand,
+  summarizeOpenCli,
+  toolResult,
+} from "./tool-result.mjs"
 
-const object = (properties = {}, required = Object.keys(properties)) => ({
-  type: "object",
-  properties,
-  required,
-  additionalProperties: false,
-})
-const output = object({ value: { type: "object", additionalProperties: true } })
+import { openCliOperations, openCliManagement } from "./contract.mjs"
+
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 async function bounded(promise, ms, message) {
   let timer
@@ -108,7 +109,6 @@ export async function activate(host) {
   let business = "官方全局OpenCLI；尚未读取安装和后台状态。"
   const clients = new Set(),
     tools = new Set(),
-    bindings = new Map(),
     tasks = new Map(),
     used = new Map()
   const confirmedStops = new Set()
@@ -189,15 +189,14 @@ export async function activate(host) {
         timeoutMs: 15000,
       })
       const supported =
-        root.stdout.includes("--profile") &&
-        browser.stdout.includes("<session>") &&
-        /\bbind\b/.test(browser.stdout)
+        /^[ \t]+--profile[ \t]+<[^>\r\n]+>/m.test(root.stdout) &&
+        /^[ \t]+--session[ \t]+<[^>\r\n]+>/m.test(browser.stdout)
       capabilities = {
         signature,
         supported,
         issue: supported
           ? ""
-          : "当前官方版本缺少Moon需要的命名会话、连接和绑定接口，请升级官方OpenCLI。",
+          : "当前OpenCLI未提供所需的--session与--profile接口，请升级到最新稳定版。",
       }
     }
     if (!capabilities.supported) throw new Error(capabilities.issue)
@@ -366,14 +365,11 @@ export async function activate(host) {
         if (!response.ok || result.ok !== true || result.id !== commandId)
           throw new Error("官方会话释放回执未确认。")
         used.delete(session)
-        bindings.delete(session)
         if (![...used.values()].some((value) => value.pid === resource.pid))
           confirmedStops.delete(resource.pid)
       } catch {
-        const binding = bindings.get(session)
-        if (binding)
-          binding.issue =
-            "会话释放未确认，原归属保留；请恢复原Browser Bridge连接，主动启动本插件后台后再停止，以重试释放。"
+        business =
+          "会话释放未确认，原归属保留；请恢复Browser Bridge连接后重试停止。"
       }
     }
     signal?.throwIfAborted()
@@ -498,8 +494,6 @@ export async function activate(host) {
           )
             throw new Error("实际安装结果与目标不一致，请重新读取。")
           capabilities = undefined
-          for (const value of bindings.values())
-            value.issue = "官方程序已变更，请主动重新绑定。"
           current.phase =
             action === "uninstall"
               ? "已卸载，用户配置保留"
@@ -518,8 +512,6 @@ export async function activate(host) {
             controller.signal,
             input.expectedDaemonVersion
           )
-          for (const value of bindings.values())
-            value.issue = "后台已停止，请启动后重新绑定。"
           current.phase = "后台已确认退出"
         }
       })
@@ -556,7 +548,7 @@ export async function activate(host) {
     if (!configured) return ""
     return (await aliases())[configured] || configured
   }
-  const ready = async (context, signal) => {
+  const ready = async (context, signal, external = false) => {
     available()
     const info = await software.detect(signal)
     await modern(info, signal)
@@ -583,39 +575,7 @@ export async function activate(host) {
       )
     if (current.pid !== live.pid || current.contextId !== profile)
       throw new Error("实际后台或连接已变化，请重新读取。")
-    return { info, current, profile, session: taskFor(context) }
-  }
-  const command = async (state, action, parameters = {}, signal) => {
-    const live = await status(state.profile)
-    if (
-      !live ||
-      live.pid !== state.current.pid ||
-      live.daemonVersion !== state.info.version ||
-      live.contextId !== state.profile
-    )
-      throw new Error("后台或连接已变化，未将操作转到另一处。")
-    const response = await fetch("http://127.0.0.1:19825/command", {
-      method: "POST",
-      headers: { "X-OpenCLI": "1", "Content-Type": "application/json" },
-      redirect: "error",
-      body: JSON.stringify({
-        id: "cmd_moon_" + randomUUID(),
-        action,
-        session: state.session,
-        surface: "browser",
-        contextId: state.profile,
-        ...parameters,
-      }),
-      signal: AbortSignal.any([
-        lifecycle.signal,
-        ...(signal ? [signal] : []),
-        AbortSignal.timeout(30000),
-      ]),
-    })
-    const result = await response.json()
-    if (!response.ok || !result.ok)
-      throw new Error(result.error || "官方浏览器操作未成功；未自动重做。")
-    return result
+    return { info, current, profile, session: external ? "" : taskFor(context) }
   }
   const tracked = (action) => {
     const pending = Promise.resolve().then(action)
@@ -626,183 +586,68 @@ export async function activate(host) {
     )
     return pending
   }
-  const bind = (context, signal) =>
-    tracked(async () => {
-      const state = await ready(context, signal)
-      used.set(state.session, {
-        profile: state.profile,
-        pid: state.current.pid,
-      })
-      const result = await command(state, "bind", {}, signal)
-      const targetId =
-        typeof result.page === "string" ? result.page : result.page?.targetId
-      if (!targetId)
-        throw new Error("官方绑定回执没有真实目标，未通过标题或网址猜测。")
-      const value = {
-        targetId,
-        title: result.data?.title || "",
-        url: result.data?.url || "",
-        profile: state.profile,
-        daemonPid: state.current.pid,
-        issue: "",
-      }
-      bindings.set(state.session, value)
-      return value
-    })
-  const unbind = (context, signal) =>
-    tracked(async () => {
-      const state = await ready(context, signal)
-      await command(state, "close-window", {}, signal)
-      bindings.delete(state.session)
-      used.delete(state.session)
-      return { unbound: true, session: state.session }
-    })
-  const execute = (args, context, signal) =>
+  const execute = (args, context, signal, external = false) =>
     tracked(async () => {
       available()
       const pure =
         args.length === 1 &&
         ["--help", "-h", "--version", "-V"].includes(args[0])
       if (args[0] === "--" || (args[0]?.startsWith("-") && !pure))
-        throw new Error(
-          "请从实际命令开始；根分隔符或前置管理参数不可用于浏览器工具。"
-        )
-      const separator = args.indexOf("--"),
-        parsed = separator < 0 ? args : args.slice(0, separator)
+        throw new Error("请从实际OpenCLI命令开始。")
       if (
-        [
-          "daemon",
-          "profile",
-          "plugin",
-          "install",
-          "update",
-          "uninstall",
-        ].includes(args[0])
-      )
-        throw new Error("全局管理只由本机插件设置主动操作。")
-      if (
-        parsed.some((value) =>
-          /^--(?:profile|session|tab|window)(?:=|$)/.test(value)
+        ["daemon", "profile", "install", "update", "uninstall"].includes(
+          args[0]
         )
       )
-        throw new Error("连接、会话和绑定由Moon管理，请勿覆盖路由参数。")
-      if (pure) {
-        const info = await software.detect(signal),
-          result = await cli(info, args, { signal, timeoutMs: 15000 })
-        return {
-          text: result.stdout.trim(),
-          data: null,
-          profile: "",
-          session: taskFor(context),
-          capturedAt: new Date().toISOString(),
-        }
-      }
-      const state = await ready(context, signal),
-        binding = bindings.get(state.session)
-      if (args[0] === "browser" && ["bind", "unbind"].includes(args[1]))
-        throw new Error("绑定与解绑需要本人在Moon主动操作。")
-      if (binding) {
-        if (
-          binding.issue ||
-          binding.profile !== state.profile ||
-          binding.daemonPid !== state.current.pid
-        )
-          throw new Error(binding.issue || "原绑定连接已变化，请主动重新绑定。")
-        if (
-          args[0] !== "browser" ||
-          ["close", "tab", "verify", "analyze"].includes(args[1])
-        )
-          throw new Error(
-            "当前借用用户页；请先解绑再执行analyze、站点/verify或标签管理。"
-          )
-        const tabs = await cli(
-          state.info,
-          ["--profile", state.profile, "browser", state.session, "tab", "list"],
-          { signal }
-        )
-        let list
-        try {
-          list = JSON.parse(tabs.stdout)
-        } catch {
-          throw new Error("目标身份未能核对，请主动重新绑定。")
-        }
-        if (
-          !Array.isArray(list) ||
-          !list.some((tab) => tab.page === binding.targetId)
-        )
-          throw new Error("原绑定目标已失效；未选择另一页，请恢复或重新绑定。")
-        if (
-          args[1] === "open" &&
-          !parsed.includes("--help") &&
-          !parsed.includes("-h")
-        ) {
-          if (parsed.length !== 3 || !/^https?:\/\//i.test(args[2]))
-            throw new Error("绑定导航仅接受明确的http/https网址。")
-          await command(
-            state,
-            "network-capture-start",
-            { page: binding.targetId, pattern: "" },
-            signal
-          )
-          const navigated = await command(
-            state,
-            "navigate",
-            { page: binding.targetId, url: args[2] },
-            signal
-          )
-          if (navigated.page !== binding.targetId)
-            throw new Error("导航回执未确认原绑定目标，请重新绑定。")
-          const actual = await command(
-            state,
-            "exec",
-            { page: binding.targetId, code: "location.href" },
-            signal
-          )
-          if (
-            actual.page !== binding.targetId ||
-            typeof actual.data !== "string"
-          )
-            throw new Error("实际目标或网址未确认，请检查原操作结果。")
-          const data = { url: actual.data, page: binding.targetId }
-          binding.url = data.url
-          return {
-            text: JSON.stringify(data),
-            data,
-            profile: state.profile,
-            session: state.session,
-            targetId: binding.targetId,
-            capturedAt: new Date().toISOString(),
+        throw new Error("全局安装和后台管理请从插件详情操作。")
+      const separator = args.indexOf("--")
+      const parsed = separator < 0 ? args : args.slice(0, separator)
+      if (
+        parsed.some((value) => /^--profile(?:=|$)/.test(value)) ||
+        (!external && parsed.some((value) => /^--session(?:=|$)/.test(value)))
+      )
+        throw new Error("浏览器环境与命名会话由Moon按当前会话提供。")
+      const discovery =
+        pure ||
+        parsed.includes("--help") ||
+        parsed.includes("-h") ||
+        ["list", "doctor"].includes(args[0])
+      const browser = args[0] === "browser" && !discovery
+      const state = browser
+        ? await ready(context, signal, external)
+        : {
+            info: await software.detect(signal),
+            profile: await profileFor(),
+            session: external ? "" : taskFor(context),
           }
-        }
-      }
       let parameters = args
-      if (args[0] === "browser") {
+      if (browser && !external) {
         used.set(state.session, {
           profile: state.profile,
           pid: state.current.pid,
         })
         parameters = [
           "browser",
-          state.session,
           ...parsed.slice(1),
-          "--window",
-          host.configuration.background ? "background" : "foreground",
-          ...(binding ? ["--tab", binding.targetId] : []),
+          "--session",
+          state.session,
           ...(separator < 0 ? [] : args.slice(separator)),
         ]
       }
+      // External argv is already native. Only Moon-created Pi sessions may
+      // enter `used`; stopping the plugin must not close external sessions.
+      const command = browser ? openCliBrowserCommand(parsed) : ""
       const result = await cli(
         state.info,
-        ["--profile", state.profile, ...parameters],
+        [...(state.profile ? ["--profile", state.profile] : []), ...parameters],
         {
           signal,
           env: {
             ...process.env,
-            OPENCLI_PROFILE: state.profile,
-            OPENCLI_WINDOW: host.configuration.background
-              ? "background"
-              : "foreground",
-            OPENCLI_SITE_SESSION: "ephemeral",
+            ...(state.profile ? { OPENCLI_PROFILE: state.profile } : {}),
+            ...(host.configuration.background
+              ? { OPENCLI_WINDOW: "background" }
+              : {}),
           },
         }
       )
@@ -810,7 +655,7 @@ export async function activate(host) {
       try {
         data = JSON.parse(result.stdout.trim())
       } catch {
-        /* Official plain text. */
+        /* Preserve official text output. */
       }
       return {
         text: result.stdout.trim(),
@@ -818,36 +663,43 @@ export async function activate(host) {
         profile: state.profile,
         session: state.session,
         capturedAt: new Date().toISOString(),
-        ...(binding ? { targetId: binding.targetId } : {}),
+        screenshot: command === "screenshot",
       }
     })
-  const operation = (input, action, remote = false, scope) => ({
-    input,
-    output,
-    remote,
-    ...(scope ? { scope } : {}),
+  const operation = (name, action) => ({
+    ...openCliOperations[name],
     execute: async (...args) => ({ value: await action(...args) }),
   })
-  const managementInput = object(
-    {
-      expectedDaemonPid: { type: "integer", minimum: 1 },
-      expectedDaemonVersion: { type: "string", maxLength: 100 },
-    },
-    []
-  )
   return {
     execute,
+    sharedTools: [
+      {
+        name: "run",
+        shareable: true,
+        description:
+          "运行官方 OpenCLI 原生 argv。可读取、下载，也可点击、填表、执行脚本、打开或关闭网站页面，具有写入影响；客户端自行审批。浏览器命令使用 browser <command> --session <name>，保留原生 --tab；用具体命令 --help 核对参数。外部调用自行选择原生 session，Moon 不注入、不创建业务上下文、不在断连或停用时关闭外部页面。profile 沿用插件配置。全局安装、后台和连接管理在 Moon 插件详情。",
+        inputSchema: openCliArguments,
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: true,
+          openWorldHint: true,
+        },
+        summarize: summarizeOpenCli,
+        execute: async (input, _context, signal) =>
+          toolResult(await execute(input.arguments, undefined, signal, true)),
+      },
+    ],
     operations: {
       ...Object.fromEntries(
-        ["install", "uninstall", "upgrade", "start", "stop"].map((name) => [
+        openCliManagement.map((name) => [
           name,
-          operation(managementInput, (input, _context, signal) =>
+          operation(name, (input, _context, signal) =>
             begin(name, input, signal)
           ),
         ])
       ),
-      status: operation(object(), (_input, _context, signal) => read(signal)),
-      connect: operation(object(), (_input, _context, signal) =>
+      status: operation("status", (_input, _context, signal) => read(signal)),
+      connect: operation("connect", (_input, _context, signal) =>
         tracked(async () => {
           available()
           const info = await software.detect(signal)
@@ -855,27 +707,6 @@ export async function activate(host) {
           await ensure(info)
           return read(signal)
         })
-      ),
-      target: operation(
-        object(),
-        (_input, context) => ({
-          bound: bindings.get(taskFor(context)) || null,
-          session: taskFor(context),
-        }),
-        true,
-        "session"
-      ),
-      bind: operation(
-        object(),
-        (_input, context, signal) => bind(context, signal),
-        false,
-        "session"
-      ),
-      unbind: operation(
-        object(),
-        (_input, context, signal) => unbind(context, signal),
-        false,
-        "session"
       ),
     },
     status: () => (management ? "官方OpenCLI管理中：" + job.phase : business),
@@ -941,7 +772,6 @@ export async function activate(host) {
             failures.push(new Error("自身会话释放未确认；用户标签不关闭。"))
           else {
             used.delete(session)
-            bindings.delete(session)
           }
         }
       } catch (error) {
@@ -965,7 +795,6 @@ export async function activate(host) {
           failures,
           "OpenCLI所属资源释放未确认，原归属保留。"
         )
-      bindings.clear()
       tasks.clear()
       used.clear()
     },

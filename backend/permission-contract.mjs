@@ -32,6 +32,7 @@ export const permissionSchemas = {
       kind: str("请求类型", { enum: ["tool", "confirm", "select", "input"] }),
       title: str("请求标题"),
       message: str("请求说明"),
+      pluginId: str("插件业务交互归属；宿主工具审批不设置"),
       toolName: str("工具名称"),
       toolCallId: str("Pi 工具调用标识，与 runId 共同关联当前待执行工具"),
       input: str("完整工具参数JSON"),

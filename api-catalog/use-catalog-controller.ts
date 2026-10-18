@@ -79,13 +79,23 @@ export function useCatalogController(debugOperation: ModelOperation | null) {
   }, [requests, revision, needsContract, contract])
   useEffect(() => {
     const change = () => {
-      requests.cancel()
-      setSelection(readLocation())
+      const next = readLocation()
+      setSelection((current) => {
+        if (
+          current.operation === next.operation &&
+          current.module === next.module
+        )
+          return current
+        requests.cancel()
+        return next
+      })
     }
     window.addEventListener("popstate", change)
+    window.addEventListener("moon-devtools-location", change)
     window.addEventListener("pagehide", requests.cancel)
     return () => {
       window.removeEventListener("popstate", change)
+      window.removeEventListener("moon-devtools-location", change)
       window.removeEventListener("pagehide", requests.cancel)
     }
   }, [requests])
@@ -94,6 +104,7 @@ export function useCatalogController(debugOperation: ModelOperation | null) {
     (url: string) => {
       requests.cancel()
       history.pushState(null, "", url)
+      window.dispatchEvent(new Event("moon-devtools-location"))
       setSelection(readLocation())
     },
     [requests]

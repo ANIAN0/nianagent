@@ -1,12 +1,20 @@
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import type { CatalogEntry } from "../../../ui-catalog/catalog-types"
 import type {
   ConversationChatTool,
-  MaterialReference,
+  ConversationChatMessage,
+  PluginDescriptor,
 } from "@/contracts/rpc.generated"
 import { Button } from "@/components/ui/button"
-import { MaterialChip } from "@/components/composer/material-chip"
-import { FileLink, Workspace } from "./web"
+import {
+  PluginSessionWorkspace,
+  type PluginSessionRegistry,
+} from "@/features/plugins/plugin-workspace"
+import manifest from "./manifest.json"
+import filePlugin, { FileDirectory, FileChanges, FilePanel } from "./web"
+import { ConversationPageExample } from "../../../ui-catalog/fixtures/conversation-page-stories"
+import { createConversationPageEnvironment } from "../../../ui-catalog/fixtures/conversation-page-service"
+import type { PluginContext } from "@/features/plugins/plugin-api"
 import type { FileWorkbenchService } from "./file-service"
 
 const root = "/catalog"
@@ -55,7 +63,7 @@ type PreviewService = FileWorkbenchService & {
   save: () => void
   recover: () => void
 }
-function createPreviewService(
+export function createPreviewService(
   failure: boolean,
   noGit: boolean
 ): PreviewService {
@@ -243,93 +251,248 @@ function createPreviewService(
     },
   }
 }
-function WorkbenchExample({
+export function WorkbenchExample({
   failure = false,
   noGit = false,
+  interaction = false,
+  compact = false,
+  moduleRecovery = false,
+  initialModuleFailure = false,
+  deliveryRecovery = false,
 }: {
   failure?: boolean
   noGit?: boolean
+  interaction?: boolean
+  compact?: boolean
+  moduleRecovery?: boolean
+  initialModuleFailure?: boolean
+  deliveryRecovery?: boolean
 }) {
-  const [sessionId] = useState(() => `catalog-files-${crypto.randomUUID()}`)
   const [service] = useState(() => createPreviewService(failure, noGit))
-  const [materials, setMaterials] = useState<MaterialReference[]>([])
+  const [enabled, setEnabled] = useState(true)
+  const [moduleFailed, setModuleFailed] = useState(initialModuleFailure)
+  const [generation, setGeneration] = useState(1)
   const [notice, setNotice] = useState("")
+  const [environment] = useState(() => {
+    const userId = "catalog-files-user"
+    const runId = "catalog-files-run"
+    const names = [
+      "README.md",
+      "source.ts",
+      "image.svg",
+      "sample.pdf",
+      "archive.zip",
+    ]
+    const messages: ConversationChatMessage[] = [
+      {
+        id: userId,
+        userTurnId: userId,
+        runId,
+        historyIndex: 0,
+        role: "user",
+        text: "帮我整理项目说明，并把文件交付给我。",
+        time: "2026-10-17T10:00:00Z",
+        status: "settled",
+      },
+      {
+        id: `${runId}-answer`,
+        entryId: `${runId}-answer`,
+        userTurnId: userId,
+        runId,
+        historyIndex: 1,
+        role: "assistant",
+        status: "settled",
+        stopReason: "stop",
+        time: "2026-10-17T10:01:00Z",
+        text: "项目说明与相关材料已整理。可以打开交付文件查看，或引用选区继续讨论。",
+        tools: names.map((name, index) => ({
+          ...tool,
+          id: `catalog-delivery-${index}`,
+          occurrenceId: `catalog-delivery-${index}`,
+          presentation: {
+            pluginId: manifest.id,
+            kind: "file-link",
+            version: 1,
+            payload: JSON.stringify({ path: `${root}/${name}`, name }),
+            summary: name,
+          },
+        })),
+      },
+    ]
+    return createConversationPageEnvironment("page-ready", {
+      cwd: root,
+      title: "整理项目说明",
+      messages,
+      snapshot: {
+        runId,
+        statistics: undefined,
+        phase: interaction ? "running" : "completed",
+        approvals: interaction
+          ? [
+              {
+                id: "catalog-files-input",
+                runId,
+                kind: "input",
+                pluginId: manifest.id,
+                title: "填写交付说明",
+                message: "这段说明将随文件一同交付。",
+                expiresAt: new Date(Date.now() + 600000).toISOString(),
+              },
+            ]
+          : [],
+      },
+    })
+  })
+  const module = useMemo(
+    () => ({
+      ...filePlugin,
+      deliveries: filePlugin.deliveries?.map((definition) => ({
+        ...definition,
+        component:
+          deliveryRecovery && generation === 1
+            ? () => {
+                throw new Error("示例交付组件渲染失败。")
+              }
+            : definition.component,
+      })),
+      // Use every formal tab's metadata and body with this isolated file port.
+      tabs: filePlugin.tabs!.map((definition) => ({
+        ...definition,
+        component: (context: PluginContext) => {
+          const Content =
+            definition.id === "files"
+              ? FileDirectory
+              : definition.id === "changes"
+                ? FileChanges
+                : FilePanel
+          return <Content {...context} service={service} />
+        },
+      })),
+      connectSession: undefined,
+    }),
+    [service, deliveryRecovery, generation]
+  )
+  const registry = useMemo<PluginSessionRegistry>(
+    () => ({
+      entries: [
+        {
+          descriptor: {
+            id: manifest.id,
+            name: manifest.name,
+            description: manifest.description,
+            version: manifest.version,
+            source: "catalog/file-workbench",
+            sourceKind: "bundled",
+            installed: true,
+            enabled,
+            revision: 0,
+            generation,
+            state: enabled ? "active" : "disabled",
+            businessState: "",
+            error: "",
+            configuration: JSON.stringify(manifest.defaultConfiguration),
+            configurationSchema: JSON.stringify(manifest.configurationSchema),
+            contributions:
+              manifest.contributions as PluginDescriptor["contributions"],
+            tools: [],
+            effects: manifest.effects,
+          },
+          module: enabled && !moduleFailed ? module : undefined,
+          ...(moduleFailed ? { error: "插件资源暂时无法读取。" } : {}),
+        },
+      ],
+      error: "",
+    }),
+    [enabled, module, moduleFailed, generation]
+  )
   return (
-    <div className="flex h-dvh min-h-0 flex-col overflow-hidden">
-      <Workspace
-        sessionId={sessionId}
-        cwd={root}
-        active
-        service={service}
-        onMaterial={(material) =>
-          setMaterials((previous) => [...previous, material])
-        }
-      >
-        <div className="flex h-full min-h-0 flex-col gap-3 overflow-auto p-5 pt-14">
-          <h2 className="text-lg font-semibold">隔离会话 · 文件工作栏</h2>
-          <p className="text-sm text-muted-foreground">
-            从文件卡片或“文件”入口打开，阅读、引用，再切换变更来源。这里的服务与真实会话隔离。
-          </p>
-          {[
-            "README.md",
-            "source.ts",
-            "image.svg",
-            "sample.pdf",
-            "archive.zip",
-          ].map((name) => (
-            <FileLink
-              key={name}
-              payload={{ path: `${root}/${name}`, name }}
-              tool={{
-                id: name,
-                name: "send_file_link",
-                source: "file-workbench",
-                status: "success",
-                input: "{}",
-                result: "隔离文件链接",
+    <div
+      className="flex h-dvh min-h-0 flex-col overflow-hidden bg-background text-foreground"
+      style={compact ? { width: "min(100%, 520px)" } : undefined}
+    >
+      <div className="min-h-0 flex-1 overflow-hidden">
+        <ConversationPageExample
+          scenario="page-ready"
+          environment={environment}
+          showControls={false}
+          frame={({ children, ...session }) => (
+            <PluginSessionWorkspace
+              key={session.sessionId}
+              {...session}
+              active
+              registry={registry}
+              reload={async () => {
+                setModuleFailed(false)
               }}
-            />
-          ))}
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              onClick={() => {
-                service.save()
-                setNotice("隔离来源已保存；可见Git将读取新差异。")
+              reply={(request) => {
+                const result = environment.permission.reply(
+                  request.sessionId,
+                  request.approvalId,
+                  request.runId,
+                  request.value
+                )
+                environment.acknowledgeApproval(request.sessionId)
+                return result
               }}
             >
-              模拟外部保存
+              {children}
+            </PluginSessionWorkspace>
+          )}
+        />
+      </div>
+      <details className="shrink-0 border-t px-4 py-2 text-xs">
+        <summary>示例控制</summary>
+        <div className="flex flex-wrap gap-2 py-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              service.save()
+              setNotice("隔离来源已保存。")
+            }}
+          >
+            模拟外部保存
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setEnabled((value) => !value)}
+          >
+            {enabled ? "停用文件插件" : "启用文件插件"}
+          </Button>
+          {moduleRecovery && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setModuleFailed(true)}
+            >
+              模拟插件资源加载失败
             </Button>
-            {failure && (
-              <Button
-                variant="outline"
-                onClick={() => {
-                  service.recover()
-                  setNotice("隔离读取已恢复，重新打开或刷新当前文件。")
-                }}
-              >
-                恢复读取
-              </Button>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-2" aria-label="隔离草稿材料">
-            {materials.map((material) => (
-              <MaterialChip
-                key={material.id}
-                material={material}
-                onRemove={(id) =>
-                  setMaterials((previous) =>
-                    previous.filter((item) => item.id !== id)
-                  )
-                }
-              />
-            ))}
-          </div>
-          <p role="status" className="text-sm">
-            {notice || `草稿材料：${materials.length} 项；未发送模型请求。`}
-          </p>
+          )}
+          {deliveryRecovery && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setGeneration((value) => value + 1)}
+            >
+              更新插件代次并恢复交付
+            </Button>
+          )}
+          {failure && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                service.recover()
+                setNotice("隔离读取已恢复。")
+              }}
+            >
+              恢复读取
+            </Button>
+          )}
         </div>
-      </Workspace>
+        <p role="status">{notice}</p>
+      </details>
     </div>
   )
 }
@@ -343,26 +506,34 @@ export default {
   pages: ["会话"],
   stage: "content",
   description:
-    "复用正式Workspace、文件卡片、树、标签、源码/Markdown/图像/PDF、选区、会话操作和Git差异完整组合。",
+    "复用正式FilePanel、文件卡片、树、标签、源码/Markdown/图像/PDF、选区、会话操作和Git差异完整组合。",
   boundary:
     "展示服务及草稿仅存在本预览；不调用真实RPC、不读用户文件、不改变真实模型/权限。原生编辑器/另存及真实模型采用另在正式入口验收。",
   inputs: [
-    "sessionId / cwd / active / onMaterial / children",
+    "PluginContext / payload / service",
     "可注入FileWorkbenchService；默认仍是正式插件RPC及会话读取",
   ],
   events: [
     "真实路径打开/引用/下载",
     "实际选区引用",
-    "拖动栏宽、展开/折叠、关闭标签",
+    "宿主拖动栏宽、展开/收起、关闭标签",
     "可见Git自动读取与来源切换",
   ],
   composition: [
-    "Workspace / Tree / FileBody / SourceViewer / ImageBody / PdfViewer",
-    "FileLink / MaterialChip / PluginPathContext",
-    "ChangesViewer / GitViewer / ReadOnlyPatch / ResizablePanelGroup",
+    "FilePanel / Tree / FileBody / SourceViewer / ImageBody / PdfViewer",
+    "PluginSessionWorkspace / LiveConversationView / ConversationComposer / FileDelivery / PluginContext",
+    "FileDirectory / ChangesViewer / GitViewer / ReadOnlyPatch / ResizablePanelGroup",
   ],
-  consumers: ["PluginWorkspace → 正式会话页面", "原文件工具结果卡片"],
+  consumers: ["PluginSessionHost → 会话右侧标签", "轮次交付卡片"],
   standards: [
+    {
+      id: "FW2",
+      name: "可见页面订阅",
+      rule: "页面隐藏即释放自动预览目标，恢复可见时使用新的订阅身份和代次；迟到结果不能打开旧目标。",
+      reason: "已失效的目标不能续用，也不能接收隐藏期间的旧打开请求。",
+      check:
+        "在正式会话隐藏并恢复页面后调用 open_file，确认当前页面打开预览且旧请求不重放。",
+    },
     {
       id: "FW1",
       name: "完整连续阅读",
@@ -405,7 +576,7 @@ export default {
       section: "normal",
       condition: "原隔离成功工具patch和当前Git差异不同。",
       steps: [
-        "打开文件栏并进入变更，分别选择两种来源。",
+        "从右栏入口页打开变更，分别选择两种来源。",
         "选README.md Git差异，再模拟外部保存。",
         "打开当前文件。",
       ],

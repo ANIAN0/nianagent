@@ -68,7 +68,7 @@ export default {
       steps: [
         "输入 /，搜索用途或名称并选择 review。",
         "立即输入“检查这次首页改动”，无需等待准备。",
-        "发送，展开“演示数据与事件”查看 home.submit。",
+        "发送后展开操作反馈，查看已提交的正文与Skill引用。",
       ],
       expected:
         "正文为 /skill:review 加原文参数；无 Skill prepare 调用或材料身份。",
@@ -137,7 +137,7 @@ export default {
       steps: [
         "核对 leading 与句内文字、README 文件引用和参考图片完整。",
         "编辑原稿参数，预览文件与图片，再发送。",
-        "展开事件核对 home.submit：原正文与非 Skill 材料保留。",
+        "展开操作反馈，确认原正文与非Skill材料保留。",
       ],
       expected:
         "只去除旧 Skill metadata；旧失败不阻塞，不删除正文、文件或图片。",

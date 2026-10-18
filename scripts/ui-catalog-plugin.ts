@@ -4,12 +4,18 @@ import ts from "typescript"
 import type { Plugin } from "vite"
 import type { CatalogMetadata } from "../ui-catalog/catalog-types.ts"
 import { catalogImportPath } from "../ui-catalog/catalog-path.ts"
+import { createApiDocumentation } from "./api-documentation.mjs"
 
 const publicId = "virtual:moon-ui-catalog"
 const resolvedId = `\0${publicId}`
 const previewId = "virtual:moon-ui-previews"
 const resolvedPreviewId = `\0${previewId}`
-const sourceDirectories = ["src", "backend/plugins", "api-catalog", "ui-catalog"]
+const sourceDirectories = [
+  "src",
+  "backend/plugins",
+  "api-catalog",
+  "ui-catalog",
+]
 type StaticValue =
   | string
   | number
@@ -847,6 +853,15 @@ export function createCatalogManifest(root: string): CatalogManifest {
     })
   }
   const registered = new Set(sourceIds.keys())
+  const operations = createApiDocumentation()
+  for (const entry of manifest.entries) {
+    for (const module of entry.modules ?? [])
+      if (!ids.has(module.id))
+        throw new Error(`${entry.id}: 关联模块不存在：${module.id}`)
+    for (const operation of entry.relatedOperations ?? [])
+      if (!Object.hasOwn(operations, operation))
+        throw new Error(`${entry.id}: 关联接口不存在：${operation}`)
+  }
   const sources = new Map<string, ts.SourceFile>()
   for (const entry of manifest.entries) {
     const dependencies = compositionSources(
@@ -919,6 +934,21 @@ export function uiCatalogPlugin(): Plugin {
     },
     watchChange() {
       manifest = undefined
+    },
+  }
+}
+
+/** Validate development content without adding its UI or examples to the release graph. */
+export function catalogContentValidationPlugin(): Plugin {
+  let root = ""
+  return {
+    name: "moon-developer-content-validation",
+    apply: "build",
+    configResolved(config) {
+      root = config.root
+    },
+    buildStart() {
+      createCatalogManifest(root)
     },
   }
 }
