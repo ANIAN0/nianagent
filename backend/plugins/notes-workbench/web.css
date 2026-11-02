@@ -1,0 +1,39 @@
+.notes-workbench-page {
+  container: notes-workbench / inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+  max-width: 880px;
+}
+.notes-workbench-header,
+.notes-workbench-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.notes-workbench-header {
+  justify-content: space-between;
+}
+.notes-workbench-header-side {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.notes-workbench-actions {
+  gap: 10px;
+}
+.notes-workbench-actions > p {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 20px;
+}
+.notes-workbench-actions > input {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.notes-workbench-page [type="number"] {
+  max-width: 180px;
+}

@@ -47,6 +47,8 @@ Pi 提供运行扩展能力，但不规定 Moon 的网页导航或布局。核�
 
 不开放主导航、会话顶部、输入框工具栏或任意消息位置的自定义组件；不提供包裹整个会话页面的 `children` 接口。插件卡片不得接管消息列表，插件标签不得接管主区布局。
 
+app 入口可以在本机回环地址托管独立工作台页面（mcp-service 与 notes-workbench 先例）：仅 127.0.0.1、独立 token，并在 effects 中登记监听与影响。此类页面不属于上述四类贡献，核心只提供插件详情中的启停、配置和打开入口；页面拥有自己的运行环境，与宿主窗口不共享 React、状态或事件。托管页面若为预构建产物，应按文件版本载入，并在详情页提供重载操作；重载只替换页面资源，不重置监听与数据。
+
 **参考事实与 Moon 差异：** DSH 使用父级声明的插槽与右侧标签注册，还支持更广泛的组合和覆盖。Moon 只采用“注册内容、宿主决定位置”的关系，不复制完整通用插槽框架。代价是插件只在上述位置表达功能。
 
 来源：[DSH 插槽协议](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/client/ui-slots/README.md)、[DSH 右侧栏](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/client/ui-sidebar-right/README.md)。

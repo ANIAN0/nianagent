@@ -71,6 +71,7 @@ pub fn run() -> Result<(), String> {
             models::model_request,
             models::cancel_model_request,
             models::open_authorization_url,
+            models::open_local_url,
             developer_tools::open_developer_tools,
             native_files::file_editors,
             native_files::file_choose_editor,

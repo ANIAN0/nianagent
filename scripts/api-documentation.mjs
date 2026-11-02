@@ -683,6 +683,16 @@ export function createApiDocumentation() {
       condition:
         "仅debug dev、main窗口、已配置的回环开发来源；正式发行拒绝，不接受任意URL。",
     },
+    open_local_url: {
+      title: "在系统浏览器打开本机回环页面",
+      request: object({
+        url: str("本机回环 HTTP 链接；最多16000字符，不得包含CR/LF/NUL"),
+      }),
+      response: nullValue,
+      effect: "打开系统浏览器访问本机回环页面，如插件托管的工作台。",
+      condition:
+        "仅放行 http://127.0.0.1、http://localhost、http://[::1] 回环地址；其余来源由授权链接命令承担。",
+    },
   }
   for (const [id, entry] of Object.entries(extra))
     register(

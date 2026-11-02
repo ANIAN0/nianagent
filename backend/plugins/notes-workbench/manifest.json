@@ -1,0 +1,41 @@
+{
+  "id": "notes-workbench",
+  "name": "笔记工作台",
+  "description": "Agent 与用户在真实前端页面上沟通样式：建目录与页面、圈选元素互加评论，确认后的组件源码可直接用于项目。",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "defaultEnabled": false,
+  "entries": {
+    "app": "host.mjs",
+    "pi": "pi.mjs",
+    "web": "web.tsx"
+  },
+  "defaultConfiguration": {},
+  "configurationSchema": {
+    "type": "object",
+    "properties": {},
+    "required": [],
+    "additionalProperties": false
+  },
+  "effects": [
+    "仅监听 127.0.0.1 的固定可配置端口，使用独立本机 token，托管笔记工作台页面",
+    "持 token 的本机浏览器可读取笔记数据并在页面中执行组件源码、写入评论；打开经一次性票据，token 仅注入页面内存",
+    "读写仅限插件数据目录内的笔记存储；不读取或修改其他文件"
+  ],
+  "contributions": [
+    {
+      "id": "workbench",
+      "kind": "page",
+      "title": "管理笔记工作台",
+      "version": 1,
+      "remote": false
+    },
+    {
+      "id": "notes-page",
+      "kind": "delivery",
+      "title": "笔记页面",
+      "version": 1,
+      "remote": true
+    }
+  ]
+}

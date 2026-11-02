@@ -7,7 +7,13 @@ import { defineConfig, globalIgnores } from "eslint/config"
 import moonUi from "./scripts/eslint-ui-consistency.mjs"
 
 export default defineConfig([
-  globalIgnores(["dist", "src-tauri/runtime", "src-tauri/target", ".dev"]),
+  globalIgnores([
+    "dist",
+    "src-tauri/runtime",
+    "src-tauri/target",
+    ".dev",
+    "backend/plugins/notes-workbench/workbench.bundle.mjs",
+  ]),
   {
     files: ["backend/**/*.mjs", "scripts/**/*.mjs"],
     extends: [js.configs.recommended],

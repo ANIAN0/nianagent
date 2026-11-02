@@ -115,9 +115,24 @@ export function Page({
           <h2>本机 MCP 服务</h2>
           <p>为 Codex、DSH 等客户端共享已授权的插件工具。</p>
         </div>
-        <Badge variant={value?.running ? "secondary" : "outline"}>
-          {value ? (value.running ? "运行中" : "未监听") : "读取中"}
-        </Badge>
+        <div className="mcp-service-header-side">
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={pending}
+            onClick={() =>
+              void run(async (signal) => {
+                const next = await source.read(signal)
+                if (!signal.aborted) apply(next)
+              })
+            }
+          >
+            重新读取
+          </Button>
+          <Badge variant={value?.running ? "secondary" : "outline"}>
+            {value ? (value.running ? "运行中" : "未监听") : "读取中"}
+          </Badge>
+        </div>
       </header>
       {error && (
         <Alert>
@@ -132,19 +147,6 @@ export function Page({
           <AlertDescription>{value.issue || value.logIssue}</AlertDescription>
         </Alert>
       )}
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={pending}
-        onClick={() =>
-          void run(async (signal) => {
-            const next = await source.read(signal)
-            if (!signal.aborted) apply(next)
-          })
-        }
-      >
-        重新读取
-      </Button>
       {value && (
         <>
           <FieldGroup>
@@ -153,11 +155,12 @@ export function Page({
               <div className="mcp-service-actions">
                 <Input id="moon-mcp-address" readOnly value={value.url} />
                 <Button
-                  variant="outline"
+                  variant="ghost"
+                  size="sm"
                   disabled={pending}
                   onClick={() => void run((signal) => copy(value.url, signal))}
                 >
-                  复制地址
+                  复制
                 </Button>
               </div>
               <FieldDescription>
@@ -175,9 +178,7 @@ export function Page({
                 aria-invalid={invalidPort}
                 onChange={(event) => setPort(event.target.value)}
               />
-              <FieldDescription>
-                1024–65535；端口被占用时保留原地址并显示错误。
-              </FieldDescription>
+              <FieldDescription>1024–65535。</FieldDescription>
             </Field>
             <Field>
               <FieldLabel htmlFor="moon-mcp-token">访问 token</FieldLabel>
@@ -189,7 +190,8 @@ export function Page({
               />
               <div className="mcp-service-actions">
                 <Button
-                  variant="outline"
+                  variant="ghost"
+                  size="sm"
                   disabled={pending}
                   onClick={() =>
                     token
@@ -200,10 +202,11 @@ export function Page({
                         })
                   }
                 >
-                  {token ? "隐藏 token" : "显示 token"}
+                  {token ? "隐藏" : "显示"}
                 </Button>
                 <Button
-                  variant="outline"
+                  variant="ghost"
+                  size="sm"
                   disabled={pending}
                   onClick={() =>
                     void run(async (signal) => {
@@ -212,10 +215,12 @@ export function Page({
                     })
                   }
                 >
-                  复制 token
+                  复制
                 </Button>
                 <Button
-                  variant="outline"
+                  variant="ghost"
+                  size="sm"
+                  className="text-destructive hover:bg-destructive/10 hover:text-destructive"
                   disabled={pending}
                   onClick={() =>
                     void run(async (signal) => {
@@ -230,19 +235,18 @@ export function Page({
                     })
                   }
                 >
-                  重置 token
+                  重置
                 </Button>
               </div>
               <FieldDescription>
-                持 token
-                的客户端可调用下方已共享工具；逐次审批由客户端负责。重置会取消正在执行的共享调用。
+                客户端可调用下方已共享的工具；重置会取消执行中的调用。
               </FieldDescription>
             </Field>
           </FieldGroup>
           <FieldSet>
             <FieldLegend>共享工具</FieldLegend>
             <FieldDescription>
-              仅列出作者允许共享且当前启用的工具。勾选并保存后对外可用，工具可能读写网站或文件。
+              仅列出已声明共享且启用的工具；勾选并保存后对外可用，工具可能读写网站或文件。
             </FieldDescription>
             {value.tools.length ? (
               value.tools.map((tool) => (
@@ -335,13 +339,13 @@ export function Page({
                     <h4>Codex</h4>
                     <Button
                       size="sm"
-                      variant="outline"
+                      variant="ghost"
                       disabled={pending}
                       onClick={() =>
                         void run((signal) => copy(configurations.codex, signal))
                       }
                     >
-                      复制 Codex 配置
+                      复制
                     </Button>
                   </div>
                   <pre>{configurations.codex}</pre>
@@ -351,13 +355,13 @@ export function Page({
                     <h4>DSH · cordis.yml</h4>
                     <Button
                       size="sm"
-                      variant="outline"
+                      variant="ghost"
                       disabled={pending}
                       onClick={() =>
                         void run((signal) => copy(configurations.dsh, signal))
                       }
                     >
-                      复制 DSH 配置
+                      复制
                     </Button>
                   </div>
                   <pre>{configurations.dsh}</pre>

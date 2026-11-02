@@ -362,11 +362,26 @@ pub fn open_authorization_url(url: String) -> Result<(), String> {
     if !url.starts_with("https://") || url.contains(['\r', '\n', '\0']) || url.len() > 16000 {
         return Err("授权链接无效。".into());
     }
+    open_in_system_browser(&url)
+}
+/// 本机回环页面（如插件托管的工作台）；仅放行 http loopback，其余交由 HTTPS 命令。
+#[tauri::command]
+pub fn open_local_url(url: String) -> Result<(), String> {
+    let loopback = ["http://127.0.0.1:", "http://localhost:", "http://[::1]:"];
+    if !loopback.iter().any(|prefix| url.starts_with(prefix))
+        || url.contains(['\r', '\n', '\0'])
+        || url.len() > 16000
+    {
+        return Err("仅支持本机回环地址。".into());
+    }
+    open_in_system_browser(&url)
+}
+fn open_in_system_browser(url: &str) -> Result<(), String> {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         Command::new("rundll32.exe")
-            .args(["url.dll,FileProtocolHandler", &url])
+            .args(["url.dll,FileProtocolHandler", url])
             .creation_flags(0x08000000)
             .spawn()
             .map_err(|_| "无法打开浏览器。")?;
@@ -374,14 +389,14 @@ pub fn open_authorization_url(url: String) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         Command::new("open")
-            .arg(&url)
+            .arg(url)
             .spawn()
             .map_err(|_| "无法打开浏览器。")?;
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
         Command::new("xdg-open")
-            .arg(&url)
+            .arg(url)
             .spawn()
             .map_err(|_| "无法打开浏览器。")?;
     }
