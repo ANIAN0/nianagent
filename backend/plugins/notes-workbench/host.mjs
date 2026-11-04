@@ -165,9 +165,11 @@ export async function activate(host) {
     "POST /api/page": (body) =>
       store.createPage({ ...body, code: body?.code || starterPageCode }),
     "POST /api/page/status": (body) => store.setPageStatus(body),
+    "POST /api/page/args": (body) => store.setStateArgs(body),
     "POST /api/page/delete": (body) => store.deletePage(body),
     "POST /api/comment": (body) =>
       store.addComment({ ...body, author: "user" }),
+    "POST /api/comment/resolve": (body) => store.setCommentResolved(body),
   }
   const route = async (req, res) => {
     const url = new URL(req.url || "/", "http://127.0.0.1")
@@ -359,6 +361,12 @@ export async function activate(host) {
       ),
       create_page: operation("create_page", (input) => store.createPage(input)),
       write_page: operation("write_page", (input) => store.writePage(input)),
+      set_state_args: operation("set_state_args", (input) =>
+        store.setStateArgs(input)
+      ),
+      set_comment_resolved: operation("set_comment_resolved", (input) =>
+        store.setCommentResolved(input)
+      ),
       add_comment: operation("add_comment", (input) =>
         store.addComment({ ...input, author: "agent" })
       ),

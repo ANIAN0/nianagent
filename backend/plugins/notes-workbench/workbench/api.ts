@@ -44,6 +44,16 @@ export const api = {
     post<{ page: PageMeta }>("/api/page", { directoryId, name, title: name }),
   setPageStatus: (pageId: string, status: PageStatus) =>
     post<{ page: PageMeta }>("/api/page/status", { pageId, status }),
+  setStateArgs: (
+    pageId: string,
+    stateId: string,
+    args: Record<string, string | number | boolean | null>,
+  ) => post<{ page: PageMeta }>("/api/page/args", { pageId, stateId, args }),
+  setCommentResolved: (commentId: string, resolved: boolean) =>
+    post<{ comment: Comment }>("/api/comment/resolve", {
+      commentId,
+      resolved,
+    }),
   deletePage: (pageId: string) =>
     post<{ deleted: string }>("/api/page/delete", { pageId }),
   deleteDirectory: (directoryId: string) =>
