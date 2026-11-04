@@ -59,7 +59,7 @@ export default {
   id: "model-editor",
   name: "编辑模型",
   source: "src/features/models/model-editor.tsx",
-  group: "模型连接",
+  group: "设置与启动",
   layer: "复合组件",
   order: 153,
   pages: ["模型连接"],

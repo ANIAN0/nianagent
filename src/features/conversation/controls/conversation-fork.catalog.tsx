@@ -4,7 +4,7 @@ import { ConversationForkExample } from "../../../../ui-catalog/fixtures/convers
 export default {
   id: "conversation-fork",
   name: "从完成轮次创建分支",
-  order: 309,
+  order: 116,
   source: "src/features/conversation/controls/fork-action.tsx",
   composition: [
     "LiveConversationView → ConversationTurnView / ConversationPage（组合入口） · src/features/conversation/live-conversation-view.tsx",
@@ -15,7 +15,7 @@ export default {
     "useConversationControls → ConversationControlService（提交、轮询与 issue 归属） · src/features/conversation/controls/use-conversation-controls.ts",
     "ConversationPage → lineage 标题区 / 打开来源会话（组合入口） · src/features/conversation/conversation-page.tsx",
   ],
-  group: "从完成轮次创建分支",
+  group: "会话",
   layer: "复合组件",
   stage: "content",
   pages: ["会话"],

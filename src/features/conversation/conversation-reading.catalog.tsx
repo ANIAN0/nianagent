@@ -4,7 +4,7 @@ import { ConversationReadingExample } from "../../../ui-catalog/fixtures/convers
 export default {
   id: "conversation-reading",
   name: "阅读并定位会话内容",
-  order: 300,
+  order: 110,
   source: "src/features/conversation/live-conversation-view.tsx",
   composition: [
     "LiveConversationView → ConversationPage / ConversationTurnView / ConversationComposer（组合入口） · src/features/conversation/live-conversation-view.tsx",
@@ -21,7 +21,7 @@ export default {
     "MessageScroller · src/components/ui/message-scroller.tsx",
     "ConversationComposer · src/features/conversation/composer/conversation-composer.tsx",
   ],
-  group: "阅读并定位会话内容",
+  group: "会话",
   layer: "复合组件",
   stage: "content",
   pages: ["会话"],

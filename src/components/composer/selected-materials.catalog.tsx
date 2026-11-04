@@ -5,9 +5,9 @@ export default {
   id: "selected-materials",
   name: "输入带附件的消息",
   source: "src/features/home/home-composer.tsx",
-  group: "输入带附件的消息",
+  group: "会话",
   layer: "复合组件",
-  order: 107,
+  order: 123,
   pages: ["首页"],
   stage: "content",
   description:

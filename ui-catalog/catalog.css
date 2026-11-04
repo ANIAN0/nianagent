@@ -13,35 +13,12 @@
   flex-shrink: 0;
   border-bottom: 1px solid var(--border);
 }
-.catalog-search > [data-slot="select-trigger"] {
-  width: 100%;
-}
-.catalog-filter-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 6px;
-}
-.catalog-filter-row > button {
-  width: 100%;
-  min-width: 0;
-}
 .catalog-tree-scroll {
   min-height: 0;
   overflow: auto;
   flex: 1;
   padding: 8px;
 }
-.catalog-layer {
-  width: 100%;
-  justify-content: flex-start;
-  margin: 4px 0;
-}
-.catalog-layer > span {
-  margin-left: auto;
-  color: var(--muted-foreground);
-  font-size: 11px;
-}
-.catalog-layer[data-state="open"] > svg,
 .catalog-component-row button[data-state="open"] > svg {
   transform: rotate(90deg);
 }

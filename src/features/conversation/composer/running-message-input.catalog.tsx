@@ -4,10 +4,10 @@ import { RunningMessageStoryExample } from "../../../../ui-catalog/fixtures/runn
 export default {
   id: "running-message-input",
   name: "运行中发送新消息",
-  group: "运行中发送新消息",
+  group: "会话",
   layer: "复合组件",
   stage: "content",
-  order: 304,
+  order: 122,
   pages: ["会话"],
   source: "src/features/conversation/composer/conversation-composer.tsx",
   description:

@@ -3,12 +3,12 @@ import { HomePageExample } from "../../../ui-catalog/fixtures/home-page-stories"
 
 export default {
   id: "home-page",
-  name: "首页与工作台",
+  name: "首页",
   layer: "页面",
   stage: "content",
   order: 1,
   pages: ["首页"],
-  group: "工作台",
+  group: "首页",
   source: "src/features/home/app-shell.tsx",
   description:
     "从工作台导航选择目录、浏览历史，在完整首页组合中准备并提交新请求；设置与插件入口使用已有隔离演示。",

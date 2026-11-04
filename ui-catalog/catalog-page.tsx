@@ -19,7 +19,7 @@ import { CatalogToolbar } from "./catalog-toolbar"
 import { CatalogDocs } from "./catalog-docs"
 import { ExampleCode } from "./example-code"
 import { useCatalogController } from "./use-catalog-controller"
-import { entries, associatedPagesOf } from "./catalog"
+import { entries } from "./catalog"
 import { ToolLayout } from "../devtools/tool-layout"
 import {
   componentHref,
@@ -49,11 +49,8 @@ export function CatalogPage() {
   const matches = entries
     .filter(
       (item) =>
-        (!controller.layerFilter || item.layer === controller.layerFilter) &&
-        (!controller.pageFilter ||
-          associatedPagesOf(item).includes(controller.pageFilter)) &&
-        (catalogMatches(item, controller.query).entry ||
-          catalogMatches(item, controller.query).states.length)
+        catalogMatches(item, controller.query).entry ||
+        catalogMatches(item, controller.query).states.length
     )
     .sort((a, b) => a.order - b.order)
   const isOverview = !selection.component
@@ -102,10 +99,6 @@ export function CatalogPage() {
           component={selection.component}
           stateId={selection.stateId}
           query={controller.query}
-          pageFilter={controller.pageFilter}
-          layerFilter={controller.layerFilter}
-          onPageFilterChange={controller.setPageFilter}
-          onLayerFilterChange={controller.setLayerFilter}
           onQueryChange={controller.setQuery}
           onClearFilters={controller.clearFilters}
           onNavigate={controller.navigate}
@@ -154,8 +147,7 @@ export function CatalogPage() {
         <article className="catalog-reading" data-expanded={expanded}>
           <header>
             <p className="reader-kicker">
-              <a href="/ui-catalog/">页面与组件</a> / {entry.layer} /{" "}
-              {entry.group}
+              <a href="/ui-catalog/">页面与组件</a> / {entry.group}
             </p>
             <h1>{entry.name}</h1>
             <p>{entry.description || entry.story?.goal}</p>

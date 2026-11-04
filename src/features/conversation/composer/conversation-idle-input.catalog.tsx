@@ -5,7 +5,7 @@ export default {
   id: "conversation-idle-input",
   relatedOperations: ["conversationSend", "conversationReceiptRead"],
   name: "空闲时继续输入",
-  order: 303,
+  order: 121,
   source: "src/features/conversation/composer/conversation-composer.tsx",
   composition: [
     "ConversationComposer → PromptInput → ComposerEditor（组合入口） · src/features/conversation/composer/conversation-composer.tsx",
@@ -24,7 +24,7 @@ export default {
     "NotificationToast · src/components/ui/notification-toast.tsx",
     "SubmissionReceipt · src/components/feedback/submission-receipt.tsx",
   ],
-  group: "空闲时继续输入",
+  group: "会话",
   layer: "复合组件",
   stage: "content",
   pages: ["会话"],

@@ -4,7 +4,7 @@ import { ConversationIdleInputExample } from "../../../../ui-catalog/fixtures/co
 export default {
   id: "conversation-context",
   name: "查看上下文用量",
-  order: 307,
+  order: 114,
   source: "src/features/conversation/composer/context-usage.tsx",
   composition: [
     "ContextUsage · src/features/conversation/composer/context-usage.tsx",
@@ -14,7 +14,7 @@ export default {
     "Button / Popover / Tooltip / Separator · src/components/ui",
     "LiveConversationView / useLiveConversation · src/features/conversation",
   ],
-  group: "查看上下文用量",
+  group: "会话",
   layer: "复合组件",
   stage: "content",
   pages: ["会话"],

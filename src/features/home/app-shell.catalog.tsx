@@ -14,8 +14,18 @@ const navigationData: ComposerData = {
   conversations: Array.from({ length: 32 }, (_, index) => ({
     id: `navigation-example-${index}`,
     workspaceId: "navigation-example",
-    title: `${index + 1} · 长历史标题用于核对抽屉边界 ${"LongConversationTitle".repeat(5)}`,
-    status: "completed",
+    title: `长历史标题用于核对抽屉边界 ${"LongConversationTitle".repeat(5)}`,
+    status:
+      index === 1
+        ? "completed"
+        : index === 2
+          ? "running"
+          : index === 7
+            ? "waiting"
+            : index === 11
+              ? "failed"
+              : "idle",
+    unread: index === 1,
   })),
   models: [],
   materials: [],
@@ -39,6 +49,7 @@ function NavigationExample({
   return (
     <AppShell
       data={data}
+      activeConversationId="navigation-example-0"
       historyState={unavailable ? "error" : "ready"}
       historyError={unavailable ? "示例：历史暂不可读；保留已显示记录。" : ""}
       onHistoryRetry={() => {
@@ -62,11 +73,11 @@ function NavigationExample({
 
 export default {
   id: "app-shell",
-  name: "工作台导航与长历史",
+  name: "会话左侧栏",
   source: "src/features/home/app-shell.tsx",
-  group: "工作台导航",
+  group: "会话",
   layer: "复合组件",
-  order: 180,
+  order: 101,
   pages: ["首页", "会话", "设置"],
   stage: "content",
   description: "正式AppShell、HomeSidebar及历史列表的有界导航组合。",

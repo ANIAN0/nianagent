@@ -4,7 +4,7 @@ import { ConversationReadingExample } from "../../../../ui-catalog/fixtures/conv
 export default {
   id: "conversation-materials",
   name: "查看消息中的文件与图片",
-  order: 302,
+  order: 115,
   source: "src/features/conversation/messages/message-attachments.tsx",
   composition: [
     "UserMessage → MessageAttachments（组合入口） · src/features/conversation/messages/user-message.tsx",
@@ -12,7 +12,7 @@ export default {
     "MaterialThumbnail · src/features/materials/material-thumbnail.tsx",
     "LiveConversationView → MessageEnvironmentProvider（组合入口） · src/features/conversation/live-conversation-view.tsx",
   ],
-  group: "查看消息中的文件与图片",
+  group: "会话",
   layer: "复合组件",
   stage: "content",
   pages: ["会话"],

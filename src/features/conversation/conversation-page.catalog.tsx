@@ -27,7 +27,7 @@ export default {
   group: "会话",
   layer: "页面",
   stage: "content",
-  order: 400,
+  order: 100,
   pages: ["会话"],
   source: "src/features/conversation/live-conversation-view.tsx",
   description:

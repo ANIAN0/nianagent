@@ -67,7 +67,7 @@ export default {
   stage: "content",
   order: 183,
   pages: ["插件设置"],
-  group: "插件设置",
+  group: "插件",
   source: "backend/plugins/mcp-service/web.tsx",
   relatedOperations: [
     "mcp-service.status",

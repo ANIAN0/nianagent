@@ -4,7 +4,7 @@ import { ConversationExecutionExample } from "../../../../ui-catalog/fixtures/co
 export default {
   id: "conversation-execution",
   name: "跟随执行并查看工具",
-  order: 301,
+  order: 111,
   source: "src/features/conversation/messages/execution-process.tsx",
   composition: [
     "LiveConversationView → ConversationPage / ConversationComposer（完整组合入口） · src/features/conversation/live-conversation-view.tsx",
@@ -16,7 +16,7 @@ export default {
     "ToolCall · src/features/conversation/messages/tool-call.tsx",
     "MessageEnvironmentProvider · src/features/conversation/messages/message-environment.tsx",
   ],
-  group: "跟随执行并查看工具",
+  group: "会话",
   layer: "复合组件",
   stage: "content",
   pages: ["会话"],

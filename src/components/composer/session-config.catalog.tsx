@@ -5,9 +5,9 @@ export default {
   id: "session-config",
   name: "修改会话配置",
   source: "src/components/composer/session-config.tsx",
-  group: "修改会话配置",
+  group: "会话",
   layer: "复合组件",
-  order: 103,
+  order: 127,
   pages: ["首页"],
   stage: "content",
   description:

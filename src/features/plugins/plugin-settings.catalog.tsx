@@ -290,7 +290,7 @@ export default {
   id: "plugin-settings",
   name: "插件管理完整组合",
   source: "src/features/plugins/plugin-settings.tsx",
-  group: "插件设置",
+  group: "插件",
   layer: "复合组件",
   order: 179,
   pages: ["设置"],

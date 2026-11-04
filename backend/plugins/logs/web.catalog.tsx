@@ -69,7 +69,7 @@ export default {
   stage: "content",
   order: 184,
   pages: ["插件设置"],
-  group: "插件设置",
+  group: "插件",
   source: "backend/plugins/logs/web.tsx",
   relatedOperations: ["logs.query", "logs.detail"],
   modules: [

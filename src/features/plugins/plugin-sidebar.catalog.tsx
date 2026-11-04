@@ -6,9 +6,9 @@ export default {
   name: "会话右侧栏",
   layer: "复合组件",
   stage: "content",
-  order: 182,
+  order: 102,
   pages: ["会话"],
-  group: "插件",
+  group: "会话",
   source: "src/features/plugins/plugin-sidebar.tsx",
   description:
     "正式会话壳、插件宿主、文件内容与 Pi 交互的完整组合。收起不占宽度，顶部标签负责切换和关闭，加号打开临时入口页，选择后替换该页。",

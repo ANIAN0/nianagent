@@ -281,7 +281,7 @@ export default {
   stage: "content",
   order: 235,
   pages: ["首次启动"],
-  group: "设置",
+  group: "设置与启动",
   source: "src/features/startup/startup-migration-view.tsx",
   description:
     "在业务数据与 profile 启用前，明确可选导入或新建数据集，呈现真实阶段及同操作恢复。",

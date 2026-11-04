@@ -13,15 +13,7 @@ import {
   InputGroupButton,
   InputGroupInput,
 } from "@/components/ui/input-group"
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import { associatedPagesOf, entries, type CatalogMetadata } from "./catalog"
+import { entries, type CatalogMetadata } from "./catalog"
 import { storySections } from "./catalog-sections"
 
 export function catalogMatches(entry: CatalogMetadata, query: string) {
@@ -38,15 +30,24 @@ export function catalogMatches(entry: CatalogMetadata, query: string) {
     ),
   }
 }
+/** Directories are the screens you work on; pages sit directly inside their screen. */
+const groupOrder = [
+  "会话",
+  "首页",
+  "设置与启动",
+  "插件",
+  "文件工作栏",
+  "操作与选择",
+  "输入与表单",
+  "浮层与导航",
+  "内容与反馈",
+  "数据展示",
+]
 export function CatalogNavigation({
   component,
   stateId,
   query,
-  pageFilter,
-  layerFilter,
   onQueryChange,
-  onPageFilterChange,
-  onLayerFilterChange,
   onClearFilters,
   onNavigate,
   hrefFor,
@@ -54,11 +55,7 @@ export function CatalogNavigation({
   component: string
   stateId?: string
   query: string
-  pageFilter: string
-  layerFilter: string
   onQueryChange: (value: string) => void
-  onPageFilterChange: (value: string) => void
-  onLayerFilterChange: (value: string) => void
   onClearFilters: () => void
   onNavigate: (entry: CatalogMetadata, state?: string) => void
   hrefFor: (entry: CatalogMetadata, state?: string) => string
@@ -67,35 +64,29 @@ export function CatalogNavigation({
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
     [component]: true,
   })
-  const currentLayer =
-    entries.find((entry) => entry.id === component)?.layer ?? "复合组件"
-  const [layers, setLayers] = useState<Record<string, boolean>>({
-    [currentLayer]: true,
-    页面: true,
-  })
   const expansionKey = (id: string) =>
     query.trim() ? `search:${query.trim()}:${id}` : id
-  const layerKey = (layer: string) =>
-    query.trim()
-      ? `search:${query.trim()}:${layer}`
-      : layerFilter
-        ? `filter:${layerFilter}:${layer}`
-        : layer
-  const pages = [...new Set(entries.flatMap(associatedPagesOf))]
   const matches = entries
     .filter(
       (entry) =>
-        (!pageFilter || associatedPagesOf(entry).includes(pageFilter)) &&
-        (!layerFilter || entry.layer === layerFilter) &&
-        (catalogMatches(entry, query).entry ||
-          catalogMatches(entry, query).states.length)
+        catalogMatches(entry, query).entry ||
+        catalogMatches(entry, query).states.length
     )
     .sort((a, b) => a.order - b.order)
+  const groups = [...new Set(matches.map((entry) => entry.group))].sort(
+    (a, b) => {
+      const left = groupOrder.indexOf(a)
+      const right = groupOrder.indexOf(b)
+      return (
+        (left === -1 ? groupOrder.length : left) -
+          (right === -1 ? groupOrder.length : right) || a.localeCompare(b)
+      )
+    }
+  )
   const [previousComponent, setPreviousComponent] = useState(component)
   if (previousComponent !== component) {
     setPreviousComponent(component)
     setExpanded((current) => ({ ...current, [component]: true }))
-    setLayers((current) => ({ ...current, [currentLayer]: true }))
   }
   useEffect(() => {
     root.current
@@ -161,7 +152,6 @@ export function CatalogNavigation({
             onClick={(event) => navigate(event, entry)}
           >
             {entry.name}
-            {entry.stage === "structure" && <small>规划</small>}
           </a>
         </div>
         {hasStates && (
@@ -228,53 +218,12 @@ export function CatalogNavigation({
             </InputGroupAddon>
           )}
         </InputGroup>
-        <div className="catalog-filter-row">
-          <Select
-            value={layerFilter || "all"}
-            onValueChange={(value) =>
-              onLayerFilterChange(value === "all" ? "" : value)
-            }
-          >
-            <SelectTrigger size="sm" aria-label="组件类型">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {["all", "基础组件", "复合组件", "页面"].map((layer) => (
-                  <SelectItem key={layer} value={layer}>
-                    {layer === "all" ? "全部类型" : layer}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-          <Select
-            value={pageFilter || "all"}
-            onValueChange={(value) =>
-              onPageFilterChange(value === "all" ? "" : value)
-            }
-          >
-            <SelectTrigger size="sm" aria-label="使用页面筛选">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                <SelectItem value="all">全部页面</SelectItem>
-                {pages.map((page) => (
-                  <SelectItem key={page} value={page}>
-                    {page}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-        </div>
       </div>
       <div className="catalog-tree-scroll moon-scrollbar">
         {!matches.some((entry) => entry.id === component) &&
           entries.find((entry) => entry.id === component) && (
             <section>
-              <p className="catalog-group-label">当前组件 · 筛选之外</p>
+              <p className="catalog-group-label">当前组件</p>
               {entryNode(entries.find((entry) => entry.id === component)!)}
             </section>
           )}
@@ -285,64 +234,19 @@ export function CatalogNavigation({
         >
           页面与组件总览
         </a>
-        {[...new Set(matches.map((entry) => entry.layer))]
-          .sort(
-            (a, b) =>
-              ["页面", "复合组件", "组合验证", "基础组件"].indexOf(a) -
-              ["页面", "复合组件", "组合验证", "基础组件"].indexOf(b)
-          )
-          .map((layer) => (
-            <Collapsible
-              key={layer}
-              open={
-                layers[layerKey(layer)] ?? (!!query.trim() || !!layerFilter)
-              }
-              onOpenChange={(open) =>
-                setLayers((current) => ({
-                  ...current,
-                  [layerKey(layer)]: open,
-                }))
-              }
-            >
-              <CollapsibleTrigger asChild>
-                <Button variant="section" className="catalog-layer">
-                  <ChevronRight data-icon="inline-start" />
-                  {layer}
-                  <span>
-                    {matches.filter((entry) => entry.layer === layer).length}
-                  </span>
-                </Button>
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                {[
-                  ...new Set(
-                    matches
-                      .filter((entry) => entry.layer === layer)
-                      .map((entry) => entry.group)
-                  ),
-                ].map((group) => (
-                  <section key={group}>
-                    {matches.filter(
-                      (entry) => entry.layer === layer && entry.group === group
-                    ).length > 1 && (
-                      <h3 className="catalog-group-label">{group}</h3>
-                    )}
-                    {matches
-                      .filter(
-                        (entry) =>
-                          entry.layer === layer && entry.group === group
-                      )
-                      .map(entryNode)}
-                  </section>
-                ))}
-              </CollapsibleContent>
-            </Collapsible>
-          ))}
+        {groups.map((group) => (
+          <section key={group}>
+            <h3 className="catalog-group-label">{group}</h3>
+            {matches
+              .filter((entry) => entry.group === group)
+              .map(entryNode)}
+          </section>
+        ))}
         {!matches.length && (
           <div className="catalog-no-results" role="status">
             <p>没有匹配的组件或场景</p>
             <Button variant="outline" size="sm" onClick={onClearFilters}>
-              清除筛选
+              清除搜索
             </Button>
           </div>
         )}

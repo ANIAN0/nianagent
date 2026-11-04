@@ -168,7 +168,7 @@ export default {
   stage: "content",
   order: 181,
   pages: ["插件设置"],
-  group: "插件设置",
+  group: "插件",
   source: "backend/plugins/opencli/web.tsx",
   description:
     "正式Page与OpenCliConnectionView组合，读取全局安装、后台、Bridge及五项管理任务。",

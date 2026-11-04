@@ -25,7 +25,6 @@ export function useCatalogController() {
   const search = useSyncExternalStore(subscribeLocation, () => location.search)
   const selection = readSelection(search)
   const params = new URLSearchParams(search)
-  const pageFilter = selection.pageFilter
   const { theme, setTheme } = useTheme()
   const urlTheme = params.get("theme")
   const observedUrlTheme = useRef(urlTheme)
@@ -41,7 +40,6 @@ export function useCatalogController() {
     selection.entry?.viewport.height ?? 600
   )
   const query = params.get("q") ?? ""
-  const layerFilter = params.get("layer") ?? ""
   const fixedViewport = params.has("width") || params.has("height")
   const setQuery = (value: string) => {
     const next = new URLSearchParams(location.search)
@@ -50,12 +48,6 @@ export function useCatalogController() {
     updateLocation(next, true)
   }
   const [revision, setRevision] = useState(0)
-  useEffect(() => {
-    const current = new URLSearchParams(location.search)
-    if (current.get("page") !== "对话") return
-    current.set("page", "会话")
-    updateLocation(current, true)
-  }, [search])
   useEffect(() => {
     if (urlTheme !== observedUrlTheme.current) {
       // Navigation wins over the previous rendered theme, including browser Back.
@@ -95,8 +87,6 @@ export function useCatalogController() {
       next.delete("height")
     }
     if (query) next.set("q", query)
-    if (pageFilter) next.set("page", pageFilter)
-    if (layerFilter) next.set("layer", layerFilter)
     if (entry.layer === "复合组件")
       next.set(
         "section",
@@ -122,12 +112,6 @@ export function useCatalogController() {
       new URLSearchParams(hrefForSection(entry, section).slice(1)),
       false
     )
-  }
-  function setPageFilter(page: string) {
-    const next = new URLSearchParams(search)
-    if (page) next.set("page", page)
-    else next.delete("page")
-    updateLocation(next, false)
   }
   function setViewport(nextWidth: number, nextHeight: number) {
     const next = new URLSearchParams(search)
@@ -156,17 +140,10 @@ export function useCatalogController() {
   return {
     selection,
     query,
-    layerFilter,
     fixedViewport,
-    setLayerFilter: (layer: string) => {
-      const next = new URLSearchParams(search)
-      if (layer) next.set("layer", layer)
-      else next.delete("layer")
-      updateLocation(next, false)
-    },
     clearFilters: () => {
       const next = new URLSearchParams(search)
-      for (const key of ["q", "page", "layer"]) next.delete(key)
+      next.delete("q")
       updateLocation(next, false)
     },
     fitViewport: () => {
@@ -175,8 +152,6 @@ export function useCatalogController() {
       next.delete("height")
       updateLocation(next, true)
     },
-    pageFilter,
-    setPageFilter,
     setQuery,
     width,
     height,

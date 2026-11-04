@@ -4,7 +4,7 @@ import { ConversationIdleInputExample } from "../../../ui-catalog/fixtures/conve
 export default {
   id: "conversation-recovery",
   name: "停止与恢复回复",
-  order: 305,
+  order: 112,
   source: "src/features/conversation/live-conversation-view.tsx",
   composition: [
     "ConversationComposer → ConversationSendControl（组合入口） · src/features/conversation/composer/conversation-composer.tsx",
@@ -13,7 +13,7 @@ export default {
     "LiveConversationView / useLiveConversation / useConversationStopShortcut · src/features/conversation/",
     "ConversationTurnView / ExecutionProcess · src/features/conversation/messages/",
   ],
-  group: "停止与恢复回复",
+  group: "会话",
   layer: "复合组件",
   stage: "content",
   pages: ["会话"],

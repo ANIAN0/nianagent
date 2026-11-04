@@ -276,7 +276,7 @@ export default {
   name: "应用设置与维护",
   source: "src/features/settings/settings-page.tsx",
   layer: "页面",
-  group: "设置",
+  group: "设置与启动",
   stage: "content",
   order: 240,
   pages: ["设置"],

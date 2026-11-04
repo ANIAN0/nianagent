@@ -4,7 +4,7 @@ import { ConversationIdleInputExample } from "../../../../ui-catalog/fixtures/co
 export default {
   id: "conversation-approval",
   name: "确认 Agent 操作",
-  order: 306,
+  order: 113,
   source: "src/features/conversation/permissions/approval-card.tsx",
   composition: [
     "ApprovalCard / useApprovalReply · src/features/conversation/permissions/",
@@ -15,7 +15,7 @@ export default {
     "ToolCall / MessageEnvironmentProvider · src/features/conversation/messages/",
     "LiveConversationView · src/features/conversation/live-conversation-view.tsx",
   ],
-  group: "确认 Agent 操作",
+  group: "会话",
   layer: "复合组件",
   stage: "content",
   pages: ["会话"],
