@@ -14,7 +14,24 @@ declare global {
   }
 }
 
-const token = window.__moonNotesWorkbenchToken || ""
+/** token 只进本页面会话存储：刷新与资源重载后自动恢复，新标签页仍需一次性票据。 */
+const SESSION_KEY = "moon-notes-workbench-token"
+const injected = window.__moonNotesWorkbenchToken || ""
+try {
+  if (injected) sessionStorage.setItem(SESSION_KEY, injected)
+  else if (!sessionStorage.getItem(SESSION_KEY)) sessionStorage.removeItem(SESSION_KEY)
+} catch {
+  /* 隐私模式等存储不可用时退回纯内存 token。 */
+}
+const token =
+  injected ||
+  (() => {
+    try {
+      return sessionStorage.getItem(SESSION_KEY) || ""
+    } catch {
+      return ""
+    }
+  })()
 const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   const response = await fetch(path, {
     ...init,

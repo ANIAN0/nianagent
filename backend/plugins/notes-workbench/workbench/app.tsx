@@ -172,7 +172,11 @@ export function App() {
         <Tree
           snapshot={snapshot}
           selectedId={selectedId}
-          onSelect={setSelectedId}
+          onSelect={(pageId) => {
+            setSelectedId(pageId)
+            // 选中页面立即加载详情，不等下一次轮询。
+            if (pageId) void loadPage(pageId).catch(() => {})
+          }}
           onChange={() => void afterTreeChange()}
           onError={setError}
         />

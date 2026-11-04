@@ -182,19 +182,11 @@ export async function activate(host) {
       sendJson(res, 403, { error: "仅本机可访问。" })
       return
     }
-    if (!authorize(req.headers.authorization)) {
-      void event("rejected", "缺少或无效的访问 token。")
-      sendJson(res, 401, { error: "token 无效。" })
-      return
-    }
-    if (!gate()) {
-      sendJson(res, 503, { error: "服务已暂停。" })
-      return
-    }
     if (
       req.method === "GET" &&
       (url.pathname === "/" || url.pathname === "/index.html")
     ) {
+      // 页面外壳不含数据：票据换取 token 注入，已持 token 的会话（重载）直接放行。
       if (!workbenchHtml) {
         sendJson(res, 503, {
           error: issue || resourceIssue || "工作台页面资源未构建。",
@@ -204,9 +196,11 @@ export async function activate(host) {
       const ticket = url.searchParams.get("ticket")
       const expires = ticket ? tickets.get(ticket) : undefined
       tickets.delete(ticket)
-      if (!expires || expires < Date.now()) {
+      const admitted =
+        (expires && expires >= Date.now()) || authorize(req.headers.authorization)
+      if (!admitted) {
         void event("rejected", "打开票据缺失或已使用。")
-        res.writeHead(401, htmlHeaders)
+        res.writeHead(200, htmlHeaders)
         res.end(denialHtml)
         return
       }
@@ -220,6 +214,15 @@ export async function activate(host) {
       }
       res.writeHead(200, htmlHeaders)
       res.end(opening)
+      return
+    }
+    if (!authorize(req.headers.authorization)) {
+      void event("rejected", "缺少或无效的访问 token。")
+      sendJson(res, 401, { error: "token 无效。" })
+      return
+    }
+    if (!gate()) {
+      sendJson(res, 503, { error: "服务已暂停。" })
       return
     }
     const handler = routes[`${req.method} ${url.pathname}`]

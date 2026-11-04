@@ -242,7 +242,7 @@ export function Page() {
               </Button>
             </div>
             <FieldDescription>
-              打开经一次性票据完成；token 仅注入页面内存，此处供显示或手工复制。
+              打开经一次性票据完成；token 仅注入页面内存与会话存储，此处供显示或手工复制。
             </FieldDescription>
           </Field>
           <div className="notes-workbench-actions">
