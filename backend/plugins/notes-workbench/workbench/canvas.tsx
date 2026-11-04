@@ -134,7 +134,7 @@ export function Canvas({
     setSelection(null)
     channelRef.current?.send("clear-selection")
   }
-  const emptySource = !source
+  const emptySource = !source && !detail?.page.meta?.preview
   return (
     <div className="relative flex h-full min-w-0 flex-1 flex-col">
       <div className="flex h-11 shrink-0 items-center gap-2 border-b border-[#3c3c3c] bg-[#2c2c2c] px-4">

@@ -176,6 +176,26 @@ export function Page() {
               >
                 重载页面
               </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={pending}
+                onClick={() =>
+                  void run(async (signal) => {
+                    const result = await invoke<{
+                      createdDirectories: number
+                      createdPages: number
+                      skipped: number
+                    }>("load_seed", {}, signal)
+                    if (!signal.aborted)
+                      setNotice(
+                        `已导入示例：新建 ${result.createdDirectories} 个目录、${result.createdPages} 个页面，跳过 ${result.skipped} 个同名页面。`,
+                      )
+                  })
+                }
+              >
+                导入目录示例
+              </Button>
             </div>
             <FieldDescription>
               仅本机 127.0.0.1 可访问；agent

@@ -273,4 +273,14 @@ export const notesWorkbenchOperations = {
     object({ comment: commentInfo }),
     "以 agent 身份写入一条评论，用户在工作台可见。",
   ),
+  load_seed: operation(
+    "导入目录示例种子",
+    object(),
+    object({
+      createdDirectories: int("新建目录数", 0),
+      createdPages: int("新建页面数", 0),
+      skipped: int("因同名跳过的页面数", 0),
+    }),
+    "把随插件发布的目录示例（描述、story、设计标准、状态文档与预览条目）导入笔记存储；同名目录与页面保持原样。",
+  ),
 }

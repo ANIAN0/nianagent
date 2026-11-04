@@ -11,7 +11,7 @@ export const previewEntries = [
   },
   {
     id: "home-story",
-    file: "ui-catalog/fixtures/home-stories.tsx",
-    export: "HomeStoryExample",
+    file: "backend/plugins/notes-workbench/preview/home-story-entry.tsx",
+    export: "HomeStoryEntry",
   },
 ]

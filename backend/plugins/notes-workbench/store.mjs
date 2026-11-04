@@ -31,6 +31,8 @@ export const starterPageCode = [
 ].join("\n")
 
 const namePattern = /^[\p{L}\p{N}][\p{L}\p{N}_. -]{0,63}$/u
+/** 状态名面向界面展示，允许全角标点等可读符号。 */
+const stateNamePattern = /^[\p{L}\p{N}][\p{L}\p{N}\p{P}\p{S} ]{0,63}$/u
 const idPattern = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/
 const pageStatuses = new Set(["draft", "confirmed"])
 const sections = new Set(["normal", "exception", "states"])
@@ -42,6 +44,10 @@ const assertName = (value, label) => {
     throw new Error(
       `${label}需为 1–64 位字母、数字、点、空格、下划线或连字符。`
     )
+}
+const assertStateName = (value) => {
+  if (typeof value !== "string" || !stateNamePattern.test(value))
+    throw new Error("状态名需为 1–64 位字母、数字或标点符号组成的文本。")
 }
 const assertCode = (value) => {
   if (typeof value !== "string" || value.length < 1 || value.length > 200000)
@@ -207,7 +213,7 @@ const normalizeStates = (value) => {
     if (!item || typeof item !== "object" || Array.isArray(item))
       throw new Error("状态需为对象。")
     assertId(item.id, "状态标识")
-    assertName(item.name, "状态名")
+    assertStateName(item.name)
     if (!sections.has(item.section))
       throw new Error("状态分栏仅支持 normal、exception、states。")
     return {
@@ -503,6 +509,78 @@ export async function openStore(directory) {
           )
         )
         return { deleted: directory.id }
+      }),
+    /** 种子导入：按目录名与页面名去重，已存在的内容保持原样。 */
+    importSeed: (input) =>
+      serialize(async () => {
+        const seed = input?.seed
+        if (
+          !seed ||
+          !Array.isArray(seed.directories) ||
+          !Array.isArray(seed.pages)
+        )
+          throw new Error("种子数据无效。")
+        if (seed.directories.length > 64 || seed.pages.length > 2048)
+          throw new Error("种子数据超出规模限制。")
+        let createdDirectories = 0
+        let createdPages = 0
+        let skipped = 0
+        const directoryIds = new Map()
+        for (const directory of seed.directories) {
+          assertName(directory?.name, "目录名")
+          const existing = state.directories.find(
+            (item) => item.name === directory.name
+          )
+          if (existing) {
+            directoryIds.set(directory.id, existing.id)
+            continue
+          }
+          const created = {
+            id: randomUUID(),
+            name: directory.name,
+            createdAt: now(),
+          }
+          state.directories.push(created)
+          directoryIds.set(directory.id, created.id)
+          createdDirectories += 1
+        }
+        for (const page of seed.pages) {
+          assertName(page?.name, "页面名")
+          assertText(page?.title ?? "", "页面标题", 120)
+          const directoryId = directoryIds.get(page.directoryId)
+          if (!directoryId) throw new Error(`页面目录缺失：${page.name}`)
+          if (
+            state.pages.some(
+              (item) =>
+                item.directoryId === directoryId && item.name === page.name
+            )
+          ) {
+            skipped += 1
+            continue
+          }
+          const meta = normalizeMeta(page.meta)
+          const states = normalizeStates(page.states)
+          const code = typeof page.code === "string" ? page.code : ""
+          if (!code && !meta?.preview)
+            throw new Error(`种子页面缺少源码或预览条目：${page.name}`)
+          if (code) assertCode(code)
+          const record = {
+            id: randomUUID(),
+            directoryId,
+            name: page.name,
+            title: typeof page.title === "string" ? page.title : "",
+            status: "draft",
+            createdAt: now(),
+            updatedAt: now(),
+            meta,
+            states,
+          }
+          await writeSource(sourceFile(record.id), code)
+          state.pages.push(record)
+          createdPages += 1
+        }
+        await persist()
+        return { createdDirectories, createdPages, skipped }
       }),
   }
   return store

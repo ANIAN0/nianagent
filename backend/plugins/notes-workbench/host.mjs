@@ -53,8 +53,6 @@ const moduleHeaders = {
   "cache-control": "no-store",
   "x-content-type-options": "nosniff",
 }
-const denialHtml = `<!doctype html><meta charset="utf-8"><title>笔记工作台</title><p style="font:14px/22px system-ui,sans-serif;color:#7a7a7a;padding:48px 24px;text-align:center">请从 Moon 插件详情页的「打开工作台」进入。</p>`
-
 export async function activate(host) {
   const settingsFile = join(host.directory, "settings.json"),
     tokenFile = join(host.directory, "token.json")
@@ -75,6 +73,12 @@ export async function activate(host) {
     throw new Error("笔记工作台 token 文件无效，请保留原文件并修复。")
 
   const store = await openStore(host.directory)
+  let seed = null
+  try {
+    seed = JSON.parse(await readFile(join(dirname(fileURLToPath(import.meta.url)), "seed.json"), "utf8"))
+  } catch {
+    seed = null
+  }
   let listener,
     workbenchHtml = "",
     previewHtml = "",
@@ -190,13 +194,21 @@ export async function activate(host) {
     "POST /api/directory": (body) => store.createDirectory(body),
     "POST /api/directory/delete": (body) => store.deleteDirectory(body),
     "POST /api/page": (body) =>
-      store.createPage({ ...body, code: body?.code || starterPageCode }),
+      store.createPage({
+        ...body,
+        // 界面「+页面」不传源码；指向预览条目的页面保留空源码。
+        code: body?.code || (body?.meta?.preview ? "" : starterPageCode),
+      }),
     "POST /api/page/status": (body) => store.setPageStatus(body),
     "POST /api/page/args": (body) => store.setStateArgs(body),
     "POST /api/page/delete": (body) => store.deletePage(body),
     "POST /api/comment": (body) =>
       store.addComment({ ...body, author: "user" }),
     "POST /api/comment/resolve": (body) => store.setCommentResolved(body),
+    "POST /api/seed/load": () => {
+      if (!seed) throw new Error("种子数据未生成：运行 node scripts/migrate-catalog-notes.mts。")
+      return store.importSeed({ seed })
+    },
   }
   const route = async (req, res) => {
     const url = new URL(req.url || "/", "http://127.0.0.1")
@@ -242,7 +254,8 @@ export async function activate(host) {
       req.method === "GET" &&
       (url.pathname === "/" || url.pathname === "/index.html")
     ) {
-      // 页面外壳不含数据：票据换取 token 注入，已持 token 的会话（重载）直接放行。
+      // 外壳不含数据，始终可载；票据（或已持 token）换取 token 注入。
+      // 无 token 的会话由页面自身提示从插件详情打开，刷新不依赖票据。
       if (!workbenchHtml) {
         sendJson(res, 503, {
           error: issue || resourceIssue || "工作台页面资源未构建。",
@@ -257,7 +270,7 @@ export async function activate(host) {
       if (!admitted) {
         void event("rejected", "打开票据缺失或已使用。")
         res.writeHead(200, htmlHeaders)
-        res.end(denialHtml)
+        res.end(workbenchHtml)
         return
       }
       const opening = workbenchHtml.replace(
@@ -426,6 +439,13 @@ export async function activate(host) {
       set_comment_resolved: operation("set_comment_resolved", (input) =>
         store.setCommentResolved(input)
       ),
+      load_seed: operation("load_seed", () => {
+        if (!seed)
+          throw new Error(
+            "种子数据未生成：运行 node scripts/migrate-catalog-notes.mts。"
+          )
+        return store.importSeed({ seed })
+      }),
       add_comment: operation("add_comment", (input) =>
         store.addComment({ ...input, author: "agent" })
       ),
