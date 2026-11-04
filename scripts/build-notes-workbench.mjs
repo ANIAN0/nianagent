@@ -31,26 +31,38 @@ const missing = (file) => {
   throw new Error(`构建产物缺少资源：${file}`)
 }
 
-await rm(outDir, { recursive: true, force: true })
-await build({
-  root,
-  logLevel: "info",
-  plugins: [react()],
-  build: {
-    outDir,
-    emptyOutDir: true,
-    target: "es2022",
-    assetsInlineLimit: 0,
-  },
-})
-const html = await readFile(resolve(outDir, "index.html"), "utf8")
-const assets = {}
-for (const file of html.matchAll(/(?:src|href)="\.?\/?([^"]+\.(?:js|css))"/g)) {
-  assets[file[1]] = await readFile(resolve(outDir, file[1]), "utf8")
+// 每个入口独立构建：产物必须内联为单文件，不能出现共享 chunk。
+const buildDocument = async (name) => {
+  const target = resolve(outDir, name)
+  await rm(target, { recursive: true, force: true })
+  await build({
+    root,
+    logLevel: "info",
+    plugins: [react()],
+    build: {
+      outDir: target,
+      emptyOutDir: true,
+      target: "es2022",
+      assetsInlineLimit: 0,
+      rollupOptions: {
+        input: resolve(root, `${name}.html`),
+        output: { codeSplitting: false },
+      },
+    },
+  })
+  const html = await readFile(resolve(target, `${name}.html`), "utf8")
+  const assets = {}
+  for (const file of html.matchAll(/(?:src|href)="\.?\/?([^"]+\.(?:js|css))"/g)) {
+    assets[file[1]] = await readFile(resolve(target, file[1]), "utf8")
+  }
+  const document = inline(html, assets)
+  if (/<script[^>]*src=|<link[^>]*href=/.test(document))
+    throw new Error(`仍有未内联的外部资源：${name}，请检查构建输出。`)
+  return document
 }
-const document = inline(html, assets)
-if (/<script[^>]*src=|<link[^>]*href=/.test(document))
-  throw new Error("仍有未内联的外部资源，请检查构建输出。")
+await rm(outDir, { recursive: true, force: true })
+const document = await buildDocument("index")
+const previewDocument = await buildDocument("preview")
 await mkdir(dirname(bundleFile), { recursive: true })
 await writeFile(
   bundleFile,
@@ -58,6 +70,8 @@ await writeFile(
     "// 由 scripts/build-notes-workbench.mjs 生成，请勿手改；改 workbench/ 后重新构建。",
     "/** @type {string} */",
     `export const workbenchHtml = ${JSON.stringify(document)};`,
+    "/** @type {string} */",
+    `export const previewHtml = ${JSON.stringify(previewDocument)};`,
     `export const sourceFingerprint = ${JSON.stringify(
       await workbenchFingerprint(root)
     )};`,
@@ -65,5 +79,8 @@ await writeFile(
   ].join("\n")
 )
 console.log(
-  `notes-workbench bundle: ${(document.length / 1024).toFixed(0)} KiB → ${bundleFile}`
+  `notes-workbench bundle: ${(
+    (document.length + previewDocument.length) /
+    1024
+  ).toFixed(0)} KiB → ${bundleFile}`
 )

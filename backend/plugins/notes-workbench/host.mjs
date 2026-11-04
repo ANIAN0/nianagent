@@ -38,8 +38,16 @@ const htmlHeaders = {
   "content-type": "text/html; charset=utf-8",
   "cache-control": "no-store",
   "content-security-policy":
-    "default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; img-src * data: blob:; media-src * data: blob:; font-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; img-src * data: blob:; media-src * data: blob:; font-src 'self' data:; connect-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
   "x-content-type-options": "nosniff",
+}
+const previewHeaders = {
+  ...htmlHeaders,
+  // 预览文档只被同源工作台页面内嵌。
+  "content-security-policy": htmlHeaders["content-security-policy"].replace(
+    "frame-ancestors 'none'",
+    "frame-ancestors 'self'"
+  ),
 }
 const denialHtml = `<!doctype html><meta charset="utf-8"><title>笔记工作台</title><p style="font:14px/22px system-ui,sans-serif;color:#7a7a7a;padding:48px 24px;text-align:center">请从 Moon 插件详情页的「打开工作台」进入。</p>`
 
@@ -65,6 +73,7 @@ export async function activate(host) {
   const store = await openStore(host.directory)
   let listener,
     workbenchHtml = "",
+    previewHtml = "",
     resourceVersion = 0,
     issue = "",
     resourceIssue = "",
@@ -96,6 +105,7 @@ export async function activate(host) {
     const html = String(bundle.workbenchHtml || "")
     if (!html) throw new Error("工作台页面资源为空。")
     workbenchHtml = html
+    previewHtml = String(bundle.previewHtml || "")
     resourceVersion = Math.floor(mtimeMs)
     // 指纹不一致说明改了源码没重建；打包安装不含源码目录时跳过核对。
     const actual = await workbenchFingerprint()
@@ -180,6 +190,18 @@ export async function activate(host) {
     ) {
       void event("rejected", "Host 不允许。")
       sendJson(res, 403, { error: "仅本机可访问。" })
+      return
+    }
+    if (req.method === "GET" && (url.pathname === "/preview.html" || url.pathname === "/preview")) {
+      // 预览外壳不含数据；由工作台页面同源内嵌。
+      if (!previewHtml) {
+        sendJson(res, 503, {
+          error: issue || resourceIssue || "预览页面资源未构建。",
+        })
+        return
+      }
+      res.writeHead(200, previewHeaders)
+      res.end(previewHtml)
       return
     }
     if (

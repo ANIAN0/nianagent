@@ -194,6 +194,7 @@ export function App() {
             setFocusId(commentId)
           }}
           onToggleStatus={toggleStatus}
+          resourceVersion={snapshot?.resourceVersion ?? 0}
         />
         <div className="flex h-full w-80 shrink-0 flex-col border-l border-[#3c3c3c] bg-[#2c2c2c]">
           <div className="flex shrink-0 items-center gap-1 px-3 pt-2">
