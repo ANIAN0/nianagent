@@ -10,7 +10,8 @@ import type { BootStage } from "@/contracts/desktop.generated"
 import { ThemeProvider } from "@/components/theme-provider"
 import { recoverStartupProfile } from "@/features/settings/startup-recovery"
 import { createBootService } from "./boot-service"
-import { StartupSurface, type StartupStep } from "./startup-surface"
+import type { StartupStep } from "./startup-surface"
+import { BreathingStartupSurface as StartupSurface } from "./breathing/startup-breathing"
 import { loadStartupModule } from "./startup-bootstrap"
 
 const stages: Exclude<BootStage, "ready">[] = [

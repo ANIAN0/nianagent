@@ -1,0 +1,263 @@
+/* Portal 位于启动画布之外，直接沿用应用语义变量。 */
+.startup-details-dialog {
+  --startup-foreground: var(--popover-foreground);
+  --startup-muted: var(--muted-foreground);
+  --startup-primary: var(--primary-strong);
+  --startup-primary-ink: var(--primary-foreground, #ffffff);
+  /* 层叠投影：环境光 + 直接光两层，色调偏向前景色相而非纯黑。 */
+  box-shadow:
+    0 1px 2px color-mix(in srgb, #17202f 12%, transparent),
+    0 24px 64px -12px color-mix(in srgb, #17202f 30%, transparent);
+}
+
+.startup-dialog-steps {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 8px 0 0;
+  list-style: none;
+}
+
+.startup-dialog-steps li {
+  position: relative;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 12px;
+  padding-bottom: 24px;
+}
+
+.startup-dialog-steps li:last-child {
+  padding-bottom: 0;
+}
+
+.startup-dialog-steps li:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: 28px;
+  bottom: 4px;
+  left: 11.5px;
+  width: 1px;
+  background: var(--border);
+}
+
+.startup-dialog-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  color: var(--muted-foreground);
+}
+
+.startup-dialog-marker > svg {
+  width: 16px;
+  height: 16px;
+}
+
+.startup-dialog-marker > span {
+  box-sizing: border-box;
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+}
+
+.startup-dialog-step {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 6px;
+  padding-top: 1px;
+  overflow-wrap: anywhere;
+}
+
+.startup-dialog-step-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--popover-foreground);
+  font-size: var(--moon-copy-size);
+  line-height: var(--moon-copy-line);
+}
+
+.startup-dialog-step-heading strong {
+  font-weight: 450;
+}
+
+.startup-dialog-step-status {
+  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.startup-dialog-step > p {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: var(--moon-copy-size);
+  line-height: var(--moon-copy-line);
+}
+
+.startup-dialog-steps [data-status="active"] .startup-dialog-marker > span {
+  border: none;
+  background: var(--primary-strong);
+  box-shadow: 0 0 0 4px
+    color-mix(in srgb, var(--primary-strong) 12%, transparent);
+}
+
+.startup-dialog-steps [data-status="active"] .startup-dialog-step-heading {
+  color: var(--primary-strong);
+}
+
+.startup-dialog-steps [data-status="active"] strong,
+.startup-dialog-steps [data-status="failed"] strong {
+  font-weight: var(--moon-status-weight);
+}
+
+.startup-dialog-steps [data-status="failed"] .startup-dialog-marker,
+.startup-dialog-steps [data-status="failed"] .startup-dialog-step-status {
+  color: var(--destructive);
+}
+
+.startup-dialog-steps [data-status="pending"] .startup-dialog-step-heading {
+  color: var(--muted-foreground);
+}
+
+/* 异常弹窗：标题与摘要组成阅读头部，阶段列表随后滚动，动作集中在底部一处。 */
+.startup-details-locked [data-slot="dialog-title"] {
+  font-size: 18px;
+  line-height: 28px;
+  font-weight: 550;
+}
+
+.startup-details-locked [data-slot="dialog-description"] {
+  font-size: 14px;
+  line-height: 24px;
+  color: var(--popover-foreground);
+}
+
+.startup-details-locked [data-slot="dialog-header"] {
+  padding-right: 16px;
+}
+
+.startup-details-locked .startup-dialog-steps [data-status="complete"] .startup-dialog-step-heading,
+.startup-details-locked .startup-dialog-steps [data-status="pending"] .startup-dialog-step-heading {
+  color: var(--muted-foreground);
+}
+
+/* 弹窗动作区：一个弹窗只有这一处按钮。诊断复制是资料工具，靠左随行；
+   退出与重试组成右侧决定组，重试缺席时退出升为实心。 */
+.startup-dialog-footer {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+
+/* 仅剩诊断复制时（启动详情）动作靠右。 */
+.startup-dialog-footer-solo {
+  justify-content: flex-end;
+}
+
+.startup-dialog-decision {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* 决定组按钮：重试是唯一实心全圆胶囊，退出随行。 */
+.startup-dialog-footer [data-slot="button"] {
+  min-inline-size: 120px;
+  height: 32px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 9999px;
+  font-size: var(--moon-control-size);
+  line-height: var(--moon-control-line);
+  /* 只列过渡属性，不用 transition: all。 */
+  transition:
+    color 150ms ease,
+    background-color 150ms ease;
+}
+
+/* 悬停比静置更重：向黑色混合而不是变浅。 */
+.startup-dialog-footer [data-slot="button"]:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--startup-primary) 92%, #000000);
+}
+
+/* 加载指示与原标签并存：静置隐藏图标，重试等待时显示并旋转。 */
+.startup-dialog-footer [data-icon="inline-start"] {
+  display: none;
+}
+
+.startup-dialog-footer
+  [data-slot="button"][data-pending="retry"]
+  [data-icon="inline-start"] {
+  display: block;
+}
+
+.startup-dialog-footer .startup-toggle {
+  min-height: 32px;
+  padding: 4px 14px;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--startup-foreground) 4%, transparent);
+  color: color-mix(in srgb, var(--startup-foreground) 72%, var(--startup-muted));
+  font-size: var(--moon-control-size);
+  line-height: var(--moon-control-line);
+  transition:
+    color 150ms ease,
+    background-color 150ms ease;
+}
+
+.startup-dialog-footer .startup-toggle:hover:not(:disabled) {
+  color: var(--startup-foreground);
+  background: color-mix(in srgb, var(--startup-foreground) 8%, transparent);
+}
+
+.startup-dialog-decision[data-has-retry="false"] .startup-toggle {
+  min-inline-size: 120px;
+  background: var(--startup-primary);
+  color: var(--startup-primary-ink);
+  font-weight: 500;
+}
+
+.startup-dialog-decision[data-has-retry="false"]
+  .startup-toggle:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--startup-primary) 92%, #000000);
+  color: var(--startup-primary-ink);
+}
+
+/* 复制诊断与页面上的次要动作共用同一浅底胶囊语言。 */
+.startup-details-dialog .startup-details-action {
+  min-height: 32px;
+  margin: 0;
+  padding: 4px 14px;
+  border: none;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--startup-foreground) 4%, transparent);
+  color: color-mix(in srgb, var(--startup-foreground) 72%, var(--startup-muted));
+  font-size: var(--moon-control-size);
+  line-height: var(--moon-control-line);
+  transition:
+    color 150ms ease,
+    background-color 150ms ease;
+}
+
+.startup-details-dialog .startup-details-action:hover:not(:disabled) {
+  color: var(--startup-foreground);
+  background: color-mix(in srgb, var(--startup-foreground) 8%, transparent);
+}
+
+.startup-details-dialog .startup-details-action:active:not(:disabled) {
+  background: color-mix(in srgb, var(--startup-foreground) 12%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .startup-details-dialog {
+    animation: none;
+  }
+}

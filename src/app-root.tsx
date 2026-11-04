@@ -2,7 +2,7 @@ import { Component, lazy, StrictMode, Suspense, type ReactNode } from "react"
 import { createRoot } from "react-dom/client"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { ThemeProvider } from "@/components/theme-provider"
-import { StartupSurface } from "@/features/startup/startup-surface"
+import { BreathingStartupSurface as StartupSurface } from "@/features/startup/breathing/startup-breathing"
 import {
   loadStartupModule,
   startupExitAction,
@@ -62,8 +62,14 @@ class StartupEntryBoundary extends Component<
       return (
         <StartupSurface
           status="failed"
-          steps={[{ id: "interface", label: "加载启动界面", status: "failed" }]}
-          message="工作台暂时无法显示，请重新加载。已保存的数据保留。"
+          steps={[
+            {
+              id: "interface",
+              label: "加载启动界面",
+              status: "failed",
+              detail: "工作台暂时无法显示，请重新加载。已保存的数据保留。",
+            },
+          ]}
           diagnostics={
             "Moon 启动诊断\n阶段：加载启动界面\n原因：界面资源未能加载或显示。"
           }

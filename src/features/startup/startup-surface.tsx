@@ -1,5 +1,11 @@
-import { useEffect, useRef, useState } from "react"
-import { Check, ChevronDown, CircleAlert, RefreshCw } from "lucide-react"
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ComponentType,
+  type ReactNode,
+} from "react"
+import { Check, ChevronDown, CircleAlert, Loader2, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Collapsible,
@@ -15,6 +21,24 @@ export type StartupStep = {
   detail?: string
 }
 
+/** 详情外观可替换；披露状态、退出与诊断复制仍由启动页统一管理。 */
+export type StartupDetailsViewProps = {
+  status: "starting" | "failed"
+  steps: StartupStep[]
+  pending: "retry" | "exit" | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  retryAction: ReactNode
+  exitAction: ReactNode
+  copyAction: ReactNode
+}
+
+export type StartupFailureViewProps = {
+  title: string
+  message: string
+  pending: "retry" | "exit" | null
+}
+
 export type StartupSurfaceProps = {
   status: "starting" | "failed"
   steps: StartupStep[]
@@ -27,6 +51,8 @@ export type StartupSurfaceProps = {
   exitInstruction?: string | null
   onRetry?: () => void
   onExit?: () => void
+  detailsView?: ComponentType<StartupDetailsViewProps>
+  failureView?: ComponentType<StartupFailureViewProps>
 }
 
 /** 阶段提示出现延迟：快启动保持纯呼吸点，慢启动才开口交代。 */
@@ -44,6 +70,8 @@ export function StartupSurface({
   exitInstruction,
   onRetry,
   onExit,
+  detailsView: DetailsView,
+  failureView: FailureView,
 }: StartupSurfaceProps) {
   const [details, setDetails] = useState(false)
   const [showStage, setShowStage] = useState(false)
@@ -66,6 +94,16 @@ export function StartupSurface({
       lifetime.current += 1
     }
   }, [])
+  const [prevStatus, setPrevStatus] = useState<string | null>(null)
+  if (prevStatus !== status) {
+    setPrevStatus(status)
+    // 失败即自动弹出异常详情并保持打开：重试与退出在弹窗内，离开失败态才收起。
+    if (status === "failed") {
+      if (DetailsView && (steps.length > 1 || diagnostics)) setDetails(true)
+    } else {
+      setDetails(false)
+    }
+  }
   const failed = steps.find((step) => step.status === "failed")
   const active = steps.find((step) => step.status === "active")
   const title =
@@ -77,6 +115,8 @@ export function StartupSurface({
   )
   const copied =
     copyState?.diagnostics === diagnostics ? copyState.status : null
+  const failureMessage =
+    message ?? failed?.detail ?? "未能完成启动，请按当前提示处理。"
 
   const copyDiagnostics = () => {
     if (copying.current || !diagnostics) return
@@ -100,8 +140,7 @@ export function StartupSurface({
       })
   }
 
-  /* 失败时刻只有一个决定（是否重试）：唯一实体按钮是重试；
-     披露、退出等次要动作全部是文字级，复制诊断收进它作用的详情里。 */
+  /* 恢复由宿主决定，阶段与诊断按需披露。 */
   const disclosureAvailable =
     (steps.length > 1 || !!diagnostics) && (status === "failed" || showStage)
   const detailsToggle = (
@@ -119,12 +158,57 @@ export function StartupSurface({
       disabled={pending !== null}
       onClick={onExit}
     >
-      {pending === "exit" ? "正在退出…" : "退出 Moon"}
+      {pending === "exit" && (
+        <Loader2
+          className="size-3.5 animate-spin motion-reduce:animate-none"
+          aria-hidden="true"
+        />
+      )}
+      退出 Moon
+    </button>
+  ) : null
+  const copyAction = diagnostics ? (
+    <button
+      type="button"
+      className="startup-toggle startup-details-action"
+      disabled={copied === "copying" || pending === "exit"}
+      onClick={copyDiagnostics}
+      aria-live="polite"
+    >
+      {copied === "copying"
+        ? "正在复制…"
+        : copied === "copied"
+          ? "诊断已复制"
+          : copied === "failed"
+            ? "复制失败，再试一次"
+            : "复制诊断信息"}
     </button>
   ) : null
 
-  return (
-    <main className="startup-surface" data-status={status}>
+  const failureInDialog =
+    status === "failed" && !!DetailsView && disclosureAvailable
+  const retryAction =
+    status === "failed" && onRetry ? (
+      <Button
+        disabled={pending !== null}
+        data-pending={pending === "retry" ? "retry" : undefined}
+        onClick={onRetry}
+      >
+        {/* 加载指示与原标签并存，不吞掉按钮文字。 */}
+        <RefreshCw
+          data-icon="inline-start"
+          className={
+            pending === "retry"
+              ? "animate-spin motion-reduce:animate-none"
+              : undefined
+          }
+        />
+        {retryLabel}
+      </Button>
+    ) : null
+
+  const content = (
+    <>
       <h1 id="startup-title" className="sr-only">
         Moon
       </h1>
@@ -138,15 +222,15 @@ export function StartupSurface({
             </span>
           )}
         </div>
+      ) : FailureView ? (
+        <FailureView title={title} message={failureMessage} pending={pending} />
       ) : (
         <div className="startup-failure" role="status">
           <h2 key={title}>
             <CircleAlert aria-hidden="true" />
             {title}
           </h2>
-          <p>
-            {message ?? failed?.detail ?? "未能完成启动，请按当前提示处理。"}
-          </p>
+          <p>{failureMessage}</p>
           {pending === "retry" && (
             <p className="startup-retrying">
               <span className="startup-dot" aria-hidden="true" />
@@ -155,16 +239,22 @@ export function StartupSurface({
           )}
         </div>
       )}
-      {status === "failed" && onRetry && (
-        <div className="startup-actions">
-          <Button disabled={pending !== null} onClick={onRetry}>
-            <RefreshCw data-icon="inline-start" />
-            {pending === "retry" ? "正在重试…" : retryLabel}
-          </Button>
-        </div>
+      {retryAction && !failureInDialog && (
+        <div className="startup-actions">{retryAction}</div>
       )}
       {/* 快启动保持纯呼吸点；慢启动或失败时开放阶段信息与详情。 */}
-      {disclosureAvailable ? (
+      {disclosureAvailable && DetailsView ? (
+        <DetailsView
+          status={status}
+          steps={steps}
+          pending={pending}
+          open={details}
+          onOpenChange={setDetails}
+          retryAction={retryAction}
+          exitAction={exitAction}
+          copyAction={copyAction}
+        />
+      ) : disclosureAvailable ? (
         <Collapsible
           open={details}
           onOpenChange={setDetails}
@@ -212,22 +302,7 @@ export function StartupSurface({
                 </li>
               ))}
             </ol>
-            {diagnostics && (
-              <button
-                type="button"
-                className="startup-toggle startup-details-action"
-                disabled={copied === "copying" || pending === "exit"}
-                onClick={copyDiagnostics}
-              >
-                {copied === "copying"
-                  ? "正在复制…"
-                  : copied === "copied"
-                    ? "诊断已复制"
-                    : copied === "failed"
-                      ? "复制失败，再试一次"
-                      : "复制诊断信息"}
-              </button>
-            )}
+            {copyAction}
           </CollapsibleContent>
         </Collapsible>
       ) : (
@@ -239,6 +314,16 @@ export function StartupSurface({
           {exitInstruction}
         </p>
       )}
+    </>
+  )
+
+  return (
+    <main
+      className="startup-surface"
+      data-status={status}
+      data-pending={pending ?? undefined}
+    >
+      {content}
     </main>
   )
 }

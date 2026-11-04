@@ -1,6 +1,7 @@
 import { useState } from "react"
 import type { CatalogEntry } from "../../../ui-catalog/catalog-types"
-import { StartupSurface, type StartupStep } from "./startup-surface"
+import type { StartupStep } from "./startup-surface"
+import { BreathingStartupSurface } from "./breathing/startup-breathing"
 
 const startingSteps: StartupStep[] = [
   { id: "profile", label: "核对数据目录", status: "complete" },
@@ -36,13 +37,15 @@ function StartupExample({
                   detail:
                     scenario === "long"
                       ? "新的数据目录 D:/应用与工作资料/Moon/长期保留的专用数据与桌面草稿目录 尚未完成服务恢复，请检查安装资源与该目录的访问权限。"
-                      : "Moon 本地服务尚未就绪，请处理运行资源后重试。",
+                      : scenario === "opening"
+                        ? "数据迁移已完成，本地服务仍未就绪。请退出 Moon 后重新打开。"
+                        : "Moon 本地服务尚未就绪，请处理运行资源后重试。",
                 }
               : step
           )
         : startingSteps
   return (
-    <StartupSurface
+    <BreathingStartupSurface
       status={failed ? "failed" : "starting"}
       steps={steps}
       failureTitle={
@@ -73,104 +76,123 @@ function StartupExample({
 export default {
   id: "startup-surface",
   name: "Moon 启动页",
-  source: "src/features/startup/startup-surface.tsx",
-  group: "页面与流程",
+  source: "src/features/startup/breathing/startup-breathing.tsx",
+  group: "设置与启动",
   layer: "页面",
   order: 3,
   pages: ["启动"],
   stage: "content",
   description:
-    "统一启动入口：安静画布上的一颗呼吸点，慢启动超时后淡入真实阶段提示，失败给出可恢复动作，服从当前宿主能力。",
+    "「月息」呼吸月体启动页：在正式启动阶段下呈现等待与失败恢复，包含慢启动详情弹窗。",
   boundary:
-    "直接使用正式StartupSurface；组件库不连接业务宿主、不按定时器进入成功，不替代正式启动验收。",
+    "月息包装正式StartupSurface并沿用其恢复行为；组件库不连接业务宿主、不按定时器进入成功，不替代正式启动验收。",
   standards: [
+    {
+      id: "B4",
+      name: "月息呼吸方案",
+      rule: "月息的月体与柔光共享4.8秒周期；启动、失败、重试共用品牌位置与尺寸，文字保持静止；失败与阅读详情时暂停呼吸，真实重试恢复呼吸，减少动态模式保持静止。",
+      reason: "扩张与收回需要清楚可见，又不应带动整页或被理解为启动进度。",
+      check: "打开详情弹窗并关闭，切换失败、浅深主题和减少动态模式。",
+    },
     {
       id: "B1",
       name: "真实阶段",
-      rule: "仅呈现当前已知启动步骤，不猜百分比或完成时间；呼吸点只表示等待，阶段提示在超过1.5秒后淡入。",
-      reason: "呼吸的点不证明服务或数据已就绪；快启动不需要文字交代。",
-      check: "等待超过1.5秒出现阶段提示，展开详情核对真实步骤。",
+      rule: "仅呈现当前已知启动步骤，不猜百分比或完成时间；月体呼吸只表示等待，详情入口在超过1.5秒后淡入。",
+      reason: "呼吸的月体不证明服务或数据已就绪；快启动不需要文字交代。",
+      check: "等待超过1.5秒淡入详情入口，展开详情核对真实步骤。",
     },
     {
       id: "B2",
       name: "可恢复失败",
-      rule: "失败时刻只有一个决定（是否重试）：全页唯一实体按钮是实心重试；查看详情与退出是同行文字级动作，复制诊断收进它作用的详情内容里，均不使用按钮外观；兜底入口保护镜像同一结构。",
+      rule: "失败时刻只有一个决定（是否重试）：异常详情在失败时自动弹出且不可关闭，重试与退出就在弹窗内；页面保持月体与字标，一行状态宣告失败；复制诊断收进弹窗；兜底入口保护镜像同一结构。",
       reason:
-        "一行对等按钮把罕见诊断与破坏性退出抬成与恢复同级的选项；动作层级靠元素类型区分，而不是靠同色按钮的颜色深浅。",
+        "报了异常就不提供关闭出口：决定在弹窗内做出，页面骨架不被失败改写。",
       check:
-        "失败页有且仅有一个实心元素；展开详情后复制可用且反馈真实；重试展示保持等待，不伪造成功。",
+        "失败时弹窗自动打开且无关闭出口；重试显示等待并恢复月体呼吸；复制反馈真实。",
     },
     {
       id: "B3",
       name: "稳定阅读位置",
-      rule: "内容在视口内垂直居中，详情从触发器下方向下展开。",
-      reason: "居中让启动与失败两种内容量都保持视觉平衡，展开不遮挡阶段信息。",
-      check: "展开和收起详情，阶段提示与失败操作保持可见。",
+      rule: "月息使用启动详情弹窗，长内容在正文中滚动，标题、关闭和复制操作固定可见；关闭后焦点回到详情入口。",
+      reason:
+        "查看完整阶段不应推动月体和恢复动作；短窗也需要能关闭和复制诊断。",
+      check:
+        "打开详情，检查Tab焦点范围；用关闭按钮与Escape分别关闭并核对焦点回归。",
     },
   ],
   inputs: [
     "status / steps / message / failureTitle / diagnostics",
     "pending / onRetry / onExit / exitInstruction",
+    "detailsView：可选详情展示组件；月息提供独立弹窗",
+    "failureView：可选失败内容展示组件；恢复行为由StartupSurface统一管理",
   ],
   events: [
     "合法重试或退出交由宿主执行",
     "复制仅取调用方提供的受控诊断，真实剪贴板成功后才反馈",
   ],
   composition: [
-    "StartupSurface → Button / Collapsible，与 HTML 入口保护共用呼吸点、阶段提示与阅读锚点",
+    "BreathingStartupSurface → StartupSurface / BreathingStartupFailure / StartupDetailsDialog → Dialog：与 HTML 入口保护共用品牌锚点、阶段提示与阅读锚点；恢复行为由StartupSurface统一管理",
   ],
   consumers: ["正式正常启动BootApp", "React资源加载失败前的同视觉入口保护"],
   viewport: { width: 680, height: 560 },
   states: [
     {
-      id: "single",
-      name: "单阶段失败诊断",
-      section: "exception",
-      condition: "仅加载界面一个阶段失败，并提供安全诊断。",
-      expected: "仍可展开详情、复制诊断并重试。",
-      steps: ["展开详情。", "复制诊断并检查成功反馈。"],
-      render: () => <StartupExample scenario="single" />,
-    },
-    {
-      id: "starting",
-      name: "启动中",
+      id: "breathing",
+      name: "月息 · 新启动页",
       section: "normal",
-      condition: "当前真实阶段进行中。",
-      expected: "呼吸点居中；1.5秒后淡入12px阶段提示；多阶段详情默认收起。",
-      steps: ["展开详情查看已完成/当前/待执行步骤。"],
+      condition: "月息设计方案，使用正式启动阶段。",
+      expected:
+        "月体与柔光在4.8秒内平滑舒展、收回；Moon字标保持静止；1.5秒后淡入详情入口。",
+      steps: [
+        "观察一个完整呼吸周期。",
+        "点击查看详情，核对阶段后用Escape关闭。",
+      ],
       render: () => <StartupExample scenario="starting" />,
     },
     {
-      id: "failed",
-      name: "失败与重试等待",
+      id: "breathing-failed",
+      name: "月息 · 失败与重试",
       section: "exception",
-      condition: "服务尚未就绪。",
+      condition: "新方案中本地服务未就绪。",
       expected:
-        "具体原因在上；唯一实心重试按钮居中；查看详情与退出是文字级同行；复制诊断在详情内。",
+        "失败即自动打开启动异常弹窗并保持打开：标题下是原因，正文为阶段，重试、退出与复制诊断集中在弹窗底部同一动作区；重试时月体恢复呼吸，详情保留上次失败。",
       steps: [
-        "核对页面上只有一个实心按钮。",
-        "展开详情，在详情内复制诊断并核对真实复制反馈。",
-        "点击重试观察等待。",
+        "核对弹窗自动打开、无关闭出口，重试、退出与复制诊断同在底部动作区。",
+        "点击重试：月体恢复呼吸，主状态显示正在重试。",
       ],
       render: () => <StartupExample scenario="failed" />,
     },
     {
-      id: "opening",
-      name: "已导入后的启动失败",
+      id: "breathing-opening",
+      name: "月息 · 已迁移后的启动失败",
       section: "exception",
-      condition: "原生已证明数据提交、当前服务不可恢复。",
-      expected: "已迁移事实清楚，不给无效重读，只保留诊断及合法退出。",
-      steps: ["阅读标题与受控原因。", "检查退出提示。"],
+      condition: "数据已迁移，但当前服务不可恢复，没有合法重试能力。",
+      expected:
+        "保留相同品牌与状态层级，明确已迁移事实，只提供详情与合法退出。",
+      steps: ["阅读已迁移事实。", "打开详情、复制诊断并检查退出提示。"],
       render: () => <StartupExample scenario="opening" />,
     },
     {
-      id: "long",
-      name: "长原因与窄窗",
+      id: "breathing-long",
+      name: "月息 · 长原因与窄窗",
       section: "states",
-      condition: "较长安全原因及520×420短窗。",
-      expected: "文字级操作同行、详情局部滚动、页面自然纵向滚动，不缩小文字。",
-      steps: ["展开详情。", "切换浅深主题及窄窗查看完整动作。"],
+      condition: "新方案下的长失败原因及窄短窗口。",
+      expected:
+        "长文自然换行，弹窗正文局部滚动，关闭与复制操作始终可达，支持浅深主题。",
+      steps: [
+        "切换窄窗和主题。",
+        "打开详情弹窗，检查正文滚动、复制操作与键盘焦点。",
+      ],
       render: () => <StartupExample scenario="long" />,
+    },
+    {
+      id: "breathing-single",
+      name: "月息 · 单阶段诊断",
+      section: "exception",
+      condition: "只加载启动界面一个阶段失败，并提供受控诊断。",
+      expected: "单阶段也能打开详情与复制诊断；月体保持静止。",
+      steps: ["打开详情核对一个失败阶段。", "复制诊断并用关闭按钮返回。"],
+      render: () => <StartupExample scenario="single" />,
     },
   ],
 } satisfies CatalogEntry

@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="180 190 650 680">
+  <!-- 沿用 public/moon.svg 中的品牌弯月轮廓，作为单色遮罩。 -->
+  <path d="M588 224a304 304 0 1 0 212 404 240 240 0 0 1-212-404Z" fill="#000"/>
+</svg>

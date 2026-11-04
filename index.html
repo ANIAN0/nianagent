@@ -12,7 +12,7 @@
       type="font/woff2"
       crossorigin
     />
-    <!-- 入口模块失效时仍有完整兜底；尺度与 startup-surface.css 保持一致。 -->
+    <!-- 入口模块失效时仍有完整兜底；尺度与 startup-breathing.css 保持一致。 -->
     <style>
       @font-face {
         font-family: "Source Han Sans SC";
@@ -23,6 +23,7 @@
         font-display: swap;
       }
       body { margin: 0; }
+      /* 月息：月体与柔光共享一次吸气、呼气；布局与 startup-breathing.css 保持一致。 */
       #moon-initial-boot {
         --startup-background: light-dark(#f8f9fb, #12151d);
         --startup-foreground: light-dark(#17202f, #edf0f5);
@@ -30,42 +31,80 @@
         --startup-border: light-dark(#e3e8f0, #303846);
         --startup-primary: light-dark(#3568d4, #6c9aef);
         --startup-primary-ink: light-dark(#ffffff, #0b1220);
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: safe center;
-        gap: 12px;
+        display: grid;
+        grid-template-columns: minmax(0, 480px);
+        grid-template-rows:
+          clamp(88px, calc(100svh - 480px), 160px) 44px
+          minmax(0, auto);
+        justify-content: center;
+        justify-items: center;
+        align-content: start;
         box-sizing: border-box;
         min-height: 100dvh;
-        padding: 32px 24px;
+        padding: max(28px, calc(50svh - 152px)) 24px 40px;
         color-scheme: light dark;
+        isolation: isolate;
         background: var(--startup-background);
         color: var(--startup-foreground);
         font-family: "Source Han Sans SC", sans-serif;
       }
+      #moon-initial-boot::before,
+      #moon-initial-boot::after {
+        content: "";
+        grid-area: 1 / 1;
+        align-self: center;
+        border-radius: 50%;
+        pointer-events: none;
+      }
+      #moon-initial-boot::before {
+        z-index: 1;
+        width: 76px;
+        height: 80px;
+        border-radius: 0;
+        background: linear-gradient(
+          145deg,
+          color-mix(in srgb, var(--startup-primary) 42%, var(--startup-background)),
+          var(--startup-primary) 65%,
+          color-mix(in srgb, var(--startup-primary) 85%, var(--startup-foreground))
+        );
+        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='180 190 650 680'%3E%3Cpath d='M588 224a304 304 0 1 0 212 404 240 240 0 0 1-212-404Z' fill='%23000'/%3E%3C/svg%3E") center / contain no-repeat;
+        animation: moon-initial-body 4.8s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+      }
+      #moon-initial-boot::after {
+        z-index: 0;
+        width: 240px;
+        height: 240px;
+        background: radial-gradient(
+          circle,
+          color-mix(in srgb, var(--startup-primary) 16%, transparent) 0%,
+          color-mix(in srgb, var(--startup-primary) 7%, transparent) 35%,
+          color-mix(in srgb, var(--startup-primary) 2%, transparent) 56%,
+          transparent 72%
+        );
+        animation: moon-initial-light 4.8s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+      }
       #moon-initial-title {
-        position: absolute;
-        width: 1px;
-        height: 1px;
-        margin: -1px;
-        overflow: hidden;
-        clip-path: inset(50%);
-        white-space: nowrap;
+        grid-area: 2 / 1;
+        align-self: center;
+        margin: 0;
+        font-size: 28px;
+        font-weight: 550;
+        line-height: 40px;
+        letter-spacing: -0.04em;
+        animation: moon-initial-enter 400ms ease-out both;
       }
       #moon-initial-progress {
+        grid-area: 3 / 1;
+        align-self: start;
         display: flex;
         flex-direction: column;
         align-items: center;
         gap: 12px;
+        padding-top: 10px;
       }
+      /* 月体呼吸取代呼吸点；脚本失败时移除的点元素不再参与视觉。 */
       #moon-initial-dot {
-        display: inline-block;
-        box-sizing: border-box;
-        width: 6px;
-        height: 6px;
-        border-radius: 9999px;
-        background: var(--startup-muted);
-        animation: moon-initial-breathe 3s ease-in-out infinite;
+        display: none;
       }
       #moon-initial-stage {
         display: flex;
@@ -94,11 +133,16 @@
       #moon-initial-boot[data-status="failed"] #moon-initial-alert {
         display: inline-block;
       }
+      /* 失败留在同一品牌锚点：月体暂停呼吸，一行状态宣告失败。 */
+      #moon-initial-boot[data-status="failed"]::before,
+      #moon-initial-boot[data-status="failed"]::after {
+        animation-play-state: paused;
+      }
       #moon-initial-boot[data-status="failed"] #moon-initial-stage {
         color: var(--startup-foreground);
         font-size: 14px;
-        line-height: 22px;
-        font-weight: 600;
+        line-height: 24px;
+        font-weight: 500;
       }
       /* 失败恢复只有一个决定：唯一实心主按钮，其余动作是文字级。 */
       #moon-initial-actions {
@@ -134,12 +178,13 @@
         line-height: 20px;
         user-select: none;
       }
-      /* 主按钮对齐共享 Button default 规格：这页上按钮就是全部内容，不用密集尺寸。 */
+      /* 主按钮对齐启动弹窗的实心全圆胶囊规格。 */
       #moon-initial-actions .startup-initial-button {
+        min-width: 120px;
         height: 32px;
-        padding: 0 12px;
+        padding: 0 14px;
         border: none;
-        border-radius: 8px;
+        border-radius: 9999px;
         background: var(--startup-primary);
         color: var(--startup-primary-ink);
         font: inherit;
@@ -186,12 +231,22 @@
         opacity: 0.5;
         cursor: default;
       }
-      @keyframes moon-initial-breathe {
-        0%, 100% { opacity: 0.3; transform: scale(0.75); }
-        50% { opacity: 1; transform: scale(1); }
+      @keyframes moon-initial-body {
+        0%, 100% { transform: scale(0.94); opacity: 0.84; }
+        44% { transform: scale(1.06); opacity: 1; }
+      }
+      @keyframes moon-initial-light {
+        0%, 100% { transform: scale(0.84); opacity: 0.4; }
+        44% { transform: scale(1.12); opacity: 0.92; }
+      }
+      @keyframes moon-initial-enter {
+        from { opacity: 0; transform: translateY(4px); }
+        to { opacity: 1; transform: translateY(0); }
       }
       @media (prefers-reduced-motion: reduce) {
-        #moon-initial-dot { animation: none; }
+        #moon-initial-boot::before,
+        #moon-initial-boot::after,
+        #moon-initial-title { animation: none; }
       }
     </style>
   </head>
