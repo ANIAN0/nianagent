@@ -26,13 +26,13 @@ export function PrimaryNavigation({
           variant="outline"
           className={cn(
             "mb-2 h-[38px] rounded-xl",
-            collapsed ? "size-9 p-0" : "w-full"
+            collapsed ? "size-9 p-0" : "w-full justify-start px-2"
           )}
           aria-label="新建会话"
 
           onClick={onNew}
         >
-          <Plus className={collapsed ? "size-[18px]" : "size-3.5"} />
+          <Plus className={collapsed ? "size-[18px]" : "size-4"} />
           {!collapsed && "新建会话"}
         </Button>
       </HoverHint>

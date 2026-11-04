@@ -45,7 +45,10 @@ export function ConversationHistory({
   }
   const visible = data.conversations
   return (
-    <nav aria-label="历史会话" className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+    <nav
+      aria-label="历史会话"
+      className="moon-scrollbar mt-3 min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto"
+    >
       <ConversationListFeedback
         state={historyState}
         error={historyError}

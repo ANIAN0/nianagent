@@ -1,6 +1,6 @@
 import { HoverHint } from "@/components/feedback/hover-hint"
 import type { FeedbackDescription } from "@/lib/operation-issue"
-import { PanelLeft, Search, FolderOpen, Settings } from "lucide-react"
+import { PanelLeft, Search, FolderOpen } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { PrimaryNavigation } from "./primary-navigation"
@@ -52,39 +52,65 @@ export function HomeSidebar({
       <div
         className={cn(
           "mb-2 flex shrink-0 items-center justify-between",
-          collapsed ? "h-9" : "h-[60px]"
+          collapsed ? "h-auto flex-col gap-1" : "h-[60px]"
         )}
       >
         {collapsed ? (
-          <HoverHint content="展开侧栏 (Ctrl+B)" label="展开侧栏">
-            <Button
-              variant="ghost"
-              size="icon-lg"
-              className="group rounded-xl"
-              aria-label="展开侧栏"
+          <>
+            <HoverHint content="展开侧栏 (Ctrl+B)" label="展开侧栏">
+              <Button
+                variant="ghost"
+                size="icon-lg"
+                className="group rounded-xl"
+                aria-label="展开侧栏"
 
-              onClick={onClose}
-            >
-              <PanelLeft className="size-[18px]" />
-            </Button>
-          </HoverHint>
+                onClick={onClose}
+              >
+                <PanelLeft className="size-[18px]" />
+              </Button>
+            </HoverHint>
+            <HoverHint content="搜索会话 (Ctrl+K)" label="搜索会话">
+              <Button
+                variant="ghost"
+                size="icon-lg"
+                className="rounded-xl"
+                aria-label="搜索会话"
+
+                onClick={onSearch}
+              >
+                <Search className="size-[18px]" />
+              </Button>
+            </HoverHint>
+          </>
         ) : (
           <>
             <div className="flex items-center gap-2 px-2">
               <span className="text-lg font-semibold">moon</span>
             </div>
-            <HoverHint content="收起侧栏 (Ctrl+B)" label="收起侧栏">
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className="rounded-full"
-                aria-label="收起侧栏"
+            <div className="flex items-center gap-0.5">
+              <HoverHint content="搜索会话 (Ctrl+K)" label="搜索会话">
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="搜索会话"
 
-                onClick={onClose}
-              >
-                <PanelLeft className="size-4" />
-              </Button>
-            </HoverHint>
+                  onClick={onSearch}
+                >
+                  <Search className="size-4" />
+                </Button>
+              </HoverHint>
+              <HoverHint content="收起侧栏 (Ctrl+B)" label="收起侧栏">
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="收起侧栏"
+
+                  onClick={onClose}
+                >
+                  <PanelLeft className="size-4" />
+                </Button>
+              </HoverHint>
+            </div>
           </>
         )}
       </div>
@@ -111,35 +137,9 @@ export function HomeSidebar({
               <FolderOpen />
             </Button>
           </HoverHint>
-          <HoverHint content="搜索会话 (Ctrl+K)" label="搜索会话">
-            <Button
-              variant="ghost"
-              size="icon-lg"
-              className="rounded-xl"
-              aria-label="搜索会话"
-
-              onClick={onSearch}
-            >
-              <Search className={collapsed ? "size-[18px]" : "size-3.5"} />
-            </Button>
-          </HoverHint>
         </div>
       ) : (
         <>
-          <div className="mt-3 flex h-8 shrink-0 items-center justify-between px-2">
-            <h2 className="text-xs text-muted-foreground">工作区</h2>
-            <HoverHint content="搜索会话 (Ctrl+K)" label="搜索会话">
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label="搜索会话"
-
-                onClick={onSearch}
-              >
-                <Search className={collapsed ? "size-[18px]" : "size-3.5"} />
-              </Button>
-            </HoverHint>
-          </div>
           <ConversationHistory
             data={data}
             historyState={historyState}
@@ -166,19 +166,15 @@ export function HomeSidebar({
           )}
         </>
       )}
-      {collapsed && onSettings && !isRemoteWeb() && (
+      {collapsed && !isRemoteWeb() && (
         <div className="mt-auto pb-2">
-          <HoverHint content="设置" label="设置">
-            <Button
-              variant="ghost"
-              size="icon-lg"
-              aria-label="设置"
-
-              onClick={onSettings}
-            >
-              <Settings />
-            </Button>
-          </HoverHint>
+          <UserMenu
+            compact
+            onSettings={
+              onSettings ??
+              (() => onNotice("当前为独立组件预览，请从正式页面打开设置。"))
+            }
+          />
         </div>
       )}
     </div>

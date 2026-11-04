@@ -12,14 +12,25 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
 } from "@/components/ui/dropdown-menu"
-export function UserMenu({ onSettings }: { onSettings: () => void }) {
+export function UserMenu({
+  onSettings,
+  compact = false,
+}: {
+  onSettings: () => void
+  compact?: boolean
+}) {
   const { theme, setTheme } = useTheme()
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
-          className="h-12 w-full justify-start gap-3 rounded-xl"
+          className={
+            compact
+              ? "size-9 rounded-xl p-0"
+              : "h-12 w-full justify-start gap-3 rounded-xl"
+          }
+          aria-label="本地用户"
         >
           <span
             aria-hidden="true"
@@ -27,13 +38,14 @@ export function UserMenu({ onSettings }: { onSettings: () => void }) {
           >
             M
           </span>
-          <span className="flex-1 text-left text-[13px] leading-5">
-            本地用户
-            <span className="block text-xs font-normal text-muted-foreground">
-              本机账户
-            </span>
-          </span>
-          <Ellipsis />
+          {!compact && (
+            <>
+              <span className="flex-1 text-left text-[13px] leading-5">
+                本地用户
+              </span>
+              <Ellipsis />
+            </>
+          )}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent

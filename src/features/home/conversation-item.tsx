@@ -21,13 +21,13 @@ export function ConversationItem({
     >
       <Button
         variant="ghost"
-        className="relative h-8 w-full justify-start rounded-lg pl-7 text-sm font-normal data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground"
+        className="relative h-8 w-full justify-start rounded-lg pl-8 text-sm font-normal data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground"
         aria-current={active ? "page" : undefined}
         data-active={active}
 
         onClick={() => onSelect(conversation)}
       >
-        <span className="absolute left-2 flex size-3 items-center justify-center">
+        <span className="absolute left-2.5 flex size-3 items-center justify-center">
           <ConversationStatusMark
             status={conversation.status ?? "idle"}
             unread={conversation.unread}

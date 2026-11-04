@@ -35,9 +35,7 @@ export function McpTransportFields({
               aria-invalid={!!validate && !value.command.trim()}
               onChange={(event) => onChange({ command: event.target.value })}
             />
-            <FieldDescription>
-              只填写程序，参数在下一栏逐行填写；带空格的文件路径无需再加引号。
-            </FieldDescription>
+            <FieldDescription>只填写程序，参数逐行写在下一栏。</FieldDescription>
             {validate && !value.command.trim() && (
               <FieldError>请填写用于启动服务的可执行文件。</FieldError>
             )}
@@ -60,9 +58,7 @@ export function McpTransportFields({
                 })
               }
             />
-            <FieldDescription>
-              每行一个参数，含空格或中文的参数保持完整。
-            </FieldDescription>
+            <FieldDescription>每行一个参数。</FieldDescription>
           </Field>
           <Field>
             <FieldLabel htmlFor="mcp-cwd">工作目录（可选）</FieldLabel>
@@ -93,7 +89,6 @@ export function McpTransportFields({
               aria-invalid={!!validate && !value.url.trim()}
               onChange={(event) => onChange({ url: event.target.value })}
             />
-            <FieldDescription>使用 Streamable HTTP 服务端点。</FieldDescription>
             {validate && !value.url.trim() && (
               <FieldError>请填写 Streamable HTTP 服务地址。</FieldError>
             )}

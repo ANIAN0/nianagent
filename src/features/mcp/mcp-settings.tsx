@@ -392,7 +392,7 @@ export function McpSettings({
     issue?.recovery === "settings" ||
     issue?.recovery === "reload"
   return (
-    <div className="model-scroll">
+    <>
       {activeEditor ? (
         <McpServerEditor
           key={activeEditor.initial?.configuration.name || "new"}
@@ -422,7 +422,7 @@ export function McpSettings({
           }}
         />
       ) : (
-        <>
+        <div className="model-scroll">
           {leaveNotice && busyNames.length > 0 && (
             <div className="model-page pb-0">
               <OperationFeedback
@@ -525,7 +525,7 @@ export function McpSettings({
                 </Button>
               </div>
             ))}
-        </>
+        </div>
       )}
       <SettingsConfirmDialog
         value={
@@ -587,6 +587,6 @@ export function McpSettings({
           }
         }}
       />
-    </div>
+    </>
   )
 }
