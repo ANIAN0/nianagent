@@ -120,6 +120,8 @@ export type PluginDescriptor = {
   businessState: string
   /** 受控失败及恢复原因 */
   error: string
+  /**  */
+  integrityChanged?: boolean
   /** 按所属插件原生操作schema验证的JSON对象；编码后最多16MiB，文件源字节限制独立 */
   configuration: string
   /** 按所属插件原生操作schema验证的JSON对象；编码后最多16MiB，文件源字节限制独立 */

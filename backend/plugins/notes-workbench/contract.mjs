@@ -217,27 +217,33 @@ export const notesWorkbenchOperations = {
   ),
   create_page: operation(
     "新建笔记页面",
-    object({
-      directoryId: str("所属目录标识", { minLength: 1 }),
-      name: str("页面名", { minLength: 1, maxLength: 64 }),
-      title: str("页面标题", { maxLength: 120 }),
-      code: str("React 组件源码；指向预览条目时可留空", {
-        maxLength: 200000,
-      }),
-      meta: pageMetaInfo,
-      states: array(pageStateInfo, 32),
-    }),
+    object(
+      {
+        directoryId: str("所属目录标识", { minLength: 1 }),
+        name: str("页面名", { minLength: 1, maxLength: 64 }),
+        title: str("页面标题", { maxLength: 120 }),
+        code: str("React 组件源码；指向预览条目时可留空", {
+          maxLength: 200000,
+        }),
+        meta: pageMetaInfo,
+        states: array(pageStateInfo, 32),
+      },
+      ["directoryId", "name", "title"],
+    ),
     object({ page: pageRecord }),
     "在目录内新增页面并保存组件源码；设计元数据与状态可留空后续补写。",
   ),
   write_page: operation(
     "更新页面源码或设计元数据",
-    object({
-      pageId: str("页面标识", { minLength: 1 }),
-      code: str("React 组件源码", { minLength: 1, maxLength: 200000 }),
-      meta: pageMetaInfo,
-      states: array(pageStateInfo, 32),
-    }),
+    object(
+      {
+        pageId: str("页面标识", { minLength: 1 }),
+        code: str("React 组件源码", { minLength: 1, maxLength: 200000 }),
+        meta: pageMetaInfo,
+        states: array(pageStateInfo, 32),
+      },
+      ["pageId"],
+    ),
     object({ page: pageRecord }),
     "替换提供的字段（源码、设计元数据、状态至少一项），未提供的字段保持不变；不改评论。",
   ),

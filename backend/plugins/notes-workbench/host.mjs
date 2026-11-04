@@ -3,58 +3,29 @@ import { readdirSync } from "node:fs"
 import { readFile, stat } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { randomBytes, timingSafeEqual } from "node:crypto"
 import { replaceJson } from "../../atomic-file.mjs"
+import {
+  bearerAuthorized,
+  createTickets,
+  loadTokenIdentity,
+  moduleHeaders,
+  pageHeaders,
+  readSavedJson,
+  sendJson,
+} from "../../loopback-host.mjs"
 import { operations as coreOperations } from "../../contract.mjs"
 import { notesWorkbenchOperations } from "./contract.mjs"
 import { workbenchFingerprint } from "./fingerprint.mjs"
 import { openStore, starterPageCode } from "./store.mjs"
 
 const maxBody = 4 * 1024 * 1024
-const sameToken = (supplied, expected) => {
-  const left = Buffer.from(typeof supplied === "string" ? supplied : "")
-  const right = Buffer.from(typeof expected === "string" ? expected : "")
-  return (
-    left.length > 0 &&
-    left.length === right.length &&
-    timingSafeEqual(left, right)
-  )
-}
-async function readSaved(file, fallback) {
-  try {
-    return JSON.parse(await readFile(file, "utf8"))
-  } catch (error) {
-    if (error.code === "ENOENT") return fallback
-    throw new Error("笔记工作台配置无法读取，原文件已保留。", { cause: error })
-  }
-}
-const sendJson = (res, status, value) => {
-  res.writeHead(status, {
-    "content-type": "application/json; charset=utf-8",
-    "x-content-type-options": "nosniff",
-  })
-  res.end(JSON.stringify(value ?? {}))
-}
-/* 页面不外联：脚本与样式内联，数据只回本机 API；外部图片媒体按真实页面需要放行。 */
-const htmlHeaders = {
-  "content-type": "text/html; charset=utf-8",
-  "cache-control": "no-store",
-  "content-security-policy":
-    "default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; img-src * data: blob:; media-src * data: blob:; font-src 'self' data:; connect-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
-  "x-content-type-options": "nosniff",
-}
-const previewHeaders = {
-  ...htmlHeaders,
+const htmlHeaders = pageHeaders()
+const previewHeaders = pageHeaders({
   // 预览文档只被同源工作台页面内嵌；并加载同源 vendor 与预览 bundle 模块。
-  "content-security-policy": htmlHeaders["content-security-policy"]
+  "content-security-policy": pageHeaders()["content-security-policy"]
     .replace("frame-ancestors 'none'", "frame-ancestors 'self'")
     .replace("script-src 'unsafe-inline' 'unsafe-eval'", "script-src 'self' 'unsafe-inline' 'unsafe-eval'"),
-}
-const moduleHeaders = {
-  "content-type": "text/javascript; charset=utf-8",
-  "cache-control": "no-store",
-  "x-content-type-options": "nosniff",
-}
+})
 export async function activate(host) {
   // 接口参考索引：核心契约 + 内置插件契约（<plugin>.<operation>，与接口文档投影同名）。
   const operationsIndex = {}
@@ -93,7 +64,7 @@ export async function activate(host) {
   }
   const settingsFile = join(host.directory, "settings.json"),
     tokenFile = join(host.directory, "token.json")
-  let settings = await readSaved(settingsFile, { revision: 0, port: 19830 })
+  let settings = await readSavedJson(settingsFile, { revision: 0, port: 19830 }, "笔记工作台")
   if (
     !Number.isSafeInteger(settings.revision) ||
     !Number.isInteger(settings.port) ||
@@ -101,13 +72,7 @@ export async function activate(host) {
     settings.port > 65535
   )
     throw new Error("笔记工作台配置无效，原文件保留。")
-  let identity = await readSaved(tokenFile, null)
-  if (!identity) {
-    identity = { token: randomBytes(32).toString("base64url") }
-    await replaceJson(tokenFile, identity)
-  }
-  if (!/^[A-Za-z0-9_-]{43}$/.test(identity.token))
-    throw new Error("笔记工作台 token 文件无效，请保留原文件并修复。")
+  const identity = await loadTokenIdentity(tokenFile, "笔记工作台")
 
   const store = await openStore(host.directory)
   let seed = null
@@ -130,7 +95,6 @@ export async function activate(host) {
     closing
   const lifecycle = new AbortController()
   const sockets = new Set()
-  const tickets = new Map()
   const event = (status, error = "") =>
     host.logs.append({
       source: "notes",
@@ -183,18 +147,9 @@ export async function activate(host) {
   }
 
   // 打开地址只携带一次性票据：长期 token 由页面资源注入内存，不进入浏览器历史。
-  const issueTicket = () => {
-    const now = Date.now()
-    for (const [value, expires] of tickets)
-      if (expires < now) tickets.delete(value)
-    const value = randomBytes(32).toString("base64url")
-    tickets.set(value, now + 30_000)
-    return value
-  }
-  const authorize = (header) => {
-    const match = /^Bearer (.+)$/.exec(header || "")
-    return sameToken(match?.[1], identity.token)
-  }
+  const tickets = createTickets()
+  const issueTicket = () => tickets.issue()
+  const authorize = (header) => bearerAuthorized(header, identity.token)
   const gate = () => !closed && !frozen && !changing && host.isActive()
   const readBody = (req) =>
     new Promise((resolve, reject) => {
@@ -301,10 +256,8 @@ export async function activate(host) {
         return
       }
       const ticket = url.searchParams.get("ticket")
-      const expires = ticket ? tickets.get(ticket) : undefined
-      tickets.delete(ticket)
       const admitted =
-        (expires && expires >= Date.now()) || authorize(req.headers.authorization)
+        tickets.verify(ticket) || authorize(req.headers.authorization)
       if (!admitted) {
         void event("rejected", "打开票据缺失或已使用。")
         res.writeHead(200, htmlHeaders)

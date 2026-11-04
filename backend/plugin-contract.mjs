@@ -47,6 +47,7 @@ export const pluginSchemas = {
       }),
       businessState: s("插件业务连接状态"),
       error: s("受控失败及恢复原因"),
+      integrityChanged: { type: "boolean" },
       configuration: json,
       configurationSchema: json,
       contributions: a(r("PluginContribution")),

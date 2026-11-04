@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs"
 import { mkdir, readFile, readdir, stat, realpath } from "node:fs/promises"
 import {
   join,
@@ -9,7 +10,7 @@ import {
   extname,
 } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
-import { randomUUID } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import {
   DefaultPackageManager,
   SettingsManager,
@@ -176,11 +177,10 @@ export class PluginHost {
     for (const directory of directories.filter(
       (item) => item.isDirectory() && identifier.test(item.name)
     )) {
-      const entry = this.entry(
-        directory.name,
-        join(this.root, directory.name),
-        "bundled"
-      )
+      const source = join(this.root, directory.name)
+      // 没有 manifest 的目录不是插件（如未完成的占位目录），不产生失败条目。
+      if (!existsSync(join(source, "manifest.json"))) continue
+      const entry = this.entry(directory.name, source, "bundled")
       this.entries.set(entry.id, entry)
       try {
         const manifest = JSON.parse(
@@ -266,6 +266,7 @@ export class PluginHost {
         imported.sourceKind
       )
       Object.assign(entry, configuration.entries[entry.id] || {})
+      entry.savedIntegrity = imported.integrity
       entry.manifest = {
         name: imported.name || imported.source,
         description: "显式导入的Pi原生扩展",
@@ -388,6 +389,12 @@ export class PluginHost {
       entry.paths.some((path) => /\.(?:m?js|cjs)$/i.test(path))
     )
       entry.restartRequired = true
+    // 来源完整性指纹：记录导入时的文件签名摘要，来源变化后如实提示。
+    entry.integrity = createHash("sha256")
+      .update(entry.sourceSignature)
+      .digest("hex")
+    if (entry.savedIntegrity && entry.savedIntegrity !== entry.integrity)
+      entry.integrityChanged = true
     check(
       entry.paths.length > 0 ||
         entry.manifest.webEntry ||
@@ -594,6 +601,7 @@ export class PluginHost {
       state: entry.state,
       businessState: entry.application?.status?.() || "",
       error: entry.error,
+      integrityChanged: entry.integrityChanged === true,
       configuration: entry.configuration,
       configurationSchema: JSON.stringify(
         entry.manifest?.configurationSchema || {
@@ -817,6 +825,11 @@ export class PluginHost {
         entry.state = "failed"
         entry.error = safeError(error)
       })
+    if (entry.integrity)
+      await this.mutate(async (document) => {
+        const record = document.imports.find((item) => item.id === entry.id)
+        if (record) record.integrity = entry.integrity
+      }, signal)
     return this.descriptor(entry)
   }
   async packageAction(id, action, signal) {

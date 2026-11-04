@@ -64,6 +64,7 @@
   "backend/http-body.mjs": "有界读取和解析 HTTP JSON 请求体。",
   "backend/issue-contract.mjs": "定义结构化问题的 schema、操作或事件，以及目录说明。",
   "backend/live-projection-cache.mjs": "有界保留增量投影的旧版本基线。",
+  "backend/loopback-host.mjs": "内置插件本机回环托管的公共构件：token 身份、bearer 校验、一次性票据与响应头。",
   "backend/material-catalog-sort.d.mts": "为 backend/material-catalog-sort.mjs 声明 TypeScript 可见的导出类型。",
   "backend/material-catalog-sort.mjs": "按名称完全匹配、前缀、包含与目录浏览语义排序材料候选。",
   "backend/material-contract.mjs": "定义消息材料的 schema、操作或事件，以及目录说明。",

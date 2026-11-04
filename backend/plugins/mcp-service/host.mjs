@@ -1,7 +1,6 @@
 import { createServer } from "node:http"
-import { readFile } from "node:fs/promises"
 import { join } from "node:path"
-import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto"
+import { randomBytes, randomUUID } from "node:crypto"
 import {
   createMcpHandler,
   Server,
@@ -17,35 +16,25 @@ import {
   localhostOriginValidation,
 } from "@modelcontextprotocol/node"
 import { replaceJson } from "../../atomic-file.mjs"
+import {
+  bearerAuthorized as authenticate,
+  loadTokenIdentity,
+  readSavedJson,
+} from "../../loopback-host.mjs"
 import { mcpServiceOperations } from "./contract.mjs"
 
 const clientName = (name) =>
   typeof name === "string" && /^[\p{L}\p{N}_. -]{1,64}$/u.test(name)
     ? name
     : "未提供"
-const authenticate = (header, token) => {
-  const supplied = Buffer.from(typeof header === "string" ? header : "")
-  const expected = Buffer.from(`Bearer ${token}`)
-  return (
-    supplied.length === expected.length && timingSafeEqual(supplied, expected)
-  )
-}
-async function readSaved(file, fallback) {
-  try {
-    return JSON.parse(await readFile(file, "utf8"))
-  } catch (error) {
-    if (error.code === "ENOENT") return fallback
-    throw new Error("MCP 服务配置无法读取，原文件已保留。", { cause: error })
-  }
-}
 export async function activate(host) {
   const settingsFile = join(host.directory, "settings.json"),
     tokenFile = join(host.directory, "token.json")
-  let settings = await readSaved(settingsFile, {
+  let settings = await readSavedJson(settingsFile, {
     revision: 0,
     port: 19826,
     selected: [],
-  })
+  }, "MCP 服务")
   if (
     !Number.isSafeInteger(settings.revision) ||
     !Number.isInteger(settings.port) ||
@@ -56,13 +45,7 @@ export async function activate(host) {
     settings.selected.some((item) => typeof item !== "string")
   )
     throw new Error("MCP 服务配置无效，原文件保留。")
-  let identity = await readSaved(tokenFile, null)
-  if (!identity) {
-    identity = { token: randomBytes(32).toString("base64url") }
-    await replaceJson(tokenFile, identity)
-  }
-  if (!/^[A-Za-z0-9_-]{43}$/.test(identity.token))
-    throw new Error("MCP token 文件无效，请保留原文件并修复。")
+  let identity = await loadTokenIdentity(tokenFile, "MCP")
   let listener,
     issue = "",
     closed = false,

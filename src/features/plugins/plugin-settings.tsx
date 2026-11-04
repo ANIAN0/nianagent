@@ -399,6 +399,12 @@ function PluginDetail(props: PluginDetailProps) {
           </dd>
           <dt>路径</dt>
           <dd>{plugin.source}</dd>
+          {plugin.integrityChanged && (
+            <>
+              <dt>完整性</dt>
+              <dd>来源文件与导入时不一致；请自行核对该来源后再继续使用。</dd>
+            </>
+          )}
           {!!plugin.tools.length && (
             <>
               <dt>工具</dt>
