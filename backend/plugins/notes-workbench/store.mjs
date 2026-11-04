@@ -106,6 +106,7 @@ const normalizeMeta = (value) => {
   const meta = {
     description: optionalText(value.description, "页面描述", 4000),
     boundary: optionalText(value.boundary, "职责边界", 2000),
+    preview: optionalText(value.preview, "预览条目", 200),
     standards: [],
     tags: textList(value.tags, "标签", 32, 8),
     argTypes: [],
@@ -116,6 +117,7 @@ const normalizeMeta = (value) => {
       32
     ),
   }
+  if (!meta.preview) delete meta.preview
   const story = value.story
   if (story) {
     if (typeof story !== "object" || Array.isArray(story))
@@ -339,9 +341,13 @@ export async function openStore(directory) {
       serialize(async () => {
         assertName(input?.name, "页面名")
         assertText(input?.title ?? "", "页面标题", 120)
-        assertCode(input?.code)
         const meta = normalizeMeta(input.meta)
         const states = normalizeStates(input.states)
+        // 源码为空仅当页面指向预览 bundle 条目（演示既有组件，无源码可写）。
+        if (input.code) assertCode(input.code)
+        else if (!meta?.preview)
+          throw new Error("页面需提供组件源码，或指向预览条目。")
+        const code = input.code || ""
         const directory = state.directories.find(
           (item) => item.id === input.directoryId
         )
@@ -364,7 +370,7 @@ export async function openStore(directory) {
           meta,
           states,
         }
-        await writeSource(sourceFile(page.id), input.code)
+        await writeSource(sourceFile(page.id), code)
         state.pages.push(page)
         try {
           await persist()

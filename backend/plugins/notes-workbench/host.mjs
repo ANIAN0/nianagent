@@ -43,11 +43,15 @@ const htmlHeaders = {
 }
 const previewHeaders = {
   ...htmlHeaders,
-  // 预览文档只被同源工作台页面内嵌。
-  "content-security-policy": htmlHeaders["content-security-policy"].replace(
-    "frame-ancestors 'none'",
-    "frame-ancestors 'self'"
-  ),
+  // 预览文档只被同源工作台页面内嵌；并加载同源 vendor 与预览 bundle 模块。
+  "content-security-policy": htmlHeaders["content-security-policy"]
+    .replace("frame-ancestors 'none'", "frame-ancestors 'self'")
+    .replace("script-src 'unsafe-inline' 'unsafe-eval'", "script-src 'self' 'unsafe-inline' 'unsafe-eval'"),
+}
+const moduleHeaders = {
+  "content-type": "text/javascript; charset=utf-8",
+  "cache-control": "no-store",
+  "x-content-type-options": "nosniff",
 }
 const denialHtml = `<!doctype html><meta charset="utf-8"><title>笔记工作台</title><p style="font:14px/22px system-ui,sans-serif;color:#7a7a7a;padding:48px 24px;text-align:center">请从 Moon 插件详情页的「打开工作台」进入。</p>`
 
@@ -74,6 +78,8 @@ export async function activate(host) {
   let listener,
     workbenchHtml = "",
     previewHtml = "",
+    vendorCode = "",
+    previewCode = "",
     resourceVersion = 0,
     issue = "",
     resourceIssue = "",
@@ -106,6 +112,17 @@ export async function activate(host) {
     if (!html) throw new Error("工作台页面资源为空。")
     workbenchHtml = html
     previewHtml = String(bundle.previewHtml || "")
+    try {
+      const preview = await import(
+        `./preview.bundle.mjs?v=${Math.floor(mtimeMs)}`
+      )
+      vendorCode = String(preview.vendorCode || "")
+      previewCode = String(preview.previewCode || "")
+    } catch {
+      // 预览模块未构建：页面可用，条目渲染时提示重建。
+      vendorCode = ""
+      previewCode = ""
+    }
     resourceVersion = Math.floor(mtimeMs)
     // 指纹不一致说明改了源码没重建；打包安装不含源码目录时跳过核对。
     const actual = await workbenchFingerprint()
@@ -190,6 +207,23 @@ export async function activate(host) {
     ) {
       void event("rejected", "Host 不允许。")
       sendJson(res, 403, { error: "仅本机可访问。" })
+      return
+    }
+    if (
+      req.method === "GET" &&
+      (url.pathname === "/preview/vendor.mjs" ||
+        url.pathname === "/preview/bundle.mjs")
+    ) {
+      // 预览模块只含代码不含数据，与预览外壳同级别放行；数据仍由带 token 的 API 提供。
+      const code = url.pathname.endsWith("vendor.mjs") ? vendorCode : previewCode
+      if (!code) {
+        sendJson(res, 503, {
+          error: "预览模块未构建：运行 node scripts/build-notes-preview.mjs 后重载页面资源。",
+        })
+        return
+      }
+      res.writeHead(200, moduleHeaders)
+      res.end(code)
       return
     }
     if (req.method === "GET" && (url.pathname === "/preview.html" || url.pathname === "/preview")) {

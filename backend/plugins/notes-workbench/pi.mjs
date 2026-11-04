@@ -1,7 +1,7 @@
 import { pageMetaInfo, pageStateInfo } from "./contract.mjs"
 
 const CODE_CONVENTION =
-  "组件源码约定：不写 import 语句；可用作用域为 React、Fragment、useState、useEffect、useRef、useMemo、useCallback、useReducer、useLayoutEffect 和 cn()；样式用 tailwind 工具类，可在组件内内联 <style> 定义动画；源码末尾必须定义 function Page() {...}。Page 可声明 props 参数，状态的 args 会作为 props 传入。"
+  "组件源码约定：不写 import 语句；可用作用域为 React、Fragment、useState、useEffect、useRef、useMemo、useCallback、useReducer、useLayoutEffect 和 cn()；样式用 tailwind 工具类，可在组件内内联 <style> 定义动画；源码末尾必须定义 function Page() {...}。Page 可声明 props 参数，状态的 args 会作为 props 传入。演示项目既有组件时改用 meta.preview 指向预览条目，code 留空。"
 
 const op = (application, name) => {
   const operation = application?.operations?.[name]
@@ -195,14 +195,13 @@ export default function extension(pi, { application }) {
         },
         code: {
           type: "string",
-          minLength: 1,
           maxLength: 200000,
-          description: "React 组件源码",
+          description: "React 组件源码；meta.preview 指向预览条目时可省略",
         },
         meta: {
           ...pageMetaInfo,
           description:
-            "设计元数据：描述、边界、story、设计标准、标签、预览视口、属性控件、关联接口；可省略",
+            "设计元数据：描述、边界、预览条目、story、设计标准、标签、预览视口、属性控件、关联接口；可省略",
         },
         states: {
           type: "array",
@@ -212,7 +211,7 @@ export default function extension(pi, { application }) {
             "页面状态：id、name、section（normal/exception/states）与 args（传给 Page 的属性覆盖），可附条件、预期、步骤；可省略",
         },
       },
-      required: ["directoryId", "name", "title", "code"],
+      required: ["directoryId", "name", "title"],
       additionalProperties: false,
     },
     async execute(_id, input, signal) {

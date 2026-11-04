@@ -13,6 +13,8 @@ export type PreviewToManager =
 
 export type RenderStatePayload = {
   source: string
+  /** meta.preview 指向的预览 bundle 条目；提供时优先于 source 渲染。 */
+  preview: string
   args: Record<string, string | number | boolean | null>
   theme: "light" | "dark"
   mode: "browse" | "select"

@@ -46,6 +46,7 @@ export type PageState = {
 export type DesignMeta = {
   description: string
   boundary: string
+  preview: string
   story: {
     goal: string
     preconditions: string[]

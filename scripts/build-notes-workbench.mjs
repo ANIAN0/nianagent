@@ -32,10 +32,22 @@ const missing = (file) => {
 }
 
 // 每个入口独立构建：产物必须内联为单文件，不能出现共享 chunk。
+// preview 入口把 react 外链到 host 托管的 vendor 模块，与预览 bundle 共享同一实例。
+const PREVIEW_EXTERNAL = [/^react($|\/)/, /^react-dom($|\/)/]
+const PREVIEW_PATHS = {
+  react: "/preview/vendor.mjs",
+  "react/jsx-runtime": "/preview/vendor.mjs",
+  "react/jsx-dev-runtime": "/preview/vendor.mjs",
+  "react-dom": "/preview/vendor.mjs",
+  "react-dom/client": "/preview/vendor.mjs",
+}
 const buildDocument = async (name) => {
   const target = resolve(outDir, name)
   await rm(target, { recursive: true, force: true })
+  const previewEntry = name === "preview"
   await build({
+    // 独立构建：不加载项目 vite.config（其插件链与 build 选项会污染产物）。
+    configFile: false,
     root,
     logLevel: "info",
     plugins: [react()],
@@ -46,7 +58,11 @@ const buildDocument = async (name) => {
       assetsInlineLimit: 0,
       rollupOptions: {
         input: resolve(root, `${name}.html`),
-        output: { codeSplitting: false },
+        external: previewEntry ? PREVIEW_EXTERNAL : undefined,
+        output: {
+          codeSplitting: false,
+          ...(previewEntry ? { paths: PREVIEW_PATHS } : {}),
+        },
       },
     },
   })

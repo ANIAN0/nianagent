@@ -56,6 +56,9 @@ export const pageMetaInfo = object(
   {
     description: str("页面描述", { maxLength: 4000 }),
     boundary: str("职责边界", { maxLength: 2000 }),
+    preview: str("预览 bundle 条目标识；提供时页面源码可为空", {
+      maxLength: 200,
+    }),
     story: object(
       {
         goal: str("用户目标", { maxLength: 1000 }),
@@ -218,7 +221,9 @@ export const notesWorkbenchOperations = {
       directoryId: str("所属目录标识", { minLength: 1 }),
       name: str("页面名", { minLength: 1, maxLength: 64 }),
       title: str("页面标题", { maxLength: 120 }),
-      code: str("React 组件源码", { minLength: 1, maxLength: 200000 }),
+      code: str("React 组件源码；指向预览条目时可留空", {
+        maxLength: 200000,
+      }),
       meta: pageMetaInfo,
       states: array(pageStateInfo, 32),
     }),

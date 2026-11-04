@@ -4,6 +4,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type ComponentType,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
@@ -79,6 +80,7 @@ const selectorFor = (el: Element, container: HTMLElement) => {
 function PreviewApp() {
   const [state, setState] = useState<RenderStatePayload>({
     source: "",
+    preview: "",
     args: {},
     theme: "dark",
     mode: "browse",
@@ -88,6 +90,23 @@ function PreviewApp() {
   const [hover, setHover] = useState<Rect | null>(null)
   const [selection, setSelection] = useState<Rect | null>(null)
   const [pins, setPins] = useState<{ comment: PinComment; rect: Rect | null }[]>([])
+  const previewVersion = new URLSearchParams(window.location.search).get("v") ?? "0"
+  const [entries, setEntries] = useState<Record<string, ComponentType | undefined> | null>(null)
+  const [entriesError, setEntriesError] = useState("")
+  useEffect(() => {
+    if (!state.preview || entries) return
+    let alive = true
+    import(`/preview/bundle.mjs?v=${previewVersion}`)
+      .then((module) => {
+        if (alive) setEntries((module.entries ?? {}) as Record<string, ComponentType | undefined>)
+      })
+      .catch((error) => {
+        if (alive) setEntriesError(error instanceof Error ? error.message : String(error))
+      })
+    return () => {
+      alive = false
+    }
+  }, [state.preview, entries, previewVersion])
   const containerRef = useRef<HTMLDivElement | null>(null)
   const stateRef = useRef(state)
   useEffect(() => {
@@ -188,7 +207,15 @@ function PreviewApp() {
     if (event.key === "Escape" && state.mode === "select")
       channelRef.current?.send("escape")
   }
-  const emptySource = !state.source
+  const emptySource = !state.source && !state.preview
+  const previewComponent: ComponentType | "loading" | "error" | "missing" | null =
+    state.preview
+      ? entriesError
+        ? "error"
+        : entries
+          ? (entries[state.preview] ?? "missing")
+          : "loading"
+      : null
   return (
     <div className="min-h-screen p-10" onKeyDown={handleKeyDown}>
       {emptySource ? (
@@ -209,7 +236,26 @@ function PreviewApp() {
           onPointerLeave={() => setHover(null)}
           onClick={handleClick}
         >
-          {compiled.ok ? (
+          {previewComponent ? (
+            previewComponent === "loading" ? (
+              <p className="m-6 text-[13px] text-neutral-500">加载预览条目…</p>
+            ) : previewComponent === "error" ? (
+              <div className="m-6 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-300">
+                预览模块加载失败：{entriesError}
+              </div>
+            ) : previewComponent === "missing" ? (
+              <div className="m-6 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-300">
+                预览条目不存在：{state.preview}。请核对 preview/manifest.mjs 并重建。
+              </div>
+            ) : (
+              <PageBoundary key={state.preview}>
+                {(() => {
+                  const Preview = previewComponent as ComponentType
+                  return <Preview {...state.args} />
+                })()}
+              </PageBoundary>
+            )
+          ) : compiled.ok ? (
             <PageBoundary key={state.source}>
               <compiled.component {...state.args} />
             </PageBoundary>

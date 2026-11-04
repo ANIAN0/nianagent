@@ -85,6 +85,7 @@ export function Canvas({
   // 通道随 iframe 重建；ready 前的渲染状态由通道缓冲，就绪后立即下发。
   const payload: RenderStatePayload = {
     source,
+    preview: detail?.page.meta?.preview ?? "",
     args: selectedState?.args ?? {},
     theme,
     mode,
