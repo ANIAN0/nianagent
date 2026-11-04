@@ -37,3 +37,7 @@ dist-ssr
 
 # Packaged Node backend
 /src-tauri/runtime/
+
+# Session-local assistant workspace artifacts
+/.zcode/
+/skills-lock.json

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { api, message } from "./api"
 import { Canvas, type WidthMode } from "./canvas"
 import { Comments } from "./comments"
+import { Controls } from "./controls"
 import { Tree } from "./tree"
 import type { PageDetail, Snapshot } from "./types"
 
@@ -12,7 +13,9 @@ export function App() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
   const [detail, setDetail] = useState<PageDetail | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedStateId, setSelectedStateId] = useState<string | null>(null)
   const [width, setWidth] = useState<WidthMode>("fit")
+  const [panel, setPanel] = useState<"comments" | "controls">("comments")
   const [focusId, setFocusId] = useState<string | null>(null)
   const [error, setError] = useState("")
   const selectedRef = useRef<string | null>(null)
@@ -22,7 +25,8 @@ export function App() {
   const bootVersionRef = useRef<number | null>(null)
   const loadPage = useCallback(async (pageId: string) => {
     try {
-      setDetail(await api.page(pageId))
+      const next = await api.page(pageId)
+      setDetail(next)
       setError("")
     } catch (reason) {
       setDetail(null)
@@ -64,6 +68,21 @@ export function App() {
   }, [refresh, loadPage, tokenMissing])
   const activeDetail =
     selectedId && detail && detail.page.id === selectedId ? detail : null
+  // 页面切换：默认选中首个状态（正常流程优先），清空焦点与视口记忆。
+  const activePageId = activeDetail?.page.id ?? null
+  const [previousPageId, setPreviousPageId] = useState<string | null>(null)
+  if (activePageId !== previousPageId) {
+    setPreviousPageId(activePageId)
+    const states = activeDetail?.page.states ?? []
+    setSelectedStateId(
+      (states.find((state) => state.section === "normal") ?? states[0])?.id ??
+        null,
+    )
+    setFocusId(null)
+    // 换页回到该页设计视口；用户手动选过宽度则尊重当前选择。
+    const viewport = activeDetail?.page.meta?.viewport
+    setWidth(viewport ? viewport.width : "fit")
+  }
   const addComment = useCallback(
     async (target: string, text: string) => {
       const pageId = selectedRef.current
@@ -76,7 +95,47 @@ export function App() {
         setError(message(reason))
       }
     },
-    [loadPage, refresh]
+    [loadPage, refresh],
+  )
+  const addReply = useCallback(
+    async (parentId: string, text: string) => {
+      const pageId = selectedRef.current
+      if (!pageId || !text) return
+      try {
+        await api.addComment(pageId, "", text, parentId)
+        await loadPage(pageId)
+        await refresh()
+      } catch (reason) {
+        setError(message(reason))
+      }
+    },
+    [loadPage, refresh],
+  )
+  const resolveComment = useCallback(
+    async (commentId: string, resolved: boolean) => {
+      const pageId = selectedRef.current
+      try {
+        await api.setCommentResolved(commentId, resolved)
+        if (pageId) await loadPage(pageId)
+        await refresh()
+      } catch (reason) {
+        setError(message(reason))
+      }
+    },
+    [loadPage, refresh],
+  )
+  const changeArgs = useCallback(
+    async (stateId: string, args: Record<string, string | number | boolean | null>) => {
+      const pageId = selectedRef.current
+      if (!pageId) return
+      try {
+        await api.setStateArgs(pageId, stateId, args)
+        await loadPage(pageId)
+      } catch (reason) {
+        setError(message(reason))
+      }
+    },
+    [loadPage],
   )
   const afterTreeChange = useCallback(async () => {
     await refresh()
@@ -93,7 +152,7 @@ export function App() {
         setError(message(reason))
       }
     },
-    [loadPage, refresh]
+    [loadPage, refresh],
   )
   if (tokenMissing)
     return (
@@ -120,16 +179,63 @@ export function App() {
         <Canvas
           detail={activeDetail}
           width={width}
-          onWidth={setWidth}
+          onWidth={(mode) => {
+            setWidth(mode)
+          }}
+          selectedStateId={selectedStateId}
+          onSelectState={setSelectedStateId}
           onAddComment={addComment}
-          onFocusComment={(commentId) => setFocusId(commentId)}
+          onFocusComment={(commentId) => {
+            setPanel("comments")
+            setFocusId(commentId)
+          }}
           onToggleStatus={toggleStatus}
         />
-        <Comments
-          detail={activeDetail}
-          focusId={focusId}
-          onAdd={addComment}
-        />
+        <div className="flex h-full w-80 shrink-0 flex-col border-l border-[#3c3c3c] bg-[#2c2c2c]">
+          <div className="flex shrink-0 items-center gap-1 px-3 pt-2">
+            {(["comments", "controls"] as const).map((item) => (
+              <button
+                key={item}
+                type="button"
+                className={`rounded px-2 py-1 text-[12px] transition-colors ${
+                  panel === item
+                    ? "bg-[#383838] font-medium text-neutral-100"
+                    : "text-neutral-500 hover:text-neutral-300"
+                }`}
+                onClick={() => setPanel(item)}
+              >
+                {item === "comments" ? "评论" : "属性"}
+              </button>
+            ))}
+          </div>
+          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+            {panel === "comments" ? (
+              <Comments
+                detail={activeDetail}
+                focusId={focusId}
+                onAdd={addComment}
+                onAddReply={addReply}
+                onResolve={resolveComment}
+              />
+            ) : activeDetail ? (
+              <Controls
+                detail={activeDetail}
+                state={
+                  activeDetail.page.states.find(
+                    (state) => state.id === selectedStateId,
+                  ) ?? null
+                }
+                onArgsChange={(stateId, values) =>
+                  void changeArgs(stateId, values)
+                }
+              />
+            ) : (
+              <p className="px-3 py-4 text-[11px] text-neutral-600">
+                先选择一个页面。
+              </p>
+            )}
+          </div>
+        </div>
       </main>
     </div>
   )

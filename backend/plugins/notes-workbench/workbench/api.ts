@@ -58,8 +58,13 @@ export const api = {
     post<{ deleted: string }>("/api/page/delete", { pageId }),
   deleteDirectory: (directoryId: string) =>
     post<{ deleted: string }>("/api/directory/delete", { directoryId }),
-  addComment: (pageId: string, target: string, text: string) =>
-    post<{ comment: Comment }>("/api/comment", { pageId, target, text }),
+  addComment: (pageId: string, target: string, text: string, parentId = "") =>
+    post<{ comment: Comment }>("/api/comment", {
+      pageId,
+      target,
+      text,
+      parentId,
+    }),
 }
 export const message = (error: unknown) =>
   error instanceof Error ? error.message : "请求未完成。"

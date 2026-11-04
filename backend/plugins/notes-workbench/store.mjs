@@ -276,7 +276,7 @@ export async function openStore(directory) {
     state.comments.filter((comment) => comment.pageId === pageId).length
   /** 快照走轻量投影（不含 meta/states）；详情与变更结果附完整元数据。 */
   const lightPage = (page) => {
-    const { meta, states, ...rest } = page
+    const { meta: _meta, states: _states, ...rest } = page
     return { ...rest, commentCount: commentCount(page.id) }
   }
   const fullPage = (page) => ({
