@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { api, message } from "./api"
-import { Canvas, type WidthMode } from "./canvas"
+import { Canvas, type OperationInfo, type WidthMode } from "./canvas"
 import { Comments } from "./comments"
 import { Controls } from "./controls"
 import { Tree } from "./tree"
@@ -18,6 +18,21 @@ export function App() {
   const [panel, setPanel] = useState<"comments" | "controls">("comments")
   const [focusId, setFocusId] = useState<string | null>(null)
   const [error, setError] = useState("")
+  const [operations, setOperations] = useState<Map<string, OperationInfo> | null>(null)
+  useEffect(() => {
+    if (tokenMissing) return
+    let alive = true
+    void api
+      .operations()
+      .then((value) => {
+        if (!alive) return
+        setOperations(new Map(Object.entries(value.operations)))
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [tokenMissing])
   const selectedRef = useRef<string | null>(null)
   useEffect(() => {
     selectedRef.current = selectedId
@@ -195,6 +210,7 @@ export function App() {
           }}
           onToggleStatus={toggleStatus}
           resourceVersion={snapshot?.resourceVersion ?? 0}
+          operations={operations}
         />
         <div className="flex h-full w-80 shrink-0 flex-col border-l border-[#3c3c3c] bg-[#2c2c2c]">
           <div className="flex shrink-0 items-center gap-1 px-3 pt-2">

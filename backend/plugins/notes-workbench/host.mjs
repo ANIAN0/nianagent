@@ -1,9 +1,11 @@
 import { createServer } from "node:http"
+import { readdirSync } from "node:fs"
 import { readFile, stat } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { randomBytes, timingSafeEqual } from "node:crypto"
 import { replaceJson } from "../../atomic-file.mjs"
+import { operations as coreOperations } from "../../contract.mjs"
 import { notesWorkbenchOperations } from "./contract.mjs"
 import { workbenchFingerprint } from "./fingerprint.mjs"
 import { openStore, starterPageCode } from "./store.mjs"
@@ -54,6 +56,41 @@ const moduleHeaders = {
   "x-content-type-options": "nosniff",
 }
 export async function activate(host) {
+  // 接口参考索引：核心契约 + 内置插件契约（<plugin>.<operation>，与接口文档投影同名）。
+  const operationsIndex = {}
+  const indexOperations = (operations) => {
+    for (const [id, operation] of Object.entries(operations ?? {}))
+      if (operation && typeof operation.module === "string" && typeof operation.method === "string")
+        operationsIndex[id] = {
+          module: operation.module,
+          method: operation.method,
+          title: operation.title ?? "",
+        }
+  }
+  indexOperations(coreOperations)
+  const here = dirname(fileURLToPath(import.meta.url))
+  for (const name of readdirSync(join(here, ".."), { withFileTypes: true })) {
+    if (!name.isDirectory()) continue
+    try {
+      const module = await import(`../${name.name}/contract.mjs`)
+      for (const value of Object.values(module)) {
+        if (!value || typeof value !== "object") continue
+        for (const [operationId, operation] of Object.entries(value))
+          if (
+            operation &&
+            typeof operation.module === "string" &&
+            typeof operation.method === "string"
+          )
+            operationsIndex[`${name.name}.${operationId}`] = {
+              module: operation.module,
+              method: operation.method,
+              title: operation.title ?? "",
+            }
+      }
+    } catch {
+      // 无契约或契约不可加载的插件跳过；接口参考块按未找到呈现。
+    }
+  }
   const settingsFile = join(host.directory, "settings.json"),
     tokenFile = join(host.directory, "token.json")
   let settings = await readSaved(settingsFile, { revision: 0, port: 19830 })
@@ -187,6 +224,7 @@ export async function activate(host) {
 
   const routes = {
     "GET /api/state": () => ({ ...store.snapshot(), resourceVersion }),
+    "GET /api/operations": () => ({ operations: operationsIndex }),
     "GET /api/page": async (req, url) => {
       const pageId = url.searchParams.get("id") || ""
       return store.readPage(pageId)

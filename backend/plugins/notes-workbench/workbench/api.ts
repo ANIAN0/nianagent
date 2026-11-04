@@ -53,6 +53,10 @@ const post = <T>(path: string, body: unknown) =>
 export const api = {
   hasToken: () => token.length > 0,
   state: () => request<Snapshot>("/api/state"),
+  operations: () =>
+    request<{
+      operations: Record<string, { module: string; method: string; title: string }>
+    }>("/api/operations"),
   page: (id: string) =>
     request<PageDetail>(`/api/page?id=${encodeURIComponent(id)}`),
   createDirectory: (name: string) =>

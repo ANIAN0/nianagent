@@ -12,6 +12,8 @@ import {
 } from "./channel"
 import type { PageDetail } from "./types"
 
+export type OperationInfo = { module: string; method: string; title: string }
+
 const WIDTHS = [
   { id: "fit", label: "适应" },
   { id: 1280, label: "1280" },
@@ -44,6 +46,7 @@ export function Canvas({
   onFocusComment,
   onToggleStatus,
   resourceVersion,
+  operations,
 }: {
   detail: PageDetail | null
   width: WidthMode
@@ -54,12 +57,14 @@ export function Canvas({
   onFocusComment: (commentId: string) => void
   onToggleStatus: (status: "draft" | "confirmed") => Promise<void>
   resourceVersion: number
+  operations: Map<string, OperationInfo> | null
 }) {
   const [selection, setSelection] = useState<Selection | null>(null)
   const [draft, setDraft] = useState("")
   const [mode, setMode] = useState<"browse" | "select">("browse")
   const [theme, setTheme] = useState<"light" | "dark">("dark")
   const [view, setView] = useState<"canvas" | "docs">("canvas")
+  const [copied, setCopied] = useState(false)
   const frameRef = useRef<HTMLIFrameElement | null>(null)
   const channelRef = useRef<ReturnType<typeof attachManagerChannel> | null>(null)
   const pageId = detail?.page.id ?? null
@@ -159,6 +164,21 @@ export function Canvas({
             {detail.page.status === "confirmed" ? "已确认" : "草稿"}
           </button>
         )}
+        {detail?.page.source && (
+          <button
+            type="button"
+            className="rounded border border-neutral-600 px-1.5 py-0.5 text-[11px] text-neutral-500 transition-colors hover:border-neutral-500 hover:text-neutral-300"
+            onClick={() => {
+              void navigator.clipboard
+                .writeText(detail.page.source)
+                .then(() => setCopied(true))
+                .finally(() => setTimeout(() => setCopied(false), 1500))
+            }}
+            title="复制页面源码到剪贴板"
+          >
+            {copied ? "已复制" : "复制源码"}
+          </button>
+        )}
         <span className="flex-1" />
         {detail && (
           <div className="flex rounded border border-[#3c3c3c] p-0.5">
@@ -208,7 +228,7 @@ export function Canvas({
         </div>
       )}
       {view === "docs" && detail ? (
-        <Docs detail={detail} operations={null} />
+        <Docs detail={detail} operations={operations} />
       ) : (
         <>
           <div className="min-h-0 flex-1 bg-[#1e1e1e]">

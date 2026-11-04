@@ -90,11 +90,11 @@ const formatStates = (states) =>
     : ""
 
 export const toolPolicy = (name) =>
-  ["create_page", "write_page", "add_comment"].includes(name)
+  ["create_page", "write_page", "add_comment", "export_page"].includes(name)
     ? { effect: "write", resource: "record" }
     : { effect: "read", resource: "record" }
 
-export default function extension(pi, { application }) {
+export default function extension(pi, { application, cwd }) {
   pi.registerTool({
     name: "moon_ext__notes-workbench__list",
     label: "笔记目录",
@@ -321,6 +321,51 @@ export default function extension(pi, { application }) {
       signal?.throwIfAborted()
       const value = await call(application, "add_comment", input, signal)
       const text = `评论已添加：${value.comment.text}`
+      return { content: [{ type: "text", text }] }
+    },
+  })
+  pi.registerTool({
+    name: "moon_ext__notes-workbench__export_page",
+    label: "导出页面源码",
+    description:
+      "把已确认（confirmed）的笔记页面源码写入工作目录文件。仅用于用户确认后的组件落盘；目标路径需为工作目录内的相对 .tsx 路径。",
+    parameters: {
+      type: "object",
+      properties: {
+        pageId: { type: "string", minLength: 1, description: "页面标识" },
+        path: {
+          type: "string",
+          minLength: 1,
+          maxLength: 400,
+          description: "目标文件相对路径，如 src/components/foo.tsx",
+        },
+      },
+      required: ["pageId", "path"],
+      additionalProperties: false,
+    },
+    async execute(_id, input, signal) {
+      signal?.throwIfAborted()
+      const value = await call(application, "read_page", { pageId: input.pageId }, signal)
+      if (value.page.status !== "confirmed")
+        throw new Error("仅已确认的页面可导出；请先在工作台确认。")
+      if (!value.page.source)
+        throw new Error("该页面没有源码（预览条目页面无需导出）。")
+      const relativePath = input.path.replaceAll("\\", "/")
+      if (
+        relativePath.startsWith("/") ||
+        relativePath.split("/").includes("..") ||
+        !relativePath.endsWith(".tsx")
+      )
+        throw new Error("目标路径需为工作目录内的相对 .tsx 路径。")
+      const workspace = cwd || process.cwd()
+      const { writeFile, mkdir } = await import("node:fs/promises")
+      const { dirname, resolve, sep } = await import("node:path")
+      const absolute = resolve(workspace, relativePath)
+      if (!absolute.startsWith(resolve(workspace) + sep))
+        throw new Error("目标路径需位于工作目录内。")
+      await mkdir(dirname(absolute), { recursive: true })
+      await writeFile(absolute, value.page.source, "utf8")
+      const text = `已导出「${value.page.title || value.page.name}」到 ${relativePath}。`
       return { content: [{ type: "text", text }] }
     },
   })

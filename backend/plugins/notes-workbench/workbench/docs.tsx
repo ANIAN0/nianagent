@@ -68,7 +68,7 @@ export function Docs({
   operations,
 }: {
   detail: PageDetail
-  operations: Map<string, { module: string; title: string }> | null
+  operations: Map<string, { module: string; method: string; title: string }> | null
 }) {
   const meta = detail.page.meta
   const states = detail.page.states
@@ -196,19 +196,25 @@ export function Docs({
         ) : null}
         {meta?.relatedOperations.length ? (
           <Block title="关联接口">
-            <ul className="flex flex-col gap-1">
+            <ul className="flex flex-col gap-1.5">
               {meta.relatedOperations.map((id) => {
                 const operation = operations?.get(id)
                 return (
-                  <li
-                    key={id}
-                    className="font-mono text-[12px] text-neutral-300"
-                    title={operation ? `${operation.module} · ${operation.title}` : ""}
-                  >
-                    {operation ? `${operation.module} · ${operation.title} ` : ""}
-                    <span className={operation ? "text-neutral-500" : "text-amber-400/80"}>
+                  <li key={id} className="text-[12px] leading-5">
+                    {operation ? (
+                      <>
+                        <span className="text-neutral-200">
+                          {operation.title || operation.method}
+                        </span>
+                        <span className="ml-1.5 text-neutral-500">
+                          {operation.module} · {operation.method}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-amber-400/80">{id}（未找到）</span>
+                    )}
+                    <span className="ml-1.5 font-mono text-[10px] text-neutral-600">
                       {id}
-                      {operation ? "" : "（未找到）"}
                     </span>
                   </li>
                 )
