@@ -41,6 +41,7 @@ export function AppShell({
   onSelectConversation,
   onSettings,
   onPlugins,
+  onNotes,
   historyState,
   historyError,
   historyIssue,
@@ -53,6 +54,7 @@ export function AppShell({
   onSelectConversation: (conversation: Conversation) => void
   onSettings?: () => void
   onPlugins?: () => void
+  onNotes?: () => void
   historyState?: HistoryState
   historyError?: string
   historyIssue?: FeedbackDescription
@@ -169,6 +171,13 @@ export function AppShell({
           runNavigation(() => {
             setMobileOpen(false)
             onPlugins()
+          })
+      : undefined,
+    onNotes: onNotes
+      ? () =>
+          runNavigation(() => {
+            setMobileOpen(false)
+            onNotes()
           })
       : undefined,
     onNotice: (message: string) => {

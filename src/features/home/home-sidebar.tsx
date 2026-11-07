@@ -20,6 +20,7 @@ export type HomeSidebarProps = {
   onSearch: () => void
   onSettings?: () => void
   onPlugins?: () => void
+  onNotes?: () => void
   onNotice: (message: string) => void
   historyState?: HistoryState
   historyError?: string
@@ -37,6 +38,7 @@ export function HomeSidebar({
   onNotice,
   onSettings,
   onPlugins,
+  onNotes,
   historyState,
   historyError,
   historyIssue,
@@ -118,6 +120,7 @@ export function HomeSidebar({
         management={!isRemoteWeb()}
         collapsed={collapsed}
         onNew={() => onNew()}
+        onNotes={onNotes}
         onPlugins={onPlugins ?? (() => onSettings?.())}
         onScheduled={() =>
           onNotice("定时任务页面尚未实现，本次实现首页与对话。")

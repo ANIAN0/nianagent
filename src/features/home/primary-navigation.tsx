@@ -1,10 +1,11 @@
 import { HoverHint } from "@/components/feedback/hover-hint"
-import { Plus, Puzzle, Clock3 } from "lucide-react"
+import { NotebookPen, Plus, Puzzle, Clock3 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 export type PrimaryNavigationProps = {
   collapsed?: boolean
   onNew: () => void
+  onNotes?: () => void
   onPlugins: () => void
   onScheduled: () => void
   management?: boolean
@@ -12,6 +13,7 @@ export type PrimaryNavigationProps = {
 export function PrimaryNavigation({
   collapsed = false,
   onNew,
+  onNotes,
   onPlugins,
   onScheduled,
   management = true,
@@ -36,6 +38,23 @@ export function PrimaryNavigation({
           {!collapsed && "新建会话"}
         </Button>
       </HoverHint>
+      {management && onNotes && (
+        <HoverHint content="笔记工作台" label="笔记工作台">
+          <Button
+            variant="ghost"
+            className={cn(
+              "h-9 rounded-xl font-normal",
+              collapsed ? "size-9 p-0" : "justify-start px-2"
+            )}
+            aria-label="笔记工作台"
+
+            onClick={onNotes}
+          >
+            <NotebookPen className={collapsed ? "size-[18px]" : "size-4"} />
+            {!collapsed && "笔记工作台"}
+          </Button>
+        </HoverHint>
+      )}
       {management && (
         <HoverHint content="插件" label="插件">
           <Button

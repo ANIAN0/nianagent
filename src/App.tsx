@@ -34,6 +34,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { AppShell } from "@/features/home/app-shell"
 import { PluginSessionHost } from "@/features/plugins/plugin-workspace"
 import { appendPreparedMaterials } from "@/features/materials/material-service"
+import { MOON_OPEN_NOTES_EVENT } from "@/features/notes-workbench/notes-events"
 
 import {
   NavigationBoundaryContext,
@@ -74,6 +75,11 @@ const SettingsPage = lazy(() =>
     default: module.SettingsPage,
   }))
 )
+const NotesWorkbenchView = lazy(() =>
+  import("@/features/notes-workbench/notes-embed").then((m) => ({
+    default: m.NotesWorkbenchView,
+  }))
+)
 const LiveConversationView = lazy(() =>
   import("@/features/conversation/live-conversation-view").then((module) => ({
     default: module.LiveConversationView,
@@ -95,6 +101,8 @@ export default function App() {
   const [settingsSection, setSettingsSection] = useState<"models" | "plugins">(
     "models"
   )
+  const [notesOpen, setNotesOpen] = useState(false)
+  const [notesPageId, setNotesPageId] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | undefined>(restoreSelection)
   const [sessionService] = useState(createSessionService)
   const [materialService] = useState(createMaterialService)
@@ -151,6 +159,27 @@ export default function App() {
     if (settingsOpen && settingsGuard.current) settingsGuard.current(enter)
     else enter()
   }
+  const openNotes = useCallback(
+    (pageId?: string | null) => {
+      homeNavigation.leave()
+      setNotesPageId(pageId ?? null)
+      setNotesOpen(true)
+    },
+    [homeNavigation]
+  )
+  const notesOpenerRef = useRef(openNotes)
+  useEffect(() => {
+    notesOpenerRef.current = openNotes
+  }, [openNotes])
+  // 交付卡「在工作台打开」经窗口事件跳转，保持插件与宿主解耦。
+  useEffect(() => {
+    const onOpen = (event: Event) => {
+      const detail = (event as CustomEvent<{ pageId?: string }>).detail
+      notesOpenerRef.current(detail?.pageId ?? null)
+    }
+    window.addEventListener(MOON_OPEN_NOTES_EVENT, onOpen)
+    return () => window.removeEventListener(MOON_OPEN_NOTES_EVENT, onOpen)
+  }, [])
   function leaveSettings(action: () => void) {
     navigation.run(() => {
       const leave = () =>
@@ -306,6 +335,7 @@ export default function App() {
                       onHistoryRetry={() => void catalog.refresh()}
                       onSettings={() => navigation.run(openSettings)}
                       onPlugins={() => navigation.run(openPlugins)}
+                      onNotes={() => navigation.run(() => openNotes())}
                       onSelectConversation={(item) =>
                         leaveSettings(() => selectConversation(item.id))
                       }
@@ -372,9 +402,29 @@ export default function App() {
                           </PageErrorBoundary>
                         </Suspense>
                       )}
+                      {notesOpen && (
+                        <Suspense
+                          fallback={
+                            <div role="status" className="p-8">
+                              正在打开笔记工作台…
+                            </div>
+                          }
+                        >
+                          <PageErrorBoundary key="notes">
+                            <NotesWorkbenchView
+                              pageId={notesPageId}
+                              onPageIdChange={setNotesPageId}
+                              onOpenSettings={() => navigation.run(openPlugins)}
+                              onReturn={() =>
+                                navigation.run(() => setNotesOpen(false))
+                              }
+                            />
+                          </PageErrorBoundary>
+                        </Suspense>
+                      )}
                       <div
                         className={
-                          settingsOpen
+                          settingsOpen || notesOpen
                             ? "hidden"
                             : "flex min-h-0 flex-1 flex-col"
                         }
