@@ -20,18 +20,31 @@ import { openStore, starterPageCode } from "./store.mjs"
 
 const maxBody = 4 * 1024 * 1024
 const htmlHeaders = pageHeaders()
-const previewHeaders = pageHeaders({
-  // 预览文档只被同源工作台页面内嵌；并加载同源 vendor 与预览 bundle 模块。
-  "content-security-policy": pageHeaders()["content-security-policy"]
-    .replace("frame-ancestors 'none'", "frame-ancestors 'self'")
-    .replace("script-src 'unsafe-inline' 'unsafe-eval'", "script-src 'self' 'unsafe-inline' 'unsafe-eval'"),
-})
+// 外壳既可独立打开，也被 moon 宿主内嵌：放行桌面壳（tauri.localhost）与
+// vite 开发服务器（devUrl 钉在 5173），其余来源保持禁帧。
+const shellCsp = htmlHeaders["content-security-policy"].replace(
+  "frame-ancestors 'none'",
+  "frame-ancestors 'self' http://tauri.localhost https://tauri.localhost http://localhost:5173 http://127.0.0.1:5173"
+)
+const shellHeaders = pageHeaders({ "content-security-policy": shellCsp })
+// 预览文档只被同源工作台页面内嵌；并加载同源 vendor 与预览 bundle 模块。
+const previewCsp = htmlHeaders["content-security-policy"]
+  .replace("frame-ancestors 'none'", "frame-ancestors 'self'")
+  .replace(
+    "script-src 'unsafe-inline' 'unsafe-eval'",
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
+  )
+const previewHeaders = pageHeaders({ "content-security-policy": previewCsp })
 export async function activate(host) {
   // 接口参考索引：核心契约 + 内置插件契约（<plugin>.<operation>，与接口文档投影同名）。
   const operationsIndex = {}
   const indexOperations = (operations) => {
     for (const [id, operation] of Object.entries(operations ?? {}))
-      if (operation && typeof operation.module === "string" && typeof operation.method === "string")
+      if (
+        operation &&
+        typeof operation.module === "string" &&
+        typeof operation.method === "string"
+      )
         operationsIndex[id] = {
           module: operation.module,
           method: operation.method,
@@ -64,7 +77,11 @@ export async function activate(host) {
   }
   const settingsFile = join(host.directory, "settings.json"),
     tokenFile = join(host.directory, "token.json")
-  let settings = await readSavedJson(settingsFile, { revision: 0, port: 19830 }, "笔记工作台")
+  let settings = await readSavedJson(
+    settingsFile,
+    { revision: 0, port: 19830 },
+    "笔记工作台"
+  )
   if (
     !Number.isSafeInteger(settings.revision) ||
     !Number.isInteger(settings.port) ||
@@ -74,10 +91,15 @@ export async function activate(host) {
     throw new Error("笔记工作台配置无效，原文件保留。")
   const identity = await loadTokenIdentity(tokenFile, "笔记工作台")
 
-  const store = await openStore(host.directory)
+  const baseStore = await openStore(host.directory)
   let seed = null
   try {
-    seed = JSON.parse(await readFile(join(dirname(fileURLToPath(import.meta.url)), "seed.json"), "utf8"))
+    seed = JSON.parse(
+      await readFile(
+        join(dirname(fileURLToPath(import.meta.url)), "seed.json"),
+        "utf8"
+      )
+    )
   } catch {
     seed = null
   }
@@ -102,6 +124,33 @@ export async function activate(host) {
       status,
       error,
     })
+  if (baseStore.health?.reason) await event("error", baseStore.health.reason)
+
+  // 变更通知：全部写路径经此包装；工作台以长轮询获取版本变化，替代固定间隔轮询。
+  let dataVersion = 1
+  const waiters = new Set()
+  const notify = () => {
+    dataVersion += 1
+    for (const wake of [...waiters]) wake()
+  }
+  const store = { ...baseStore }
+  for (const name of [
+    "createDirectory",
+    "createPage",
+    "writePage",
+    "setStateArgs",
+    "setPageStatus",
+    "addComment",
+    "setCommentResolved",
+    "deletePage",
+    "deleteDirectory",
+    "importSeed",
+  ])
+    store[name] = async (input) => {
+      const result = await baseStore[name](input)
+      notify()
+      return result
+    }
 
   // 页面资源是构建产物，按文件版本载入；重载操作读取新版本，监听与数据不受影响。
   const loadBundle = async () => {
@@ -133,7 +182,7 @@ export async function activate(host) {
     const actual = await workbenchFingerprint()
     resourceIssue =
       actual && bundle.sourceFingerprint && actual !== bundle.sourceFingerprint
-        ? "工作台源码已更新而产物未重建：运行 node scripts/build-notes-workbench.mjs 后重载页面资源。"
+        ? "工作台源码已更新而产物未重建：运行 pnpm notes:build 后重载页面资源。"
         : ""
     return resourceVersion
   }
@@ -141,7 +190,7 @@ export async function activate(host) {
     await loadBundle()
   } catch (error) {
     resourceIssue =
-      "工作台页面资源未构建：运行 node scripts/build-notes-workbench.mjs 后重载页面资源。"
+      "工作台页面资源未构建：运行 pnpm notes:build 后重载页面资源。"
     await event("error", resourceIssue)
     void error
   }
@@ -178,7 +227,28 @@ export async function activate(host) {
     })
 
   const routes = {
-    "GET /api/state": () => ({ ...store.snapshot(), resourceVersion }),
+    "GET /api/state": () => ({
+      ...store.snapshot(),
+      resourceVersion,
+      dataVersion,
+      health: store.health,
+    }),
+    // 长轮询：持有至数据版本变化或 25 秒超时；token 走 Authorization 头，不进入地址。
+    "GET /api/sync": (_body, url) => {
+      const since = Number(url.searchParams.get("version") ?? "")
+      if (!Number.isSafeInteger(since))
+        throw Object.assign(new Error("version 需为整数。"), { status: 400 })
+      if (since < dataVersion) return { version: dataVersion }
+      return new Promise((resolve) => {
+        const wake = (timeout = false) => {
+          clearTimeout(timer)
+          waiters.delete(wake)
+          resolve({ version: dataVersion, timeout })
+        }
+        const timer = setTimeout(() => wake(true), 25000)
+        waiters.add(wake)
+      })
+    },
     "GET /api/operations": () => ({ operations: operationsIndex }),
     "GET /api/page": async (req, url) => {
       const pageId = url.searchParams.get("id") || ""
@@ -195,11 +265,12 @@ export async function activate(host) {
     "POST /api/page/status": (body) => store.setPageStatus(body),
     "POST /api/page/args": (body) => store.setStateArgs(body),
     "POST /api/page/delete": (body) => store.deletePage(body),
+    "POST /api/page/write": (body) => store.writePage(body),
     "POST /api/comment": (body) =>
       store.addComment({ ...body, author: "user" }),
     "POST /api/comment/resolve": (body) => store.setCommentResolved(body),
     "POST /api/seed/load": () => {
-      if (!seed) throw new Error("种子数据未生成：运行 node scripts/migrate-catalog-notes.mts。")
+      if (!seed) throw new Error("种子数据未生成：运行 pnpm notes:build。")
       return store.importSeed({ seed })
     },
   }
@@ -220,10 +291,12 @@ export async function activate(host) {
         url.pathname === "/preview/bundle.mjs")
     ) {
       // 预览模块只含代码不含数据，与预览外壳同级别放行；数据仍由带 token 的 API 提供。
-      const code = url.pathname.endsWith("vendor.mjs") ? vendorCode : previewCode
+      const code = url.pathname.endsWith("vendor.mjs")
+        ? vendorCode
+        : previewCode
       if (!code) {
         sendJson(res, 503, {
-          error: "预览模块未构建：运行 node scripts/build-notes-preview.mjs 后重载页面资源。",
+          error: "预览模块未构建：运行 pnpm notes:build 后重载页面资源。",
         })
         return
       }
@@ -231,7 +304,10 @@ export async function activate(host) {
       res.end(code)
       return
     }
-    if (req.method === "GET" && (url.pathname === "/preview.html" || url.pathname === "/preview")) {
+    if (
+      req.method === "GET" &&
+      (url.pathname === "/preview.html" || url.pathname === "/preview")
+    ) {
       // 预览外壳不含数据；由工作台页面同源内嵌。
       if (!previewHtml) {
         sendJson(res, 503, {
@@ -260,7 +336,7 @@ export async function activate(host) {
         tickets.verify(ticket) || authorize(req.headers.authorization)
       if (!admitted) {
         void event("rejected", "打开票据缺失或已使用。")
-        res.writeHead(200, htmlHeaders)
+        res.writeHead(200, shellHeaders)
         res.end(workbenchHtml)
         return
       }
@@ -272,7 +348,7 @@ export async function activate(host) {
         sendJson(res, 500, { error: "工作台页面资源无效，请重载页面资源。" })
         return
       }
-      res.writeHead(200, htmlHeaders)
+      res.writeHead(200, shellHeaders)
       res.end(opening)
       return
     }
@@ -352,6 +428,7 @@ export async function activate(host) {
       url: `http://127.0.0.1:${settings.port}/`,
       revision: settings.revision,
       issue: issue || resourceIssue,
+      dataIssue: store.health?.reason ?? "",
       logIssue: host.logs.issue,
       directories: snapshot.directories.length,
       pages: snapshot.pages.length,
@@ -431,10 +508,7 @@ export async function activate(host) {
         store.setCommentResolved(input)
       ),
       load_seed: operation("load_seed", () => {
-        if (!seed)
-          throw new Error(
-            "种子数据未生成：运行 node scripts/migrate-catalog-notes.mts。"
-          )
+        if (!seed) throw new Error("种子数据未生成：运行 pnpm notes:build。")
         return store.importSeed({ seed })
       }),
       add_comment: operation("add_comment", (input) =>
@@ -444,6 +518,7 @@ export async function activate(host) {
     status: () =>
       issue ||
       resourceIssue ||
+      store.health?.reason ||
       (listener?.listening && !frozen
         ? `本机工作台 ${settings.port}；${store.snapshot().pages.length} 个页面`
         : "服务已暂停"),
@@ -458,6 +533,8 @@ export async function activate(host) {
       closed = true
       frozen = true
       lifecycle.abort()
+      // 唤醒挂起的长轮询，让客户端在关闭前拿到最终版本。
+      notify()
       closing = (async () => {
         await changing?.catch(() => {})
         await stopListener(listener)

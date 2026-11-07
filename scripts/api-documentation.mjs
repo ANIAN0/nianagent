@@ -403,7 +403,7 @@ function sourceFiles(directory) {
       : entry.isDirectory()
         ? sourceFiles(`${directory}/${entry.name}`)
         : /\.(?:tsx?|mjs)$/.test(entry.name) &&
-            !/\.generated\.|\.catalog\./.test(entry.name)
+            !/\.generated\./.test(entry.name)
           ? [`${directory}/${entry.name}`]
           : []
   )
@@ -678,8 +678,7 @@ export function createApiDocumentation() {
         },
       }),
       response: nullValue,
-      effect:
-        "在系统浏览器打开可信 dev 来源下的 /project/、/ui-catalog/ 或 /api-catalog/ 页面。",
+      effect: "在系统浏览器打开可信 dev 来源下的 /project/ 页面。",
       condition:
         "仅debug dev、main窗口、已配置的回环开发来源；正式发行拒绝，不接受任意URL。",
     },

@@ -150,8 +150,6 @@ export const codeModules = [
     boundary: "只有插件规范随正式版提供；展示隔离服务不连接用户会话数据。",
     prefixes: [
       "devtools/",
-      "ui-catalog/",
-      "api-catalog/",
       "src/features/developer-tools/",
       "src/features/plugin-development/",
     ],

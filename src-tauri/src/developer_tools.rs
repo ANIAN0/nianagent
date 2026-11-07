@@ -10,7 +10,7 @@ pub fn open_developer_tools(window: tauri::WebviewWindow, tool: String) -> Resul
     {
         use std::process::Command;
         use tauri::Manager;
-        if !matches!(tool.as_str(), "project" | "components" | "api") {
+        if !matches!(tool.as_str(), "project") {
             return Err("开发工具标识无效。".into());
         }
         let config = window.app_handle().config();
@@ -25,8 +25,6 @@ pub fn open_developer_tools(window: tauri::WebviewWindow, tool: String) -> Resul
         }
         let path = match tool.as_str() {
             "project" => "/project/",
-            "components" => "/ui-catalog/",
-            "api" => "/api-catalog/",
             _ => unreachable!(),
         };
         let mut target = source.join(path).map_err(|_| "开发工具地址无效。")?;

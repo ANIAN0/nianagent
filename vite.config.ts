@@ -3,11 +3,6 @@ import tailwindcss from "@tailwindcss/vite"
 import react from "@vitejs/plugin-react"
 import { defineConfig, type ResolvedConfig } from "vite"
 import { modelBackendPlugin } from "./backend/bridge.mjs"
-import {
-  uiCatalogPlugin,
-  catalogContentValidationPlugin,
-} from "./scripts/ui-catalog-plugin.ts"
-import { apiCatalogPlugin } from "./scripts/api-catalog-plugin.ts"
 import { developerToolsPlugin } from "./scripts/devtools-plugin.ts"
 import { pdfAssetsPlugin } from "./scripts/pdf-assets-plugin.ts"
 import { assertWebBase } from "./scripts/web-base.mjs"
@@ -26,9 +21,6 @@ export function createMoonViteConfig() {
       react(),
       tailwindcss(),
       modelBackendPlugin(),
-      { ...uiCatalogPlugin(), apply: "serve" as const },
-      catalogContentValidationPlugin(),
-      { ...apiCatalogPlugin(), apply: "serve" as const },
       developerToolsPlugin(),
       pdfAssetsPlugin(),
     ],

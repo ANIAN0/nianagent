@@ -105,18 +105,6 @@ export const directoryRules = {
     "开发资料共用阅读组件",
     "正式插件规范与开发环境资料共用布局、搜索交互和主题；内容索引只在开发环境装配。",
   ],
-  "ui-catalog": [
-    "正式组件演示与场景装配",
-    "保留相邻 .catalog 和隔离服务；禁止复制正式组件实现。",
-  ],
-  "ui-catalog/fixtures": [
-    "正式演示所需隔离服务",
-    "这是可操作组件演示的源码依赖，不是自动化测试辅助数据。",
-  ],
-  "api-catalog": [
-    "接口文档与显式调试",
-    "文档投影真实注册契约，普通阅读不调用业务。",
-  ],
   ".github/workflows": [
     "CI检查与Windows发行流程",
     "检查复用本地命令；发行需单独的明确触发。",
@@ -244,10 +232,6 @@ export const directoryRules = {
   "scripts/release-verifier/src": [
     "发行签名校验入口",
     "使用Rust验证已生成的安装包与产品版本。",
-  ],
-  "api-catalog/components": [
-    "接口字段阅读和原请求调试组件",
-    "文档、JSON编辑及结果状态分别复用，外壳由devtools提供。",
   ],
 }
 
@@ -471,18 +455,16 @@ export function collectProject() {
       const target = resolveReference(file.path, `./${match[1]}.rs`)
       if (target) found.add(target)
     }
-    // Configuration and generated handler/catalog registrations use literal paths.
-    if (/\.(?:json|html)$|\.catalog\.tsx$|^vite\.config\.ts$/.test(file.path))
+    // Configuration and generated handler registrations use literal paths.
+    if (/\.(?:json|html)$|^vite\.config\.ts$/.test(file.path))
       for (const match of source.matchAll(
-        /["']((?:src|backend|scripts|public|ui-catalog|api-catalog|devtools|icons|capabilities)\/[^"'\n*]+)["']/g
+        /["']((?:src|backend|scripts|public|devtools|icons|capabilities)\/[^"'\n*]+)["']/g
       )) {
         const target = resolveReference(file.path, match[1])
         if (target && target !== file.path) found.add(target)
       }
     file.references = [...found]
     for (const path of found) byPath.get(path).usedBy.push(file.path)
-    if (/\.catalog\.tsx$/.test(file.path))
-      file.entries.push("由 Vite 组件目录静态发现")
     if (/\/manifest\.json$/.test(file.path))
       file.entries.push("由应用插件 manifest 发现")
     if (

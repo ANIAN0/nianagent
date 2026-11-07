@@ -105,7 +105,9 @@ export function McpServerEditor({
                 <h3 id="mcp-connection-heading">连接</h3>
               </div>
               <FieldGroup>
-                <Field data-invalid={!validName && (!!value.name || validation)}>
+                <Field
+                  data-invalid={!validName && (!!value.name || validation)}
+                >
                   <FieldLabel htmlFor="mcp-name">服务名称</FieldLabel>
                   <Input
                     id="mcp-name"
@@ -122,16 +124,22 @@ export function McpServerEditor({
                     </FieldDescription>
                   )}
                   {!validName && (!!value.name || validation) && (
-                    <FieldError>名称限 1–64 个字母、数字、下划线或横线。</FieldError>
+                    <FieldError>
+                      名称限 1–64 个字母、数字、下划线或横线。
+                    </FieldError>
                   )}
                 </Field>
                 <Field>
-                  <FieldLabel htmlFor="mcp-description">用途（可选）</FieldLabel>
+                  <FieldLabel htmlFor="mcp-description">
+                    用途（可选）
+                  </FieldLabel>
                   <Input
                     id="mcp-description"
                     value={value.description}
                     disabled={!!busy}
-                    onChange={(event) => patch({ description: event.target.value })}
+                    onChange={(event) =>
+                      patch({ description: event.target.value })
+                    }
                     placeholder="如读取项目资料和搜索文档"
                   />
                 </Field>
@@ -178,11 +186,16 @@ export function McpServerEditor({
               <div className="flex flex-wrap items-center gap-3">
                 <Button
                   variant="outline"
-                  disabled={!!busy || saveUnknown || saveConflict || testBlocked}
+                  disabled={
+                    !!busy || saveUnknown || saveConflict || testBlocked
+                  }
                   onClick={() => void request("test")}
                 >
                   {busy === "test" ? (
-                    <Loader2 data-icon="inline-start" className="animate-spin" />
+                    <Loader2
+                      data-icon="inline-start"
+                      className="animate-spin"
+                    />
                   ) : (
                     <PlugZap data-icon="inline-start" />
                   )}
@@ -224,7 +237,9 @@ export function McpServerEditor({
                       onSettings={() =>
                         document
                           .getElementById(
-                            value.transport === "stdio" ? "mcp-command" : "mcp-url"
+                            value.transport === "stdio"
+                              ? "mcp-command"
+                              : "mcp-url"
                           )
                           ?.focus()
                       }
@@ -359,9 +374,7 @@ export function McpServerEditor({
         </div>
       )}
       <footer className="model-footer">
-        <p
-          role={busy === "save" || busy === "check" ? "status" : undefined}
-        >
+        <p role={busy === "save" || busy === "check" ? "status" : undefined}>
           {busy === "save"
             ? waitingToLeave
               ? "正在保存，请等待结果后离开。"
@@ -375,7 +388,11 @@ export function McpServerEditor({
                   : "保存后在会话配置中选择工具；当前运行继续使用本轮配置。"}
         </p>
         <div>
-          <Button variant="outline" disabled={!!busy} onClick={() => leave(onClose)}>
+          <Button
+            variant="outline"
+            disabled={!!busy}
+            onClick={() => leave(onClose)}
+          >
             取消
           </Button>
           <Button

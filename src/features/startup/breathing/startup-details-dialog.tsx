@@ -63,9 +63,7 @@ export function StartupDetailsDialog({
             : "startup-details-dialog max-w-[440px]"
         }
         showCloseButton={!locked}
-        onEscapeKeyDown={
-          locked ? (event) => event.preventDefault() : undefined
-        }
+        onEscapeKeyDown={locked ? (event) => event.preventDefault() : undefined}
         onPointerDownOutside={
           locked ? (event) => event.preventDefault() : undefined
         }
@@ -76,9 +74,10 @@ export function StartupDetailsDialog({
           locked
             ? (event) => {
                 // 失败时刻只有一个决定：初始焦点落在动作区最右的主动作上。
-                const actions = decisionRef.current?.querySelectorAll<HTMLButtonElement>(
-                  "button"
-                )
+                const actions =
+                  decisionRef.current?.querySelectorAll<HTMLButtonElement>(
+                    "button"
+                  )
                 const primary = actions?.[actions.length - 1]
                 if (!primary) return
                 event.preventDefault()

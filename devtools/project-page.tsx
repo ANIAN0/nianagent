@@ -10,11 +10,7 @@ import {
   codeModules,
   codeModuleFor,
   loadProject,
-  componentsForFile,
-  operationsForFile,
-  componentHref,
   fileHref,
-  apiHref,
   codeModuleHref,
 } from "./content-index"
 import type { ProjectFile, ProjectIndex } from "../scripts/project-index.mjs"
@@ -280,42 +276,6 @@ export default function ProjectPage() {
       </table>
     </div>
   )
-  const related = (items: ProjectFile[]) => {
-    const components = [
-      ...new Map(
-        items
-          .flatMap((file) => componentsForFile(file.path))
-          .map((entry) => [entry.id, entry])
-      ).values(),
-    ]
-    const operations = [
-      ...new Map(
-        items.flatMap((file) => operationsForFile(file.path))
-      ).entries(),
-    ]
-    return (
-      <section>
-        <h2>相关页面与接口</h2>
-        <div className="reader-related">
-          {components.map((entry) => (
-            <a key={entry.id} href={componentHref(entry.id)}>
-              {entry.name}
-            </a>
-          ))}
-        </div>
-        <div className="reader-related">
-          {operations.map(([id, doc]) => (
-            <a key={id} href={apiHref(id)}>
-              {doc.definition.title} · {id}
-            </a>
-          ))}
-        </div>
-        {!components.length && !operations.length && (
-          <p>当前没有明确登记的页面或接口关联。</p>
-        )}
-      </section>
-    )
-  }
   const refs = (paths: string[]) =>
     paths.length ? (
       <ul>
@@ -393,9 +353,6 @@ export default function ProjectPage() {
                 (file) => codeModuleFor(file.path).id === module.id
               )
             )}
-            {related(
-              files.filter((file) => codeModuleFor(file.path).id === module.id)
-            )}
           </>
         ) : file ? (
           <>
@@ -444,7 +401,6 @@ export default function ProjectPage() {
               <summary>此文件引用的位置</summary>
               {refs(file.references)}
             </details>
-            {related([file])}
           </>
         ) : selected && directories.has(selected) ? (
           <>

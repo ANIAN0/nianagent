@@ -1,5 +1,12 @@
 // @ts-check
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
+import {
+  copyFile,
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises"
 import { basename, dirname, join } from "node:path"
 import { randomUUID } from "node:crypto"
 import { replaceJson } from "../../atomic-file.mjs"
@@ -18,7 +25,7 @@ async function writeSource(file, text) {
   }
 }
 
-/** 页面源码约定：无 import，末尾定义组件 Page；渲染与落盘均基于同一段源码。 */
+/** 页面源码约定：可从 moon-ui 具名导入白名单组件；末尾定义组件 Page；渲染与落盘均基于同一段源码。 */
 export const starterPageCode = [
   "function Page() {",
   "  return (",
@@ -36,7 +43,14 @@ const stateNamePattern = /^[\p{L}\p{N}][\p{L}\p{N}\p{P}\p{S} ]{0,63}$/u
 const idPattern = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/
 const pageStatuses = new Set(["draft", "confirmed"])
 const sections = new Set(["normal", "exception", "states"])
-const controls = new Set(["boolean", "number", "string", "select"])
+const controls = new Set([
+  "boolean",
+  "number",
+  "string",
+  "select",
+  "color",
+  "object",
+])
 const now = () => new Date().toISOString()
 
 const assertName = (value, label) => {
@@ -59,7 +73,9 @@ const assertText = (value, label, max) => {
 }
 const assertId = (value, label) => {
   if (typeof value !== "string" || !idPattern.test(value))
-    throw new Error(`${label}需为 1–64 位字母开头的字母、数字、下划线或连字符。`)
+    throw new Error(
+      `${label}需为 1–64 位字母开头的字母、数字、下划线或连字符。`
+    )
 }
 const optionalText = (value, label, max) => {
   if (value === undefined || value === null) return ""
@@ -74,7 +90,40 @@ const textList = (value, label, max, maxItems) => {
   return value.map((item) => optionalText(item, `${label}条目`, max))
 }
 
-/** args 是动态键对象：仅允许基础类型值，结构与规模在此收敛。 */
+/** args 是动态键对象：基础类型加上受限的嵌套对象与数组，结构与规模在此收敛。 */
+const maxArgDepth = 3
+const assertArgValue = (value, depth) => {
+  if (
+    value === null ||
+    typeof value === "boolean" ||
+    (typeof value === "number" && Number.isFinite(value))
+  )
+    return value
+  if (typeof value === "string") {
+    if (value.length > 2000)
+      throw new Error("状态 args 字符串值最长 2000 字符。")
+    return value
+  }
+  if (depth >= maxArgDepth)
+    throw new Error(`状态 args 嵌套最深 ${maxArgDepth} 层。`)
+  if (Array.isArray(value)) {
+    if (value.length > 64) throw new Error("状态 args 数组最多 64 项。")
+    return value.map((item) => assertArgValue(item, depth + 1))
+  }
+  if (typeof value === "object") {
+    const keys = Object.keys(value)
+    if (keys.length > 32) throw new Error("状态 args 对象最多 32 个属性。")
+    const nested = {}
+    for (const key of keys) {
+      if (key.length > 64) throw new Error("状态 args 属性名最长 64 字符。")
+      nested[key] = assertArgValue(value[key], depth + 1)
+    }
+    return nested
+  }
+  throw new Error(
+    "状态 args 仅支持字符串、数字、布尔、null 或受限的对象与数组。"
+  )
+}
 const assertArgs = (value) => {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("状态 args 需为对象。")
@@ -83,22 +132,7 @@ const assertArgs = (value) => {
   const args = {}
   for (const key of keys) {
     if (key.length > 64) throw new Error("状态 args 属性名最长 64 字符。")
-    const item = value[key]
-    if (
-      item === null ||
-      typeof item === "boolean" ||
-      (typeof item === "number" && Number.isFinite(item))
-    ) {
-      args[key] = item
-      continue
-    }
-    if (typeof item === "string") {
-      if (item.length > 2000)
-        throw new Error("状态 args 字符串值最长 2000 字符。")
-      args[key] = item
-      continue
-    }
-    throw new Error("状态 args 仅支持字符串、数字、布尔或 null 值。")
+    args[key] = assertArgValue(value[key], 0)
   }
   return args
 }
@@ -116,12 +150,7 @@ const normalizeMeta = (value) => {
     standards: [],
     tags: textList(value.tags, "标签", 32, 8),
     argTypes: [],
-    relatedOperations: textList(
-      value.relatedOperations,
-      "关联接口",
-      200,
-      32
-    ),
+    relatedOperations: textList(value.relatedOperations, "关联接口", 200, 32),
   }
   if (!meta.preview) delete meta.preview
   const story = value.story
@@ -148,7 +177,10 @@ const normalizeMeta = (value) => {
         check: optionalText(item.check, "标准核查", 1000),
       }
     })
-    if (new Set(meta.standards.map((item) => item.id)).size !== meta.standards.length)
+    if (
+      new Set(meta.standards.map((item) => item.id)).size !==
+      meta.standards.length
+    )
       throw new Error("standards 标识不得重复。")
   }
   const viewport = value.viewport
@@ -176,7 +208,9 @@ const normalizeMeta = (value) => {
         throw new Error("argTypes 条目需为对象。")
       assertId(item.name, "argTypes 属性名")
       if (!controls.has(item.control))
-        throw new Error("argTypes 控件仅支持 boolean、number、string、select。")
+        throw new Error(
+          "argTypes 控件仅支持 boolean、number、string、select、color、object。"
+        )
       const entry = {
         name: item.name,
         label: optionalText(item.label, "控件展示名", 64),
@@ -197,9 +231,30 @@ const normalizeMeta = (value) => {
         if (!entry.options.length)
           throw new Error("select 控件需至少一个选项。")
       }
+      if (item.default !== undefined && item.default !== null) {
+        const fallback = item.default
+        if (entry.control === "number") {
+          if (!Number.isFinite(fallback))
+            throw new Error("number 控件默认值需为有限数值。")
+          entry.default = fallback
+        } else if (entry.control === "boolean") {
+          if (typeof fallback !== "boolean")
+            throw new Error("boolean 控件默认值需为布尔。")
+          entry.default = fallback
+        } else if (entry.control === "select") {
+          if (!entry.options.includes(String(fallback)))
+            throw new Error("select 控件默认值需在选项内。")
+          entry.default = String(fallback)
+        } else {
+          entry.default = assertArgValue(fallback, 0)
+        }
+      }
       return entry
     })
-    if (new Set(meta.argTypes.map((item) => item.name)).size !== meta.argTypes.length)
+    if (
+      new Set(meta.argTypes.map((item) => item.name)).size !==
+      meta.argTypes.length
+    )
       throw new Error("argTypes 属性名不得重复。")
   }
   return meta
@@ -247,6 +302,7 @@ const normalizeStore = (value) => ({
   })),
 })
 
+/** 读取 store.json；解析失败时备份原文并以空数据打开（健康提示随快照透出），不再整体停摆。 */
 async function readStore(file) {
   try {
     const value = JSON.parse(await readFile(file, "utf8"))
@@ -258,11 +314,32 @@ async function readStore(file) {
       !Array.isArray(value.comments)
     )
       throw new Error("数据结构无效")
-    return normalizeStore(value)
+    return { value: normalizeStore(value), health: null }
   } catch (error) {
     if (error.code === "ENOENT")
-      return { directories: [], pages: [], comments: [] }
-    throw new Error("笔记工作台数据无法读取，原文件已保留。", { cause: error })
+      return {
+        value: { directories: [], pages: [], comments: [] },
+        health: null,
+      }
+    try {
+      const backup = `${file}.corrupt-${now().replace(/[:.]/g, "-")}`
+      await copyFile(file, backup)
+      return {
+        value: { directories: [], pages: [], comments: [] },
+        health: {
+          reason: `笔记数据文件无法解析，原文已备份为 ${basename(
+            backup
+          )}；当前以空数据继续，可重新导入种子或手动恢复备份。`,
+        },
+      }
+    } catch (backupError) {
+      throw new Error(
+        `笔记工作台数据无法读取，且备份失败（${
+          backupError instanceof Error ? backupError.message : backupError
+        }；原始错误：${error instanceof Error ? error.message : error}），原文件已保留。`,
+        { cause: backupError }
+      )
+    }
   }
 }
 
@@ -270,7 +347,9 @@ async function readStore(file) {
 export async function openStore(directory) {
   const storeFile = join(directory, "store.json")
   const sourceFile = (pageId) => join(directory, "pages", `${pageId}.tsx`)
-  let state = await readStore(storeFile)
+  const opened = await readStore(storeFile)
+  let state = opened.value
+  const health = opened.health
   let chain = Promise.resolve()
   const serialize = (action) => {
     const task = chain.then(action)
@@ -305,6 +384,8 @@ export async function openStore(directory) {
   const persist = () => replaceJson(storeFile, state)
 
   const store = {
+    /** 数据健康提示；null 表示正常。由宿主透出到运行状态与界面。 */
+    health,
     snapshot: () => ({
       directories: state.directories.map((item) => ({ ...item })),
       pages: state.pages.map(lightPage),
@@ -392,17 +473,41 @@ export async function openStore(directory) {
         if (typeof input?.pageId !== "string" || !input.pageId)
           throw new Error("页面标识无效。")
         const page = findPage(input.pageId)
-        if (input.code === undefined && input.meta === undefined && input.states === undefined)
+        if (
+          input.code === undefined &&
+          input.meta === undefined &&
+          input.states === undefined
+        )
           throw new Error("源码、设计元数据、状态至少提供一项。")
         if (input.code !== undefined) assertCode(input.code)
-        const meta = input.meta !== undefined ? normalizeMeta(input.meta) : page.meta
-        const states = input.states !== undefined ? normalizeStates(input.states) : page.states
-        if (input.code !== undefined)
-          await writeSource(sourceFile(input.pageId), input.code)
+        const meta =
+          input.meta !== undefined ? normalizeMeta(input.meta) : page.meta
+        const states =
+          input.states !== undefined
+            ? normalizeStates(input.states)
+            : page.states
+        const previous = state.pages
         state.pages = state.pages.map((item) =>
-          item.id === input.pageId ? { ...item, meta, states, updatedAt: now() } : item
+          item.id === input.pageId
+            ? { ...item, meta, states, updatedAt: now() }
+            : item
         )
-        await persist()
+        try {
+          await persist()
+        } catch (error) {
+          state.pages = previous
+          throw error
+        }
+        if (input.code !== undefined) {
+          // 源码在记录持久化后替换；写入失败时回滚记录，避免半更新。
+          try {
+            await writeSource(sourceFile(input.pageId), input.code)
+          } catch (error) {
+            state.pages = previous
+            await persist().catch(() => {})
+            throw new Error("源码写入失败，页面记录已回滚。", { cause: error })
+          }
+        }
         return { page: fullPage(findPage(input.pageId)) }
       }),
     setStateArgs: (input) =>
@@ -416,7 +521,9 @@ export async function openStore(directory) {
           item.id === input.stateId ? { ...item, args } : item
         )
         state.pages = state.pages.map((item) =>
-          item.id === input.pageId ? { ...item, states, updatedAt: now() } : item
+          item.id === input.pageId
+            ? { ...item, states, updatedAt: now() }
+            : item
         )
         await persist()
         return { page: fullPage(findPage(input.pageId)) }
@@ -444,8 +551,7 @@ export async function openStore(directory) {
           const parent = findComment(parentId)
           if (parent.pageId !== input.pageId)
             throw new Error("父评论不属于该页面。")
-          if (parent.parentId)
-            throw new Error("评论最多两级，不能再回复回复。")
+          if (parent.parentId) throw new Error("评论最多两级，不能再回复回复。")
         }
         const comment = {
           id: randomUUID(),
@@ -467,7 +573,9 @@ export async function openStore(directory) {
         if (typeof input.resolved !== "boolean")
           throw new Error("解决标记需为布尔值。")
         state.comments = state.comments.map((item) =>
-          item.id === input.commentId ? { ...item, resolved: input.resolved } : item
+          item.id === input.commentId
+            ? { ...item, resolved: input.resolved }
+            : item
         )
         await persist()
         return { comment: { ...findComment(input.commentId) } }
@@ -480,7 +588,8 @@ export async function openStore(directory) {
           (item) => item.pageId !== input.pageId
         )
         await persist()
-        await rm(sourceFile(input.pageId), { force: true })
+        // 记录已删除；源码文件移除失败只留下无害的孤儿文件，与整目录删除一致。
+        await rm(sourceFile(input.pageId), { force: true }).catch(() => {})
         return { deleted: input.pageId }
       }),
     deleteDirectory: (input) =>

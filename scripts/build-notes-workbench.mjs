@@ -68,7 +68,9 @@ const buildDocument = async (name) => {
   })
   const html = await readFile(resolve(target, `${name}.html`), "utf8")
   const assets = {}
-  for (const file of html.matchAll(/(?:src|href)="\.?\/?([^"]+\.(?:js|css))"/g)) {
+  for (const file of html.matchAll(
+    /(?:src|href)="\.?\/?([^"]+\.(?:js|css))"/g
+  )) {
     assets[file[1]] = await readFile(resolve(target, file[1]), "utf8")
   }
   const document = inline(html, assets)
@@ -76,9 +78,46 @@ const buildDocument = async (name) => {
     throw new Error(`仍有未内联的外部资源：${name}，请检查构建输出。`)
   return document
 }
+
+// 预览文档承载真实项目组件：运行时 Tailwind 需要应用的语义令牌。
+// 从 src/index.css 提取 @custom-variant、@theme inline、:root 与 .dark 注入预览文档。
+const extractPreviewTheme = async () => {
+  const css = await readFile(resolve(here, "../src/index.css"), "utf8")
+  const block = (marker) => {
+    const start = css.indexOf(marker)
+    if (start === -1)
+      throw new Error(`src/index.css 缺少 ${marker}，无法提取预览主题。`)
+    const open = css.indexOf("{", start)
+    let depth = 0
+    for (let i = open; i < css.length; i += 1) {
+      if (css[i] === "{") depth += 1
+      else if (css[i] === "}") {
+        depth -= 1
+        if (depth === 0) return css.slice(start, i + 1)
+      }
+    }
+    throw new Error(`src/index.css 的 ${marker} 块未闭合。`)
+  }
+  const variant = css.match(/^@custom-variant dark[^\n]*$/m)
+  if (!variant) throw new Error("src/index.css 缺少 @custom-variant dark。")
+  return [
+    variant[0],
+    block("@theme inline"),
+    block(":root"),
+    block(".dark"),
+  ].join("\n\n")
+}
+
 await rm(outDir, { recursive: true, force: true })
 const document = await buildDocument("index")
-const previewDocument = await buildDocument("preview")
+const previewDocument0 = await buildDocument("preview")
+const theme = await extractPreviewTheme()
+const previewDocument = previewDocument0.replace(
+  "<script",
+  `<style type="text/tailwindcss">\n${theme}\n</style>\n<script`
+)
+if (!previewDocument.includes("text/tailwindcss"))
+  throw new Error("预览文档缺少脚本锚点，主题注入失败。")
 await mkdir(dirname(bundleFile), { recursive: true })
 await writeFile(
   bundleFile,

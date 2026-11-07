@@ -12,10 +12,7 @@ import {
 } from "react"
 import "@tailwindcss/browser"
 import { createRoot } from "react-dom/client"
-import {
-  attachPreviewChannel,
-  type RenderStatePayload,
-} from "./channel"
+import { attachPreviewChannel, type RenderStatePayload } from "./channel"
 import { compilePage } from "./renderer"
 
 type Rect = { x: number; y: number; width: number; height: number }
@@ -85,34 +82,52 @@ function PreviewApp() {
     theme: "dark",
     mode: "browse",
     width: undefined,
+    height: undefined,
+    stateId: undefined,
     comments: [],
   })
   const [hover, setHover] = useState<Rect | null>(null)
   const [selection, setSelection] = useState<Rect | null>(null)
-  const [pins, setPins] = useState<{ comment: PinComment; rect: Rect | null }[]>([])
-  const previewVersion = new URLSearchParams(window.location.search).get("v") ?? "0"
-  const [entries, setEntries] = useState<Record<string, ComponentType | undefined> | null>(null)
+  const [pins, setPins] = useState<
+    { comment: PinComment; rect: Rect | null }[]
+  >([])
+  const previewVersion =
+    new URLSearchParams(window.location.search).get("v") ?? "0"
+  const [entries, setEntries] = useState<Record<
+    string,
+    ComponentType | undefined
+  > | null>(null)
+  const [moonUi, setMoonUi] = useState<Record<string, unknown> | null>(null)
   const [entriesError, setEntriesError] = useState("")
   useEffect(() => {
-    if (!state.preview || entries) return
+    // 条目与 moon-ui 注册表同在一个 bundle：始终加载并缓存（HTTP 层有缓存）。
     let alive = true
     import(`/preview/bundle.mjs?v=${previewVersion}`)
       .then((module) => {
-        if (alive) setEntries((module.entries ?? {}) as Record<string, ComponentType | undefined>)
+        if (!alive) return
+        setEntries(
+          (module.entries ?? {}) as Record<string, ComponentType | undefined>
+        )
+        setMoonUi((module.moonUi ?? null) as Record<string, unknown> | null)
       })
       .catch((error) => {
-        if (alive) setEntriesError(error instanceof Error ? error.message : String(error))
+        if (alive)
+          setEntriesError(
+            error instanceof Error ? error.message : String(error)
+          )
       })
     return () => {
       alive = false
     }
-  }, [state.preview, entries, previewVersion])
+  }, [previewVersion])
   const containerRef = useRef<HTMLDivElement | null>(null)
   const stateRef = useRef(state)
   useEffect(() => {
     stateRef.current = state
   })
-  const channelRef = useRef<ReturnType<typeof attachPreviewChannel> | null>(null)
+  const channelRef = useRef<ReturnType<typeof attachPreviewChannel> | null>(
+    null
+  )
   if (channelRef.current == null) {
     channelRef.current = attachPreviewChannel({
       onRenderState: (payload) => {
@@ -125,7 +140,7 @@ function PreviewApp() {
       onClearSelection: () => setSelection(null),
     })
   }
-  const compiled = compilePage(state.source)
+  const compiled = compilePage(state.source, moonUi)
   const pinKeyRef = useRef("")
   const locate = () => containerRef.current?.firstElementChild
   const measure = () => {
@@ -208,14 +223,14 @@ function PreviewApp() {
       channelRef.current?.send("escape")
   }
   const emptySource = !state.source && !state.preview
-  const previewComponent: ComponentType | "loading" | "error" | "missing" | null =
-    state.preview
-      ? entriesError
-        ? "error"
-        : entries
-          ? (entries[state.preview] ?? "missing")
-          : "loading"
-      : null
+  const previewComponent:
+    ComponentType | "loading" | "error" | "missing" | null = state.preview
+    ? entriesError
+      ? "error"
+      : entries
+        ? (entries[state.preview] ?? "missing")
+        : "loading"
+    : null
   return (
     <div className="min-h-screen p-10" onKeyDown={handleKeyDown}>
       {emptySource ? (
@@ -225,10 +240,12 @@ function PreviewApp() {
       ) : (
         <div
           ref={containerRef}
-          className="relative mx-auto"
+          className={
+            "relative mx-auto" + (state.theme === "dark" ? " dark" : "")
+          }
           style={{
             width: state.width ?? "100%",
-            minHeight: 240,
+            minHeight: state.height ?? 240,
             colorScheme: state.theme,
             background: "light-dark(#ffffff, #16181d)",
           }}
@@ -245,19 +262,22 @@ function PreviewApp() {
               </div>
             ) : previewComponent === "missing" ? (
               <div className="m-6 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-300">
-                预览条目不存在：{state.preview}。请核对 preview/manifest.mjs 并重建。
+                预览条目不存在：{state.preview}。请核对 preview/manifest.mjs
+                并重建。
               </div>
             ) : (
               <PageBoundary key={state.preview}>
                 {(() => {
-                  const Preview = previewComponent as ComponentType
-                  return <Preview {...state.args} />
+                  const Preview = previewComponent as ComponentType<
+                    Record<string, unknown>
+                  >
+                  return <Preview {...state.args} moonStateId={state.stateId} />
                 })()}
               </PageBoundary>
             )
           ) : compiled.ok ? (
             <PageBoundary key={state.source}>
-              <compiled.component {...state.args} />
+              <compiled.component {...state.args} moonStateId={state.stateId} />
             </PageBoundary>
           ) : (
             <div className="m-6 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-300">
@@ -302,7 +322,9 @@ function PreviewApp() {
                   style={{ left: rect.x + rect.width + 8, top: rect.y + 2 }}
                   onClick={(event) => {
                     event.stopPropagation()
-                    channelRef.current?.send("pin-click", { commentId: comment.id })
+                    channelRef.current?.send("pin-click", {
+                      commentId: comment.id,
+                    })
                   }}
                 >
                   {comment.author === "agent" ? "A" : "U"}

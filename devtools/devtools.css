@@ -316,10 +316,6 @@
   padding: 16px;
   gap: 16px;
 }
-.devtools-inspector-dialog > .catalog-inspector {
-  min-height: 0;
-  overflow: auto;
-}
 .devtools-inspector-title {
   padding-right: 32px;
   font-size: 16px;

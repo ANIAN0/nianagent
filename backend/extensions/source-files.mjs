@@ -19,8 +19,11 @@ export async function backendSourceFiles(directory) {
     if (entry.isDirectory()) {
       for (const child of (await readdir(path)).sort())
         await visit(join(path, child), kind)
-    } else if (entry.isFile() &&
-      (path.endsWith(".mjs") || (kind === "plugins" && basename(path) === "manifest.json")))
+    } else if (
+      entry.isFile() &&
+      (path.endsWith(".mjs") ||
+        (kind === "plugins" && basename(path) === "manifest.json"))
+    )
       files.push(local.replaceAll("\\", "/"))
     else if (kind === "extensions" && entry.isFile() && !path.endsWith(".md"))
       throw new Error("扩展正式目录仅支持mjs源码与说明文档。")

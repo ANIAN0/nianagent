@@ -23,20 +23,22 @@ function CommentItem({
       <div
         ref={(node) => focusRef(comment.id, node)}
         className={`rounded-lg p-2.5 transition-shadow ${
-          highlight ? "bg-[#383838] ring-1 ring-[#0d99ff]" : "bg-[#383838]"
+          highlight
+            ? "bg-[var(--raised)] ring-1 ring-[var(--accent)]"
+            : "bg-[var(--raised)]"
         } ${comment.resolved ? "opacity-55" : ""}`}
       >
         <div className="mb-1.5 flex items-center gap-1.5">
           <span
             className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
               comment.author === "agent"
-                ? "bg-[#a259ff]/15 text-[#c084fc]"
-                : "bg-[#0d99ff]/15 text-[#66b8ff]"
+                ? "bg-[var(--agent-soft)] text-[var(--agent-text)]"
+                : "bg-[var(--accent-soft)] text-[var(--accent-text)]"
             }`}
           >
             {comment.author === "agent" ? "Agent" : "用户"}
           </span>
-          <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-neutral-500">
+          <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-[var(--text-muted)]">
             {comment.target || "整页评论"}
           </span>
           <button
@@ -44,8 +46,8 @@ function CommentItem({
             title={comment.resolved ? "重新打开" : "标记已解决"}
             className={`rounded px-1 text-[11px] transition-colors ${
               comment.resolved
-                ? "text-emerald-400"
-                : "text-neutral-500 hover:text-emerald-400"
+                ? "text-[var(--success)]"
+                : "text-[var(--text-muted)] hover:text-[var(--success)]"
             }`}
             onClick={() => onResolve(comment, !comment.resolved)}
           >
@@ -54,13 +56,13 @@ function CommentItem({
           <button
             type="button"
             title="回复"
-            className="rounded px-1 text-[11px] text-neutral-500 transition-colors hover:text-neutral-200"
+            className="rounded px-1 text-[11px] text-[var(--text-muted)] transition-colors hover:text-[var(--text)]"
             onClick={() => setReplying((value) => !value)}
           >
             ↩
           </button>
         </div>
-        <p className="whitespace-pre-wrap text-[12px] leading-5 text-neutral-200">
+        <p className="text-[12px] leading-5 whitespace-pre-wrap text-[var(--text)]">
           {comment.text}
         </p>
         {replying && (
@@ -70,12 +72,12 @@ function CommentItem({
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               placeholder={`回复 ${comment.author === "agent" ? "Agent" : "用户"}…`}
-              className="h-12 w-full resize-none rounded bg-[#2c2c2c] p-2 text-xs text-neutral-200 outline-none placeholder:text-neutral-500 focus:ring-1 focus:ring-[#0d99ff]"
+              className="h-12 w-full resize-none rounded bg-[var(--panel-2)] p-2 text-xs text-[var(--text)] outline-none placeholder:text-[var(--text-muted)] focus:ring-1 focus:ring-[var(--accent)]"
             />
             <div className="flex justify-end gap-2">
               <button
                 type="button"
-                className="rounded px-2 py-0.5 text-[11px] text-neutral-400 hover:text-neutral-200"
+                className="rounded px-2 py-0.5 text-[11px] text-neutral-400 hover:text-[var(--text)]"
                 onClick={() => {
                   setReplying(false)
                   setDraft("")
@@ -100,28 +102,30 @@ function CommentItem({
         )}
       </div>
       {replies.length > 0 && (
-        <div className="ml-4 flex flex-col gap-2 border-l border-[#3c3c3c] pl-2.5">
+        <div className="ml-4 flex flex-col gap-2 border-l border-[var(--border)] pl-2.5">
           {replies.map((reply) => (
             <div
               key={reply.id}
               ref={(node) => focusRef(reply.id, node)}
-              className={`rounded-lg bg-[#333333] p-2 ${reply.resolved ? "opacity-55" : ""}`}
+              className={`rounded-lg bg-[var(--panel-2)] p-2 ${reply.resolved ? "opacity-55" : ""}`}
             >
               <div className="mb-1 flex items-center gap-1.5">
                 <span
                   className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
                     reply.author === "agent"
-                      ? "bg-[#a259ff]/15 text-[#c084fc]"
-                      : "bg-[#0d99ff]/15 text-[#66b8ff]"
+                      ? "bg-[var(--agent-soft)] text-[var(--agent-text)]"
+                      : "bg-[var(--accent-soft)] text-[var(--accent-text)]"
                   }`}
                 >
                   {reply.author === "agent" ? "Agent" : "用户"}
                 </span>
                 {reply.resolved && (
-                  <span className="text-[10px] text-emerald-400">已解决</span>
+                  <span className="text-[10px] text-[var(--success)]">
+                    已解决
+                  </span>
                 )}
               </div>
-              <p className="whitespace-pre-wrap text-[12px] leading-5 text-neutral-300">
+              <p className="text-[12px] leading-5 whitespace-pre-wrap text-[var(--text-2)]">
                 {reply.text}
               </p>
             </div>
@@ -164,14 +168,14 @@ export function Comments({
   }
   return (
     <div className="flex flex-col">
-      <div className="flex items-center justify-between px-3 pb-1 pt-3">
-        <span className="text-[11px] font-semibold tracking-wide text-neutral-500">
+      <div className="flex items-center justify-between px-3 pt-3 pb-1">
+        <span className="text-[11px] font-semibold tracking-wide text-[var(--text-muted)]">
           评论（{comments.length - resolvedCount}/{comments.length}）
         </span>
         {resolvedCount > 0 && (
           <button
             type="button"
-            className="text-[11px] text-neutral-500 transition-colors hover:text-neutral-200"
+            className="text-[11px] text-[var(--text-muted)] transition-colors hover:text-[var(--text)]"
             onClick={() => setShowResolved((value) => !value)}
           >
             {showResolved ? "隐藏已解决" : "显示已解决"}
@@ -179,12 +183,12 @@ export function Comments({
         )}
       </div>
       {detail && (
-        <div className="px-3 pb-3 pt-1.5">
+        <div className="px-3 pt-1.5 pb-3">
           <textarea
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             placeholder="整页评论，或直接点画布中的元素圈评…"
-            className="h-14 w-full resize-none rounded bg-[#383838] p-2 text-xs text-neutral-200 outline-none placeholder:text-neutral-500 focus:ring-1 focus:ring-[#0d99ff]"
+            className="h-14 w-full resize-none rounded bg-[var(--raised)] p-2 text-xs text-[var(--text)] outline-none placeholder:text-[var(--text-muted)] focus:ring-1 focus:ring-[var(--accent)]"
           />
           <div className="mt-1.5 text-right">
             <button
@@ -201,28 +205,26 @@ export function Comments({
         </div>
       )}
       <div className="flex flex-col gap-3 px-3 pb-6">
-        {roots
-          .filter(visible)
-          .map((comment) => (
-            <CommentItem
-              key={comment.id}
-              comment={comment}
-              replies={repliesOf(comment.id).filter(visible)}
-              highlight={focusId === comment.id}
-              focusRef={focusRef}
-              onReply={(parent, text) => void onAddReply(parent.id, text)}
-              onResolve={(comment, resolved) =>
-                void onResolve(comment.id, resolved)
-              }
-            />
-          ))}
+        {roots.filter(visible).map((comment) => (
+          <CommentItem
+            key={comment.id}
+            comment={comment}
+            replies={repliesOf(comment.id).filter(visible)}
+            highlight={focusId === comment.id}
+            focusRef={focusRef}
+            onReply={(parent, text) => void onAddReply(parent.id, text)}
+            onResolve={(comment, resolved) =>
+              void onResolve(comment.id, resolved)
+            }
+          />
+        ))}
         {detail && !comments.length && (
-          <p className="py-4 text-center text-[11px] text-neutral-600">
+          <p className="py-4 text-center text-[11px] text-[var(--text-faint)]">
             还没有评论；圈选元素或写整页评论。
           </p>
         )}
         {detail && comments.length > 0 && !roots.some(visible) && (
-          <p className="py-4 text-center text-[11px] text-neutral-600">
+          <p className="py-4 text-center text-[11px] text-[var(--text-faint)]">
             全部评论已解决。
           </p>
         )}

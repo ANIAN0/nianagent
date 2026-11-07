@@ -11,19 +11,10 @@ export function developerToolsPlugin(): Plugin {
     configureServer(server) {
       server.middlewares.use((request, response, next) => {
         const url = new URL(request.url ?? "/", "http://localhost")
-        if (/^\/devtools\/(?:index\.html|preview\.html)?$/.test(url.pathname)) {
-          const preview = url.pathname.endsWith("preview.html")
-          const tool = url.searchParams.get("tool")
-          const path = preview
-            ? "/ui-catalog/preview.html"
-            : tool === "components"
-              ? "/ui-catalog/"
-              : tool === "api"
-                ? "/api-catalog/"
-                : "/project/"
+        if (/^\/devtools\/(?:index\.html)?$/.test(url.pathname)) {
           url.searchParams.delete("tool")
           response.writeHead(302, {
-            Location: `${path}${url.searchParams.size ? `?${url.searchParams}` : ""}`,
+            Location: `/project/${url.searchParams.size ? `?${url.searchParams}` : ""}`,
           })
           response.end()
           return

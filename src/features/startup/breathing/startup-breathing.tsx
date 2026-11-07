@@ -10,9 +10,7 @@ function BreathingStartupFailure({ title, pending }: StartupFailureViewProps) {
   const retrying = pending === "retry"
   return (
     <div className="startup-failure" data-retrying={retrying} role="status">
-      <h2 key={retrying ? "retry" : title}>
-        {retrying ? "正在重试…" : title}
-      </h2>
+      <h2 key={retrying ? "retry" : title}>{retrying ? "正在重试…" : title}</h2>
     </div>
   )
 }

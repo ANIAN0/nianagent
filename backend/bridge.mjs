@@ -191,9 +191,16 @@ export function modelBackendPlugin() {
       try {
         const input = await readJsonBody(
           req,
-          ["materialUpload", "pluginCall"].includes(operation) ? 16 * 1024 * 1024 : 1024 * 1024
+          ["materialUpload", "pluginCall"].includes(operation)
+            ? 16 * 1024 * 1024
+            : 1024 * 1024
         )
-        const result = await bridge.call(operation, input, controller.signal, req.headers["x-moon-client"])
+        const result = await bridge.call(
+          operation,
+          input,
+          controller.signal,
+          req.headers["x-moon-client"]
+        )
         res.setHeader("content-type", "application/json")
         res.setHeader("cache-control", "no-store")
         res.end(JSON.stringify({ result }))

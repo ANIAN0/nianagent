@@ -30,11 +30,15 @@ const clientName = (name) =>
 export async function activate(host) {
   const settingsFile = join(host.directory, "settings.json"),
     tokenFile = join(host.directory, "token.json")
-  let settings = await readSavedJson(settingsFile, {
-    revision: 0,
-    port: 19826,
-    selected: [],
-  }, "MCP 服务")
+  let settings = await readSavedJson(
+    settingsFile,
+    {
+      revision: 0,
+      port: 19826,
+      selected: [],
+    },
+    "MCP 服务"
+  )
   if (
     !Number.isSafeInteger(settings.revision) ||
     !Number.isInteger(settings.port) ||

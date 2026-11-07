@@ -1,5 +1,8 @@
 export type Directory = { id: string; name: string; createdAt: string }
 export type PageStatus = "draft" | "confirmed"
+/** args 值：基础类型加上受限的嵌套对象与数组（规模由后端收敛）。 */
+export type ArgValue =
+  string | number | boolean | null | { [key: string]: ArgValue } | ArgValue[]
 export type PageMeta = {
   id: string
   directoryId: string
@@ -27,17 +30,18 @@ export type ArgType = {
   name: string
   label: string
   description: string
-  control: "boolean" | "number" | "string" | "select"
+  control: "boolean" | "number" | "string" | "select" | "color" | "object"
   min: number | null
   max: number | null
   options: string[]
+  default?: ArgValue
 }
 export type StorySection = "normal" | "exception" | "states"
 export type PageState = {
   id: string
   name: string
   section: StorySection
-  args: Record<string, string | number | boolean | null>
+  args: Record<string, ArgValue>
   condition: string
   expected: string
   steps: string[]
@@ -66,9 +70,11 @@ export type DesignMeta = {
 }
 export type Snapshot = {
   resourceVersion?: number
+  dataVersion?: number
   directories: Directory[]
   pages: PageMeta[]
   comments: Comment[]
+  health?: { reason: string } | null
 }
 export type PageDetail = {
   page: PageMeta & { source: string }

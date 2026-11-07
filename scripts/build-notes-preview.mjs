@@ -17,8 +17,10 @@ const bundleFile = resolve(
   "../backend/plugins/notes-workbench/preview.bundle.mjs"
 )
 
-const { previewEntries } = await import(
-  pathToFileURL(resolve(repo, "backend/plugins/notes-workbench/preview/manifest.mjs"))
+const { previewEntries, moonUiExport } = await import(
+  pathToFileURL(
+    resolve(repo, "backend/plugins/notes-workbench/preview/manifest.mjs")
+  )
 )
 if (!Array.isArray(previewEntries) || previewEntries.length === 0)
   throw new Error("预览清单为空：preview/manifest.mjs 需声明至少一个条目。")
@@ -31,16 +33,28 @@ await rm(srcDir, { recursive: true, force: true })
 await rm(distDir, { recursive: true, force: true })
 await mkdir(srcDir, { recursive: true })
 
-// 条目入口：按清单具名导入并聚合为 { id: component }。
+// 条目入口：按清单具名导入并聚合为 { id: component }；multi 条目整体并入注册表。
 const entryFile = resolve(srcDir, "entries.mjs")
 let entryCode = ""
 for (const entry of previewEntries) {
-  const importer = relative(srcDir, resolve(repo, entry.file)).replaceAll("\\", "/")
+  const importer = relative(srcDir, resolve(repo, entry.file)).replaceAll(
+    "\\",
+    "/"
+  )
   entryCode += `import { ${entry.export} } from "./${importer}"\n`
+}
+if (moonUiExport) {
+  const importer = relative(
+    srcDir,
+    resolve(repo, moonUiExport.file)
+  ).replaceAll("\\", "/")
+  entryCode += `export { ${moonUiExport.export} } from "./${importer}"\n`
 }
 entryCode += "\nexport const entries = {\n"
 for (const entry of previewEntries)
-  entryCode += `  ${JSON.stringify(entry.id)}: ${entry.export},\n`
+  entryCode += entry.multi
+    ? `  ...${entry.export},\n`
+    : `  ${JSON.stringify(entry.id)}: ${entry.export},\n`
 entryCode += "}\n"
 await writeFile(entryFile, entryCode)
 
@@ -74,7 +88,7 @@ vendorLines.push(
   'import * as Jsx from "react/jsx-runtime"',
   'import * as ReactDom from "react-dom"',
   'import * as Client from "react-dom/client"',
-  "export default { ...React, ...ReactDom, jsx: Jsx.jsx, jsxs: Jsx.jsxs, jsxDEV: Jsx.jsxDEV, createRoot: Client.createRoot, hydrateRoot: Client.hydrateRoot }",
+  "export default { ...React, ...ReactDom, jsx: Jsx.jsx, jsxs: Jsx.jsxs, jsxDEV: Jsx.jsxDEV, createRoot: Client.createRoot, hydrateRoot: Client.hydrateRoot }"
 )
 const vendorFile = resolve(srcDir, "vendor.mjs")
 await writeFile(vendorFile, vendorLines.join("\n") + "\n")
@@ -86,7 +100,20 @@ const sharedBuild = {
   logLevel: "warn",
   publicDir: false,
   plugins: [react()],
-  resolve: { alias: { "@": resolve(repo, "src") } },
+  resolve: {
+    alias: {
+      "@": resolve(repo, "src"),
+      // 预览环境用轻量统一差异渲染替换 @pierre/diffs：其语法高亮引擎体积过大（约 12MB）。
+      "@pierre/diffs/react": resolve(
+        repo,
+        "backend/plugins/notes-workbench/preview/diff-stub.tsx"
+      ),
+      "@pierre/diffs": resolve(
+        repo,
+        "backend/plugins/notes-workbench/preview/diff-stub.tsx"
+      ),
+    },
+  },
   define: { "process.env.NODE_ENV": JSON.stringify("production") },
 }
 const libBuild = async (entry, name, extra = {}) => {
@@ -110,11 +137,9 @@ const libBuild = async (entry, name, extra = {}) => {
 
 // vendor 自包含 react；条目与工作台 preview 入口把 react 外链到 /preview/vendor.mjs。
 // react 是 CJS 包：export * 的名字无法静态推导，vendor 构建必须关闭 treeshake 保全导出。
-const vendorCode = await libBuild(
-  vendorFile,
-  "vendor.esm.js",
-  { treeshake: false }
-)
+const vendorCode = await libBuild(vendorFile, "vendor.esm.js", {
+  treeshake: false,
+})
 const previewCode = await libBuild(entryFile, "entries.esm.js", {
   external: [/^react($|\/)/, /^react-dom($|\/)/],
   output: {
@@ -140,7 +165,8 @@ await writeFile(
   ].join("\n")
 )
 console.log(
-  `notes-preview bundle: ${((vendorCode.length + previewCode.length) / 1024).toFixed(
-    0
-  )} KiB，${previewEntries.length} 个条目 → ${bundleFile}`
+  `notes-preview bundle: ${(
+    (vendorCode.length + previewCode.length) /
+    1024
+  ).toFixed(0)} KiB，${previewEntries.length} 个条目 → ${bundleFile}`
 )

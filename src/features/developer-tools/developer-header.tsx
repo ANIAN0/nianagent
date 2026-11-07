@@ -17,8 +17,6 @@ export type DeveloperSearchItem = {
 }
 const developerSections = [
   { title: "项目结构", href: "/project/" },
-  { title: "页面与组件", href: "/ui-catalog/" },
-  { title: "接口查询", href: "/api-catalog/" },
   { title: "插件开发", href: "/devtools/plugin-development.html" },
 ] as const
 const pluginItems = pluginSpecSections.map((section) => ({

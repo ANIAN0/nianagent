@@ -12,7 +12,8 @@ import { isRemoteWeb, remoteCall } from "./remote-transport"
 let clientId = ""
 function localClientId() {
   if (!clientId) {
-    clientId = sessionStorage.getItem("moon-transport-client") || crypto.randomUUID()
+    clientId =
+      sessionStorage.getItem("moon-transport-client") || crypto.randomUUID()
     sessionStorage.setItem("moon-transport-client", clientId)
   }
   return clientId
@@ -65,11 +66,15 @@ export async function rpcCall<K extends ModelOperation>(
 ): Promise<RpcResults[K]> {
   signal?.throwIfAborted()
   if (isRemoteWeb()) {
-    try { return await remoteCall(operation, input, signal) }
-    catch (error) {
+    try {
+      return await remoteCall(operation, input, signal)
+    } catch (error) {
       if (signal?.aborted) signal.throwIfAborted()
       if (error && typeof error === "object" && "remoteRejected" in error)
-        throw rejected(error instanceof Error ? error.message : "远程请求被拒绝。", "issue" in error ? error.issue : undefined)
+        throw rejected(
+          error instanceof Error ? error.message : "远程请求被拒绝。",
+          "issue" in error ? error.issue : undefined
+        )
       throw new RpcTransportError(transportIssue(operation), error)
     }
   }
@@ -126,7 +131,10 @@ export async function rpcCall<K extends ModelOperation>(
   try {
     const response = await fetch(`/api/models/${operation}`, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-moon-client": localClientId() },
+      headers: {
+        "content-type": "application/json",
+        "x-moon-client": localClientId(),
+      },
       body: JSON.stringify(input),
       signal,
     })

@@ -6,8 +6,11 @@ const remoteResolvers = new Set()
 // Only authenticated transports call this port. Context is never taken from
 // a business payload, plugin result, model argument or arbitrary RPC name.
 export function withRequestContext(context, action) {
-  if (!context || !["local", "remote"].includes(context.source) ||
-      !/^[A-Za-z0-9_-]{1,128}$/.test(context.clientId || ""))
+  if (
+    !context ||
+    !["local", "remote"].includes(context.source) ||
+    !/^[A-Za-z0-9_-]{1,128}$/.test(context.clientId || "")
+  )
     throw new Error("请求客户端身份无效。")
   return contexts.run(Object.freeze({ ...context }), action)
 }
@@ -17,15 +20,30 @@ export function requestContext() {
   return context
 }
 export function rememberRequestContext(context = requestContext()) {
-  const { source, clientId, connectionId = "", viewGeneration = 0, profileId = "", targets = {} } = context
-  return { source, clientId, connectionId, viewGeneration, profileId, targets: structuredClone(targets) }
+  const {
+    source,
+    clientId,
+    connectionId = "",
+    viewGeneration = 0,
+    profileId = "",
+    targets = {},
+  } = context
+  return {
+    source,
+    clientId,
+    connectionId,
+    viewGeneration,
+    profileId,
+    targets: structuredClone(targets),
+  }
 }
 export function registerRemoteContextResolver(resolve) {
   remoteResolvers.add(resolve)
   return () => remoteResolvers.delete(resolve)
 }
 export async function restoreRequestContext(origin) {
-  if (origin?.source === "local") return Object.freeze({ ...origin, foreground: false })
+  if (origin?.source === "local")
+    return Object.freeze({ ...origin, foreground: false })
   if (origin?.source === "remote") {
     for (const resolve of remoteResolvers) {
       const context = await resolve(origin)
@@ -37,5 +55,9 @@ export async function restoreRequestContext(origin) {
   }
   // Existing pre-plugin local queues retain execution authority, but no target
   // client can receive an automatic UI action after a restart or migration.
-  return Object.freeze({ source: "local", clientId: "legacy-queue", foreground: false })
+  return Object.freeze({
+    source: "local",
+    clientId: "legacy-queue",
+    foreground: false,
+  })
 }

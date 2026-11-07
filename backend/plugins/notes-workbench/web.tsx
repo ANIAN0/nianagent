@@ -11,7 +11,12 @@ import {
   FieldDescription,
 } from "@/components/ui/field"
 import { callPlugin, pluginsChanged } from "@/features/plugins/plugin-service"
-import type { PluginWebModule } from "@/features/plugins/plugin-api"
+import type {
+  PluginDeliveryProps,
+  PluginWebModule,
+} from "@/features/plugins/plugin-api"
+import { isRemoteWeb } from "@/lib/rpc/remote-transport"
+import { MOON_OPEN_NOTES_EVENT } from "@/features/notes-workbench/notes-events"
 import "./web.css"
 
 type WorkbenchStatus = {
@@ -189,7 +194,7 @@ export function Page() {
                     }>("load_seed", {}, signal)
                     if (!signal.aborted)
                       setNotice(
-                        `已导入示例：新建 ${result.createdDirectories} 个目录、${result.createdPages} 个页面，跳过 ${result.skipped} 个同名页面。`,
+                        `已导入示例：新建 ${result.createdDirectories} 个目录、${result.createdPages} 个页面，跳过 ${result.skipped} 个同名页面。`
                       )
                   })
                 }
@@ -262,7 +267,8 @@ export function Page() {
               </Button>
             </div>
             <FieldDescription>
-              打开经一次性票据完成；token 仅注入页面内存与会话存储，此处供显示或手工复制。
+              打开经一次性票据完成；token
+              仅注入页面内存与会话存储，此处供显示或手工复制。
             </FieldDescription>
           </Field>
           <div className="notes-workbench-actions">
@@ -292,8 +298,61 @@ export function Page() {
     </section>
   )
 }
+type NotesPagePayload = {
+  pageId: string
+  name?: string
+  title?: string
+  commentCount?: number
+}
+
+/** 聊天内交付卡：列出本轮创建或更新的笔记页面，可跳进内嵌工作台对应页面。 */
+export function NotesPageDelivery({
+  delivery,
+  deliveries = [delivery],
+}: PluginDeliveryProps) {
+  const pages = new Map<string, NotesPagePayload>()
+  for (const record of deliveries) {
+    const value = JSON.parse(record.payload) as NotesPagePayload
+    if (typeof value.pageId !== "string") throw new Error("交付页面标识无效。")
+    pages.set(value.pageId, value)
+  }
+  return (
+    <section className="notes-delivery-card">
+      <strong>笔记页面</strong>
+      {[...pages.values()].map((page) => (
+        <div
+          key={page.pageId}
+          className="flex flex-wrap items-center justify-between gap-2"
+        >
+          <span>
+            {page.title || page.name || "笔记页面"}
+            {page.commentCount ? ` · ${page.commentCount} 条评论` : ""}
+          </span>
+          {/* 工作台操作均限本机（remote: false），远程 Web 只展示清单不提供跳转。 */}
+          {!isRemoteWeb() && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent(MOON_OPEN_NOTES_EVENT, {
+                    detail: { pageId: page.pageId },
+                  })
+                )
+              }
+            >
+              在工作台打开
+            </Button>
+          )}
+        </div>
+      ))}
+    </section>
+  )
+}
+
 export default {
   id: "notes-workbench",
   apiVersion: 1,
   pages: [{ id: "workbench", component: () => <Page /> }],
+  deliveries: [{ id: "notes-page", version: 1, component: NotesPageDelivery }],
 } satisfies PluginWebModule

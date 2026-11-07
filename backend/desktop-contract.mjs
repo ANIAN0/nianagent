@@ -311,10 +311,46 @@ const command = (module, title, input, result, effect) => ({
       : "src-tauri/src/desktop_commands.rs",
 })
 export const desktopCommands = {
-  file_editors: { ...command("本机文件", "检测已安装编辑器", null, "InstalledEditors", "仅本机检测支持的已安装编辑器，不安装程序。"), source: "src-tauri/src/native_files.rs" },
-  file_choose_editor: { ...command("本机文件", "选择已安装编辑器", null, "OptionalString", "系统程序文件选择；取消不改变配置。"), source: "src-tauri/src/native_files.rs" },
-  file_open: { ...command("本机文件", "在外部程序打开当前文件", "FileOpenInput", null, "本机用户明确操作，重新解析原路径，启动已安装程序或系统关联程序。"), source: "src-tauri/src/native_files.rs" },
-  file_export: { ...command("本机文件", "另存当前原文件", "FileExportInput", "OptionalString", "系统保存选择，取消返回null；完整复制并复查当前源元数据后发布，失败保留原目标。"), source: "src-tauri/src/native_files.rs" },
+  file_editors: {
+    ...command(
+      "本机文件",
+      "检测已安装编辑器",
+      null,
+      "InstalledEditors",
+      "仅本机检测支持的已安装编辑器，不安装程序。"
+    ),
+    source: "src-tauri/src/native_files.rs",
+  },
+  file_choose_editor: {
+    ...command(
+      "本机文件",
+      "选择已安装编辑器",
+      null,
+      "OptionalString",
+      "系统程序文件选择；取消不改变配置。"
+    ),
+    source: "src-tauri/src/native_files.rs",
+  },
+  file_open: {
+    ...command(
+      "本机文件",
+      "在外部程序打开当前文件",
+      "FileOpenInput",
+      null,
+      "本机用户明确操作，重新解析原路径，启动已安装程序或系统关联程序。"
+    ),
+    source: "src-tauri/src/native_files.rs",
+  },
+  file_export: {
+    ...command(
+      "本机文件",
+      "另存当前原文件",
+      "FileExportInput",
+      "OptionalString",
+      "系统保存选择，取消返回null；完整复制并复查当前源元数据后发布，失败保留原目标。"
+    ),
+    source: "src-tauri/src/native_files.rs",
+  },
   boot_get_state: command(
     "启动",
     "读取真实启动阶段",

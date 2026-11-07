@@ -37,3 +37,27 @@
 .notes-workbench-page [type="number"] {
   max-width: 180px;
 }
+
+.notes-delivery-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  font-size: 13px;
+  line-height: 20px;
+}
+.notes-delivery-card strong {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted-foreground);
+}
+.notes-delivery-card > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}

@@ -82,15 +82,17 @@ function MaterialPreviewContent({
   const current =
     result?.key === key && result.service === service ? result : undefined
   const label =
-    material?.type === "selection" ? "选择时的文字" : material?.type === "image"
-      ? history
-        ? "发送时的图片"
-        : "待发送图片"
-      : material?.type === "skill"
-        ? "本次 Skill 内容"
-        : material?.type === "directory"
-          ? "当前目录"
-          : "当前文件"
+    material?.type === "selection"
+      ? "选择时的文字"
+      : material?.type === "image"
+        ? history
+          ? "发送时的图片"
+          : "待发送图片"
+        : material?.type === "skill"
+          ? "本次 Skill 内容"
+          : material?.type === "directory"
+            ? "当前目录"
+            : "当前文件"
   const image = material?.type === "image"
   const feedback = !service ? (
     <p className="text-sm text-muted-foreground">

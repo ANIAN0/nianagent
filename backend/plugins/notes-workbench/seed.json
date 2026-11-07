@@ -1,5 +1,5 @@
 {
-  "generatedFrom": "ui-catalog manifest（设计规范与场景文档迁移）",
+  "generatedFrom": "设计规范与场景文档迁移（源目录已由笔记工作台承接并下线）",
   "directories": [
     {
       "id": "seed-8",
@@ -117,11 +117,11 @@
       "directoryId": "seed-2",
       "name": "startup-surface",
       "title": "Moon 启动页",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">Moon 启动页</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">「月息」呼吸月体启动页：在正式启动阶段下呈现等待与失败恢复，包含慢启动详情弹窗。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "「月息」呼吸月体启动页：在正式启动阶段下呈现等待与失败恢复，包含慢启动详情弹窗。\n\n正式源码：src/features/startup/breathing/startup-breathing.tsx",
         "boundary": "月息包装正式StartupSurface并沿用其恢复行为；组件库不连接业务宿主、不按定时器进入成功，不替代正式启动验收。",
-        "preview": "",
+        "preview": "catalog:startup-surface",
         "standards": [
           {
             "id": "B4",
@@ -234,11 +234,11 @@
       "directoryId": "seed-3",
       "name": "button",
       "title": "按钮",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">按钮</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">触发动作，按主次区分应用、取消与图标动作。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "触发动作，按主次区分应用、取消与图标动作。\n\n正式源码：src/components/ui/button.tsx",
         "boundary": "按钮只发出事件，不自行保存配置；业务决定禁用和忙状态。",
-        "preview": "",
+        "preview": "catalog:button",
         "standards": [
           {
             "id": "B1",
@@ -310,11 +310,11 @@
       "directoryId": "seed-3",
       "name": "checkbox",
       "title": "复选框",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">复选框</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">多选工具；勾选状态与标签共同表达选择。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "多选工具；勾选状态与标签共同表达选择。\n\n正式源码：src/components/ui/checkbox.tsx",
         "boundary": "复选框不决定工具可用性；列表层提供可用原因、详情与保存操作。",
-        "preview": "",
+        "preview": "catalog:checkbox",
         "standards": [
           {
             "id": "C1",
@@ -374,11 +374,11 @@
       "directoryId": "seed-3",
       "name": "radio-group",
       "title": "单选组",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">单选组</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">在项目指令范围等互斥选项中选择一个值。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "在项目指令范围等互斥选项中选择一个值。\n\n正式源码：src/components/ui/radio-group.tsx",
         "boundary": "只维护一组互斥值；应用或取消由会话配置层完成。",
-        "preview": "",
+        "preview": "catalog:radio-group",
         "standards": [
           {
             "id": "R1",
@@ -438,11 +438,11 @@
       "directoryId": "seed-3",
       "name": "select",
       "title": "下拉选择",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">下拉选择</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">在工具来源等固定集合中选择筛选值。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "在工具来源等固定集合中选择筛选值。\n\n正式源码：src/components/ui/select.tsx",
         "boundary": "不检索资源、不保存配置；只传递选择值。",
-        "preview": "",
+        "preview": "catalog:select",
         "standards": [
           {
             "id": "S1",
@@ -502,11 +502,11 @@
       "directoryId": "seed-3",
       "name": "switch",
       "title": "开关",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">开关</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">启用或关闭扩展配置中的单个布尔选项。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "启用或关闭扩展配置中的单个布尔选项。\n\n正式源码：src/components/ui/switch.tsx",
         "boundary": "表示启用状态，不代替工具多选或应用提交。",
-        "preview": "",
+        "preview": "catalog:switch",
         "standards": [
           {
             "id": "W1",
@@ -565,11 +565,11 @@
       "directoryId": "seed-4",
       "name": "input",
       "title": "输入框",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">输入框</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">承载搜索词或单行配置字段。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "承载搜索词或单行配置字段。\n\n正式源码：src/components/ui/input.tsx",
         "boundary": "普通Input不承担首页富编辑或材料引用身份；这些由PromptInput负责。",
-        "preview": "",
+        "preview": "catalog:input",
         "standards": [
           {
             "id": "I1",
@@ -669,11 +669,11 @@
       "directoryId": "seed-4",
       "name": "input-group",
       "title": "输入组",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">输入组</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">将搜索图标、输入和清除动作组织成一个控件。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "将搜索图标、输入和清除动作组织成一个控件。\n\n正式源码：src/components/ui/input-group.tsx",
         "boundary": "统一容器边界，内部图标不独立制造输入框；不承载候选数据读取。",
-        "preview": "",
+        "preview": "catalog:input-group",
         "standards": [
           {
             "id": "G1",
@@ -760,11 +760,11 @@
       "directoryId": "seed-4",
       "name": "textarea",
       "title": "多行输入",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">多行输入</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">编辑项目指令等普通多行字段。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "编辑项目指令等普通多行字段。\n\n正式源码：src/components/ui/textarea.tsx",
         "boundary": "不同于Lexical正文编辑；不插入文件节点或Skill调用。",
-        "preview": "",
+        "preview": "catalog:textarea",
         "standards": [
           {
             "id": "T1",
@@ -851,11 +851,11 @@
       "directoryId": "seed-4",
       "name": "field",
       "title": "表单项",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">表单项</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">组织标签、控件、说明和错误的语义及间距。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "组织标签、控件、说明和错误的语义及间距。\n\n正式源码：src/components/ui/field.tsx",
         "boundary": "是布局和可访问性组合，不自行校验、加载或保存。",
-        "preview": "",
+        "preview": "catalog:field",
         "standards": [
           {
             "id": "F1",
@@ -915,11 +915,11 @@
       "directoryId": "seed-5",
       "name": "dropdown-menu",
       "title": "菜单",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">菜单</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">组织工作目录或加号的即时选择动作。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "组织工作目录或加号的即时选择动作。\n\n正式源码：src/components/ui/dropdown-menu.tsx",
         "boundary": "菜单中的动作或选择由调用方处理，不自行打开原生目录或准备材料。",
-        "preview": "",
+        "preview": "catalog:dropdown-menu",
         "standards": [
           {
             "id": "D1",
@@ -979,11 +979,11 @@
       "directoryId": "seed-5",
       "name": "popover",
       "title": "浮层",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">浮层</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">为模型选择等需要搜索或多步选择的局部操作提供空间。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "为模型选择等需要搜索或多步选择的局部操作提供空间。\n\n正式源码：src/components/ui/popover.tsx",
         "boundary": "浮层只管理展开、定位与焦点；模型列表和回写由业务组件负责。",
-        "preview": "",
+        "preview": "catalog:popover",
         "standards": [
           {
             "id": "P1",
@@ -1043,11 +1043,11 @@
       "directoryId": "seed-5",
       "name": "dialog",
       "title": "弹窗",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">弹窗</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">默认承载配置任务；reader提供只读阅读分区，image-preview提供独立视口看图层。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "默认承载配置任务；reader提供只读阅读分区，image-preview提供独立视口看图层。\n\n正式源码：src/components/ui/dialog.tsx",
         "boundary": "管理焦点和遮罩；候选保存、未保存离开策略由所属业务决定。",
-        "preview": "",
+        "preview": "catalog:dialog",
         "standards": [
           {
             "id": "L1",
@@ -1136,11 +1136,11 @@
       "directoryId": "seed-5",
       "name": "tabs",
       "title": "标签页",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">标签页</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">在会话配置的工具和项目指令两类内容间切换。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "在会话配置的工具和项目指令两类内容间切换。\n\n正式源码：src/components/ui/tabs.tsx",
         "boundary": "切换展示分类，不自行清空候选，也不代表保存。",
-        "preview": "",
+        "preview": "catalog:tabs",
         "standards": [
           {
             "id": "A1",
@@ -1187,11 +1187,11 @@
       "directoryId": "seed-5",
       "name": "tooltip",
       "title": "悬停提示",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">悬停提示</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">补充当前画面缺失的操作含义、截断名称或不可用原因。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "补充当前画面缺失的操作含义、截断名称或不可用原因。\n\n正式源码：src/components/ui/tooltip.tsx",
         "boundary": "不重复完整标签、不承载操作、不替代错误恢复；完整入口与短菜单选项不用。",
-        "preview": "",
+        "preview": "catalog:tooltip",
         "standards": [
           {
             "id": "H1",
@@ -1252,11 +1252,11 @@
       "directoryId": "seed-5",
       "name": "collapsible",
       "title": "折叠",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">折叠</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">按需展开工具的完整详情。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "按需展开工具的完整详情。\n\n正式源码：src/components/ui/collapsible.tsx",
         "boundary": "隐藏次要信息，不隐藏选择、可用状态与失败恢复动作。",
-        "preview": "",
+        "preview": "catalog:collapsible",
         "standards": [
           {
             "id": "O1",
@@ -1315,11 +1315,11 @@
       "directoryId": "seed-6",
       "name": "badge",
       "title": "标签",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">标签</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">表达工具来源或材料类型等紧凑分类。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "表达工具来源或材料类型等紧凑分类。\n\n正式源码：src/components/ui/badge.tsx",
         "boundary": "不是选择或操作按钮；不能用来源标签替代错误文字。",
-        "preview": "",
+        "preview": "catalog:badge",
         "standards": [
           {
             "id": "K1",
@@ -1378,11 +1378,11 @@
       "directoryId": "seed-6",
       "name": "attachment",
       "title": "附件",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">附件</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">表达图片缩略、普通文件信息及所属准备/失败状态，提供独立预览和移除动作。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "表达图片缩略、普通文件信息及所属准备/失败状态，提供独立预览和移除动作。\n\n正式源码：src/components/ui/attachment.tsx",
         "boundary": "工作区文件/目录采用正文原子引用，选择的普通文件可保附件卡；Skill仅普通正文，无附件身份。基础状态不代替完整添加与提交流程。",
-        "preview": "",
+        "preview": "catalog:attachment",
         "standards": [
           {
             "id": "M1",
@@ -1485,11 +1485,11 @@
       "directoryId": "seed-7",
       "name": "table",
       "title": "表格",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">表格</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">以共同列轴组织名称、说明、来源及操作。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "以共同列轴组织名称、说明、来源及操作。\n\n正式源码：src/components/ui/table.tsx",
         "boundary": "表格负责结构与共享规格；筛选、选择集合、详情和保存由调用方管理。",
-        "preview": "",
+        "preview": "catalog:table",
         "standards": [
           {
             "id": "T1",
@@ -1562,11 +1562,11 @@
       "directoryId": "seed-6",
       "name": "separator",
       "title": "分隔线",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">分隔线</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">区分真实内容分区或并列动作。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "区分真实内容分区或并列动作。\n\n正式源码：src/components/ui/separator.tsx",
         "boundary": "不为每一行增加边框，不表达错误、状态或交互。",
-        "preview": "",
+        "preview": "catalog:separator",
         "standards": [
           {
             "id": "E1",
@@ -1627,11 +1627,11 @@
       "directoryId": "seed-6",
       "name": "alert",
       "title": "提示",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">提示</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">操作异常使用共享Toast；持续状态和恢复动作留在所属操作区域。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "操作异常使用共享Toast；持续状态和恢复动作留在所属操作区域。\n\n正式源码：src/components/feedback/operation-feedback.tsx",
         "boundary": "终态事实使用DSH行内状态；短暂通知使用NotificationToast，不使用旧版红黄底Alert。示例显示静态状态和真实恢复回调，Toast见对应基础组件。",
-        "preview": "",
+        "preview": "catalog:alert",
         "standards": [
           {
             "id": "Q1",
@@ -1758,11 +1758,11 @@
       "directoryId": "seed-6",
       "name": "skeleton",
       "title": "骨架",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">骨架</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">表达首次读取尚无内容的布局占位。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "表达首次读取尚无内容的布局占位。\n\n正式源码：src/components/ui/skeleton.tsx",
         "boundary": "不表示已成功或已选择；已有内容重新读取时不得无故全部清空。",
-        "preview": "",
+        "preview": "catalog:skeleton",
         "standards": [
           {
             "id": "N1",
@@ -1823,11 +1823,11 @@
       "directoryId": "seed-6",
       "name": "empty",
       "title": "空状态",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">空状态</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">表达无候选、无匹配或列表读取失败的不同结果。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "表达无候选、无匹配或列表读取失败的不同结果。\n\n正式源码：src/components/ui/empty.tsx",
         "boundary": "空集合与错误不能混为一谈；恢复按钮只针对对应原因。",
-        "preview": "",
+        "preview": "catalog:empty",
         "standards": [
           {
             "id": "Z1",
@@ -1886,11 +1886,11 @@
       "directoryId": "seed-8",
       "name": "conversation-page",
       "title": "会话页面",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">会话页面</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">整页会话视图组合：头部状态、消息流、输入区、审批、队列、压缩、分支、上下文与材料预览、异常恢复。九个会话故事的组合入口，从打开会话到读懂进展、处理需要的操作，并在当前会话继续工作。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "整页会话视图组合：头部状态、消息流、输入区、审批、队列、压缩、分支、上下文与材料预览、异常恢复。九个会话故事的组合入口，从打开会话到读懂进展、处理需要的操作，并在当前会话继续工作。\n\n正式源码：src/features/conversation/live-conversation-view.tsx",
         "boundary": "只覆盖会话页本身，不含侧栏会话列表、首页与设置页。分步问答未接线，不在本条目验收。示例使用隔离服务与内存存储，由演示控制发布终态；不证明真实宿主流式、工具执行、审批、派生或跨重启恢复已验收。",
-        "preview": "",
+        "preview": "catalog:conversation-page",
         "story": {
           "goal": "从打开会话到读懂进展、处理需要的操作，并在当前会话继续工作。",
           "preconditions": [
@@ -2017,11 +2017,11 @@
       "directoryId": "seed-8",
       "name": "app-shell",
       "title": "会话左侧栏",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">会话左侧栏</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">正式AppShell、HomeSidebar及历史列表的有界导航组合。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "正式AppShell、HomeSidebar及历史列表的有界导航组合。\n\n正式源码：src/features/home/app-shell.tsx",
         "boundary": "长历史仅为目录内存数据，导航止于隔离回调；不读取用户历史，不创建会话或调用宿主。",
-        "preview": "",
+        "preview": "catalog:app-shell",
         "story": {
           "goal": "在窄窗长历史下打开导航并从底部账户菜单到达设置。",
           "preconditions": [
@@ -2095,11 +2095,11 @@
       "directoryId": "seed-8",
       "name": "plugin-sidebar",
       "title": "会话右侧栏",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">会话右侧栏</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">正式会话壳、插件宿主、文件内容与 Pi 交互的完整组合。收起不占宽度，顶部标签负责切换和关闭，加号打开临时入口页，选择后替换该页。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "正式会话壳、插件宿主、文件内容与 Pi 交互的完整组合。收起不占宽度，顶部标签负责切换和关闭，加号打开临时入口页，选择后替换该页。\n\n正式源码：src/features/plugins/plugin-sidebar.tsx",
         "boundary": "直接使用正式 PluginSessionWorkspace、PluginSidebar、LiveConversationView、ConversationComposer 及文件插件；仅注入隔离注册表、文件服务与请求回复，不访问真实文件或模型。",
-        "preview": "",
+        "preview": "catalog:plugin-sidebar",
         "story": {
           "goal": "在会话中打开插件内容，保留阅读和输入状态，并明确返回会话。",
           "preconditions": [
@@ -2255,11 +2255,11 @@
       "directoryId": "seed-8",
       "name": "conversation-reading",
       "title": "阅读并定位会话内容",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">阅读并定位会话内容</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">打开已有会话，阅读用户原输入、同轮回复与已保存压缩摘要，定位历史内容并主动返回最新消息。压缩摘要使用DSH紧凑行展开Markdown，归本故事；命令提交和操作状态归空闲时继续输入。展示直接组合正式 LiveConversationView 与完整输入区。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "打开已有会话，阅读用户原输入、同轮回复与已保存压缩摘要，定位历史内容并主动返回最新消息。压缩摘要使用DSH紧凑行展开Markdown，归本故事；命令提交和操作状态归空闲时继续输入。展示直接组合正式 LiveConversationView 与完整输入区。\n\n正式源码：src/features/conversation/live-conversation-view.tsx",
         "boundary": "轮次以用户输入划分，多个 assistant 步骤仍属于同轮。至少两轮且会话容器宽于900px才显示轮次轨；方向/Home/End切换焦点与预览，Enter/Space激活跳转。位置只在当前窗口保存，整页刷新回最新。示例使用隔离历史与服务，故障和回复增长为手动数据驱动，不证明真实宿主读取、Skill执行或模型流式行为；发送、配置写入、材料读取及Agent操作明确拒绝，不连接生产服务。",
-        "preview": "",
+        "preview": "catalog:conversation-reading",
         "story": {
           "goal": "阅读已发送的输入和 Agent 回复，定位需要的轮次，并在查看历史后回到最新内容。",
           "preconditions": [
@@ -2433,11 +2433,11 @@
       "directoryId": "seed-8",
       "name": "conversation-execution",
       "title": "跟随执行并查看工具",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">跟随执行并查看工具</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">跟随同一轮中思考、文字与工具调用，区分工具失败、模型重试、终态失败和同运行后续恢复；场景使用完整正式组合并手动发布隔离数据。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "跟随同一轮中思考、文字与工具调用，区分工具失败、模型重试、终态失败和同运行后续恢复；场景使用完整正式组合并手动发布隔离数据。\n\n正式源码：src/features/conversation/messages/execution-process.tsx",
         "boundary": "工具成功不等于任务达成。returned只证明工具已结束，unknown表示执行情况无法确认；缺记录不证明未执行。结果可用事实独立于状态，空的真实结果仍为available，部分输出与缺失结果分别表达。示例不执行模型、工具或真实写入，未执行条目仅为明确标记的隔离数据；发送、停止、配置及材料操作经隔离服务明确拒绝并保稿。不验证真实宿主流式、审批或停止恢复。",
-        "preview": "",
+        "preview": "catalog:conversation-execution",
         "story": {
           "goal": "知道 Agent 当前在做什么，并按需查看思考、工具输入和真实结果。",
           "preconditions": [
@@ -2617,11 +2617,11 @@
       "directoryId": "seed-8",
       "name": "conversation-recovery",
       "title": "停止与恢复回复",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">停止与恢复回复</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">沿 DSH 停止当前回复，保留已生成内容和下一稿，再从输入框主动发送后续需求。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "沿 DSH 停止当前回复，保留已生成内容和下一稿，再从输入框主动发送后续需求。\n\n正式源码：src/features/conversation/live-conversation-view.tsx",
         "boundary": "直接复用正式 LiveConversationView、ConversationComposer、ConversationTurnView 与 useLiveConversation；复用已有隔离输入服务和控制，不新增演示状态机。停止完成和回复结果由服务发布，不以点击或快捷键冒充已停止。结果未知的核对属于 Moon 宿主恢复接口；隔离示例不证明真实模型、工具停止或跨重启恢复已验收。",
-        "preview": "",
+        "preview": "catalog:conversation-recovery",
         "story": {
           "goal": "停止当前执行，了解回复未完成的原因，并在明确状态后决定如何继续。",
           "preconditions": [
@@ -2720,11 +2720,11 @@
       "directoryId": "seed-8",
       "name": "conversation-approval",
       "title": "确认 Agent 操作",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">确认 Agent 操作</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">沿 DSH 的审批输入区核对本次操作，明确允许一次或拒绝，再看到原请求的实际处理状态。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "沿 DSH 的审批输入区核对本次操作，明确允许一次或拒绝，再看到原请求的实际处理状态。\n\n正式源码：src/features/conversation/permissions/approval-card.tsx",
         "boundary": "直接复用正式会话、审批卡、工具消息和既有隔离服务。审批临时接管输入区，保留原草稿和队列；决定接收与工具结果由服务分别发布。扩展确认、选择、输入沿 Moon 已有宿主契约使用同一容器。示例不执行真实命令、不写入真实文件，不证明真实权限策略、工具执行或跨重启恢复已验收。",
-        "preview": "",
+        "preview": "catalog:conversation-approval",
         "story": {
           "goal": "在执行需要确认的操作前看清请求，再明确允许或拒绝。",
           "preconditions": [
@@ -2838,11 +2838,11 @@
       "directoryId": "seed-8",
       "name": "conversation-context",
       "title": "查看上下文用量",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">查看上下文用量</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">输入卡下方居中显示运行统计、累计用量与缓存命中、上下文占用；分别查看详情及读数来源。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "输入卡下方居中显示运行统计、累计用量与缓存命中、上下文占用；分别查看详情及读数来源。\n\n正式源码：src/features/conversation/composer/context-usage.tsx",
         "boundary": "只读取当前会话快照，不推算不存在的拆分、不触发模型调用。用量面板不提供压缩操作；未知读数不补零。",
-        "preview": "",
+        "preview": "catalog:conversation-context",
         "story": {
           "goal": "了解当前上下文占用及数据可信范围，区分会话累计用量。",
           "preconditions": [
@@ -2935,11 +2935,11 @@
       "directoryId": "seed-8",
       "name": "conversation-materials",
       "title": "查看消息中的文件与图片",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">查看消息中的文件与图片</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">消息附件（图片、文件）以气泡前材料条呈现，点击进入受控预览；图片来源与工具输出路径可回查，无法读取时保留来源与原因。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "消息附件（图片、文件）以气泡前材料条呈现，点击进入受控预览；图片来源与工具输出路径可回查，无法读取时保留来源与原因。\n\n正式源码：src/features/conversation/messages/message-attachments.tsx",
         "boundary": "只管已属于消息的材料展示与预览返回；不管输入卡材料选择、准备状态与重试（属空闲输入与已选材料规则）。",
-        "preview": "",
+        "preview": "catalog:conversation-materials",
         "story": {
           "goal": "查看已经属于某条消息的文件、目录或图片，理解材料来源并返回原消息。",
           "preconditions": [
@@ -3030,11 +3030,11 @@
       "directoryId": "seed-8",
       "name": "conversation-fork",
       "title": "从完成轮次创建分支",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">从完成轮次创建分支</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">从已保存的 Agent 回复尾部动作组创建独立普通会话并直接打开，错误、未知与完成反馈挂在原回复尾部，新会话标题区显示来源并可打开来源会话。展示直接组合正式 LiveConversationView、ConversationTurnView、MessageActions、ForkAction 与 ForkFeedback。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "从已保存的 Agent 回复尾部动作组创建独立普通会话并直接打开，错误、未知与完成反馈挂在原回复尾部，新会话标题区显示来源并可打开来源会话。展示直接组合正式 LiveConversationView、ConversationTurnView、MessageActions、ForkAction 与 ForkFeedback。\n\n正式源码：src/features/conversation/controls/fork-action.tsx",
         "boundary": "职责只有派生入口、创建与导航、结果反馈和来源关系；不管输入、队列、材料与上下文压缩，也不复制来源未发送草稿。示例使用隔离快照与控制服务，创建结果由演示控制推动，不证明真实 Pi createBranchedSession、跨重启恢复或真实宿主导航；发送、停止、压缩及材料操作明确拒绝。",
-        "preview": "",
+        "preview": "catalog:conversation-fork",
         "story": {
           "goal": "从一个已完成的 Agent 回复另开普通会话，继续不同方向，并能随时回到来源会话。",
           "preconditions": [
@@ -3163,11 +3163,11 @@
       "directoryId": "seed-8",
       "name": "prompt-input",
       "title": "输入文本消息",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">输入文本消息</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">用户从空稿输入文字、换行和提交，等待或失败时原输入有明确归属。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "用户从空稿输入文字、换行和提交，等待或失败时原输入有明确归属。\n\n正式源码：src/features/home/home-composer.tsx",
         "boundary": "首页示例复用完整 HomeComposer，共享消费回归直接复用正式 ConversationComposer。服务、草稿和浏览器存储只存在预览内存；演示到提交回调结束，不模拟路由、队列接收或 Agent 回复。正文使用正式 Lexical 编辑器，不以 Textarea 替代。",
-        "preview": "",
+        "preview": "catalog:prompt-input",
         "story": {
           "goal": "编辑一条文本请求，确认它提交了什么，并在失败时继续原草稿。",
           "preconditions": [
@@ -3446,11 +3446,11 @@
       "directoryId": "seed-8",
       "name": "conversation-idle-input",
       "title": "空闲时继续输入",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">空闲时继续输入</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">在当前会话继续输入，等待、运行和结束沿用同一首页输入主体；下一稿独立保留，终态失败显示DSH错误行，普通发送失败使用短暂Toast。/compact命令提交及会话内操作状态归本故事，已保存摘要归阅读并定位会话内容。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "在当前会话继续输入，等待、运行和结束沿用同一首页输入主体；下一稿独立保留，终态失败显示DSH错误行，普通发送失败使用短暂Toast。/compact命令提交及会话内操作状态归本故事，已保存摘要归阅读并定位会话内容。\n\n正式源码：src/features/conversation/composer/conversation-composer.tsx",
         "boundary": "完整示例直接使用LiveConversationView、ConversationComposer和useLiveConversation。服务、历史和材料在预览内存隔离；接收、拒绝、原回执及最终回复结果由演示控制发布，后续需求使用正常输入入口。模型目录恢复只恢复可用选择，重新读取只恢复记录保存结果；不调用真实模型或宿主。工具、思考和模型重试流程在执行故事验证，运行中输入与交付在运行中发送新消息故事验证；隔离旅程不证明真实执行或跨重启恢复已验收。",
-        "preview": "",
+        "preview": "catalog:conversation-idle-input",
         "story": {
           "goal": "在当前会话继续提出需求，选择需要的模型、配置和材料，并知道本次输入是否被处理。",
           "preconditions": [
@@ -3626,11 +3626,11 @@
       "directoryId": "seed-8",
       "name": "running-message-input",
       "title": "运行中发送新消息",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">运行中发送新消息</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">按 DSH 的单一主动作和紧凑队列，在工作运行时排队下一条需求，或补充当前工作。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "按 DSH 的单一主动作和紧凑队列，在工作运行时排队下一条需求，或补充当前工作。\n\n正式源码：src/features/conversation/composer/conversation-composer.tsx",
         "boundary": "直接使用 LiveConversationView、ConversationComposer、QueueDock 和 useLiveConversation，接收、交付边界与终态由隔离服务控制。运行状态不由演示组件直接改写；不运行真实模型或证明真实宿主、跨重启恢复已验收。输入区没有 Enter 或逐条/全部配置入口；现有宿主交付协议及暂停恢复继续保留，补充是否能进入当前工作由宿主决定。",
-        "preview": "",
+        "preview": "catalog:running-message-input",
         "story": {
           "goal": "当前工作运行时继续表达需求，明确选择排队或补充，并管理尚未处理的消息。",
           "preconditions": [
@@ -3742,11 +3742,11 @@
       "directoryId": "seed-8",
       "name": "selected-materials",
       "title": "输入带附件的消息",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">输入带附件的消息</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">用户添加图片或普通文件附件，等待准备、预览或移除，再和正文一起发送。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "用户添加图片或普通文件附件，等待准备、预览或移除，再和正文一起发送。\n\n正式源码：src/features/home/home-composer.tsx",
         "boundary": "示例直接复用完整 HomeComposer，服务、草稿和浏览器存储只存在预览内存。演示到首页 onSubmit 回调结束，不模拟路由成功或 Agent 回复，不修改对话页面。 加号的原生选文件由内存服务替代；粘贴/拖入仍经过正式网页上传入口，不读取用户磁盘。",
-        "preview": "",
+        "preview": "catalog:selected-materials",
         "story": {
           "goal": "把图片或文件路径作为材料加入请求，确认内容并处理失败或模型不兼容。",
           "preconditions": [
@@ -4057,11 +4057,11 @@
       "directoryId": "seed-8",
       "name": "file-reference",
       "title": "输入引用文件的消息",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">输入引用文件的消息</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">用户通过 @ 选择文件或目录，在正文中继续编辑并提交引用。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "用户通过 @ 选择文件或目录，在正文中继续编辑并提交引用。\n\n正式源码：src/features/home/home-composer.tsx",
         "boundary": "示例直接复用完整 HomeComposer，服务、草稿和浏览器存储只存在预览内存。演示到首页 onSubmit 回调结束，不模拟路由成功或 Agent 回复。文件检查与预览不会证明 Agent 已读正文；候选排序复用正式后端纯排序函数，真实宿主扫描、模型读取及重启恢复仍需对应环境验证。",
-        "preview": "",
+        "preview": "catalog:file-reference",
         "story": {
           "goal": "在请求的具体位置引用一个文件或目录，并可靠地保留引用身份。",
           "preconditions": [
@@ -4295,11 +4295,11 @@
       "directoryId": "seed-8",
       "name": "skill-call",
       "title": "输入指定skill的消息",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">输入指定skill的消息</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">从候选补全消息开头的 /skill:name，再编辑本次任务。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "从候选补全消息开头的 /skill:name，再编辑本次任务。\n\n正式源码：src/features/home/home-composer.tsx",
         "boundary": "直接复用完整 HomeComposer，服务、草稿与浏览器存储在隔离预览内存中。Skill 只补全普通文字，不准备材料或拼入 Skill 正文。演示到前端 onSubmit 回调结束；正式空闲发送已接 Pi 公开 prompt 默认 Skill 解析，实际宿主加载与执行须在正式首页另行验收，不能由本演示证明。",
-        "preview": "",
+        "preview": "catalog:skill-call",
         "story": {
           "goal": "在消息开头写一个 Skill 名称，并完整表达本次任务。",
           "preconditions": [
@@ -4485,11 +4485,11 @@
       "directoryId": "seed-8",
       "name": "model-picker",
       "title": "设置模型",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">设置模型</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">用户选择模型与该模型支持的思考强度，搜索和选择保持同一上下文。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "用户选择模型与该模型支持的思考强度，搜索和选择保持同一上下文。\n\n正式源码：src/components/composer/model-picker.tsx",
         "boundary": "示例直接复用完整 HomeComposer，服务、草稿和浏览器存储只存在预览内存。演示到首页 onSubmit 回调结束，不模拟路由成功或 Agent 回复，不修改对话页面。 模型设置入口仅记录回调，不打开设置页或连接模型。",
-        "preview": "",
+        "preview": "catalog:model-picker",
         "story": {
           "goal": "选择将处理这条输入的模型，并设置有效的思考强度。",
           "preconditions": [
@@ -4627,11 +4627,11 @@
       "directoryId": "seed-8",
       "name": "session-config",
       "title": "修改会话配置",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">修改会话配置</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">用户选择本次会话工具与AGENTS.md加载范围，应用确认后才更新草稿。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "用户选择本次会话工具与AGENTS.md加载范围，应用确认后才更新草稿。\n\n正式源码：src/components/composer/session-config.tsx",
         "boundary": "示例直接复用完整 HomeComposer，服务、草稿和浏览器存储只存在预览内存。演示到首页 onSubmit 回调结束，不模拟路由成功或 Agent 回复，不修改对话页面。 管理扩展使用内存扩展服务，属于应用级配置；本轮不重新设计扩展页面。",
-        "preview": "",
+        "preview": "catalog:session-config",
         "story": {
           "goal": "选择可用工具与AGENTS.md加载范围，核对对应文件路径后应用。",
           "preconditions": [
@@ -4876,11 +4876,11 @@
       "directoryId": "seed-8",
       "name": "permission-picker",
       "title": "设置权限",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">设置权限</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">用户设置本次会话允许的操作范围；完全权限需要明确确认。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "用户设置本次会话允许的操作范围；完全权限需要明确确认。\n\n正式源码：src/features/conversation/permissions/permission-picker.tsx",
         "boundary": "示例直接复用完整 HomeComposer，服务、草稿和浏览器存储只存在预览内存。演示到首页 onSubmit 回调结束，不模拟路由成功或 Agent 回复，不修改对话页面。 本故事不新增自动审核选项，不进入执行审批流程。",
-        "preview": "",
+        "preview": "catalog:permission-picker",
         "story": {
           "goal": "在发送前明确哪些操作可以执行，并知道高权限选择是否已生效。",
           "preconditions": [
@@ -5018,11 +5018,11 @@
       "directoryId": "seed-8",
       "name": "workspace-picker",
       "title": "选择工作目录",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">选择工作目录</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">用户选择本次工作的目录，并在切换后继续该目录的草稿。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "用户选择本次工作的目录，并在切换后继续该目录的草稿。\n\n正式源码：src/features/home/workspace-picker.tsx",
         "boundary": "示例直接复用完整 HomeComposer，服务、草稿和浏览器存储只存在预览内存。演示到首页 onSubmit 回调结束，不模拟路由成功或 Agent 回复，不修改对话页面。 本故事只模拟目录选择服务，不打开操作系统选择器；产品原生选目录未在浏览器验证。",
-        "preview": "",
+        "preview": "catalog:workspace-picker",
         "story": {
           "goal": "确定这次工作发生在哪个目录，切换时保留各目录的独立草稿。",
           "preconditions": [
@@ -5239,11 +5239,11 @@
       "directoryId": "seed-2",
       "name": "model-editor",
       "title": "编辑模型",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">编辑模型</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">正式模型编辑对话框，逐模型配置能力及 Pi 系统说明角色。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "正式模型编辑对话框，逐模型配置能力及 Pi 系统说明角色。\n\n正式源码：src/features/models/model-editor.tsx",
         "boundary": "直接复用 ModelEditor；保存只更新此预览的内存草稿，不接账号、模型服务或正式连接，不证明真实推理已通过。",
-        "preview": "",
+        "preview": "catalog:model-editor",
         "story": {
           "goal": "在已有模型的完整编辑流程中选择系统说明角色，加入本地草稿并重新打开核对。",
           "preconditions": [
@@ -5332,11 +5332,11 @@
       "directoryId": "seed-9",
       "name": "plugin-settings",
       "title": "插件管理完整组合",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">插件管理完整组合</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">正式PluginSettings列表与单插件详情；配置草稿按插件保留，文件/OpenCLI/远程功能仅在选中功能页时挂载。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "正式PluginSettings列表与单插件详情；配置草稿按插件保留，文件/OpenCLI/远程功能仅在选中功能页时挂载。\n\n正式源码：src/features/plugins/plugin-settings.tsx",
         "boundary": "manifest与正式组件直接复用；管理和业务回调限预览内存，不访问用户文件、修改全局配置、启动后台或连接真实远程。示例状态不证明实际宿主验收。",
-        "preview": "",
+        "preview": "catalog:plugin-settings",
         "story": {
           "goal": "从精简插件列表选择详情，管理启停和配置，按需打开所属功能。",
           "preconditions": [
@@ -5512,11 +5512,11 @@
       "directoryId": "seed-10",
       "name": "file-source-viewer",
       "title": "只读源码与实际选区",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">只读源码与实际选区</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">正式CodeMirror源码组件，包含必要语言、高亮、行号与实际选区回调。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "正式CodeMirror源码组件，包含必要语言、高亮、行号与实际选区回调。\n\n正式源码：backend/plugins/file-workbench/source-viewer.tsx",
         "boundary": "此组合仅演示实际编辑器选区和只读行为；材料身份、发送与真实文件读取由正式工作栏另验。",
-        "preview": "",
+        "preview": "catalog:file-source-viewer",
         "story": {
           "goal": "准确阅读和选择当前源码，保持只读内容。",
           "preconditions": [
@@ -5589,11 +5589,11 @@
       "directoryId": "seed-10",
       "name": "read-only-patch",
       "title": "只读差异",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">只读差异</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">正式会话patch与Git差异共用成熟的只读差异组件。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "正式会话patch与Git差异共用成熟的只读差异组件。\n\n正式源码：src/components/read-only-patch.tsx",
         "boundary": "示例仅传入可公开的差异文字，不读取用户仓库，也不证明Git或工具执行已验收。",
-        "preview": "",
+        "preview": "catalog:read-only-patch",
         "standards": [
           {
             "id": "F1",
@@ -5632,11 +5632,11 @@
       "directoryId": "seed-10",
       "name": "file-workbench",
       "title": "完整文件工作栏",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">完整文件工作栏</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">复用正式FilePanel、文件卡片、树、标签、源码/Markdown/图像/PDF、选区、会话操作和Git差异完整组合。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "复用正式FilePanel、文件卡片、树、标签、源码/Markdown/图像/PDF、选区、会话操作和Git差异完整组合。\n\n正式源码：backend/plugins/file-workbench/web.tsx",
         "boundary": "展示服务及草稿仅存在本预览；不调用真实RPC、不读用户文件、不改变真实模型/权限。原生编辑器/另存及真实模型采用另在正式入口验收。",
-        "preview": "",
+        "preview": "catalog:file-workbench",
         "standards": [
           {
             "id": "FW2",
@@ -5738,11 +5738,11 @@
       "directoryId": "seed-9",
       "name": "opencli-global-management",
       "title": "OpenCLI全局软件与连接",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">OpenCLI全局软件与连接</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">正式Page与OpenCliConnectionView组合，读取全局安装、后台、Bridge及五项管理任务。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "正式Page与OpenCliConnectionView组合，读取全局安装、后台、Bridge及五项管理任务。\n\n正式源码：backend/plugins/opencli/web.tsx",
         "boundary": "预览注入独立内存服务，不执行npm、不修改配置、不连接后台。示例结果不能替代真实宿主验收。",
-        "preview": "",
+        "preview": "catalog:opencli-global-management",
         "story": {
           "goal": "管理官方全局程序并核对软件、后台与浏览器连接。",
           "preconditions": [
@@ -5843,11 +5843,11 @@
       "directoryId": "seed-9",
       "name": "moon-mcp-service",
       "title": "Moon MCP 服务页",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">Moon MCP 服务页</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">从插件详情打开统一 MCP 出口，选择工具并复制客户端配置。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "从插件详情打开统一 MCP 出口，选择工具并复制客户端配置。\n\n正式源码：backend/plugins/mcp-service/web.tsx",
         "boundary": "隔离内存服务不监听、不读取或写入真实token/插件配置。",
-        "preview": "",
+        "preview": "catalog:moon-mcp-service",
         "story": {
           "goal": "配置一个可供外部Agent使用的本机出口。",
           "preconditions": [
@@ -5925,11 +5925,11 @@
       "directoryId": "seed-9",
       "name": "moon-external-logs",
       "title": "MCP 与工具日志页",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">MCP 与工具日志页</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">正式日志页筛选、分页并查看调用ID与安全摘要。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "正式日志页筛选、分页并查看调用ID与安全摘要。\n\n正式源码：backend/plugins/logs/web.tsx",
         "boundary": "隔离服务只持内存示例，不查询或改写宿主日志。",
-        "preview": "",
+        "preview": "catalog:moon-external-logs",
         "story": {
           "goal": "找到对外调用并核对结束状态。",
           "preconditions": [
@@ -6004,11 +6004,11 @@
       "directoryId": "seed-1",
       "name": "home-composer",
       "title": "首页输入区",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">首页输入区</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">在同一完整输入区检查目录、材料、权限、模型、会话配置与发送的组合。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "在同一完整输入区检查目录、材料、权限、模型、会话配置与发送的组合。\n\n正式源码：src/features/home/home-composer.tsx",
         "boundary": "复用正式HomeComposer，只包含首页输入区；不复制侧栏，不进入对话、消息队列或审批。所有边界与存储在预览内存，发送止于首页回调。",
-        "preview": "",
+        "preview": "catalog:home-composer",
         "story": {
           "goal": "把这条请求的目录、内容、材料和执行上下文完整地组合并提交。",
           "preconditions": [
@@ -6106,11 +6106,11 @@
       "directoryId": "seed-2",
       "name": "startup-migration",
       "title": "首次启动数据选择",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">首次启动数据选择</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">在业务数据与 profile 启用前，明确可选导入或新建数据集，呈现真实阶段及同操作恢复。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "在业务数据与 profile 启用前，明确可选导入或新建数据集，呈现真实阶段及同操作恢复。\n\n正式源码：src/features/startup/startup-migration-view.tsx",
         "boundary": "直接使用正式 StartupMigrationView。组件库只提供内存展示，不读写用户数据，不启动真实迁移或 Moon；预览不能代替原生生命周期验收。",
-        "preview": "",
+        "preview": "catalog:startup-migration",
         "standards": [
           {
             "id": "startup-task",
@@ -6286,11 +6286,11 @@
       "directoryId": "seed-2",
       "name": "application-settings",
       "title": "应用设置与维护",
-      "code": "function Page() {\n  return (\n    <div className=\"min-h-screen bg-white p-8 text-neutral-800\">\n      <h1 className=\"text-lg font-semibold\">应用设置与维护</h1>\n      <p className=\"mt-2 max-w-xl text-sm leading-6 text-neutral-500\">正式设置壳复用模型/MCP编辑，并组合数据迁移、版本更新与开发资料入口。</p>\n    </div>\n  )\n}",
+      "code": "",
       "meta": {
         "description": "正式设置壳复用模型/MCP编辑，并组合数据迁移、版本更新与开发资料入口。\n\n正式源码：src/features/settings/settings-page.tsx",
         "boundary": "直接使用SettingsPage、StorageSettings、UpdateSettings，原生服务只在预览内存替换；不访问真实磁盘、GitHub、配置恢复存储或安装器。预览通过不能证明原生维护通过。",
-        "preview": "",
+        "preview": "catalog:application-settings",
         "standards": [
           {
             "id": "developer-entry",

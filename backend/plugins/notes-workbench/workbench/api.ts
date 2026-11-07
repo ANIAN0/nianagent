@@ -1,5 +1,7 @@
 import type {
+  ArgValue,
   Comment,
+  DesignMeta,
   Directory,
   PageDetail,
   PageMeta,
@@ -19,7 +21,8 @@ const SESSION_KEY = "moon-notes-workbench-token"
 const injected = window.__moonNotesWorkbenchToken || ""
 try {
   if (injected) sessionStorage.setItem(SESSION_KEY, injected)
-  else if (!sessionStorage.getItem(SESSION_KEY)) sessionStorage.removeItem(SESSION_KEY)
+  else if (!sessionStorage.getItem(SESSION_KEY))
+    sessionStorage.removeItem(SESSION_KEY)
 } catch {
   /* 隐私模式等存储不可用时退回纯内存 token。 */
 }
@@ -55,10 +58,18 @@ export const api = {
   state: () => request<Snapshot>("/api/state"),
   operations: () =>
     request<{
-      operations: Record<string, { module: string; method: string; title: string }>
+      operations: Record<
+        string,
+        { module: string; method: string; title: string }
+      >
     }>("/api/operations"),
   page: (id: string) =>
     request<PageDetail>(`/api/page?id=${encodeURIComponent(id)}`),
+  /** 长轮询：持有至数据版本变化或超时；token 走 Authorization 头。 */
+  sync: (version: number) =>
+    request<{ version: number; timeout?: boolean }>(
+      `/api/sync?version=${encodeURIComponent(String(version))}`
+    ),
   createDirectory: (name: string) =>
     post<{ directory: Directory }>("/api/directory", { name }),
   createPage: (directoryId: string, name: string) =>
@@ -68,8 +79,13 @@ export const api = {
   setStateArgs: (
     pageId: string,
     stateId: string,
-    args: Record<string, string | number | boolean | null>,
+    args: Record<string, ArgValue>
   ) => post<{ page: PageMeta }>("/api/page/args", { pageId, stateId, args }),
+  /** 界面编辑走 writePage：meta 与 code 替换语义与 agent 工具一致。 */
+  writePage: (
+    pageId: string,
+    patch: { code?: string; meta?: DesignMeta | null }
+  ) => post<{ page: PageMeta }>("/api/page/write", { pageId, ...patch }),
   setCommentResolved: (commentId: string, resolved: boolean) =>
     post<{ comment: Comment }>("/api/comment/resolve", {
       commentId,

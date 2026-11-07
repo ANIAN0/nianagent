@@ -8,7 +8,8 @@ export const bootSchemas = {
   BrowserBootStatus: object({
     readable: {
       type: "boolean",
-      description: "启动所需模型、会话、MCP、工作区、队列/控制和维护记录通过纯schema读取验证；可选插件错误单独呈现",
+      description:
+        "启动所需模型、会话、MCP、工作区、队列/控制和维护记录通过纯schema读取验证；可选插件错误单独呈现",
     },
   }),
 }

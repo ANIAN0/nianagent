@@ -35,7 +35,9 @@ export function McpTransportFields({
               aria-invalid={!!validate && !value.command.trim()}
               onChange={(event) => onChange({ command: event.target.value })}
             />
-            <FieldDescription>只填写程序，参数逐行写在下一栏。</FieldDescription>
+            <FieldDescription>
+              只填写程序，参数逐行写在下一栏。
+            </FieldDescription>
             {validate && !value.command.trim() && (
               <FieldError>请填写用于启动服务的可执行文件。</FieldError>
             )}

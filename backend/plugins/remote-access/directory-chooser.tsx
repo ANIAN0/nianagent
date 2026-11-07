@@ -64,7 +64,13 @@ function DirectoryChooser({
   useEffect(() => {
     const controller = new AbortController()
     reading.current = controller
-    void callPlugin<{ value: Listing }>("remote-access", "directories", { path: "" }, undefined, AbortSignal.any([controller.signal, signal]))
+    void callPlugin<{ value: Listing }>(
+      "remote-access",
+      "directories",
+      { path: "" },
+      undefined,
+      AbortSignal.any([controller.signal, signal])
+    )
       .then((result) => {
         if (!controller.signal.aborted && !signal.aborted) {
           setListing(result.value)
@@ -72,7 +78,8 @@ function DirectoryChooser({
         }
       })
       .catch((error) => {
-        if (!controller.signal.aborted && !signal.aborted) setError(error instanceof Error ? error.message : "目录读取失败。")
+        if (!controller.signal.aborted && !signal.aborted)
+          setError(error instanceof Error ? error.message : "目录读取失败。")
       })
       .finally(() => {
         if (reading.current === controller && !signal.aborted) setBusy(false)
@@ -90,7 +97,10 @@ function DirectoryChooser({
       if (!signal.aborted)
         setError(error instanceof Error ? error.message : "主机目录未登记。")
     } finally {
-      if (!signal.aborted) { setBusy(false); setCommitting(false) }
+      if (!signal.aborted) {
+        setBusy(false)
+        setCommitting(false)
+      }
     }
   }
   return (
@@ -156,7 +166,11 @@ function DirectoryChooser({
         {listing?.truncated && <p>本层仅列出1000个目录，可输入完整路径。</p>}
         {error && <p role="alert">{error}</p>}
         <DialogFooter>
-          <Button variant="ghost" disabled={committing} onClick={() => finish(null)}>
+          <Button
+            variant="ghost"
+            disabled={committing}
+            onClick={() => finish(null)}
+          >
             取消
           </Button>
           <Button

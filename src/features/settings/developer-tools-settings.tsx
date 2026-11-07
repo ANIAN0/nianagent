@@ -4,9 +4,7 @@ import {
   ArrowRight,
   ArrowUpRight,
   BookOpen,
-  Braces,
   FolderTree,
-  PanelsTopLeft,
   type LucideIcon,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -27,20 +25,6 @@ const tools = [
     title: "项目结构",
     icon: FolderTree,
     description: "按职责模块和目录理解项目，定位逐文件用途与关联实现。",
-  },
-  {
-    id: "components",
-    path: "/ui-catalog/",
-    title: "页面与组件",
-    icon: PanelsTopLeft,
-    description: "查看完整页面、业务模块、交互场景和共享组件规则。",
-  },
-  {
-    id: "api",
-    path: "/api-catalog/",
-    title: "接口查询",
-    icon: Braces,
-    description: "按功能模块查阅真实接口、输入、输出与使用依据。",
   },
 ] as const
 

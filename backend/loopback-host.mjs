@@ -11,7 +11,8 @@ export async function loadTokenIdentity(tokenFile, label) {
   try {
     identity = JSON.parse(await readFile(tokenFile, "utf8"))
   } catch (error) {
-    if (error.code !== "ENOENT") throw new Error(`${label}配置无法读取，原文件已保留。`, { cause: error })
+    if (error.code !== "ENOENT")
+      throw new Error(`${label}配置无法读取，原文件已保留。`, { cause: error })
   }
   if (!identity) {
     identity = { token: randomBytes(32).toString("base64url") }
@@ -25,7 +26,11 @@ export async function loadTokenIdentity(tokenFile, label) {
 const sameBuffer = (supplied, expected) => {
   const left = Buffer.from(typeof supplied === "string" ? supplied : "")
   const right = Buffer.from(typeof expected === "string" ? expected : "")
-  return left.length > 0 && left.length === right.length && timingSafeEqual(left, right)
+  return (
+    left.length > 0 &&
+    left.length === right.length &&
+    timingSafeEqual(left, right)
+  )
 }
 
 /** 校验 `Bearer <token>` 请求头（恒定时间比较）。 */
@@ -40,7 +45,8 @@ export function createTickets(ttlMs = 30_000) {
   return {
     issue() {
       const now = Date.now()
-      for (const [value, expires] of tickets) if (expires < now) tickets.delete(value)
+      for (const [value, expires] of tickets)
+        if (expires < now) tickets.delete(value)
       const value = randomBytes(32).toString("base64url")
       tickets.set(value, now + ttlMs)
       return value

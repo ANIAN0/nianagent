@@ -1,7 +1,7 @@
 import { pageMetaInfo, pageStateInfo } from "./contract.mjs"
 
 const CODE_CONVENTION =
-  "组件源码约定：不写 import 语句；可用作用域为 React、Fragment、useState、useEffect、useRef、useMemo、useCallback、useReducer、useLayoutEffect 和 cn()；样式用 tailwind 工具类，可在组件内内联 <style> 定义动画；源码末尾必须定义 function Page() {...}。Page 可声明 props 参数，状态的 args 会作为 props 传入。演示项目既有组件时改用 meta.preview 指向预览条目，code 留空。"
+  '组件源码约定：可从 "moon-ui" 具名导入白名单组件（Button、Badge、Checkbox、Collapsible、Dialog、DropdownMenu、Empty、Input、Field、Label、Popover、RadioGroup、Select、Separator、Skeleton、Switch、Table、Tabs、Textarea、Tooltip、Alert 等）；不支持其他 import 语句。可用作用域为 React、Fragment、useState、useEffect、useRef、useMemo、useCallback、useReducer、useLayoutEffect 和 cn()；样式用 tailwind 工具类，可在组件内内联 <style> 定义动画；源码末尾必须定义 function Page() {...}。Page 可声明 props 参数，状态的 args 会作为 props 传入。演示项目既有组件时也可改用 meta.preview 指向预览条目（catalog:<目录 id> 为组件目录桥，或 home-story、notification-toast 等独立条目），code 留空。'
 
 const op = (application, name) => {
   const operation = application?.operations?.[name]
@@ -345,7 +345,12 @@ export default function extension(pi, { application, cwd }) {
     },
     async execute(_id, input, signal) {
       signal?.throwIfAborted()
-      const value = await call(application, "read_page", { pageId: input.pageId }, signal)
+      const value = await call(
+        application,
+        "read_page",
+        { pageId: input.pageId },
+        signal
+      )
       if (value.page.status !== "confirmed")
         throw new Error("仅已确认的页面可导出；请先在工作台确认。")
       if (!value.page.source)

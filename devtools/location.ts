@@ -20,8 +20,6 @@ export function navigateTool(url: string, replace = false) {
 export function toolUrl(tool: string, fields: Record<string, string> = {}) {
   const paths: Record<string, string> = {
     project: "/project/",
-    components: "/ui-catalog/",
-    api: "/api-catalog/",
   }
   const params = new URLSearchParams(fields)
   const theme = new URLSearchParams(location.search).get("theme")
