@@ -361,7 +361,7 @@ export class ConversationControls {
           state.unsubscribe?.()
           state.session.dispose()
           state.session = undefined
-          this.host.sessions.active.delete(state.record.id)
+          this.host.sessions.detachRuntime(state.record.id, state.entry)
           try {
             state.manager = await this.host.fileManager(state.record)
           } catch (historyError) {

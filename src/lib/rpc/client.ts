@@ -7,7 +7,7 @@ import type {
   OperationIssue,
 } from "@/contracts/rpc.generated"
 import { invoke, isTauri } from "@tauri-apps/api/core"
-import { isOperationIssue } from "@/lib/operation-issue"
+import { isOperationIssue, issueMessage } from "@/lib/operation-issue"
 import { isRemoteWeb, remoteCall } from "./remote-transport"
 let clientId = ""
 function localClientId() {
@@ -22,7 +22,7 @@ function localClientId() {
 export class RpcRequestRejected extends Error {
   readonly issue?: OperationIssue
   constructor(message: string, issue?: OperationIssue) {
-    super(issue?.summary ?? message)
+    super(issue ? issueMessage(issue) : message)
     this.name = "RpcRequestRejected"
     this.issue = issue
   }
@@ -30,7 +30,7 @@ export class RpcRequestRejected extends Error {
 export class RpcTransportError extends Error {
   readonly issue: OperationIssue
   constructor(issue: OperationIssue, cause?: unknown) {
-    super(issue.summary, { cause })
+    super(issueMessage(issue), { cause })
     this.name = "RpcTransportError"
     this.issue = issue
   }

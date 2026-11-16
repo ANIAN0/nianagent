@@ -5,15 +5,15 @@ import type { ComposerDraft, HomeSubmitReceipt } from "@/lib/composer/types"
 
 import { feedbackFromError } from "@/lib/operation-issue"
 import { RpcRequestRejected } from "@/lib/rpc/client"
-import type { useLiveConversation } from "@/features/conversation/use-live-conversation"
 import {
   inspectConversationReceipt,
+  type ConversationHandoffPort,
   type ConversationReceipt,
-} from "@/features/conversation/conversation-receipt"
-import type { ModelConnection } from "@/features/models/model-types"
+} from "@/lib/submission/conversation-handoff"
+import type { ModelConnection } from "@/contracts/rpc.generated"
 
 import type { useWorkspaces } from "@/features/workspaces/use-workspaces"
-import type { SessionService } from "@/features/session/session-service"
+import type { SessionService } from "@/lib/composer/session-config-port"
 
 import {
   createHomeSubmission,
@@ -22,12 +22,12 @@ import {
   recoverRejectedHomeSubmission,
   saveHomeSubmission,
   saveHomeDraft as persistHomeDraft,
-} from "@/features/conversation/conversation-draft-store"
+} from "./home-draft-store"
 import { sameHomeSubmissionAttempt } from "@/features/home/home-receipt-check"
 import {
   followingHomeDraft,
   ownedFollowingHomeDraft,
-} from "@/features/home/home-submission-draft"
+} from "@/lib/submission/home-draft-rules"
 import {
   hasPreparingHomeMaterials,
   homePreflightError,
@@ -35,7 +35,7 @@ import {
 } from "@/features/home/home-submission-lifecycle"
 
 export type HomeSubmissionControllerOptions = {
-  chat: ReturnType<typeof useLiveConversation>
+  chat: ConversationHandoffPort
   connections: ModelConnection[]
   workspaces: ReturnType<typeof useWorkspaces>
   sessionService: SessionService
@@ -103,6 +103,8 @@ export function useHomeSubmissionController({
       settleHomeReceipt: chat.settleHomeReceipt,
       currentDraft: chat.currentDraft,
       change: chat.change,
+      readStoredDraft: chat.readStoredDraft,
+      saveStoredDraft: chat.saveStoredDraft,
     },
   })
 
@@ -258,7 +260,8 @@ export function useHomeSubmissionController({
       if (!started || receipt?.state === "rejected") {
         const recovered = recoverRejectedHomeSubmission(
           submission,
-          currentHomeEditing(submission) ?? chat.drafts[id]
+          currentHomeEditing(submission) ?? chat.drafts[id],
+          chat
         )
         const rejected = rejectHomeSubmission(
           submission,

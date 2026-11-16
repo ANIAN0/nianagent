@@ -51,10 +51,7 @@ pub fn verify_directory(
                             .into(),
                     );
                 }
-                log::info!(
-                    "已核验WebView2实际UserDataFolder：{}",
-                    storage::text(&actual)
-                );
+                log::info!("已核验WebView2实际UserDataFolder与配置目录一致。");
                 Ok(())
             })();
             let _ = sender.send(result);

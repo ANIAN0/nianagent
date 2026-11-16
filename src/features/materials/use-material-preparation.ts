@@ -11,7 +11,7 @@ import {
   MaterialPreparationSet,
 } from "./material-preparations"
 import { isRemoteWeb } from "@/lib/rpc/remote-transport"
-import { discardRemoteFile } from "../../../backend/plugins/remote-access/upload-client"
+import { discardRemoteFile } from "@/lib/rpc/remote-ports"
 
 import type { Material } from "@/lib/composer/types"
 import {
@@ -23,12 +23,12 @@ import { prepareImageUpload } from "./prepare-image-upload"
 import {
   fileReferenceFeedback,
   isFileReference,
-} from "./material-reference-feedback"
+} from "@/lib/composer/material-reference-feedback"
 import {
   getUploadRetrySource,
   releaseUploadRetrySource,
   rememberUploadRetrySource,
-} from "./upload-retry-sources"
+} from "@/lib/composer/upload-retry-sources"
 import {
   feedbackFromError,
   type FeedbackDescription,

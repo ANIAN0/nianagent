@@ -3,7 +3,7 @@ import { HomeComposer, type HomeComposerProps } from "./home-composer"
 import type { ComposerData, ComposerDraft } from "@/lib/composer/types"
 import type { useHomeSubmissionController } from "./use-home-submission-controller"
 import type { useWorkspaces } from "@/features/workspaces/use-workspaces"
-import { persistentHomeDraftStore } from "@/features/conversation/conversation-draft-store"
+import { persistentHomeDraftStore } from "./home-draft-store"
 import { HomeSubmissionFeedback } from "./home-submission-feedback"
 
 function OwnedHomeComposer({

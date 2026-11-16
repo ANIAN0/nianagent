@@ -621,7 +621,9 @@ export async function activate(host) {
             session: external ? "" : taskFor(context),
           }
       let parameters = args
+      let registered
       if (browser && !external) {
+        registered = used.get(state.session)
         used.set(state.session, {
           profile: state.profile,
           pid: state.current.pid,
@@ -637,20 +639,31 @@ export async function activate(host) {
       // External argv is already native. Only Moon-created Pi sessions may
       // enter `used`; stopping the plugin must not close external sessions.
       const command = browser ? openCliBrowserCommand(parsed) : ""
-      const result = await cli(
-        state.info,
-        [...(state.profile ? ["--profile", state.profile] : []), ...parameters],
-        {
-          signal,
-          env: {
-            ...process.env,
-            ...(state.profile ? { OPENCLI_PROFILE: state.profile } : {}),
-            ...(host.configuration.background
-              ? { OPENCLI_WINDOW: "background" }
-              : {}),
-          },
-        }
-      )
+      let result
+      try {
+        result = await cli(
+          state.info,
+          [
+            ...(state.profile ? ["--profile", state.profile] : []),
+            ...parameters,
+          ],
+          {
+            signal,
+            env: {
+              ...process.env,
+              ...(state.profile ? { OPENCLI_PROFILE: state.profile } : {}),
+              ...(host.configuration.background
+                ? { OPENCLI_WINDOW: "background" }
+                : {}),
+            },
+          }
+        )
+      } catch (error) {
+        // 命令失败时回滚本次登记：不留指向从未创建窗口的僵尸会话。
+        if (registered === undefined) used.delete(state.session)
+        else used.set(state.session, registered)
+        throw error
+      }
       let data
       try {
         data = JSON.parse(result.stdout.trim())

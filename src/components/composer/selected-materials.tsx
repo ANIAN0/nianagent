@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react"
 import { AttachmentGroup } from "@/components/ui/attachment"
 import { Button } from "@/components/ui/button"
 import { InputGroupAddon } from "@/components/ui/input-group"
-import { MaterialPreviewDialog } from "@/features/materials/material-preview"
+import { MaterialPreviewDialog } from "@/components/composer/material-preview"
 import { MaterialChip } from "@/components/composer/material-chip"
 import type { Material } from "@/lib/composer/types"
 

@@ -1,5 +1,12 @@
 import { existsSync } from "node:fs"
-import { mkdir, readFile, readdir, stat, realpath } from "node:fs/promises"
+import {
+  mkdir,
+  readFile,
+  readdir,
+  stat,
+  realpath,
+  writeFile,
+} from "node:fs/promises"
 import {
   join,
   resolve,
@@ -15,12 +22,20 @@ import {
   DefaultPackageManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent"
-import { validateToolArguments } from "@earendil-works/pi-ai"
 import { replaceJson, withAcquiredLock } from "./atomic-file.mjs"
 import lockfile from "proper-lockfile"
-import { ActivityLog, safeSummary, valueSummary } from "./activity-log.mjs"
+import { ActivityLog } from "./activity-log.mjs"
+import {
+  check,
+  identifier,
+  safeError,
+  samePath,
+  validatePluginValue,
+} from "./plugin-helpers.mjs"
+import { createSharedToolGateway } from "./plugin-shared-tools.mjs"
 import {
   requestContext,
+  currentTraceId,
   registerRemoteContextResolver,
 } from "./request-context.mjs"
 
@@ -28,62 +43,17 @@ const root = fileURLToPath(new URL("./plugins/", import.meta.url))
 // This process's module cache outlives an import record. Removing a record must
 // not erase the fact that Node has already executed that same physical source.
 const executedSources = new Set()
-const identifier = /^[a-z][a-z0-9-]{0,63}$/
-const samePath = (a, b) =>
-  typeof a === "string" &&
-  typeof b === "string" &&
-  (process.platform === "win32"
-    ? resolve(a).toLowerCase() === resolve(b).toLowerCase()
-    : resolve(a) === resolve(b))
-const check = (value, message) => {
-  if (!value) throw new Error(message)
-}
-const base64Image = (data) =>
-  typeof data === "string" &&
-  data.length <= 16 * 1024 * 1024 &&
-  data.length % 4 === 0 &&
-  /^[A-Za-z0-9+/]*={0,2}$/.test(data)
-const jsonValue = (value, depth = 0) =>
-  depth <= 32 &&
-  (value === null ||
-    typeof value === "string" ||
-    typeof value === "boolean" ||
-    (typeof value === "number" && Number.isFinite(value)) ||
-    (Array.isArray(value)
-      ? value.every((item) => jsonValue(item, depth + 1))
-      : value &&
-        typeof value === "object" &&
-        Object.getPrototypeOf(value) === Object.prototype &&
-        Object.values(value).every((item) => jsonValue(item, depth + 1))))
-const safeError = (error) =>
-  /[\u4e00-\u9fff]/u.test(error?.message || "")
-    ? error.message
-    : "插件操作失败，请核对来源并重新读取。"
-export function validatePluginValue(schema, value) {
-  check(
-    schema?.type === "object" && schema.additionalProperties === false,
-    "插件操作须声明严格对象schema。"
-  )
-  const validated = validateToolArguments(
-    { name: "plugin", parameters: schema },
-    { id: "validation", name: "plugin", arguments: structuredClone(value) }
-  )
-  check(
-    JSON.stringify(validated) === JSON.stringify(value),
-    "插件字段类型不符合声明。"
-  )
-  return value
-}
-const bounded = async (promise) => {
+const bounded = async (
+  promise,
+  limit = 15000,
+  message = "插件资源释放超时，请重启Moon。"
+) => {
   let timer
   try {
     return await Promise.race([
       promise,
       new Promise((_, reject) => {
-        timer = setTimeout(
-          () => reject(new Error("插件资源释放超时，请重启Moon。")),
-          15000
-        )
+        timer = setTimeout(() => reject(new Error(message)), limit)
       }),
     ])
   } finally {
@@ -103,8 +73,15 @@ export class PluginHost {
     this.closed = false
     this.frozen = false
     this.changing = false
+    // 每插件至多一个包任务记录：运行中防并发，终态保留供 packageStatus 查询。
+    this.packageTasks = new Map()
     this.logs = new ActivityLog(directory)
-    this.sharedListeners = new Set()
+    // G16 拆分：共享工具网关（②）独立模块；宿主仅保留薄委托
+    this.sharedToolGateway = createSharedToolGateway({
+      entries: this.entries,
+      logs: this.logs,
+      lease: (entry, action) => this.lease(entry, action),
+    })
   }
   async document() {
     try {
@@ -207,6 +184,13 @@ export class PluginHost {
         check(
           !manifest.tools,
           "工具应由Pi原生factory注册，清单不重复声明工具。"
+        )
+        check(
+          manifest.activationTimeout === undefined ||
+            (Number.isSafeInteger(manifest.activationTimeout) &&
+              manifest.activationTimeout >= 1000 &&
+              manifest.activationTimeout <= 120000),
+          "插件启动超时声明无效。"
         )
         this.validateContributions(manifest.contributions || [])
         entry.manifest = manifest
@@ -375,11 +359,21 @@ export class PluginHost {
       entry.paths.some((path) => executedSources.has(path))
     )
       entry.restartRequired = true
+    // 来源完整性指纹：路径+大小+mtime+内容 sha256；超过 32MiB 的文件
+    // 记为 unhashed 并如实展示。内容哈希使保留 mtime 的篡改也能被发现。
     entry.sourceSignature = JSON.stringify(
       await Promise.all(
         entry.paths.map(async (path) => {
           const metadata = await stat(path)
-          return [path, metadata.size, metadata.mtimeMs]
+          if (!metadata.isFile() || metadata.size > 32 * 1024 * 1024)
+            return [path, metadata.size, metadata.mtimeMs, "unhashed"]
+          const data = await readFile(path)
+          return [
+            path,
+            metadata.size,
+            metadata.mtimeMs,
+            createHash("sha256").update(data).digest("hex"),
+          ]
         })
       )
     )
@@ -501,6 +495,7 @@ export class PluginHost {
     }
     const starting = (async () => {
       let application
+      let activating
       try {
         if (entry.sourceKind !== "bundled") await this.resolveImport(entry)
         check(
@@ -517,12 +512,14 @@ export class PluginHost {
           const directory = join(this.directory, entry.id)
           await mkdir(directory, { recursive: true })
           if (inactive()) return
-          application = await module.activate({
+          activating = module.activate({
             directory,
             configuration: JSON.parse(configuration),
             generation,
             dispatch: this.ports.dispatch,
-            services: this.ports.services,
+            dataRoot: this.ports.dataRoot,
+            materials: this.ports.materials,
+            sessions: this.ports.sessions,
             registerRemoteContextResolver,
             isActive: () =>
               entry.generation === generation &&
@@ -532,15 +529,25 @@ export class PluginHost {
               !this.frozen,
             lease: (action) => this.lease(entry, action),
             logs: this.logs,
+            // T20-3：传输终态日志只读诊断端口（查询+状态摘要），未装配时为 undefined
+            operationLog: this.ports.operationLog,
+            diagnostics: this.ports.diagnostics,
             sharedTools: {
-              list: () => this.sharedToolCatalog(),
-              call: (...args) => this.callSharedTool(...args),
-              subscribe: (listener) => {
-                this.sharedListeners.add(listener)
-                return () => this.sharedListeners.delete(listener)
-              },
+              list: () => this.sharedToolGateway.catalog(),
+              call: (...args) => this.sharedToolGateway.call(...args),
+              subscribe: (listener) =>
+                this.sharedToolGateway.subscribe(listener),
             },
           })
+          // 有界激活：单个插件挂死不得拖住全部插件 RPC；超时上限供清单覆盖。
+          application = await bounded(
+            activating,
+            Math.min(
+              Math.max(entry.manifest.activationTimeout ?? 30000, 1000),
+              120000
+            ),
+            "插件启动超时，请在插件页停用该插件并反馈。"
+          )
           check(
             application && typeof application.close === "function",
             "应用入口须声明实际资源释放方法。"
@@ -560,6 +567,13 @@ export class PluginHost {
         this.sharedChanged()
       } catch (error) {
         let failure = error
+        if (!application && activating) {
+          // 启动超时等场景的迟到实例：落定后立即释放，避免泄漏。
+          void activating.then(
+            (late) => late?.close?.(),
+            () => {}
+          )
+        }
         try {
           await application?.close()
           application = undefined
@@ -637,7 +651,7 @@ export class PluginHost {
   async list(signal) {
     signal?.throwIfAborted()
     await this.initialize()
-    const legacy = await this.ports.services().extensions.list(signal)
+    const legacy = await this.ports.extensions.list(signal)
     return [...this.entries.values()]
       .map((entry) => this.descriptor(entry))
       .concat(
@@ -735,15 +749,13 @@ export class PluginHost {
       this.ports.assertIdle()
       this.changing = true
       try {
-        await this.ports
-          .services()
-          .extensions.configure(
-            id.slice(7),
-            revision,
-            enabled,
-            configuration,
-            signal
-          )
+        await this.ports.extensions.configure(
+          id.slice(7),
+          revision,
+          enabled,
+          configuration,
+          signal
+        )
       } finally {
         this.changing = false
       }
@@ -751,6 +763,11 @@ export class PluginHost {
     }
     const entry = this.entries.get(id)
     check(entry?.manifest, "插件清单无效。")
+    const packageTask = this.packageTasks.get(id)
+    check(
+      !packageTask || packageTask.terminal,
+      "该插件正在安装或更新，请等待任务结束后再更改。"
+    )
     // A failed plugin can be disabled without rewriting its damaged saved
     // configuration. New configuration and every enable still validate fully.
     if (enabled || configuration !== entry.configuration)
@@ -764,8 +781,12 @@ export class PluginHost {
           (document.entries[id]?.revision || 0) === revision,
           "插件配置已变化，请重新读取。"
         )
-        if (enabled && entry.sourceKind !== "bundled")
+        if (enabled && entry.sourceKind !== "bundled") {
           await this.resolveImport(entry)
+          // 内容指纹随启用落库：下次加载据此核对来源是否变化。
+          const record = document.imports.find((item) => item.id === id)
+          if (record && entry.integrity) record.integrity = entry.integrity
+        }
         await this.stop(entry)
         document.entries[id] = {
           enabled,
@@ -832,6 +853,15 @@ export class PluginHost {
       }, signal)
     return this.descriptor(entry)
   }
+  taskSnapshot(id, task = this.packageTasks.get(id)) {
+    if (!task) return { phase: "none" }
+    return {
+      phase: task.phase,
+      action: task.action,
+      ...(task.error ? { error: task.error } : {}),
+      ...(task.failedAt ? { failedAt: task.failedAt } : {}),
+    }
+  }
   async packageAction(id, action, signal) {
     await this.discover()
     const entry = this.entries.get(id)
@@ -839,41 +869,168 @@ export class PluginHost {
       entry && ["local", "npm", "git"].includes(entry.sourceKind),
       "只能管理明确导入的来源。"
     )
-    await this.mutate(async (document) => {
-      await this.stop(entry)
-      if (action === "remove") {
+    const current = this.packageTasks.get(id)
+    check(
+      !current || current.terminal,
+      "该插件已有安装或更新任务在进行，请等待其结束。"
+    )
+    if (action === "remove") {
+      await this.mutate(async (document) => {
+        await this.stop(entry)
         if (entry.sourceKind !== "local" && entry.installed)
           await this.manager().remove(entry.source)
         document.imports = document.imports.filter((item) => item.id !== id)
         delete document.entries[id]
-      } else {
-        check(
-          entry.sourceKind !== "local",
-          "本地文件直接引用原路径，由外部编辑器更新。"
-        )
+      }, signal)
+      this.entries.delete(id)
+      this.packageTasks.delete(id)
+      for (const [name, owner] of this.toolOwners)
+        if (owner === entry) this.toolOwners.delete(name)
+      return this.taskSnapshot(id, { action, phase: "done" })
+    }
+    check(action === "install" || action === "update", "包管理动作无效。")
+    check(
+      entry.sourceKind !== "local",
+      "本地文件直接引用原路径，由外部编辑器更新。"
+    )
+    check(
+      !this.changing && !this.frozen && !this.closed,
+      "插件正在变更，请稍后再试。"
+    )
+    this.ports.assertIdle()
+    // 同步段仅停用入口；包管理器在锁外运行，Rust 60s 传输超时不再卡死安装。
+    this.changing = true
+    try {
+      signal?.throwIfAborted()
+      await this.stop(entry)
+    } finally {
+      this.changing = false
+    }
+    const task = {
+      action,
+      phase: "running",
+      error: "",
+      failedAt: undefined,
+      terminal: false,
+      cancelled: false,
+    }
+    task.promise = (async () => {
+      let stage = "install"
+      try {
         const manager = this.manager([entry.source])
-        if (action === "update") await manager.update(entry.source)
-        else await manager.install(entry.source)
+        manager.setProgressCallback?.((event) => {
+          if (!task.cancelled && event?.type === "start") task.phase = "running"
+        })
+        await (action === "update"
+          ? manager.update(entry.source)
+          : manager.install(entry.source))
+        if (task.cancelled) {
+          task.phase = "cancelled"
+          task.error = "已取消：包管理器在取消请求后结束，结果未应用。"
+          entry.state = "disabled"
+          entry.error = task.error
+          return
+        }
+        task.phase = "applying"
+        stage = "resolve"
         await this.resolveImport(entry)
         // Node's ESM module cache also covers imported dependencies. A package
         // already executed in this host cannot truthfully promise hot replacement.
         if (action === "update" && entry.loadedSignature)
           entry.restartRequired = true
+        // 内容指纹随安装/更新落库；仅写配置文件，不重断言会话空闲
+        // （长任务期间用户可能已开始新会话，误报会让成功的安装显示失败）。
+        await this.mutate(
+          async (document) => {
+            const record = document.imports.find((item) => item.id === id)
+            if (record && entry.integrity) record.integrity = entry.integrity
+          },
+          undefined,
+          false
+        )
+        stage = "apply"
+        entry.state = "disabled"
+        entry.error = ""
+        if (entry.enabled) await this.start(entry)
+        task.phase = "done"
+      } catch (error) {
+        task.error = safeError(error)
+        task.phase = task.cancelled ? "cancelled" : "failed"
+        task.failedAt = task.cancelled ? undefined : stage
+        if (!task.cancelled) {
+          entry.state = "failed"
+          entry.error = task.error
+        }
+      } finally {
+        task.terminal = true
+        this.ports.notify?.({
+          operation: "$notify",
+          event: "plugins-changed",
+        })
       }
-    }, signal).catch((error) => {
-      entry.state = "failed"
-      entry.error = safeError(error)
-      throw error
-    })
-    if (action === "remove") {
-      this.entries.delete(id)
-      for (const [name, owner] of this.toolOwners)
-        if (owner === entry) this.toolOwners.delete(name)
-    } else {
-      entry.state = "disabled"
-      entry.error = ""
-      if (entry.enabled) await this.start(entry)
+    })()
+    this.packageTasks.set(id, task)
+    void task.promise.catch(() => {})
+    return this.taskSnapshot(id, task)
+  }
+  async packageStatus(id) {
+    await this.discover()
+    check(this.entries.has(id), "插件不存在或已被移除。")
+    return this.taskSnapshot(id)
+  }
+  async packageCancel(id) {
+    await this.discover()
+    check(this.entries.has(id), "插件不存在或已被移除。")
+    check(
+      requestContext().source === "local",
+      "forbidden：插件管理仅本机可用。"
+    )
+    const task = this.packageTasks.get(id)
+    check(
+      task && !task.terminal && !task.cancelled,
+      "该插件没有可取消的包任务。"
+    )
+    // Pi 包管理器不支持中断子进程：尽力取消=标记放弃，任务结束后不应用结果。
+    task.cancelled = true
+    task.phase = "cancelling"
+    this.ports.notify?.({ operation: "$notify", event: "plugins-changed" })
+    return this.taskSnapshot(id, task)
+  }
+  async recover(signal) {
+    check(
+      requestContext().source === "local",
+      "forbidden：插件管理仅本机可用。"
+    )
+    check(
+      !this.changing && !this.frozen && !this.closed,
+      "插件正在变更，请稍后再试。"
+    )
+    check(
+      [...this.packageTasks.values()].every((task) => task.terminal),
+      "有安装或更新任务在进行，请等待其结束。"
+    )
+    let healthy = false
+    try {
+      await this.document()
+      healthy = true
+    } catch {
+      /* 配置损坏正是本操作的目标场景。 */
     }
+    check(!healthy, "插件配置可以读取，无需恢复。")
+    // 原文备份后重建空配置：内置插件回默认状态，已导入来源需重新添加。
+    await writeFile(
+      `${this.file}.broken-${Date.now()}`,
+      await readFile(this.file, "utf8")
+    )
+    await replaceJson(
+      this.file,
+      { version: 1, entries: {}, imports: [] },
+      { signal }
+    )
+    this.storageError = undefined
+    this.discovery = undefined
+    this.entries.clear()
+    await this.load()
     return this.list(signal)
   }
   async lease(entry, action) {
@@ -984,217 +1141,21 @@ export class PluginHost {
     })
   }
   validateSharedTools(tools) {
-    check(Array.isArray(tools) && tools.length <= 128, "共享工具声明无效。")
-    const seen = new Set()
-    for (const tool of tools) {
-      check(
-        /^[a-z][a-z0-9_]{0,47}$/.test(tool.name) &&
-          !seen.has(tool.name) &&
-          typeof tool.description === "string" &&
-          tool.description.length <= 8000 &&
-          typeof tool.execute === "function" &&
-          tool.inputSchema?.type === "object" &&
-          tool.inputSchema.additionalProperties === false,
-        "共享工具须使用唯一名称、说明、严格参数schema和执行方法。"
-      )
-      seen.add(tool.name)
-      check(
-        tool.annotations === undefined ||
-          (tool.annotations &&
-            typeof tool.annotations === "object" &&
-            !Array.isArray(tool.annotations) &&
-            Object.entries(tool.annotations).every(
-              ([key, value]) =>
-                [
-                  "readOnlyHint",
-                  "destructiveHint",
-                  "idempotentHint",
-                  "openWorldHint",
-                ].includes(key) && typeof value === "boolean"
-            )),
-        "共享工具annotations只允许声明的布尔影响提示。"
-      )
-    }
+    this.sharedToolGateway.validateSharedTools(tools)
   }
   sharedChanged() {
-    for (const listener of this.sharedListeners) {
-      try {
-        listener()
-      } catch {
-        /* Notifications cannot change lifecycle results. */
-      }
-    }
+    this.sharedToolGateway.changed()
   }
   sharedToolCatalog() {
-    if (this.closed || this.frozen) return []
-    return [...this.entries.values()]
-      .filter((entry) => entry.enabled && entry.state === "active")
-      .flatMap((entry) =>
-        (entry.application?.sharedTools || [])
-          .filter((tool) => tool.shareable === true)
-          .map((tool) => ({
-            name: `${entry.id}__${tool.name}`,
-            plugin: entry.id,
-            generation: entry.generation,
-            description: tool.description,
-            inputSchema: tool.inputSchema,
-            annotations: tool.annotations || {},
-          }))
-      )
+    return this.sharedToolGateway.catalog()
   }
   callSharedTool(name, ...args) {
-    const descriptor = this.sharedToolCatalog().find(
-      (tool) => tool.name === name
-    )
-    const entry = descriptor && this.entries.get(descriptor.plugin)
-    const pending = this.executeSharedTool(name, ...args)
-    if (entry) {
-      entry.sharedPending.add(pending)
-      void pending.then(
-        () => entry.sharedPending.delete(pending),
-        () => entry.sharedPending.delete(pending)
-      )
-    }
-    return pending
+    return this.sharedToolGateway.call(name, ...args)
   }
-  async executeSharedTool(
-    name,
-    input,
-    { allowed, generation, client = "未提供", signal } = {}
-  ) {
-    const callId = randomUUID(),
-      started = Date.now()
-    const descriptor = this.sharedToolCatalog().find(
-      (tool) => tool.name === name
-    )
-    const entry = descriptor && this.entries.get(descriptor.plugin)
-    const definition = entry?.application?.sharedTools?.find(
-      (tool) => `${entry.id}__${tool.name}` === name
-    )
-    const controller = new AbortController()
-    const abort = () => controller.abort()
-    signal?.addEventListener("abort", abort, { once: true })
-    if (signal?.aborted) abort()
-    entry?.sharedCalls.add(controller)
-    const metadata = {
-      callId,
-      source: "tool",
-      plugin: descriptor?.plugin || "",
-      tool: descriptor?.name || "未注册工具",
-      client,
-    }
-    let admitted = false
-    let inputSummary = ""
-    try {
-      check(
-        descriptor && definition?.shareable === true,
-        "共享工具已停用或未声明。"
-      )
-      check(allowed?.(name) === true, "共享工具未获用户授权。")
-      check(
-        generation === undefined || generation === descriptor.generation,
-        "共享工具代次已变化，请刷新目录。"
-      )
-      controller.signal.throwIfAborted()
-      validatePluginValue(definition.inputSchema, input)
-      inputSummary = safeSummary(definition, { phase: "input", input }, input)
-      await this.logs.append({
-        ...metadata,
-        status: "started",
-        input: inputSummary,
-      })
-      admitted = true
-      const result = await this.lease(entry, async () => {
-        check(
-          entry.generation === descriptor.generation && allowed(name),
-          "共享工具授权或代次已变化。"
-        )
-        controller.signal.throwIfAborted()
-        return definition.execute(
-          input,
-          { callId, source: "mcp" },
-          controller.signal
-        )
-      })
-      controller.signal.throwIfAborted()
-      check(
-        entry.state === "active" &&
-          entry.generation === descriptor.generation &&
-          allowed(name),
-        "共享工具已停止或授权已变化；请核对操作实际结果。"
-      )
-      check(
-        Buffer.byteLength(JSON.stringify(result)) <= 16 * 1024 * 1024 &&
-          result &&
-          typeof result === "object" &&
-          !Array.isArray(result) &&
-          (result.isError === undefined ||
-            typeof result.isError === "boolean") &&
-          (result.structuredContent === undefined ||
-            (result.structuredContent !== null &&
-              typeof result.structuredContent === "object" &&
-              !Array.isArray(result.structuredContent) &&
-              jsonValue(result.structuredContent))) &&
-          Array.isArray(result.content) &&
-          result.content.every(
-            (block) =>
-              block &&
-              typeof block === "object" &&
-              (block.type === "text"
-                ? typeof block.text === "string"
-                : block.type === "image" &&
-                  base64Image(block.data) &&
-                  typeof block.mimeType === "string" &&
-                  /^image\/[a-z0-9.+-]+$/i.test(block.mimeType))
-          ),
-        "共享工具结果格式或大小无效。"
-      )
-      await this.logs.append({
-        ...metadata,
-        status: result.isError ? "failed" : "succeeded",
-        durationMs: Date.now() - started,
-        input: inputSummary,
-        result: safeSummary(
-          definition,
-          { phase: "result", input, result },
-          result
-        ),
-        error: result.isError ? "工具返回失败；详细内容仅交给调用方。" : "",
-      })
-      return result
-    } catch (error) {
-      await this.logs.append({
-        ...metadata,
-        status: controller.signal.aborted
-          ? "cancelled"
-          : admitted
-            ? "failed"
-            : "rejected",
-        durationMs: Date.now() - started,
-        input: inputSummary || valueSummary(input),
-        error: controller.signal.aborted
-          ? "调用已取消；已等待执行收尾。"
-          : admitted
-            ? "工具执行失败；日志不保存原始错误内容。"
-            : "工具未启用、未授权、代次失效或参数无效。",
-      })
-      // The authorized caller gets actionable business diagnostics. Only the
-      // separate persisted log is restricted to the safe category above.
-      throw new Error(
-        controller.signal.aborted
-          ? "共享工具调用已取消。"
-          : admitted
-            ? String(
-                error?.message || "共享工具执行失败，请核对实际结果。"
-              ).slice(0, 2000)
-            : "共享工具不可调用：请刷新目录并核对授权、代次和参数。",
-        { cause: error }
-      )
-    } finally {
-      signal?.removeEventListener("abort", abort)
-      entry?.sharedCalls.delete(controller)
-    }
+  async executeSharedTool(name, input, options) {
+    return this.sharedToolGateway.executeSharedTool(name, input, options)
   }
+
   async call(id, operation, payload, sessionId, generation, signal) {
     await this.initialize()
     const entry = this.entries.get(id)
@@ -1285,7 +1246,15 @@ export class PluginHost {
                           "插件配置已变化，请在空闲时重新加载会话。"
                         )
                         return this.lease(entry, async () => {
-                          const result = await definition.execute(...args)
+                          // 内部 Pi 的受信上下文由宿主注入到 Pi SDK 五参签名之后的附加位；
+                          // 插件工具不能自报 actor。
+                          const result = await definition.execute(...args, {
+                            callId: randomUUID(),
+                            source: "pi",
+                            traceId: currentTraceId() || randomUUID(),
+                            sessionId: scope.sessionId || "",
+                            actorId: "internal-pi",
+                          })
                           return {
                             ...result,
                             details: {
@@ -1549,6 +1518,12 @@ export class PluginHost {
   }
   async close({ strict = false } = {}) {
     this.closed = true
+    // 进行中的包任务先落定（有界）：避免关闭时 node_modules 处于半写状态。
+    await Promise.allSettled(
+      [...this.packageTasks.values()].map((task) =>
+        bounded(task.promise, 60000, "插件包任务收尾超时，已放弃等待。")
+      )
+    )
     const results = await Promise.allSettled(
       [...this.entries.values()].reverse().map((entry) => this.stop(entry))
     )
@@ -1564,9 +1539,9 @@ export class PluginHost {
     this.sharedChanged()
     const results = await Promise.allSettled(
       [...this.entries.values()].flatMap((entry) => [
-        Promise.resolve().then(() => entry.application?.quiesce?.()),
-        entry.starting,
-        Promise.allSettled([...entry.sharedPending]),
+        bounded(Promise.resolve().then(() => entry.application?.quiesce?.())),
+        bounded(entry.starting ?? Promise.resolve()),
+        bounded(Promise.allSettled([...entry.sharedPending])),
       ])
     )
     if (results.some((result) => result.status === "rejected"))

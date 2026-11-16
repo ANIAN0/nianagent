@@ -10,13 +10,13 @@ import {
   useState,
 } from "react"
 
-import { insertComposerText } from "@/features/materials/composer-material-edit"
+import { insertComposerText } from "@/components/composer/composer-material-edit"
 
 import type { ComposerDraft, HomeSubmitReceipt } from "@/lib/composer/types"
-import type { HomeSubmission } from "@/features/conversation/conversation-draft-store"
-import { createHomeSubmission } from "@/features/conversation/conversation-draft-store"
+import type { HomeSubmission } from "@/lib/submission/home-draft-rules"
+import { createHomeSubmission } from "./home-draft-store"
 
-import { useMaterialPreparation } from "@/features/materials/use-material-preparation"
+import { useMaterialRuntime } from "@/lib/composer/material-runtime-port"
 import { composerDraftEligibility } from "@/components/composer/composer-policy"
 
 import {
@@ -27,7 +27,7 @@ import {
   followingHomeDraft,
   recoverRejectedHomeDraft,
   homeDraftRecoveryFromError,
-} from "./home-submission-draft"
+} from "@/lib/submission/home-draft-rules"
 import {
   feedbackFromError,
   type FeedbackDescription,
@@ -147,6 +147,7 @@ export function useHomeComposer({
     (active: boolean) => onMaterialSelectionActivity?.(sessionId, active),
     [sessionId, onMaterialSelectionActivity]
   )
+  const { useMaterialPreparation } = useMaterialRuntime()
   const materialController = useMaterialPreparation({
     sessionId,
     cwd: workspacePath,

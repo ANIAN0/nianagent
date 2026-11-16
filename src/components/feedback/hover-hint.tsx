@@ -10,7 +10,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { DisabledControlReason } from "@/components/composer/disabled-control-reason"
+import { DisabledControlReason } from "@/components/feedback/disabled-control-reason"
 
 /** One presentation for control help, complete labels and unavailable reasons. */
 export function HoverHint({

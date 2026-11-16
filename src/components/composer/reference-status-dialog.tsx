@@ -8,7 +8,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog"
 import { OperationFeedback } from "@/components/feedback/operation-feedback"
-import { fileReferenceFeedback } from "@/features/materials/material-reference-feedback"
+import { fileReferenceFeedback } from "@/lib/composer/material-reference-feedback"
 
 /** Unready inline references keep their recovery at the reference, not in a second card. */
 export function ReferenceStatusDialog({

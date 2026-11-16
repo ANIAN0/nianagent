@@ -85,6 +85,29 @@ export const pluginSchemas = {
     data: s("资源base64编码", { maxLength: 12000000 }),
     mime: s("资源MIME"),
   }),
+  PluginPackageTask: o(
+    {
+      phase: s("包任务阶段", {
+        enum: [
+          "none",
+          "running",
+          "applying",
+          "cancelling",
+          "done",
+          "failed",
+          "cancelled",
+        ],
+      }),
+      action: s("包管理动作", {
+        enum: ["install", "update", "remove"],
+      }),
+      error: s("受控失败原因"),
+      failedAt: s("失败所在阶段", {
+        enum: ["install", "resolve", "apply"],
+      }),
+    },
+    ["phase"]
+  ),
   PluginResponse: o({
     payload: json,
     generation: { type: "integer", minimum: 0 },
@@ -192,9 +215,35 @@ export const pluginOperations = {
       id,
       action: s("显式包管理操作", { enum: ["install", "update", "remove"] }),
     }),
-    a(r("PluginDescriptor")),
-    "安装、更新或移除已导入Pi来源",
+    r("PluginPackageTask"),
+    "安装、更新或移除已导入Pi来源；安装与更新立即返回任务",
     { id: "plugin-id", action: "install" },
+    "check"
+  ),
+  pluginPackageStatus: op(
+    "plugins.packageStatus",
+    ["id"],
+    o({ id }),
+    r("PluginPackageTask"),
+    "读取插件包任务状态",
+    { id: "plugin-id" }
+  ),
+  pluginPackageCancel: op(
+    "plugins.packageCancel",
+    ["id", "$signal"],
+    o({ id }),
+    r("PluginPackageTask"),
+    "请求取消进行中的包任务；包管理器结束后结果不应用",
+    { id: "plugin-id" },
+    "check"
+  ),
+  pluginRecover: op(
+    "plugins.recover",
+    ["$signal"],
+    o({}),
+    a(r("PluginDescriptor")),
+    "插件配置损坏时备份原文件并重置",
+    {},
     "check"
   ),
 }

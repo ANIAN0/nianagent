@@ -27,32 +27,10 @@ export class DesktopMaintenance {
   }
   activities() {
     const ready = this.service()
-    const activities = []
-    for (const [id, state] of ready?.conversations.active || []) {
-      if (
-        state.entry?.busy ||
-        state.controlBusy ||
-        state.phase === "running" ||
-        state.phase === "stopping"
-      )
-        activities.push({
-          id,
-          kind: "conversation",
-          label: state.record.title || "运行中的会话",
-          sessionId: id,
-          stoppable: true,
-        })
-    }
-    for (const [id, job] of ready?.jobs.jobs || []) {
-      if (!job.settled || job.cleanupError)
-        activities.push({
-          id,
-          kind: "authorization",
-          label: "进行中的模型授权",
-          sessionId: null,
-          stoppable: true,
-        })
-    }
+    const activities = [
+      ...(ready?.conversations.maintenanceActivities() ?? []),
+      ...(ready?.jobs.maintenanceActivities() ?? []),
+    ]
     for (const [id, request] of this.requests) {
       if (
         request.operation !== "$maintenance" &&
@@ -97,12 +75,13 @@ export class DesktopMaintenance {
           "服务已进入关闭阶段，只能重新启动恢复。"
         )
       await this.service()?.plugins.resume()
-      if (this.service()) this.service().conversations.maintenanceFrozen = false
+      if (this.service())
+        this.service().conversations.setMaintenanceFrozen(false)
       this.operationId = null
       return this.state(input.operationId)
     }
     this.operationId = input.operationId
-    if (this.service()) this.service().conversations.maintenanceFrozen = true
+    if (this.service()) this.service().conversations.setMaintenanceFrozen(true)
     await this.service()?.plugins.freeze()
     if (input.action === "freeze") return this.state(input.operationId)
     const ready = this.service()
@@ -115,27 +94,10 @@ export class DesktopMaintenance {
         "会话仍在运行，请稍后维护或明确停止。"
       )
     if (input.stopActive) {
-      // 明确停止也覆盖手动压缩等控制任务，不能只停止普通Pi prompt。
-      await ready?.conversations.controls.close({ strict: true })
-      for (const activity of conversations) {
-        // A send can reserve busy before its atomic start commit. Join its
-        // existing session boundary before reading the run identity to stop.
-        await ready.sessions.exclusive(activity.id, () => {})
-        const state = ready.conversations.active.get(activity.id)
-        if (!state) continue
-        if (state.entry?.busy)
-          await ready.conversations.stop(activity.id, state.record.runId)
-        // stop只表示接受停止；必须等待Pi运行和落盘真正完成。
-        await state.run
-        if (state.entry?.busy || state.controlBusy)
-          throw operationError(
-            "maintenance_unconfirmed",
-            "尚不能确认会话已停止。"
-          )
-      }
-      for (const [id, job] of ready?.jobs.jobs || [])
-        if (!job.settled || job.cleanupError) await ready.jobs.cancel(id)
+      await ready?.conversations.stopForMaintenance()
+      await ready?.jobs.stopForMaintenance()
     }
+
     const authorization = this.activities().filter(
       (activity) => activity.kind === "authorization"
     )
@@ -148,33 +110,11 @@ export class DesktopMaintenance {
     this.draining = true
     const requests = [...this.requests.values()]
     await Promise.allSettled(requests.map((request) => request.done))
-    for (const state of ready?.conversations.active.values() || []) {
-      if (
-        state.maintenanceSaveError ||
-        state.historyError ||
-        ready.conversations.persistence.get(state.manager)?.error
-      )
-        throw operationError(
-          "maintenance_unconfirmed",
-          "会话或队列存在未确认保存的内容，请重新启动 Moon 后核对原记录；不会继续迁移或安装。"
-        )
-    }
-    // 严格关闭汇总错误；不能把allSettled吞掉的失败当作安全保存。
-    const savedStates = [...(ready?.conversations.active.values() || [])]
+    const verifySaved = ready?.conversations.maintenanceCheckpoint()
+    verifySaved?.()
     this.closed = true
     await ready?.close({ strict: true })
-    if (
-      savedStates.some(
-        (state) =>
-          state.maintenanceSaveError ||
-          state.historyError ||
-          ready.conversations.persistence.get(state.manager)?.error
-      )
-    )
-      throw operationError(
-        "maintenance_unconfirmed",
-        "关闭期间仍有未确认保存的会话或回执，原身份保留，请重新启动恢复。"
-      )
+    verifySaved?.()
     return this.state(input.operationId)
   }
   state(operationId) {

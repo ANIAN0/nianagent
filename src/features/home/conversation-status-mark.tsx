@@ -1,4 +1,3 @@
-import { HoverHint } from "@/components/feedback/hover-hint"
 import { Circle, LoaderCircle } from "lucide-react"
 import type { ConversationStatus } from "@/lib/composer/types"
 
@@ -32,22 +31,17 @@ export function ConversationStatusMark({
     return null
   const spinning = status === "running" || status === "stopping"
   return (
-    <HoverHint
-      content={conversationStatusLabel(status, unread)}
-      label={conversationStatusLabel(status, unread)}
+    <span
+      className="conversation-status-mark"
+      data-status={status}
+      role="img"
+      aria-label={conversationStatusLabel(status, unread)}
     >
-      <span
-        className="conversation-status-mark"
-        data-status={status}
-        role="img"
-        aria-label={conversationStatusLabel(status, unread)}
-      >
-        {spinning ? (
-          <LoaderCircle className="motion-safe:animate-spin" aria-hidden />
-        ) : (
-          <Circle aria-hidden />
-        )}
-      </span>
-    </HoverHint>
+      {spinning ? (
+        <LoaderCircle className="motion-safe:animate-spin" aria-hidden />
+      ) : (
+        <Circle aria-hidden />
+      )}
+    </span>
   )
 }

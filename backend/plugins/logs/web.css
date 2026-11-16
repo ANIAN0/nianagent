@@ -56,3 +56,9 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+.logs-transport {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 16px;
+}

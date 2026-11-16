@@ -6,7 +6,7 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { OperationFeedback } from "@/components/feedback/operation-feedback"
 import { RecoveryAction } from "@/components/feedback/recovery-action"
-import { useApprovalReply } from "@/features/conversation/permissions/use-approval-reply"
+import { useApprovalReply } from "@/lib/operations/use-approval-reply"
 
 /** Pi business input has its own form; it is not a tool permission decision. */
 export function PluginInteractionRequest({

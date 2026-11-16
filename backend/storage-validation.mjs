@@ -12,13 +12,90 @@ async function readOptional(file) {
 }
 /** 启动确认只解析已落盘schema，不借读取触发unknown对账、重发、队列投递或扩展加载。 */
 export async function validateStorage(ready, directory) {
-  await ready.models.store.read()
-  await ready.conversationStore.document()
-  await ready.sessions.document()
-  await ready.mcp.document()
+  await ready.models()
+  await ready.conversations()
+  await ready.sessions()
+  await ready.mcp()
   // Optional extension corruption remains visible in extensions.list. It may
   // disable those extensions, but cannot prevent an independent local chat.
-  await ready.workspaces.read()
+  await ready.workspaces()
+  await validateQueueAndMaintenance(ready, directory)
+  return { readable: true }
+}
+
+/**
+ * 分层启动确认（G03）：平台可达即 readable；各领域存储独立核验，
+ * 单域损坏以显式条目呈现，不抛错、不阻塞其他域与工作台入口。
+ * 维护/迁移路径仍使用上面的 validateStorage 全量严格校验。
+ */
+const DOMAIN_CHECKS = [
+  { name: "models", run: (ready) => ready.models() },
+  { name: "conversations", run: (ready) => ready.conversations() },
+  { name: "sessions", run: (ready) => ready.sessions() },
+  { name: "mcp", run: (ready) => ready.mcp() },
+  { name: "workspaces", run: (ready) => ready.workspaces() },
+]
+
+const DOMAIN_CHECK_TIMEOUT_MS = 10_000
+
+export async function validateDomains(ready, directory) {
+  // 并行核验 + 每域超时：某域长期等待不再阻塞其他域与工作台入口（Q13）；
+  // 超时域显式呈现为不可用，不以空数据冒充成功，底层读取自行结束不消费其结果。
+  const withTimeout = async (run) => {
+    let timer
+    try {
+      return await Promise.race([
+        run(),
+        new Promise((_, reject) => {
+          timer = setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `领域核验超时（${DOMAIN_CHECK_TIMEOUT_MS / 1000}s），已隔离呈现为不可用。`
+                )
+              ),
+            DOMAIN_CHECK_TIMEOUT_MS
+          )
+        }),
+      ])
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+  const domains = await Promise.all(
+    DOMAIN_CHECKS.map(async ({ name, run }) => {
+      try {
+        // AC11：检查器以 ready 为入参（run() 无参调用会让五域全部 TypeError，
+        // 被误报为数据损坏）；超时隔离语义不变。
+        await withTimeout(() => run(ready))
+        return { name, ok: true }
+      } catch (error) {
+        return {
+          name,
+          ok: false,
+          // 显式呈现损坏/超时域；原始数据不动，恢复入口由各域自身提供
+          issue: error instanceof Error ? error.message : String(error),
+        }
+      }
+    })
+  )
+  // 队列/控制/维护记录沿用全量逻辑单独核验，失败同样按域隔离呈现
+  let legacy = null
+  try {
+    await withTimeout(() => validateQueueAndMaintenance(ready, directory))
+  } catch (error) {
+    legacy = error instanceof Error ? error.message : String(error)
+  }
+  domains.push(
+    legacy === null
+      ? { name: "queue-control-maintenance", ok: true }
+      : { name: "queue-control-maintenance", ok: false, issue: legacy }
+  )
+  return { readable: true, domains }
+}
+
+/** 抽取 validateStorage 的队列/控制/维护记录段，供分域与严格两条路径共用。 */
+async function validateQueueAndMaintenance(ready, directory) {
   let queues = []
   try {
     queues = await readdir(join(directory, "conversations", "queue"))
@@ -28,7 +105,7 @@ export async function validateStorage(ready, directory) {
   for (const name of queues.filter((name) =>
     /^[A-Za-z0-9_-]{1,128}\.json$/.test(name)
   ))
-    await ready.conversations.queue.document(name.slice(0, -5))
+    await ready.queueDocument(name.slice(0, -5))
   let controls = []
   try {
     controls = await readdir(join(directory, "conversations", "controls"))
@@ -93,22 +170,4 @@ export async function validateStorage(ready, directory) {
       retained.some((path) => typeof path !== "string" || !isAbsolute(path)))
   )
     throw new Error("旧数据副本记录损坏，原文件保留。")
-  return { readable: true }
-}
-
-/** 离线目标使用同一读取者；不初始化服务依赖、不发现扩展、不连接MCP、不对账unknown。 */
-export async function validateOfflineStorage(directory) {
-  // Pi加载前固定本进程自有目录，首次legacy导入也不会借用用户agent/Temp。
-  process.env.MOON_DATA_DIR = directory
-  process.env.MOON_RUNTIME_FILE = join(directory, "runtime.json")
-  process.env.PI_CODING_AGENT_DIR = join(directory, "agent")
-  process.env.TEMP = join(directory, "tmp")
-  process.env.TMP = join(directory, "tmp")
-  const { MoonServices } = await import("./services.mjs")
-  const ready = new MoonServices(directory)
-  try {
-    return await validateStorage(ready, directory)
-  } finally {
-    await ready.close({ strict: true })
-  }
 }

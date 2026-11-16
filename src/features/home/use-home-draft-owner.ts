@@ -4,10 +4,8 @@ import {
 } from "@/lib/maintenance/maintenance-coordinator"
 import { useComposerAnchor } from "@/lib/composer/use-composer-anchor"
 import { type ComposerEditorElement } from "@/components/composer/composer-editor-contract"
-import {
-  homeSessionId,
-  SessionServiceContext,
-} from "@/features/session/session-service"
+import { SessionServiceContext } from "@/lib/composer/session-config-port"
+import { homeSessionId } from "./home-draft-store"
 import { effectiveThinking } from "@/lib/composer/model-thinking"
 import "./home.css"
 import {
@@ -25,18 +23,18 @@ import type { ComposerDraft } from "@/lib/composer/types"
 import {
   bindHomeDraftIdentity,
   matchesHomeSubmission,
-} from "@/features/conversation/conversation-draft-store"
+} from "./home-draft-store"
 
 import { editableComposerDraft } from "@/components/composer/composer-policy"
 
 import {
   followingHomeDraft,
   homeDraftRecoveryKey,
-} from "./home-submission-draft"
+} from "@/lib/submission/home-draft-rules"
 
 import type { HomeComposerProps } from "./home-composer.types"
-import { MaterialServiceContext } from "@/features/materials/material-service"
-import { materialsBlockMaintenance } from "@/features/materials/upload-retry-sources"
+import { MaterialServiceContext } from "@/lib/composer/material-service-port"
+import { materialsBlockMaintenance } from "@/lib/composer/upload-retry-sources"
 
 /** 只维护这一组状态的所有权，迟到结果仍按原身份核对。 */
 export function useHomeDraftOwner({

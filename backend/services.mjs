@@ -12,16 +12,23 @@ import { WorkspaceService } from "./workspaces.mjs"
 import { ConversationStore } from "./conversation-store.mjs"
 import { ConversationCatalogService } from "./conversation-catalog.mjs"
 import { ConversationService } from "./conversations.mjs"
-import { validateRequest, dispatchOperation } from "./contract.mjs"
+import { operations, validateRequest, dispatchOperation } from "./contract.mjs"
 import { readWriteReceipt } from "./write-receipts.mjs"
-import { operationDependencies, serviceRoot } from "./service-registry.mjs"
+import {
+  assertRegistryCovers,
+  operationDependencies,
+  receiptRootFor,
+} from "./service-registry.mjs"
 import { settleResources } from "./close-resources.mjs"
 import { requestContext, withRequestContext } from "./request-context.mjs"
 
 /** 服务装配根：业务服务不再创建其他领域；就绪失败只阻断真实依赖它的操作。 */
 export class MoonServices {
-  /** @param {string} directory @param {{dispatchRequest?: (operation: string, input: any, signal?: AbortSignal) => Promise<any>}} [options] */
+  /** @param {string} directory @param {{dispatchRequest?: (operation: string, input: any, signal?: AbortSignal) => Promise<any>, diagnostics?: {append: (record: any) => any}, operationLog?: {query: (input: any) => Promise<any>, status: () => {queued: number, dropped: number, issue: string}}, notify?: (value: any) => void}} [options] */
   constructor(directory, options = {}) {
+    // G05：启动检查——每个契约操作必须归属已注册服务根；未知根不再默认 models
+    assertRegistryCovers(operations)
+    const self = this
     this.closed = false
     this.directory = directory
     this.ready = new Map()
@@ -30,22 +37,67 @@ export class MoonServices {
     this.extensions = new ExtensionService(directory)
     this.plugins = new PluginHost(directory, {
       authorizeSession: this.authorizeSession.bind(this),
+      // G01：装配只消费领域活动快照端口，不遍历会话/对话内部状态
       assertIdle: () => {
-        if (
-          [...this.sessions.active.values()].some(
-            (entry) => entry.busy || !entry.session.isIdle
-          ) ||
-          [...this.conversations.active.values()].some(
-            (state) =>
-              state.entry.busy ||
-              state.controlBusy ||
-              this.conversations.permissions.pendingFor(state.record.id).length
-          )
-        )
+        if (this.sessions.hasBusyWork() || this.conversations.hasPendingWork())
           throw new Error("当前执行或审批结束后才能更改插件。")
       },
       dispatch: options.dispatchRequest ?? this.dispatch.bind(this),
-      services: () => this,
+      // T20-3：传输终态日志只读诊断端口（logs 插件消费），未装配时为 undefined
+      operationLog: options.operationLog,
+      diagnostics: options.diagnostics,
+      // 后端主动通知链：包任务终态等经传输层转达桌面端（未装配时安全省略）
+      notify: options.notify,
+      // G02：插件只获得显式窄端口，不获取服务根；directory 用 getter 惰性解析
+      // （materials 在本构造器后段才创建）。
+      dataRoot: () => this.directory,
+      materials: {
+        get directory() {
+          return self.materials.directory
+        },
+        selection: (context, input, signal) =>
+          self.materials.selection(context, input, signal),
+        upload: (
+          sessionId,
+          cwd,
+          name,
+          mimeType,
+          data,
+          signal,
+          uploadIdentity
+        ) =>
+          self.materials.upload(
+            sessionId,
+            cwd,
+            name,
+            mimeType,
+            data,
+            signal,
+            uploadIdentity
+          ),
+        prepare: (sessionId, cwd, paths, signal, uploadIdentity) =>
+          self.materials.prepare(sessionId, cwd, paths, signal, uploadIdentity),
+        uploadAdoption: (identity, materialId) =>
+          Reflect.apply(self.materials.uploadAdoption, self.materials, [
+            identity,
+            materialId,
+          ]),
+      },
+      sessions: {
+        identity: (value) => self.sessions.identity(value),
+        cwd: (value) => self.sessions.cwd(value),
+      },
+      extensions: {
+        list: (signal) => this.extensions.list(signal),
+        configure: (id, revision, enabled, configuration, signal) =>
+          this.extensions.configure(
+            id,
+            revision,
+            enabled,
+            configuration,
+            signal
+          ),
+      },
     })
     this.sessions = new SessionService(directory, {
       runtime: this.models.runtime.bind(this.models),
@@ -85,7 +137,17 @@ export class MoonServices {
         )
     )
     this.jobs = this.models.jobs
-    this.boot = new BootService(directory, () => this)
+    this.boot = new BootService(directory, this.storageReaders())
+  }
+  storageReaders() {
+    return {
+      models: () => this.models.store.read(),
+      conversations: () => this.conversationStore.document(),
+      sessions: () => this.sessions.document(),
+      mcp: () => this.mcp.document(),
+      workspaces: () => this.workspaces.read(),
+      queueDocument: (id) => this.conversations.queue.document(id),
+    }
   }
   async authorizeSession(sessionId, context) {
     if (this.closed || this.conversations.maintenanceFrozen)
@@ -130,7 +192,6 @@ export class MoonServices {
     // errors remain in plugin descriptors and cannot block boot/ordinary Chat.
     if (operation === "bootStatus")
       void this.plugins.initialize().catch(() => {})
-    const root = serviceRoot(definition.method)
     // 工作区和材料/回执的独立读取不应因模型配置损坏而失去恢复入口。
     const initializers = {
       models: () => this.models.initialize(),
@@ -141,18 +202,28 @@ export class MoonServices {
     for (const dependency of operationDependencies(definition.method))
       await this.initializeOnce(dependency, initializers[dependency])
     signal?.throwIfAborted()
-    const owner = root in this && root !== "models" ? this : this.models
+    // AC12：owner 与方法解析契约统一——dispatchOperation 以装配根为起点按
+    // method 路径逐级解析（models.list → this.models.list）。此前对 models 根
+    // 先窄化 this.models 再按全路径解析，this.models.models 为 undefined 必崩；
+    // 其余根行为不变；未知根仍由 serviceRoot 显式拒绝（G05，不默认转 models）。
     return withRequestContext(
       this.plugins.captureRequestContext(requestContext(), input.sessionId),
-      () => dispatchOperation(owner, operation, input, signal)
+      () => dispatchOperation(this, operation, input, signal)
     )
   }
+  /** G05：writeReceiptRead 的显式归属端口（旧隐式根回退路径无法到达本方法）。 */
+  writeReceipts = {
+    read: (operation, requestId, signal) =>
+      this.writeReceipt(operation, requestId, signal),
+  }
   writeReceipt(operation, requestId, signal) {
-    const store = operation.startsWith("mcp")
-      ? this.mcp.receiptStore()
-      : operation === "extensionConfigure"
-        ? this.extensions.receiptStore()
-        : this.models.store
+    const root = receiptRootFor(operation, operations)
+    const store =
+      root === "mcp"
+        ? this.mcp.receiptStore()
+        : root === "extensions"
+          ? this.extensions.receiptStore()
+          : this.models.store
     return readWriteReceipt(store, operation, requestId, signal)
   }
   async close({ strict = false } = {}) {

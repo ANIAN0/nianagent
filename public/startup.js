@@ -1,5 +1,7 @@
 /* global window, document, navigator, HTMLScriptElement */
 // 入口脚本自身失效时不能依赖同一模块显示错误，也不公开原始异常。
+// 页面时间原点：静态页、React 启动面据此接续呼吸相位，交接不回卷动画。
+window.moonBootEpoch = performance.now()
 window.moonInitialBootState = { deadline: Date.now() + 30000, failed: false }
 const moonInitialStage = document.getElementById("moon-initial-stage")
 // 快启动保持安静：超过1.5秒仍没就绪才显示阶段文本。
@@ -7,18 +9,27 @@ window.setTimeout(function () {
   if (!window.moonInitialBootState.failed && moonInitialStage)
     moonInitialStage.hidden = false
 }, 1500)
-window.moonInitialBootFailure = function () {
+// G08：自动恢复分类——仅"入口脚本加载失败"属于可重试的资源暂态（如依赖重优化），
+// 触发一次有界重载并记录原因/次数；超时路径不自动重载，直接进入恢复页。
+window.moonInitialBootFailure = function (kind) {
   const surface = document.getElementById("moon-initial-boot")
   if (!surface) return
-  // 临时资源等待（如开发环境依赖重优化）先静默重载一次；重载仍失败才亮恢复页。
-  try {
-    if (window.sessionStorage.getItem("moon-boot-reload") !== "1") {
-      window.sessionStorage.setItem("moon-boot-reload", "1")
-      window.location.reload()
-      return
+  var reason = kind === "script-error" ? "入口脚本加载失败" : "界面加载超时"
+  if (kind === "script-error") {
+    try {
+      var attempts = Number(window.sessionStorage.getItem("moon-boot-reload") || "0")
+      if (attempts < 1) {
+        window.sessionStorage.setItem("moon-boot-reload", String(attempts + 1))
+        console.warn("[moon-boot] 入口脚本加载失败，执行一次有界重载（第 " + (attempts + 1) + " 次）")
+        window.location.reload()
+        return
+      }
+      console.warn("[moon-boot] 重载后仍失败，进入恢复页")
+    } catch (error) {
+      /* 存储不可用时直接显示失败。 */
     }
-  } catch (error) {
-    /* 存储不可用时直接显示失败。 */
+  } else {
+    console.warn("[moon-boot] " + reason + "，等待用户手动恢复")
   }
   window.moonInitialBootState.failed = true
   surface.dataset.status = "failed"
@@ -56,7 +67,9 @@ document
         button.disabled = false
       })
   })
-window.setTimeout(window.moonInitialBootFailure, 30000)
+window.setTimeout(function () {
+  window.moonInitialBootFailure("timeout")
+}, 30000)
 window.addEventListener(
   "error",
   function (event) {
@@ -64,7 +77,7 @@ window.addEventListener(
       event.target instanceof HTMLScriptElement &&
       event.target.id === "moon-main-module"
     )
-      window.moonInitialBootFailure()
+      window.moonInitialBootFailure("script-error")
   },
   true
 )

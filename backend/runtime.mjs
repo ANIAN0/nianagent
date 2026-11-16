@@ -64,12 +64,17 @@ export async function startRuntime(file, dispatch, publicFailure) {
           : 1024 * 1024
       )
       const clientId = String(req.headers["x-moon-client"] || "browser")
+      // G10：HTTP 入口识别 x-moon-trace（bridge/前端可传递），与桌面信封 traceId 同义
+      const headerTrace = String(req.headers["x-moon-trace"] ?? "")
       const result = await withRequestContext(
         {
           source: "local",
           clientId,
           connectionId: instance,
           viewGeneration: 0,
+          traceId: /^[0-9a-f-]{36}$/i.test(headerTrace)
+            ? headerTrace
+            : undefined,
         },
         () => dispatch(operation, input, controller.signal)
       )

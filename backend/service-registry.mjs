@@ -61,10 +61,48 @@ export const serviceRegistry = {
     source: "backend/write-receipts.mjs",
     storage: "按操作领域核对原回执",
   },
+  writeReceipts: {
+    ready: [],
+    source: "backend/services.mjs",
+    storage: "原写回执读取端口（MoonServices.writeReceipts.read）",
+  },
+}
+
+/** 装配时拒绝重复公开名称，不能让后加载的领域覆盖已有操作。 */
+export function mergeOperationGroups(...groups) {
+  const result = {}
+  for (const group of groups) {
+    for (const [name, definition] of Object.entries(group)) {
+      if (Object.hasOwn(result, name))
+        throw new Error(`操作 ${name} 被重复注册。`)
+      result[name] = definition
+    }
+  }
+  return result
 }
 export function serviceRoot(method) {
   const root = method.split(".")[0]
-  return Object.hasOwn(serviceRegistry, root) ? root : "models"
+  if (!Object.hasOwn(serviceRegistry, root))
+    // G05：未知根不再默认 models；契约与注册表不一致在启动检查/分发时显式失败
+    throw new Error(`操作根 ${root} 未注册服务归属。`)
+  return root
+}
+
+/** G05：启动检查——契约中每个操作的根都必须已注册；缺失即装配失败。 */
+export function assertRegistryCovers(operations) {
+  for (const [name, definition] of Object.entries(operations ?? {})) {
+    const root = String(definition.method || "").split(".")[0]
+    if (!Object.hasOwn(serviceRegistry, root))
+      throw new Error(`操作 ${name} 的归属根 ${root} 未注册（G05 启动检查）。`)
+  }
+}
+
+/** G05：写回执存储按注册表根归属；替代按操作名前缀猜测。 */
+export function receiptRootFor(operation, operations) {
+  const definition = operations?.[operation]
+  if (!definition) throw new Error(`未知操作 ${operation}，无法确定回执归属。`)
+  const root = serviceRoot(definition.method)
+  return root === "mcp" || root === "extensions" ? root : "models"
 }
 export function operationDependencies(method) {
   // 命令原回执独立可读；命令接受流程自己捕获准备故障并保存拒绝终态。

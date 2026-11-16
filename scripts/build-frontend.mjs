@@ -74,12 +74,7 @@ export async function loadMoonViteConfig(options = {}) {
 export async function createBuildGraphs(options = {}) {
   const appConfig = await loadMoonViteConfig(options)
   const allEntries = appConfig.build.rolldownOptions.input
-  const graphs = [
-    [
-      "app",
-      { app: allEntries.app, pluginDevelopment: allEntries.pluginDevelopment },
-    ],
-  ]
+  const graphs = [["app", { app: allEntries.app }]]
   return graphs.map(([name, input], index) => {
     const config = appConfig
     return {

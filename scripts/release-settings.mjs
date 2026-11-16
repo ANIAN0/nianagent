@@ -12,6 +12,8 @@ export function packagingEnvironment() {
   // 部署/依赖加载不需要发行私钥，避免传给后端运行时及其依赖。
   delete environment.TAURI_SIGNING_PRIVATE_KEY
   delete environment.TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+  // 防止 pwsh (PowerShell 7) 的模块路径污染 Windows PowerShell 5.1 (powershell.exe)。
+  delete environment.PSModulePath
   return environment
 }
 

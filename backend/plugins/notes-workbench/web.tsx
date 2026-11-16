@@ -1,22 +1,18 @@
 import { useEffect, useRef, useState } from "react"
 import { invoke as tauriInvoke, isTauri } from "@tauri-apps/api/core"
+import { Copy, ExternalLink, RefreshCw, RotateCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
-import {
-  Field,
-  FieldGroup,
-  FieldLabel,
-  FieldDescription,
-} from "@/components/ui/field"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Field, FieldLabel, FieldDescription } from "@/components/ui/field"
 import { callPlugin, pluginsChanged } from "@/features/plugins/plugin-service"
 import type {
   PluginDeliveryProps,
   PluginWebModule,
 } from "@/features/plugins/plugin-api"
 import { isRemoteWeb } from "@/lib/rpc/remote-transport"
-import { MOON_OPEN_NOTES_EVENT } from "@/features/notes-workbench/notes-events"
 import "./web.css"
 
 type WorkbenchStatus = {
@@ -26,8 +22,6 @@ type WorkbenchStatus = {
   revision: number
   issue: string
   logIssue: string
-  directories: number
-  pages: number
 }
 const invoke = async <T,>(name: string, input: object, signal?: AbortSignal) =>
   (
@@ -45,7 +39,6 @@ const message = (error: unknown) =>
 export function Page() {
   const [value, setValue] = useState<WorkbenchStatus>()
   const [port, setPort] = useState("")
-  const [token, setToken] = useState("")
   const [error, setError] = useState("")
   const [notice, setNotice] = useState("")
   const [pending, setPending] = useState(false)
@@ -54,7 +47,6 @@ export function Page() {
   const apply = (next: WorkbenchStatus) => {
     setValue(next)
     setPort(String(next.port))
-    setToken("")
   }
   useEffect(() => {
     const controller = new AbortController()
@@ -95,257 +87,252 @@ export function Page() {
     !/^\d+$/.test(port) || Number(port) < 1024 || Number(port) > 65535
   const dirty = value && Number(port) !== value.port
   return (
-    <section className="notes-workbench-page" aria-label="Moon 笔记工作台">
-      <header className="notes-workbench-header">
-        <div>
-          <h2>笔记工作台</h2>
-          <p>与 agent 在真实前端页面上圈选元素沟通样式。</p>
-        </div>
-        <div className="notes-workbench-header-side">
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={pending}
-            onClick={() =>
-              void run(async (signal) => {
-                const next = await invoke<WorkbenchStatus>("status", {}, signal)
-                if (!signal.aborted) apply(next)
-              })
-            }
-          >
-            重新读取
-          </Button>
-          <Badge variant={value?.running ? "secondary" : "outline"}>
-            {value ? (value.running ? "运行中" : "未监听") : "读取中"}
-          </Badge>
-        </div>
-      </header>
+    <div className="flex min-w-0 flex-col gap-5" aria-label="Moon 笔记工作台">
       {error && (
         <Alert>
           <AlertTitle>操作未完成</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      {notice && <p role="status">{notice}</p>}
       {(value?.issue || value?.logIssue) && (
         <Alert>
           <AlertTitle>服务需要处理</AlertTitle>
           <AlertDescription>{value.issue || value.logIssue}</AlertDescription>
         </Alert>
       )}
-      {value && (
-        <FieldGroup>
-          <Field>
-            <FieldLabel htmlFor="moon-notes-address">工作台地址</FieldLabel>
-            <div className="notes-workbench-actions">
-              <Input id="moon-notes-address" readOnly value={value.url} />
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={pending}
-                onClick={() => void run((signal) => copy(value.url, signal))}
-              >
-                复制
-              </Button>
-              <Button
-                size="sm"
-                disabled={pending || !value.running}
-                onClick={() =>
-                  void run(async (signal) => {
-                    const opened = await invoke<{ ticket: string }>(
-                      "ticket",
-                      {},
-                      signal
-                    )
-                    if (signal.aborted) return
-                    const url = `${value.url}?ticket=${opened.ticket}`
-                    // 桌面 WebView 不处理 window.open，走系统浏览器（与模型授权同模式）。
-                    if (isTauri()) await tauriInvoke("open_local_url", { url })
-                    else window.open(url, "_blank", "noopener,noreferrer")
-                  })
-                }
-              >
-                打开工作台
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={pending}
-                onClick={() =>
-                  void run(async (signal) => {
-                    await invoke("reload", {}, signal)
-                    if (!signal.aborted)
-                      setNotice("页面资源已重载，已打开的工作台将自动刷新。")
-                  })
-                }
-              >
-                重载页面
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={pending}
-                onClick={() =>
-                  void run(async (signal) => {
-                    const result = await invoke<{
-                      createdDirectories: number
-                      createdPages: number
-                      skipped: number
-                    }>("load_seed", {}, signal)
-                    if (!signal.aborted)
-                      setNotice(
-                        `已导入示例：新建 ${result.createdDirectories} 个目录、${result.createdPages} 个页面，跳过 ${result.skipped} 个同名页面。`
+      {!value ? (
+        <div className="flex flex-col gap-4" aria-label="正在读取工作台状态">
+          <Skeleton className="h-36 w-full rounded-xl" />
+          <Skeleton className="h-32 w-full rounded-xl" />
+        </div>
+      ) : (
+        <>
+          <section
+            className="flex flex-col gap-4 rounded-xl border bg-card p-5"
+            aria-label="工作台服务与入口"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <h3 className="text-sm font-semibold">本机工作台服务</h3>
+                <Badge variant={value.running ? "secondary" : "outline"}>
+                  {value.running ? "运行中" : "未监听"}
+                </Badge>
+                {notice && (
+                  <span role="status" className="text-xs text-muted-foreground">
+                    {notice}
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={pending}
+                  onClick={() =>
+                    void run(async (signal) => {
+                      const next = await invoke<WorkbenchStatus>(
+                        "status",
+                        {},
+                        signal
                       )
-                  })
-                }
-              >
-                导入目录示例
-              </Button>
-            </div>
-            <FieldDescription>
-              仅本机 127.0.0.1 可访问；agent
-              通过笔记工具创建目录与页面。更新构建产物后点「重载页面」，已打开的工作台自动刷新。
-            </FieldDescription>
-          </Field>
-          <Field data-invalid={invalidPort}>
-            <FieldLabel htmlFor="moon-notes-port">固定端口</FieldLabel>
-            <Input
-              id="moon-notes-port"
-              type="number"
-              min={1024}
-              max={65535}
-              value={port}
-              aria-invalid={invalidPort}
-              onChange={(event) => setPort(event.target.value)}
-            />
-            <FieldDescription>1024–65535。</FieldDescription>
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="moon-notes-token">访问 token</FieldLabel>
-            <Input
-              id="moon-notes-token"
-              readOnly
-              type={token ? "text" : "password"}
-              value={token || "••••••••••••••••"}
-            />
-            <div className="notes-workbench-actions">
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={pending}
-                onClick={() =>
-                  token
-                    ? setToken("")
-                    : void run(async (signal) => {
-                        const revealed = await invoke<{ token: string }>(
-                          "reveal",
-                          {},
-                          signal
-                        )
-                        if (!signal.aborted) setToken(revealed.token)
-                      })
-                }
-              >
-                {token ? "隐藏" : "显示"}
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={pending}
-                onClick={() =>
-                  void run(async (signal) => {
-                    const revealed = await invoke<{ token: string }>(
-                      "reveal",
-                      {},
-                      signal
-                    )
-                    if (!signal.aborted) await copy(revealed.token, signal)
-                  })
-                }
-              >
-                复制
-              </Button>
-            </div>
-            <FieldDescription>
-              打开经一次性票据完成；token
-              仅注入页面内存与会话存储，此处供显示或手工复制。
-            </FieldDescription>
-          </Field>
-          <div className="notes-workbench-actions">
-            <Button
-              disabled={pending || invalidPort || !dirty}
-              onClick={() =>
-                void run(async (signal) => {
-                  const next = await invoke<WorkbenchStatus>(
-                    "save",
-                    { revision: value.revision, port: Number(port) },
-                    signal
-                  )
-                  if (!signal.aborted) {
-                    apply(next)
-                    pluginsChanged()
-                    setNotice("端口已保存。")
+                      if (!signal.aborted) apply(next)
+                    })
                   }
-                })
-              }
-            >
-              {pending ? "处理中…" : "保存端口"}
-            </Button>
-            {dirty && <p>有未保存的更改</p>}
-          </div>
-        </FieldGroup>
+                >
+                  <RefreshCw className="size-3.5" />
+                  刷新状态
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={pending}
+                  onClick={() =>
+                    void run(async (signal) => {
+                      await invoke("reload", {}, signal)
+                      if (!signal.aborted)
+                        setNotice("页面资源已重载，请刷新已打开的工作台。")
+                    })
+                  }
+                >
+                  <RotateCw className="size-3.5" />
+                  重载页面
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={pending || !value.running}
+                  onClick={() =>
+                    void run(async (signal) => {
+                      if (signal.aborted) return
+                      // 先换一次性票据再打开；长期 token 由页面资源注入内存，不进入 URL。
+                      const opened = await invoke<{
+                        ticket: string
+                        url: string
+                      }>("ticket", {}, signal)
+                      // 桌面 WebView 不处理 window.open，走系统浏览器（与模型授权同模式）。
+                      if (isTauri())
+                        await tauriInvoke("open_local_url", { url: opened.url })
+                      else
+                        window.open(opened.url, "_blank", "noopener,noreferrer")
+                    })
+                  }
+                >
+                  <ExternalLink className="size-3.5" />
+                  打开工作台
+                </Button>
+              </div>
+            </div>
+            <Field>
+              <FieldLabel htmlFor="moon-notes-address">工作台地址</FieldLabel>
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  id="moon-notes-address"
+                  readOnly
+                  className="min-w-0 flex-1 font-mono text-xs"
+                  value={value.url}
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={pending}
+                  onClick={() => void run((signal) => copy(value.url, signal))}
+                >
+                  <Copy className="size-3.5" />
+                  复制
+                </Button>
+              </div>
+              <FieldDescription>
+                仅本机回环可访问；Agent 通过 MCP 发布产物与读取评论。
+              </FieldDescription>
+            </Field>
+          </section>
+
+          <section
+            className="flex flex-col gap-4 rounded-xl border bg-card p-5"
+            aria-label="端口设置"
+          >
+            <h3 className="text-sm font-semibold">端口设置</h3>
+            <Field data-invalid={invalidPort}>
+              <FieldLabel htmlFor="moon-notes-port">固定端口</FieldLabel>
+              <div className="flex flex-wrap items-center gap-3">
+                <Input
+                  id="moon-notes-port"
+                  type="number"
+                  min={1024}
+                  max={65535}
+                  className="w-36"
+                  value={port}
+                  aria-invalid={invalidPort}
+                  onChange={(event) => setPort(event.target.value)}
+                />
+                <Button
+                  size="sm"
+                  disabled={pending || invalidPort || !dirty}
+                  onClick={() =>
+                    void run(async (signal) => {
+                      const next = await invoke<WorkbenchStatus>(
+                        "save",
+                        { revision: value.revision, port: Number(port) },
+                        signal
+                      )
+                      if (!signal.aborted) {
+                        apply(next)
+                        pluginsChanged()
+                        setNotice("端口已保存。")
+                      }
+                    })
+                  }
+                >
+                  {pending ? "处理中…" : "保存端口"}
+                </Button>
+                {dirty && (
+                  <span className="text-xs text-muted-foreground">
+                    有未保存的更改
+                  </span>
+                )}
+              </div>
+              <FieldDescription>
+                范围 1024–65535，修改后将自动切换监听。
+              </FieldDescription>
+            </Field>
+          </section>
+        </>
       )}
-    </section>
+    </div>
   )
 }
 type NotesPagePayload = {
-  pageId: string
-  name?: string
+  draftId: string
+  versionId?: string
   title?: string
-  commentCount?: number
+  summary?: string
 }
 
-/** 聊天内交付卡：列出本轮创建或更新的笔记页面，可跳进内嵌工作台对应页面。 */
+/** 聊天内交付卡：列出本轮发布或更新的笔记版本，换票后在浏览器工作台打开对应 v2 视图。 */
 export function NotesPageDelivery({
   delivery,
   deliveries = [delivery],
 }: PluginDeliveryProps) {
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState("")
   const pages = new Map<string, NotesPagePayload>()
   for (const record of deliveries) {
     const value = JSON.parse(record.payload) as NotesPagePayload
-    if (typeof value.pageId !== "string") throw new Error("交付页面标识无效。")
-    pages.set(value.pageId, value)
+    if (typeof value.draftId !== "string" || !value.draftId)
+      throw new Error("交付草稿标识无效。")
+    pages.set(
+      value.versionId ? `${value.draftId}#${value.versionId}` : value.draftId,
+      value
+    )
+  }
+  const openInWorkbench = async (item: NotesPagePayload) => {
+    setPending(true)
+    setError("")
+    try {
+      const status = await invoke<WorkbenchStatus>("status", {})
+      if (!status.running || !status.url)
+        throw new Error("笔记工作台未运行；请在插件详情页启用后重试。")
+      // 先换一次性票据；深链与票据分离——hash 进地址，token 只进内存。
+      const opened = await invoke<{ ticket: string; url: string }>("ticket", {})
+      const params = new URLSearchParams({ draft: item.draftId })
+      if (item.versionId) params.set("version", item.versionId)
+      const url = `${opened.url}#v2?${params}`
+      // 桌面 WebView 不处理 window.open，走系统浏览器（与插件详情页同模式）。
+      if (isTauri()) await tauriInvoke("open_local_url", { url })
+      else window.open(url, "_blank", "noopener,noreferrer")
+    } catch (reason) {
+      setError(message(reason))
+    } finally {
+      setPending(false)
+    }
   }
   return (
     <section className="notes-delivery-card">
-      <strong>笔记页面</strong>
+      <strong>笔记版本</strong>
       {[...pages.values()].map((page) => (
         <div
-          key={page.pageId}
+          key={
+            page.versionId ? `${page.draftId}#${page.versionId}` : page.draftId
+          }
           className="flex flex-wrap items-center justify-between gap-2"
         >
           <span>
-            {page.title || page.name || "笔记页面"}
-            {page.commentCount ? ` · ${page.commentCount} 条评论` : ""}
+            {page.title || "笔记版本"}
+            {page.summary ? ` · ${page.summary}` : ""}
           </span>
           {/* 工作台操作均限本机（remote: false），远程 Web 只展示清单不提供跳转。 */}
           {!isRemoteWeb() && (
             <Button
               variant="outline"
               size="sm"
-              onClick={() =>
-                window.dispatchEvent(
-                  new CustomEvent(MOON_OPEN_NOTES_EVENT, {
-                    detail: { pageId: page.pageId },
-                  })
-                )
-              }
+              disabled={pending}
+              onClick={() => void openInWorkbench(page)}
             >
               在工作台打开
             </Button>
           )}
         </div>
       ))}
+      {error && <p className="m-0 text-[12px] text-destructive">{error}</p>}
     </section>
   )
 }

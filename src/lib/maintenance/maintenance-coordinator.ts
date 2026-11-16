@@ -49,6 +49,8 @@ const maintenanceAllowed = new Set<ModelOperation>([
   "materialRestore",
   "mcpList",
   "extensionList",
+  "pluginList",
+  "pluginResource",
   "writeReceiptRead",
   "conversationPermissionRead",
   "conversationCommandRead",

@@ -6,7 +6,7 @@ import {
   type FeedbackDescription,
 } from "@/lib/operation-issue"
 import { Skeleton } from "@/components/ui/skeleton"
-import type { HistoryState } from "@/features/conversation/conversation-catalog-service"
+import type { HistoryState } from "@/lib/submission/conversation-handoff"
 
 export type ConversationListFeedbackProps = {
   state?: HistoryState

@@ -20,7 +20,11 @@ if (tagIndex >= 0 && arguments_[tagIndex + 1] !== `v${version}`)
   throw new Error(`发行 tag 必须与产品版本一致：v${version}`)
 
 // 产品版本只有一处人工维护；同步命令不递增版本，CI 只检查。
-for (const file of ["package.json", "backend/package.json"]) {
+for (const file of [
+  "package.json",
+  "backend/package.json",
+  "backend/plugins/notes-workbench/package.json",
+]) {
   const path = resolve(projectRoot, file)
   const contents = JSON.parse(await readFile(path, "utf8"))
   if (check && contents.version !== version)

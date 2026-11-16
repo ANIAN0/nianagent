@@ -2,9 +2,10 @@ import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { randomUUID } from "node:crypto"
 import { replaceJson } from "./atomic-file.mjs"
+import { redactSensitive } from "./redact.mjs"
 
 export const logRetention = {
-  days: 30,
+  days: 14,
   maxEntries: 10000,
   maxBytes: 8 * 1024 * 1024,
 }
@@ -47,7 +48,9 @@ export function safeSummary(definition, values, fallback) {
     const text = definition?.summarize?.(values)
     if (typeof text === "string") return text.slice(0, 2048)
   } catch {
-    /* A diagnostic callback cannot change the business result. */
+    // A presentation callback cannot change the business result, but its failure
+    // must remain visible instead of looking like a successful custom summary.
+    return `摘要生成失败；${valueSummary(fallback)}`
   }
   return valueSummary(fallback)
 }
@@ -91,8 +94,35 @@ export class ActivityLog {
         input: "",
         result: "",
         error: "",
-        ...record,
+        ...Object.fromEntries(
+          [
+            "source",
+            "plugin",
+            "tool",
+            "status",
+            "durationMs",
+            "callId",
+            "client",
+            "input",
+            "result",
+            "error",
+            "actorId",
+            "credentialId",
+          ]
+            .filter((key) => Object.hasOwn(record, key))
+            .map((key) => [key, record[key]])
+        ),
       }
+      // AC13：业务日志出口统一脱敏（MCP 事件、工作台事件、共享工具摘要共用本入口）
+      entry.error = redactSensitive(
+        typeof entry.error === "string" ? entry.error : ""
+      )
+      entry.input = redactSensitive(
+        typeof entry.input === "string" ? entry.input : ""
+      )
+      entry.result = redactSensitive(
+        typeof entry.result === "string" ? entry.result : ""
+      )
       const entries = retained([...this.entries, entry])
       await replaceJson(this.file, { version: 1, entries })
       this.entries = entries

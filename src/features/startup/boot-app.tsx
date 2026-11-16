@@ -31,8 +31,14 @@ const labels: Record<BootStage, string> = {
 }
 type LocalFailure = { message: string; stage: "frontendProfile" | "workbench" }
 
+export type WorkbenchLoader = () => Promise<{ default: ComponentType }>
+
 /** 先真实服务、当前profile与模块，最后权威ack；ready前不挂任何业务owner。 */
-export default function BootApp() {
+export default function BootApp({
+  loadWorkbench,
+}: {
+  loadWorkbench: WorkbenchLoader
+}) {
   const [service] = useState(createBootService)
   const view = useSyncExternalStore(
     service.subscribe,
@@ -112,7 +118,7 @@ export default function BootApp() {
         if (alreadyReady || currentStage === "workbench") {
           currentStage = "workbench"
           setFrontendStage("workbench")
-          const module = await loadStartupModule(import("../../app-entry"))
+          const module = await loadStartupModule(loadWorkbench())
           if (disposed) return
           loadedIdentity.current = pageIdentity
           setLoadedPageIdentity(pageIdentity)
@@ -158,12 +164,13 @@ export default function BootApp() {
     view.issue,
     view.listening,
     failure,
+    loadWorkbench,
   ])
 
   useEffect(() => {
     if (desktop || !view.browserReady || Workbench || failure) return
     let disposed = false
-    void loadStartupModule(import("../../app-entry"))
+    void loadStartupModule(loadWorkbench())
       .then((module) => {
         if (!disposed) setWorkbench(() => module.default)
       })
@@ -177,12 +184,14 @@ export default function BootApp() {
     return () => {
       disposed = true
     }
-  }, [desktop, view.browserReady, Workbench, failure])
+  }, [desktop, view.browserReady, Workbench, failure, loadWorkbench])
 
   const ready = desktop ? snapshot?.phase === "ready" : view.browserReady
   const issue = snapshot?.issue
   const message = view.issue ?? issue?.message ?? failure?.message ?? null
   const failed = !!message || snapshot?.phase === "failed"
+  // 浏览器等待态如实进详情：失败与等待共用步骤位，等待不算失败。
+  const serviceDetail = message ?? view.waiting
   let steps: StartupStep[]
   if (desktop && snapshot) {
     const stage =
@@ -220,7 +229,9 @@ export default function BootApp() {
         id: "service",
         label: "连接本地服务并读取数据",
         status: view.browserReady ? "complete" : failed ? "failed" : "active",
-        ...(!view.browserReady && message ? { detail: message } : {}),
+        ...(!view.browserReady && serviceDetail
+          ? { detail: serviceDetail }
+          : {}),
       },
       {
         id: "workbench",
@@ -285,6 +296,14 @@ export default function BootApp() {
         {!desktop && view.issue && (
           <p role="status" className="border-b p-2 text-sm">
             {view.issue}
+          </p>
+        )}
+        {!desktop && view.degraded && (
+          <p
+            role="status"
+            className="border-b bg-amber-500/10 p-2 text-sm text-amber-600 dark:text-amber-400"
+          >
+            {view.degraded}
           </p>
         )}
         <Workbench />

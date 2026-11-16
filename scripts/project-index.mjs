@@ -85,7 +85,7 @@ export const directoryRules = {
   ],
   scripts: [
     "开发检查、生成和构建工具",
-    "服务于现有命令与 CI，不保存过程记录和测试脚本。",
+    "服务于现有命令与 CI，可保留登记用途的正式回归源码；过程脚本与运行产物放在 .dev。",
   ],
   "scripts/release-verifier": [
     "发行签名校验程序",
@@ -94,16 +94,12 @@ export const directoryRules = {
   public: ["网页静态资源与最早启动表面", "静态入口不依赖 React 装载成功。"],
   "public/fonts": ["本地字体和许可证", "正式字体资源无需外部 CDN。"],
   devtools: [
-    "开发工具统一网页与文件职责登记",
-    "只读插件规范网页随正式版发布；项目索引、组件演示和接口调试仅在 dev 提供。",
+    "文件职责与模块边界登记",
+    "project-purposes.json 与 project-modules.ts 服务治理脚本，不承载产品页面。",
   ],
-  "src/features/plugin-development": [
-    "正式插件开发规范与阅读组件",
-    "规范正文是版本管理的产品内容；设置与独立网页单源呈现，不加载插件或调用会话服务。",
-  ],
-  "src/features/developer-tools": [
-    "开发资料共用阅读组件",
-    "正式插件规范与开发环境资料共用布局、搜索交互和主题；内容索引只在开发环境装配。",
+  docs: [
+    "正式使用与协议说明文档",
+    "插件规范等版本管理的正文；只维护说明，不承载可执行源码。",
   ],
   ".github/workflows": [
     "CI检查与Windows发行流程",
@@ -250,7 +246,7 @@ export function directoryRule(path) {
     reason: directoryRules[directory]?.[1],
   }
 }
-export function prohibitedReason(path) {
+export function prohibitedReason(path, purpose = "") {
   if (
     /(^|\/)(?:\.dev|node_modules|target|dist|dist-ssr|coverage|\.cache|__pycache__|\.pytest_cache|playwright-report|test-results)(\/|$)/i.test(
       path
@@ -262,7 +258,11 @@ export function prohibitedReason(path) {
       path
     )
   )
-    return "项目不保留自动化测试与测试产物"
+    if (
+      !/^(?:backend|scripts)\/.*\.test\.mjs$/.test(path) ||
+      !purpose.startsWith("正式回归：")
+    )
+      return "仅允许明确登记用途的正式回归源码；临时测试与测试产物放在 .dev"
   if (
     /(?:\.log|\.tmp|\.temp|\.bak|\.tsbuildinfo|\.pyc)$|(?:^|\/)(?:\.DS_Store|Thumbs\.db)$/i.test(
       path
@@ -509,7 +509,7 @@ export function collectProject() {
         })
       continue
     }
-    const forbidden = prohibitedReason(file.path)
+    const forbidden = prohibitedReason(file.path, file.purpose)
     if (forbidden)
       issues.push({ path: file.path, code: "prohibited", message: forbidden })
     if (file.diskState !== "file")

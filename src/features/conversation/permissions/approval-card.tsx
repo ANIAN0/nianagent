@@ -9,7 +9,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { OperationFeedback } from "@/components/feedback/operation-feedback"
 import { RecoveryAction } from "@/components/feedback/recovery-action"
 import type { ConversationApproval } from "@/contracts/rpc.generated"
-import { useApprovalReply } from "./use-approval-reply"
+import { useApprovalReply } from "@/lib/operations/use-approval-reply"
 import "./approval-card.css"
 
 function approvalTarget(input?: string) {

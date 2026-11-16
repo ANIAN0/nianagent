@@ -4,9 +4,10 @@ import { useRemoteConnectionRevision } from "@/lib/rpc/use-remote-connection"
 import { notifyComposer } from "@/components/composer/composer-notification"
 
 import {
+  ExtensionManagerContext,
   SessionServiceContext,
   type SessionService,
-} from "@/features/session/session-service"
+} from "@/lib/composer/session-config-port"
 import type {
   SessionCatalog,
   SessionConfiguration,
@@ -17,7 +18,6 @@ import {
   type FeedbackDescription,
 } from "@/lib/operation-issue"
 
-import { ExtensionServiceContext } from "@/features/extensions/extension-service"
 import { type ToolPickerHandle } from "@/components/composer/tool-picker"
 
 import type { SessionOptions } from "@/lib/composer/types"
@@ -73,7 +73,7 @@ function copyOptions(value: SessionOptions): SessionOptions {
 }
 /** 页面状态与异步所有权在此维护，视图只组合正式组件。 */
 export function useSessionConfiguration({
-  extensionService: suppliedExtensions,
+  renderExtensionManager: suppliedExtensionManager,
   sessionId,
   tools,
   value,
@@ -83,8 +83,9 @@ export function useSessionConfiguration({
   const service = useContext(SessionServiceContext)
   const connectionRevision = useRemoteConnectionRevision()
   const observedConnection = useRef(connectionRevision)
-  const extensions = useContext(ExtensionServiceContext)
-  const extensionService = suppliedExtensions ?? extensions
+  const contextExtensionManager = useContext(ExtensionManagerContext)
+  const renderExtensionManager =
+    suppliedExtensionManager ?? contextExtensionManager
   const [extensionOpen, setExtensionOpen] = useState(false)
   const [activeTab, setActiveTab] = useState("tools")
   const toolPicker = useRef<ToolPickerHandle>(null)
@@ -558,7 +559,7 @@ export function useSessionConfiguration({
     extensionOpen,
     activeTab,
     toolPicker,
-    extensionService,
+    renderExtensionManager,
     setExtensionOpen,
     reloadCandidate,
     refreshCapabilities,

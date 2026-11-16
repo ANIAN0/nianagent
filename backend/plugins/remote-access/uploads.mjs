@@ -15,7 +15,7 @@ import { replaceJson, withAcquiredLock } from "../../atomic-file.mjs"
 const windowSize = 2 * 1024 * 1024
 import { remoteOperations } from "./contract.mjs"
 export function uploadOperations(host) {
-  const materials = host.services().materials,
+  const materials = host.materials,
     root = resolve(materials.directory, "uploads")
   let admission = Promise.resolve()
   const reservations = new Map()
@@ -242,8 +242,8 @@ export function uploadOperations(host) {
       })
     ),
     uploadStart: operation("uploadStart", async (input, context, signal) => {
-      host.services().sessions.identity(input.sessionId)
-      const cwd = await host.services().sessions.cwd(input.cwd)
+      host.sessions.identity(input.sessionId)
+      const cwd = await host.sessions.cwd(input.cwd)
       const id = randomUUID(),
         directory = join(root, id)
       const name = basename(input.name.replaceAll("\\", "/"))

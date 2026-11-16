@@ -1,21 +1,20 @@
 import { HoverHint } from "@/components/feedback/hover-hint"
-import { NotebookPen, Plus, Puzzle, Clock3 } from "lucide-react"
+import { Plus, Puzzle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+export type PrimaryNavigationActive = "plugins"
 export type PrimaryNavigationProps = {
   collapsed?: boolean
+  active?: PrimaryNavigationActive
   onNew: () => void
-  onNotes?: () => void
   onPlugins: () => void
-  onScheduled: () => void
   management?: boolean
 }
 export function PrimaryNavigation({
   collapsed = false,
+  active,
   onNew,
-  onNotes,
   onPlugins,
-  onScheduled,
   management = true,
 }: PrimaryNavigationProps) {
   return (
@@ -31,61 +30,28 @@ export function PrimaryNavigation({
             collapsed ? "size-9 p-0" : "w-full justify-start px-2"
           )}
           aria-label="新建会话"
-
           onClick={onNew}
         >
           <Plus className={collapsed ? "size-[18px]" : "size-4"} />
           {!collapsed && "新建会话"}
         </Button>
       </HoverHint>
-      {management && onNotes && (
-        <HoverHint content="笔记工作台" label="笔记工作台">
-          <Button
-            variant="ghost"
-            className={cn(
-              "h-9 rounded-xl font-normal",
-              collapsed ? "size-9 p-0" : "justify-start px-2"
-            )}
-            aria-label="笔记工作台"
-
-            onClick={onNotes}
-          >
-            <NotebookPen className={collapsed ? "size-[18px]" : "size-4"} />
-            {!collapsed && "笔记工作台"}
-          </Button>
-        </HoverHint>
-      )}
       {management && (
         <HoverHint content="插件" label="插件">
           <Button
             variant="ghost"
             className={cn(
               "h-9 rounded-xl font-normal",
-              collapsed ? "size-9 p-0" : "justify-start px-2"
+              collapsed ? "size-9 p-0" : "justify-start px-2",
+              "data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground"
             )}
             aria-label="插件"
-
+            aria-current={active === "plugins" ? "page" : undefined}
+            data-active={active === "plugins"}
             onClick={onPlugins}
           >
             <Puzzle className={collapsed ? "size-[18px]" : "size-4"} />
             {!collapsed && "插件"}
-          </Button>
-        </HoverHint>
-      )}
-      {management && (
-        <HoverHint content="定时任务" label="定时任务">
-          <Button
-            variant="ghost"
-            className={cn(
-              "h-9 rounded-xl font-normal",
-              collapsed ? "size-9 p-0" : "justify-start px-2"
-            )}
-            aria-label="定时任务"
-
-            onClick={onScheduled}
-          >
-            <Clock3 className={collapsed ? "size-[18px]" : "size-4"} />
-            {!collapsed && "定时任务"}
           </Button>
         </HoverHint>
       )}

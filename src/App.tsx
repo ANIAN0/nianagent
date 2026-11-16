@@ -1,109 +1,101 @@
-import { profileLocalStorage as localStorage } from "@/lib/rpc/profile-storage"
-import {
-  DesktopServiceProvider,
-  useDesktopLifecycle,
-} from "@/features/settings/desktop-service"
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react"
+import { AppProviders } from "@/app-providers"
+import { useAppNavigation, type AppNavigationHooks } from "@/use-app-navigation"
 import { MaintenanceStatus } from "@/features/settings/maintenance-status"
 import {
-  maintenanceWritesFrozen,
   frontendBlocker,
   useMaintenanceSave,
-  useMaintenanceFrozen,
 } from "@/lib/maintenance/maintenance-coordinator"
 import { HomeSubmissionHost } from "@/features/home/home-submission-host"
 import { PageErrorBoundary } from "@/components/feedback/page-error-boundary"
 import { BoundedCache } from "@/lib/bounded-cache"
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
-import {
-  createPermissionService,
-  PermissionServiceContext,
-} from "@/features/conversation/permissions/permission-service"
-const permissionService = createPermissionService()
-import {
-  createCommandService,
-  CommandServiceContext,
-} from "@/features/conversation/controls/command-service"
-const commandService = createCommandService()
+import { createPermissionService } from "@/features/conversation/permissions/permission-service"
+import { createCommandService } from "@/features/conversation/controls/command-service"
 import { OperationFeedback } from "@/components/feedback/operation-feedback"
-import {
-  feedbackFromError,
-  type FeedbackDescription,
-} from "@/lib/operation-issue"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import { toast } from "sonner"
+import { notifyToast } from "@/components/ui/notification-toast"
+import { rpcCall } from "@/lib/rpc/client"
+import { feedbackFromError } from "@/lib/operation-issue"
 import { AppShell } from "@/features/home/app-shell"
-import { PluginSessionHost } from "@/features/plugins/plugin-workspace"
-import { appendPreparedMaterials } from "@/features/materials/material-service"
-import { MOON_OPEN_NOTES_EVENT } from "@/features/notes-workbench/notes-events"
-
+import { ConversationArchiveDialog } from "@/features/home/conversation-archive-dialog"
+import { ConversationRenameDialog } from "@/features/home/conversation-rename-dialog"
+import type { ConversationRowActions } from "@/features/home/conversation-row-menu"
 import {
-  NavigationBoundaryContext,
-  useNavigationBoundaryState,
-} from "@/lib/navigation/navigation-boundary"
-import type { ComposerData, ComposerDraft } from "@/lib/composer/types"
+  PluginDeliveryList,
+  PluginSessionHost,
+} from "@/features/plugins/plugin-workspace"
+import { PluginSidebarToggle } from "@/features/plugins/plugin-sidebar"
+import { appendPreparedMaterials } from "@/lib/composer/material-service-port"
+import { useNavigationBoundaryState } from "@/lib/navigation/navigation-boundary"
+import type {
+  ComposerData,
+  ComposerDraft,
+  Conversation,
+} from "@/lib/composer/types"
 import { thinkingLabels } from "@/lib/composer/model-thinking"
 import { modelSelectionId } from "@/features/models/model-types"
 import { useModelCatalog } from "@/features/models/use-model-catalog"
-import type { LeaveGuard } from "@/lib/navigation/leave-guard"
-import {
-  createSessionService,
-  SessionServiceContext,
-} from "@/features/session/session-service"
+import { createSessionService } from "@/features/session/session-service"
 import { useWorkspaces } from "@/features/workspaces/use-workspaces"
 import {
   useConversationCatalog,
   toHomeConversation,
 } from "@/features/conversation/conversation-catalog-service"
 import { useLiveConversation } from "@/features/conversation/use-live-conversation"
+import { useConversationReadReceipts } from "@/features/conversation/use-conversation-read-receipts"
 import { queueOperationIssueKey } from "@/features/conversation/queue-operation-recovery"
 import type { ConversationReadingPosition } from "@/features/conversation/conversation-list"
-
 import { useHomeSubmissionController } from "@/features/home/use-home-submission-controller"
-import {
-  createMaterialService,
-  MaterialServiceContext,
-} from "@/features/materials/material-service"
-import { hasRetainedUploadSources } from "@/features/materials/upload-retry-sources"
+import { createMaterialService } from "@/features/materials/material-service"
+import { hasRetainedUploadSources } from "@/lib/composer/upload-retry-sources"
+import { createExtensionService } from "@/features/extensions/extension-service"
 
-import {
-  createExtensionService,
-  ExtensionServiceContext,
-} from "@/features/extensions/extension-service"
-
+const permissionService = createPermissionService()
+const commandService = createCommandService()
 const SettingsPage = lazy(() =>
-  import("@/features/settings/settings-page").then((module) => ({
-    default: module.SettingsPage,
+  import("@/features/settings/settings-page").then((m) => ({
+    default: m.SettingsPage,
   }))
 )
-const NotesWorkbenchView = lazy(() =>
-  import("@/features/notes-workbench/notes-embed").then((m) => ({
-    default: m.NotesWorkbenchView,
+const PluginWorkbench = lazy(() =>
+  import("@/features/plugins/plugin-settings").then((m) => ({
+    default: m.PluginWorkbench,
   }))
 )
 const LiveConversationView = lazy(() =>
-  import("@/features/conversation/live-conversation-view").then((module) => ({
-    default: module.LiveConversationView,
+  import("@/features/conversation/live-conversation-view").then((m) => ({
+    default: m.LiveConversationView,
   }))
 )
-const selectedKey = "moon.conversation.selected.v1"
-function restoreSelection() {
-  try {
-    return localStorage.getItem(selectedKey) || undefined
-  } catch {
-    return undefined
-  }
-}
+
 export default function App() {
-  const desktop = useDesktopLifecycle()
-  const writesFrozen = useMaintenanceFrozen()
   const navigation = useNavigationBoundaryState()
-  const [settingsOpen, setSettingsOpen] = useState(false)
-  const [settingsSection, setSettingsSection] = useState<"models" | "plugins">(
-    "models"
+  const navHooksRef = useRef<AppNavigationHooks>({})
+  const nav = useAppNavigation(navigation, navHooksRef)
+  const {
+    view,
+    selected,
+    settingsOpen,
+    pluginsOpen,
+    settingsSection,
+    setSettingsSection,
+    registerSettingsLeave,
+    openSettings,
+    openPlugins,
+    leaveSettings,
+    selectConversation,
+  } = nav
+
+  const [archivedOnly, setArchivedOnly] = useState(false)
+  const [renameTarget, setRenameTarget] = useState<Conversation | null>(null)
+  const [archiveTarget, setArchiveTarget] = useState<Conversation | null>(null)
+  const [rowActionPending, setRowActionPending] = useState(false)
+  const [rowActionIssue, setRowActionIssue] = useState<string | undefined>(
+    undefined
   )
-  const [notesOpen, setNotesOpen] = useState(false)
-  const [notesPageId, setNotesPageId] = useState<string | null>(null)
-  const [selected, setSelected] = useState<string | undefined>(restoreSelection)
+
   const [sessionService] = useState(createSessionService)
   const [materialService] = useState(createMaterialService)
   useMaintenanceSave(() =>
@@ -122,7 +114,26 @@ export default function App() {
   )
   const models = useModelCatalog(() => navigation.run(openSettings))
   const workspaces = useWorkspaces()
-  const catalog = useConversationCatalog()
+  const catalog = useConversationCatalog(
+    undefined,
+    archivedOnly ? "only" : "hide"
+  )
+  // 相对时间标签每 30 秒重算；条目引用只在目录实际变化时更换，
+  // 侧栏列表因此不会被 2 秒轮询整列重渲染。
+  const [labelTick, setLabelTick] = useState(0)
+  useEffect(() => {
+    const timer = window.setInterval(
+      () => setLabelTick((value) => value + 1),
+      30000
+    )
+    return () => window.clearInterval(timer)
+  }, [])
+  const homeConversations = useMemo(
+    () => catalog.conversations.map(toHomeConversation),
+    // labelTick 是刻意的刷新信号：每 30 秒重算相对时间标签。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [catalog.conversations, labelTick]
+  )
   const chat = useLiveConversation(selected, undefined, materialService)
   const home = useHomeSubmissionController({
     chat,
@@ -135,135 +146,30 @@ export default function App() {
   })
   const { homeSubmissions, visibleHomeSubmission, homeNavigation, notice } =
     home
-  const settingsGuard = useRef<LeaveGuard | null>(null)
-  const registerSettingsLeave = useCallback((guard: LeaveGuard | null) => {
-    settingsGuard.current = guard
-  }, [])
-  const [readReceiptIssues, setReadReceiptIssues] = useState<
-    Record<string, FeedbackDescription | undefined>
-  >({})
-  const [readReceiptRetry, setReadReceiptRetry] = useState(0)
-  const readReceiptAttempts = useRef(new Set<string>())
-  const readReceiptLatest = useRef(new Map<string, string>())
-  function openSettings() {
-    homeNavigation.leave()
-    setSettingsSection("models")
-    setSettingsOpen(true)
-  }
-  function openPlugins() {
-    const enter = () => {
-      homeNavigation.leave()
-      setSettingsSection("plugins")
-      setSettingsOpen(true)
-    }
-    if (settingsOpen && settingsGuard.current) settingsGuard.current(enter)
-    else enter()
-  }
-  const openNotes = useCallback(
-    (pageId?: string | null) => {
-      homeNavigation.leave()
-      setNotesPageId(pageId ?? null)
-      setNotesOpen(true)
-    },
-    [homeNavigation]
-  )
-  const notesOpenerRef = useRef(openNotes)
   useEffect(() => {
-    notesOpenerRef.current = openNotes
-  }, [openNotes])
-  // 交付卡「在工作台打开」经窗口事件跳转，保持插件与宿主解耦。
-  useEffect(() => {
-    const onOpen = (event: Event) => {
-      const detail = (event as CustomEvent<{ pageId?: string }>).detail
-      notesOpenerRef.current(detail?.pageId ?? null)
+    navHooksRef.current = {
+      onBeforeNavigate: homeNavigation.leave,
+      onSelectConversation: home.clearNotice,
     }
-    window.addEventListener(MOON_OPEN_NOTES_EVENT, onOpen)
-    return () => window.removeEventListener(MOON_OPEN_NOTES_EVENT, onOpen)
-  }, [])
-  function leaveSettings(action: () => void) {
-    navigation.run(() => {
-      const leave = () =>
-        navigation.run(() => {
-          setSettingsOpen(false)
-          action()
-        })
-      if (settingsOpen && settingsGuard.current) settingsGuard.current(leave)
-      else leave()
-    })
-  }
-  function selectConversation(id?: string) {
-    homeNavigation.leave()
-    setSelected(id)
-    home.clearNotice()
-    try {
-      if (id) localStorage.setItem(selectedKey, id)
-      else localStorage.removeItem(selectedKey)
-    } catch {
-      /* In-memory navigation remains available. */
-    }
-  }
+  })
+
   const current = selected ? chat.snapshots[selected] : undefined
   const metadata = catalog.conversations.find((item) => item.id === selected)
-  const markRead = catalog.markRead
-  const currentRunId = current?.runId
-  const currentPhase = current?.phase
-  const metadataUnread = metadata?.unread
-  const metadataRunId = metadata?.runId
-  const metadataStatus = metadata?.status
-  const metadataRevision = metadata?.revision
-  useEffect(() => {
-    if (
-      !selected ||
-      !currentRunId ||
-      !metadataUnread ||
-      metadataRevision === undefined ||
-      settingsOpen ||
-      document.visibilityState === "hidden"
-    )
-      return
-    if (
-      metadataRunId !== currentRunId ||
-      metadataStatus !==
-        (currentPhase === "interrupted" ? "idle" : currentPhase)
-    )
-      return
-    const identity = `${selected}:${currentRunId}:${metadataRevision}:${readReceiptRetry}`
-    if (readReceiptAttempts.current.has(identity)) return
-    readReceiptAttempts.current.add(identity)
-    readReceiptLatest.current.set(selected, identity)
-    void markRead(selected, metadataRevision)
-      .then(() => {
-        if (readReceiptLatest.current.get(selected) === identity)
-          setReadReceiptIssues((all) => ({ ...all, [selected]: undefined }))
-      })
-      .catch((error) => {
-        if (
-          readReceiptLatest.current.get(selected) === identity &&
-          !(error instanceof Error && error.name === "AbortError")
-        )
-          setReadReceiptIssues((all) => ({
-            ...all,
-            [selected]: feedbackFromError(
-              error,
-              "本次阅读状态未能保存，会话内容仍可使用。"
-            ),
-          }))
-      })
-  }, [
+  const readReceipts = useConversationReadReceipts({
     selected,
-    currentRunId,
-    currentPhase,
-    metadataUnread,
-    metadataRunId,
-    metadataStatus,
-    metadataRevision,
-    markRead,
-    settingsOpen,
-    readReceiptRetry,
-  ])
+    currentRunId: current?.runId,
+    currentPhase: current?.phase,
+    metadataUnread: metadata?.unread,
+    metadataRunId: metadata?.runId,
+    metadataStatus: metadata?.status,
+    metadataRevision: metadata?.revision,
+    settingsOpen: view !== "conversation",
+    markRead: catalog.markRead,
+  })
+
   const data: ComposerData = {
     workspaces: workspaces.items,
-    conversations: catalog.conversations.map(toHomeConversation),
+    conversations: homeConversations,
     ...models.data,
     materials: [],
     materialsEnabled: true,
@@ -298,360 +204,418 @@ export default function App() {
       })
   }
   const retainedHomeSubmissions = Object.values(homeSubmissions).filter(
-    (submission) =>
-      (submission.sessionId !== selected ||
-        !home.submissionPending[selected]) &&
+    (s) =>
+      (s.sessionId !== selected || !home.submissionPending[selected]) &&
       (selected ||
-        settingsOpen ||
-        submission.sessionId !== visibleHomeSubmission?.sessionId)
+        view !== "conversation" ||
+        s.sessionId !== visibleHomeSubmission?.sessionId)
   )
+
+  // 行菜单动作；目录动作引用稳定，菜单实例不随会话重渲染抖动。
+  const rowActions = useMemo<ConversationRowActions>(
+    () => ({
+      onTogglePin: (conversation) => {
+        void catalog
+          .setPinned(conversation.id, !conversation.pinned)
+          .then(() => catalog.refresh(true))
+          .catch((error) =>
+            notifyToast(
+              feedbackFromError(error, "置顶状态未能保存。").message,
+              { tone: "error" }
+            )
+          )
+      },
+      onRename: (conversation) => {
+        setRowActionIssue(undefined)
+        setRenameTarget(conversation)
+      },
+      onArchive: (conversation) => {
+        setRowActionIssue(undefined)
+        setArchiveTarget(conversation)
+      },
+      onUnarchive: (conversation) => {
+        void catalog
+          .setArchived(conversation.id, false)
+          .then(() => catalog.refresh(true))
+          .catch((error) =>
+            notifyToast(
+              feedbackFromError(error, "恢复会话未能完成。").message,
+              { tone: "error" }
+            )
+          )
+      },
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [catalog.setPinned, catalog.setArchived, catalog.refresh]
+  )
+  async function confirmRename(conversation: Conversation, title: string) {
+    setRowActionPending(true)
+    setRowActionIssue(undefined)
+    try {
+      await catalog.rename(conversation.id, title)
+      setRenameTarget(null)
+    } catch (error) {
+      setRowActionIssue(
+        feedbackFromError(error, "会话重命名未能保存。").message
+      )
+    } finally {
+      setRowActionPending(false)
+    }
+  }
+  async function confirmArchive(conversation: Conversation) {
+    setRowActionPending(true)
+    setRowActionIssue(undefined)
+    try {
+      if (conversation.status === "running") {
+        const summary = catalog.conversations.find(
+          (item) => item.id === conversation.id
+        )
+        if (!summary?.runId)
+          throw new Error("缺少运行标识，请先在会话内停止后再归档。")
+        await rpcCall("conversationStop", {
+          sessionId: conversation.id,
+          runId: summary.runId,
+        })
+      }
+      await catalog.setArchived(conversation.id, true)
+      setArchiveTarget(null)
+      if (selected === conversation.id) selectConversation(undefined)
+      const archivedToastId = `conversation-archived-${conversation.id}`
+      notifyToast(`已归档「${conversation.title}」`, {
+        id: archivedToastId,
+        actions: (
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                toast.dismiss(archivedToastId)
+                void catalog
+                  .setArchived(conversation.id, false)
+                  .then(() => catalog.refresh(true))
+              }}
+            >
+              撤销
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                toast.dismiss(archivedToastId)
+                setArchivedOnly(true)
+              }}
+            >
+              查看已归档
+            </button>
+          </>
+        ),
+      })
+    } catch (error) {
+      setRowActionIssue(feedbackFromError(error, "会话归档未能完成。").message)
+    } finally {
+      setRowActionPending(false)
+    }
+  }
+
   return (
-    <DesktopServiceProvider value={desktop}>
-      <div
-        className="contents"
-        data-maintenance-frozen={writesFrozen}
-        onBeforeInputCapture={(event) => {
-          if (maintenanceWritesFrozen()) event.preventDefault()
-        }}
-        onPasteCapture={(event) => {
-          if (maintenanceWritesFrozen()) event.preventDefault()
-        }}
-        onDropCapture={(event) => {
-          if (maintenanceWritesFrozen()) event.preventDefault()
-        }}
+    <AppProviders
+      permissionService={permissionService}
+      commandService={commandService}
+      navigation={navigation}
+      sessionService={sessionService}
+      materialService={materialService}
+      extensionService={extensionService}
+    >
+      <AppShell
+        data={data}
+        activeConversationId={selected}
+        historyState={catalog.historyState}
+        historyError={catalog.historyError}
+        historyIssue={catalog.historyIssue}
+        onHistoryRetry={() => void catalog.refresh()}
+        onSettings={() => navigation.run(openSettings)}
+        onPlugins={() => navigation.run(openPlugins)}
+        onSelectConversation={(item) =>
+          leaveSettings(() => selectConversation(item.id))
+        }
+        onNew={(workspaceId) =>
+          leaveSettings(() => {
+            if (home.openNewHome(workspaceId)) selectConversation()
+          })
+        }
+        rowActions={rowActions}
+        archivedView={archivedOnly}
+        onLeaveArchivedView={() => setArchivedOnly(false)}
+        activeNav={pluginsOpen ? "plugins" : undefined}
       >
-        <PermissionServiceContext.Provider value={permissionService}>
-          <CommandServiceContext.Provider value={commandService}>
-            <NavigationBoundaryContext.Provider value={navigation}>
-              <SessionServiceContext.Provider value={sessionService}>
-                <MaterialServiceContext.Provider value={materialService}>
-                  <ExtensionServiceContext.Provider value={extensionService}>
-                    <AppShell
-                      data={data}
-                      activeConversationId={selected}
-                      historyState={catalog.historyState}
-                      historyError={catalog.historyError}
-                      historyIssue={catalog.historyIssue}
-                      onHistoryRetry={() => void catalog.refresh()}
-                      onSettings={() => navigation.run(openSettings)}
-                      onPlugins={() => navigation.run(openPlugins)}
-                      onNotes={() => navigation.run(() => openNotes())}
-                      onSelectConversation={(item) =>
-                        leaveSettings(() => selectConversation(item.id))
-                      }
-                      onNew={(workspaceId) =>
-                        leaveSettings(() => {
-                          if (home.openNewHome(workspaceId))
-                            selectConversation()
-                        })
-                      }
-                    >
-                      <MaintenanceStatus />
-                      {notice && (
-                        <div className="shrink-0 px-4 py-2">
-                          <OperationFeedback
-                            title="首页提示"
-                            message={notice}
-                            severity="info"
-                          />
-                        </div>
-                      )}
-                      {retainedHomeSubmissions.length > 0 && (
-                        <div className="shrink-0 px-4 py-2">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                              const submission = retainedHomeSubmissions[0]
-                              if (!submission) return
-                              leaveSettings(() => {
-                                if (
-                                  home.openHome(
-                                    submission.draft.workspaceId,
-                                    submission.sessionId
-                                  )
-                                )
-                                  selectConversation()
-                              })
-                            }}
-                          >
-                            有首页提交待处理 · 返回原输入
-                          </Button>
-                        </div>
-                      )}
-                      {settingsOpen && (
-                        <Suspense
-                          fallback={
-                            <div role="status" className="p-8">
-                              正在打开设置…
-                            </div>
-                          }
-                        >
-                          <PageErrorBoundary key="settings">
-                            <SettingsPage
-                              key={settingsSection}
-                              initialSection={settingsSection}
-                              service={models.service}
-                              onReturn={() =>
-                                navigation.run(() => setSettingsOpen(false))
-                              }
-                              onConnectionsChange={models.update}
-                              registerLeave={registerSettingsLeave}
-                            />
-                          </PageErrorBoundary>
-                        </Suspense>
-                      )}
-                      {notesOpen && (
-                        <Suspense
-                          fallback={
-                            <div role="status" className="p-8">
-                              正在打开笔记工作台…
-                            </div>
-                          }
-                        >
-                          <PageErrorBoundary key="notes">
-                            <NotesWorkbenchView
-                              pageId={notesPageId}
-                              onPageIdChange={setNotesPageId}
-                              onOpenSettings={() => navigation.run(openPlugins)}
-                              onReturn={() =>
-                                navigation.run(() => setNotesOpen(false))
-                              }
-                            />
-                          </PageErrorBoundary>
-                        </Suspense>
-                      )}
-                      <div
-                        className={
-                          settingsOpen || notesOpen
-                            ? "hidden"
-                            : "flex min-h-0 flex-1 flex-col"
-                        }
-                      >
-                        {selected ? (
-                          <Suspense
-                            fallback={
-                              <div
-                                role="status"
-                                className="p-8 text-sm text-muted-foreground"
-                              >
-                                正在打开会话…
-                              </div>
-                            }
-                          >
-                            <PageErrorBoundary key={selected}>
-                              <PluginSessionHost
-                                key={selected}
-                                snapshot={current}
-                                onReload={chat.reload}
-                                sessionId={selected}
-                                cwd={
-                                  current?.cwd ??
-                                  metadata?.cwd ??
-                                  homeSubmissions[selected]?.cwd ??
-                                  ""
-                                }
-                                active={
-                                  !settingsOpen && !!(current || metadata)
-                                }
-                                onMaterial={(material) => {
-                                  const draft = chat.updateDraft(
-                                    selected,
-                                    currentDraft,
-                                    (latest) => ({
-                                      ...latest,
-                                      materials: appendPreparedMaterials(
-                                        latest.materials,
-                                        [material]
-                                      ),
-                                    })
-                                  )
-                                  home.changeFollowingDraft(draft)
-                                }}
-                              >
-                                <LiveConversationView
-                                  key={selected}
-                                  id={selected}
-                                  title={
-                                    metadata?.title ??
-                                    (homeSubmissions[selected]
-                                      ? "新会话"
-                                      : "正在读取会话")
-                                  }
-                                  workspacePath={
-                                    metadata?.cwd ??
-                                    homeSubmissions[selected]?.cwd
-                                  }
-                                  snapshot={current}
-                                  readIssue={chat.readIssues[selected]}
-                                  readPending={chat.readPending[selected]}
-                                  actionIssue={chat.actionIssues[selected]}
-                                  draftError={chat.draftErrors[selected]}
-                                  receiptIssue={chat.receiptIssues[selected]}
-                                  onCleanReceipt={() =>
-                                    chat.cleanReceipt(selected)
-                                  }
-                                  queueIssues={chat.queueIssues[selected]}
-                                  queueRecoveryReason={
-                                    chat.queueRecoveryReason[selected]
-                                  }
-                                  queueRecoveryRecords={
-                                    chat.queueRecoveryRecords
-                                  }
-                                  queueOperationPendingByRequest={
-                                    chat.queueOperationPendingByRequest
-                                  }
-                                  queueRecoveryIssuesByRequest={
-                                    chat.queueRecoveryIssuesByRequest[selected]
-                                  }
-                                  queueStorageIssue={chat.queueStorageIssue}
-                                  queueOriginalRetryAllowed={
-                                    chat.queueOriginalRetryAllowedByRequest[
-                                      selected
-                                    ]
-                                  }
-                                  onRetryQueueOriginal={(record) =>
-                                    action(
-                                      chat.retryQueueOriginal(
-                                        selected,
-                                        queueOperationIssueKey(record),
-                                        record.operationRequestId
-                                      )
-                                    )
-                                  }
-                                  readReceiptIssue={
-                                    metadataUnread
-                                      ? readReceiptIssues[selected]
-                                      : undefined
-                                  }
-                                  onRetryReadReceipt={() =>
-                                    setReadReceiptRetry((value) => value + 1)
-                                  }
-                                  pending={
-                                    chat.pending[selected] ||
-                                    home.submissionPending[selected]
-                                  }
-                                  stopPending={chat.stopPending[selected]}
-                                  stopUnconfirmed={
-                                    chat.stopUnconfirmed[selected]
-                                  }
-                                  data={data}
-                                  draft={currentDraft}
-                                  positions={positions}
-                                  onChange={(draft) => {
-                                    chat.change(selected, draft)
-                                    home.changeFollowingDraft(draft)
-                                  }}
-                                  onSend={(draft, delivery) =>
-                                    action(
-                                      chat.send(
-                                        selected,
-                                        draft,
-                                        models.connections,
-                                        undefined,
-                                        undefined,
-                                        delivery
-                                      )
-                                    )
-                                  }
-                                  onStop={() => action(chat.stop(selected))}
-                                  onContinue={() =>
-                                    action(
-                                      chat.retry(
-                                        selected,
-                                        currentDraft,
-                                        models.connections
-                                      )
-                                    )
-                                  }
-                                  onReload={chat.reload}
-                                  onOpenSettings={openSettings}
-                                  onRecoverDraft={(draft) =>
-                                    chat.adoptRecoveredDraft(selected, draft)
-                                  }
-                                  onQueueEdit={(
-                                    itemId,
-                                    text,
-                                    materials,
-                                    revision,
-                                    clientEditId
-                                  ) =>
-                                    chat.queueEdit(
-                                      selected,
-                                      itemId,
-                                      text,
-                                      materials,
-                                      revision,
-                                      clientEditId
-                                    )
-                                  }
-                                  onQueueItemRead={(itemId, signal) =>
-                                    chat.queueItemRead(selected, itemId, signal)
-                                  }
-                                  onQueueRemove={(itemId) =>
-                                    action(chat.queueRemove(selected, itemId))
-                                  }
-                                  onQueueDeliver={(itemId) =>
-                                    action(chat.queueDeliver(selected, itemId))
-                                  }
-                                  onSaveDraft={() => chat.saveDraft(selected)}
-                                  unconfirmed={
-                                    chat.unconfirmed[selected] ||
-                                    current?.issue?.code === "result_unknown" ||
-                                    !!home.submissionEcho(selected)
-                                  }
-                                  pendingSubmission={
-                                    chat.submissionEcho(selected) ??
-                                    home.submissionEcho(selected)
-                                  }
-                                  onReconcile={() =>
-                                    action(
-                                      home.submissionEcho(selected)
-                                        ? home.checkHomeSubmission(
-                                            selected,
-                                            false
-                                          )
-                                        : chat.reconcile(selected)
-                                    )
-                                  }
-                                  onOpenConversation={(id) => {
-                                    leaveSettings(() => selectConversation(id))
-                                    void catalog.refresh(true)
-                                  }}
-                                  captureNavigation={homeNavigation.capture}
-                                />
-                              </PluginSessionHost>
-                            </PageErrorBoundary>
-                          </Suspense>
-                        ) : null}
-                        {!selected && workspaces.initialLoading && (
-                          <div
-                            role="status"
-                            aria-label="正在读取工作区"
-                            className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-8 pt-24"
-                          >
-                            <Skeleton className="mx-auto h-8 w-44" />
-                            <Skeleton className="h-28 w-full rounded-2xl" />
-                          </div>
-                        )}
-                        <HomeSubmissionHost
-                          home={home}
-                          data={data}
-                          unconfirmed={chat.unconfirmed}
-                          settingsOpen={settingsOpen}
-                          selected={selected}
-                          workspaces={workspaces}
-                        />
-                      </div>
-                    </AppShell>
-                  </ExtensionServiceContext.Provider>
-                </MaterialServiceContext.Provider>
-              </SessionServiceContext.Provider>
-            </NavigationBoundaryContext.Provider>
-          </CommandServiceContext.Provider>
-        </PermissionServiceContext.Provider>
-      </div>
-    </DesktopServiceProvider>
+        <MaintenanceStatus />
+        {notice && (
+          <div className="shrink-0 px-4 py-2">
+            <OperationFeedback
+              title="首页提示"
+              message={notice}
+              severity="info"
+            />
+          </div>
+        )}
+        {retainedHomeSubmissions.length > 0 && (
+          <div className="shrink-0 px-4 py-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                const submission = retainedHomeSubmissions[0]
+                if (!submission) return
+                leaveSettings(() => {
+                  if (
+                    home.openHome(
+                      submission.draft.workspaceId,
+                      submission.sessionId
+                    )
+                  )
+                    selectConversation()
+                })
+              }}
+            >
+              有首页提交待处理 · 返回原输入
+            </Button>
+          </div>
+        )}
+        {settingsOpen && (
+          <Suspense
+            fallback={
+              <div role="status" className="p-8">
+                正在打开设置…
+              </div>
+            }
+          >
+            <PageErrorBoundary key="settings">
+              <SettingsPage
+                section={settingsSection}
+                onSectionChange={setSettingsSection}
+                service={models.service}
+                onReturn={() => leaveSettings(() => {})}
+                onConnectionsChange={models.update}
+                registerLeave={registerSettingsLeave}
+              />
+            </PageErrorBoundary>
+          </Suspense>
+        )}
+        {pluginsOpen && (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <Suspense
+              fallback={
+                <div role="status" className="p-8">
+                  正在打开插件…
+                </div>
+              }
+            >
+              <PageErrorBoundary key="plugins">
+                <PluginWorkbench active={pluginsOpen} />
+              </PageErrorBoundary>
+            </Suspense>
+          </div>
+        )}
+        <div
+          className={
+            view !== "conversation" ? "hidden" : "flex min-h-0 flex-1 flex-col"
+          }
+        >
+          {selected ? (
+            <Suspense
+              fallback={
+                <div
+                  role="status"
+                  className="p-8 text-sm text-muted-foreground"
+                >
+                  正在打开会话…
+                </div>
+              }
+            >
+              <PageErrorBoundary key={selected}>
+                <PluginSessionHost
+                  key={selected}
+                  snapshot={current}
+                  onReload={chat.reload}
+                  sessionId={selected}
+                  cwd={
+                    current?.cwd ??
+                    metadata?.cwd ??
+                    homeSubmissions[selected]?.cwd ??
+                    ""
+                  }
+                  active={view === "conversation" && !!(current || metadata)}
+                  onMaterial={(material) => {
+                    const draft = chat.updateDraft(
+                      selected,
+                      currentDraft,
+                      (latest) => ({
+                        ...latest,
+                        materials: appendPreparedMaterials(latest.materials, [
+                          material,
+                        ]),
+                      })
+                    )
+                    home.changeFollowingDraft(draft)
+                  }}
+                >
+                  <LiveConversationView
+                    key={selected}
+                    id={selected}
+                    title={
+                      metadata?.title ??
+                      (homeSubmissions[selected] ? "新会话" : "正在读取会话")
+                    }
+                    workspacePath={
+                      metadata?.cwd ?? homeSubmissions[selected]?.cwd
+                    }
+                    snapshot={current}
+                    data={data}
+                    draft={currentDraft}
+                    positions={positions}
+                    captureNavigation={homeNavigation.capture}
+                    headerActions={<PluginSidebarToggle />}
+                    renderTurnDeliveries={(records) => (
+                      <PluginDeliveryList records={records} />
+                    )}
+                    status={{
+                      readIssue: chat.readIssues[selected],
+                      readPending: chat.readPending[selected],
+                      actionIssue: chat.actionIssues[selected],
+                      draftError: chat.draftErrors[selected],
+                      receiptIssue: chat.receiptIssues[selected],
+                      readReceiptIssue: readReceipts.issue,
+                      pending:
+                        chat.pending[selected] ||
+                        home.submissionPending[selected],
+                      stopPending: chat.stopPending[selected],
+                      stopUnconfirmed: chat.stopUnconfirmed[selected],
+                      unconfirmed:
+                        chat.unconfirmed[selected] ||
+                        current?.issue?.code === "result_unknown" ||
+                        !!home.submissionEcho(selected),
+                      pendingSubmission:
+                        chat.submissionEcho(selected) ??
+                        home.submissionEcho(selected),
+                    }}
+                    queue={{
+                      issues: chat.queueIssues[selected],
+                      recoveryReason: chat.queueRecoveryReason[selected],
+                      recoveryRecords: chat.queueRecoveryRecords,
+                      operationPendingByRequest:
+                        chat.queueOperationPendingByRequest,
+                      recoveryIssuesByRequest:
+                        chat.queueRecoveryIssuesByRequest[selected],
+                      storageIssue: chat.queueStorageIssue,
+                      originalRetryAllowed:
+                        chat.queueOriginalRetryAllowedByRequest[selected],
+                      onRetryOriginal: (record) =>
+                        action(
+                          chat.retryQueueOriginal(
+                            selected,
+                            queueOperationIssueKey(record),
+                            record.operationRequestId
+                          )
+                        ),
+                      onEdit: (
+                        itemId,
+                        text,
+                        materials,
+                        revision,
+                        clientEditId
+                      ) =>
+                        chat.queueEdit(
+                          selected,
+                          itemId,
+                          text,
+                          materials,
+                          revision,
+                          clientEditId
+                        ),
+                      onItemRead: (itemId, signal) =>
+                        chat.queueItemRead(selected, itemId, signal),
+                      onRemove: (itemId) =>
+                        action(chat.queueRemove(selected, itemId)),
+                      onDeliver: (itemId) =>
+                        action(chat.queueDeliver(selected, itemId)),
+                    }}
+                    actions={{
+                      onChange: (draft) => {
+                        chat.change(selected, draft)
+                        home.changeFollowingDraft(draft)
+                      },
+                      onSend: (draft, delivery) =>
+                        action(
+                          chat.send(
+                            selected,
+                            draft,
+                            models.connections,
+                            undefined,
+                            undefined,
+                            delivery
+                          )
+                        ),
+                      onStop: () => action(chat.stop(selected)),
+                      onContinue: () =>
+                        action(
+                          chat.retry(selected, currentDraft, models.connections)
+                        ),
+                      onReload: chat.reload,
+                      onOpenSettings: openSettings,
+                      onRecoverDraft: (draft) =>
+                        chat.adoptRecoveredDraft(selected, draft),
+                      onSaveDraft: () => chat.saveDraft(selected),
+                      onCleanReceipt: () => chat.cleanReceipt(selected),
+                      onRetryReadReceipt: readReceipts.retry,
+                      onReconcile: () =>
+                        action(
+                          home.submissionEcho(selected)
+                            ? home.checkHomeSubmission(selected, false)
+                            : chat.reconcile(selected)
+                        ),
+                      onOpenConversation: (id) => {
+                        leaveSettings(() => selectConversation(id))
+                        void catalog.refresh(true)
+                      },
+                    }}
+                  />
+                </PluginSessionHost>
+              </PageErrorBoundary>
+            </Suspense>
+          ) : null}
+          {!selected && workspaces.initialLoading && (
+            <div
+              role="status"
+              aria-label="正在读取工作区"
+              className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-8 pt-24"
+            >
+              <Skeleton className="mx-auto h-8 w-44" />
+              <Skeleton className="h-28 w-full rounded-2xl" />
+            </div>
+          )}
+          <HomeSubmissionHost
+            home={home}
+            data={data}
+            unconfirmed={chat.unconfirmed}
+            settingsOpen={view !== "conversation"}
+            selected={selected}
+            workspaces={workspaces}
+          />
+        </div>
+      </AppShell>
+      <ConversationRenameDialog
+        conversation={renameTarget}
+        pending={rowActionPending}
+        issue={rowActionIssue}
+        onRename={confirmRename}
+        onClose={() => setRenameTarget(null)}
+      />
+      <ConversationArchiveDialog
+        conversation={archiveTarget}
+        pending={rowActionPending}
+        issue={rowActionIssue}
+        onConfirm={confirmArchive}
+        onClose={() => setArchiveTarget(null)}
+      />
+    </AppProviders>
   )
 }

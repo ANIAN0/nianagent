@@ -10,9 +10,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { HomeSidebar } from "./home-sidebar"
+import type { PrimaryNavigationActive } from "./primary-navigation"
 import { ConversationSearch } from "./conversation-search"
+import type { ConversationRowActions } from "./conversation-row-menu"
 import type { ComposerData, Conversation } from "@/lib/composer/types"
-import type { HistoryState } from "@/features/conversation/conversation-catalog-service"
+import type { HistoryState } from "@/lib/submission/conversation-handoff"
 import { useNavigationBoundary } from "@/lib/navigation/navigation-boundary"
 
 const sidebarLayoutKey = "moon.navigation.layout.v1"
@@ -21,16 +23,27 @@ const desktopNavigationQuery = "(min-width: 768px)"
 
 function readSidebarLayout() {
   try {
-    const saved = JSON.parse(localStorage.getItem(sidebarLayoutKey) ?? "null")
+    const raw = localStorage.getItem(sidebarLayoutKey)
+    if (raw === null) return { open: true, width: 280, storageError: "" }
+    const saved = JSON.parse(raw)
+    if (
+      !saved ||
+      typeof saved.open !== "boolean" ||
+      !Number.isFinite(saved.width)
+    )
+      throw new Error("Invalid navigation preferences")
     return {
-      open: typeof saved?.open === "boolean" ? saved.open : true,
-      width:
-        typeof saved?.width === "number" && Number.isFinite(saved.width)
-          ? Math.max(240, Math.min(360, saved.width))
-          : 280,
+      open: saved.open as boolean,
+      width: Math.max(240, Math.min(360, saved.width)),
+      storageError: "",
     }
   } catch {
-    return { open: true, width: 280 }
+    return {
+      open: true,
+      width: 280,
+      storageError:
+        "导航布局无法读取，原记录保留，当前无法保存布局调整。请检查本机存储后重新加载。",
+    }
   }
 }
 
@@ -41,7 +54,10 @@ export function AppShell({
   onSelectConversation,
   onSettings,
   onPlugins,
-  onNotes,
+  rowActions,
+  archivedView,
+  onLeaveArchivedView,
+  activeNav,
   historyState,
   historyError,
   historyIssue,
@@ -54,7 +70,10 @@ export function AppShell({
   onSelectConversation: (conversation: Conversation) => void
   onSettings?: () => void
   onPlugins?: () => void
-  onNotes?: () => void
+  rowActions?: ConversationRowActions
+  archivedView?: boolean
+  onLeaveArchivedView?: () => void
+  activeNav?: PrimaryNavigationActive
   historyState?: HistoryState
   historyError?: string
   historyIssue?: FeedbackDescription
@@ -70,7 +89,7 @@ export function AppShell({
   const [compactSidebarOpen, setCompactSidebarOpen] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
-  const [notice, setNotice] = useState("")
+  const [notice, setNotice] = useState(sidebarLayout.storageError)
   const main = useRef<HTMLElement>(null)
   const focusNewHomeAfterClose = useRef(false)
   const sidebarOpen = wideNavigation ? sidebarLayout.open : compactSidebarOpen
@@ -81,10 +100,24 @@ export function AppShell({
     else setCompactSidebarOpen((open) => !open)
   }, [wideNavigation])
   useEffect(() => {
-    try {
-      localStorage.setItem(sidebarLayoutKey, JSON.stringify(sidebarLayout))
-    } catch {
-      /* Resizing and toggling remain available without persistent storage. */
+    if (sidebarLayout.storageError) return
+    let cancelled = false
+    void Promise.resolve()
+      .then(() => {
+        if (cancelled) return
+        localStorage.setItem(
+          sidebarLayoutKey,
+          JSON.stringify({
+            open: sidebarLayout.open,
+            width: sidebarLayout.width,
+          })
+        )
+      })
+      .catch(() => {
+        if (!cancelled) setNotice("导航布局调整未保存，请检查本机存储。")
+      })
+    return () => {
+      cancelled = true
     }
   }, [sidebarLayout])
   useEffect(() => {
@@ -173,19 +206,16 @@ export function AppShell({
             onPlugins()
           })
       : undefined,
-    onNotes: onNotes
-      ? () =>
-          runNavigation(() => {
-            setMobileOpen(false)
-            onNotes()
-          })
-      : undefined,
     onNotice: (message: string) => {
       runNavigation(() => {
         setMobileOpen(false)
         setNotice(message)
       })
     },
+    actions: rowActions,
+    archivedView,
+    onLeaveArchivedView: () => runNavigation(() => onLeaveArchivedView?.()),
+    activeNav,
   }
   function resize(width: number) {
     setSidebarLayout((layout) => ({
@@ -241,7 +271,10 @@ export function AppShell({
           />
         )}
       </aside>
-      <main ref={main} className="relative flex min-w-0 flex-1 flex-col">
+      <main
+        ref={main}
+        className="relative flex min-h-0 min-w-0 flex-1 flex-col"
+      >
         <Button
           variant="ghost"
           size="icon"
@@ -288,6 +321,7 @@ export function AppShell({
         historyError={historyError}
         historyIssue={historyIssue}
         onHistoryRetry={onHistoryRetry}
+        archived={archivedView ? "only" : "hide"}
         open={searchOpen && !navigationBlocked}
         onOpenChange={(open) => runNavigation(() => setSearchOpen(open))}
         onSelect={(item) => runNavigation(() => onSelectConversation(item))}

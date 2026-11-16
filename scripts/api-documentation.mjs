@@ -669,19 +669,6 @@ export function createApiDocumentation() {
       effect: "打开系统浏览器进行用户授权。",
       condition: "沿既有 OAuth 专用函数，仅接受HTTPS；不用于开发工具开页。",
     },
-    open_developer_tools: {
-      title: "打开固定开发工具网页",
-      request: object({
-        tool: {
-          ...str("固定工具标识"),
-          enum: ["project", "components", "api"],
-        },
-      }),
-      response: nullValue,
-      effect: "在系统浏览器打开可信 dev 来源下的 /project/ 页面。",
-      condition:
-        "仅debug dev、main窗口、已配置的回环开发来源；正式发行拒绝，不接受任意URL。",
-    },
     open_local_url: {
       title: "在系统浏览器打开本机回环页面",
       request: object({
@@ -707,10 +694,7 @@ export function createApiDocumentation() {
       {
         kind: "desktop",
         module: "桌面传输与开页",
-        source:
-          id === "open_developer_tools"
-            ? "src-tauri/src/developer_tools.rs"
-            : "src-tauri/src/models.rs",
+        source: "src-tauri/src/models.rs",
         storage: "原传输等待与系统浏览器；业务数据沿对应RPC所有者",
         responsibility: "桥接真实业务传输、取消和固定用途开页。",
         consumers: consumers(id),

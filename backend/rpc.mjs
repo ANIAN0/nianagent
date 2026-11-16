@@ -1,11 +1,19 @@
+import { createDiagnosticQuery } from "./diagnostic-query.mjs"
 import { createInterface } from "node:readline"
 import { randomUUID } from "node:crypto"
+import { join } from "node:path"
 import { prepareNodeStorage } from "./storage-bootstrap.mjs"
-import { validateStorage as validateSavedStorage } from "./storage-validation.mjs"
+import { validateDomains } from "./storage-validation.mjs"
 import { DesktopMaintenance } from "./desktop-maintenance.mjs"
 import { startRuntime, runtimeVersion } from "./runtime.mjs"
-import { operationError, publicFailure } from "./operation-issue.mjs"
-import { withRequestContext } from "./request-context.mjs"
+import {
+  operationError,
+  publicFailure,
+  TransportFailure,
+} from "./operation-issue.mjs"
+import { currentTraceId, withRequestContext } from "./request-context.mjs"
+import { transportRecoveryByOperation } from "./contract.mjs"
+import { createBoundedJsonlLogger, diagnosticFrames } from "./logger.mjs"
 import {
   connectDirectoryHost,
   acceptDirectoryReply,
@@ -13,6 +21,17 @@ import {
 } from "./native-directory.mjs"
 
 const { directory } = prepareNodeStorage()
+// G11：传输层操作终态日志（traceId/operationId/durationMs/outcome/errorId；白名单字段）
+const operationLogger = createBoundedJsonlLogger({
+  directory: join(directory, "logs"),
+  name: "moon-node",
+})
+// T20-3：诊断窄端口——logs 插件只消费只读查询与状态摘要（读取侧再次按白名单投影），
+// 不暴露写入面与文件路径
+const operationLog = createDiagnosticQuery(
+  join(directory, "logs"),
+  operationLogger
+)
 let service
 const pending = new Map()
 const requests = new Map()
@@ -32,8 +51,14 @@ async function initializeService() {
   // startup handshake must not wait for model libraries or user-data recovery.
   const { MoonServices } = await import("./services.mjs")
   if (closing) throw new Error("Moon 正在退出。")
-  const candidate = new MoonServices(directory, { dispatchRequest: dispatch })
-  candidate.conversations.maintenanceFrozen = Boolean(maintenance.operationId)
+  const candidate = new MoonServices(directory, {
+    dispatchRequest: dispatch,
+    operationLog,
+    diagnostics: { append: (record) => operationLogger.append(record) },
+    // 后端主动通知经 stdout 下发（$notify 无 id），桌面端转 Tauri 事件
+    notify: (value) => send(value),
+  })
+  candidate.conversations.setMaintenanceFrozen(Boolean(maintenance.operationId))
   service = candidate
   try {
     if (closing) throw new Error("Moon 正在退出。")
@@ -77,6 +102,8 @@ async function dispatch(operation, input, signal) {
       "restart"
     )
   const id = randomUUID()
+  const startedAt = Date.now()
+  const traceId = currentTraceId()
   const operationPromise = execute(operation, input, signal)
   requests.set(id, {
     operation,
@@ -85,7 +112,73 @@ async function dispatch(operation, input, signal) {
   })
   inFlight.add(operationPromise)
   try {
-    return await operationPromise
+    const result = await operationPromise
+    operationLogger.append({
+      module: "rpc",
+      event: operation,
+      level:
+        transportRecoveryByOperation[operation] === "reload" ||
+        ["pluginCall", "conversationMarkRead"].includes(operation)
+          ? "debug"
+          : "info",
+      traceId,
+      operationId: id,
+      durationMs: Date.now() - startedAt,
+      outcome: "committed",
+    })
+    return result
+  } catch (error) {
+    // G20：终态依据领域回执——回执声明 result_unknown 即 unknown（不得按错误类改判）；
+    // 其余 MoonOperationError/ContractError 是进入领域前的明确拒绝；
+    // 取消与一般失败无法证明领域尚未接受，保持 unknown；
+    // 脱敏摘要与用户可见 issue 同源同 errorId（T20-1：publicFailure 对同一失败只规范一次）。
+    const cancelled = signal?.aborted || error?.name === "AbortError"
+    const sanitized = publicFailure(error, operation, cancelled)
+    const receipt = error?.issue
+    const outcome = receipt?.outcome
+      ? receipt.outcome
+      : receipt?.code === "result_unknown"
+        ? "unknown"
+        : error.name === "MoonOperationError" || error.name === "ContractError"
+          ? "rejected"
+          : "unknown"
+    operationLogger.append({
+      module: "rpc",
+      event: operation,
+      level:
+        (operation === "pluginCall" &&
+          input.id === "notes-workbench" &&
+          error.issue?.module === "workbench") ||
+        (cancelled && transportRecoveryByOperation[operation] === "reload")
+          ? "debug"
+          : sanitized.issue.severity === "info"
+            ? "warn"
+            : sanitized.issue.severity === "warning"
+              ? "warn"
+              : "error",
+      traceId,
+      operationId: id,
+      durationMs: Date.now() - startedAt,
+      outcome: cancelled ? "unknown" : outcome,
+      error: {
+        code: sanitized.issue.code,
+        errorId: sanitized.issue.errorId ?? "",
+        cause: sanitized.issue.summary,
+        ...(!error.issue?.module ? { frames: diagnosticFrames(error) } : {}),
+      },
+    })
+    throw new TransportFailure(
+      operation,
+      {
+        ...sanitized,
+        issue: {
+          ...sanitized.issue,
+          traceId: sanitized.issue.traceId || traceId,
+          outcome: cancelled ? "unknown" : outcome,
+        },
+      },
+      error
+    )
   } finally {
     inFlight.delete(operationPromise)
     requests.delete(id)
@@ -102,7 +195,12 @@ async function closeRuntime() {
   }
 }
 async function validateStorage() {
-  return validateSavedStorage(await ensureInitialized(), directory)
+  // Desktop startup shares the browser's domain-isolation contract. Strict
+  // all-domain validation remains owned by offline maintenance.
+  return validateDomains(
+    (await ensureInitialized()).storageReaders(),
+    directory
+  )
 }
 
 const input = createInterface({ input: process.stdin, crlfDelay: Infinity })
@@ -150,6 +248,11 @@ input.on("line", (line) => {
                 clientId: "desktop",
                 connectionId: "desktop",
                 viewGeneration: 0,
+                // G10：桌面命令信封携带的 traceId 原样进入上下文（格式校验在 Rust 侧）
+                traceId:
+                  typeof request.traceId === "string"
+                    ? request.traceId
+                    : undefined,
               },
               () =>
                 dispatch(request.operation, request.input, controller.signal)
@@ -183,5 +286,7 @@ input.on("close", async () => {
   await closeRuntime()
   // Let cancelled writes reach their finally blocks before terminating Node.
   await Promise.allSettled([...inFlight])
+  // T20-3：退出前排空操作终态日志队列，终态记录不因进程退出丢失
+  await operationLogger.close()
   process.exit(0)
 })

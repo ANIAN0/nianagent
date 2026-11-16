@@ -21,9 +21,7 @@ export async function activate(host) {
       state: operation("state", documents.state.bind(documents)),
       reference: operation("reference", documents.reference.bind(documents)),
       selection: operation("selection", async (input, context, signal) => ({
-        material: await host
-          .services()
-          .materials.selection(context, input, signal),
+        material: await host.materials.selection(context, input, signal),
       })),
       view: operation("view", async (input, context) => {
         const previous = views.get(context.clientId)

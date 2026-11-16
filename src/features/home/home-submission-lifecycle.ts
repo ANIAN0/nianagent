@@ -1,5 +1,5 @@
 import type { ComposerDraft } from "@/lib/composer/types"
-import type { HomeDraftCache } from "@/features/conversation/conversation-draft-store"
+import type { HomeDraftCache } from "@/lib/submission/home-draft-rules"
 import { feedbackFromError } from "@/lib/operation-issue"
 
 export type RetainedHomeView = { key: number; draft: ComposerDraft }

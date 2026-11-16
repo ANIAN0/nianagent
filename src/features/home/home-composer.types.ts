@@ -8,10 +8,8 @@ import type {
   SubmitWork,
   Workspace,
 } from "@/lib/composer/types"
-import type {
-  HomeDraftStore,
-  HomeSubmission,
-} from "@/features/conversation/conversation-draft-store"
+import type { HomeDraftStore } from "./home-draft-store"
+import type { HomeSubmission } from "@/lib/submission/home-draft-rules"
 
 import { type FeedbackDescription } from "@/lib/operation-issue"
 export type HomeComposerProps = {

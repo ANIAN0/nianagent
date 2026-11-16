@@ -15,7 +15,10 @@ const registry = "https://registry.npmjs.org"
 const exists = (file) =>
   access(file).then(
     () => true,
-    () => false
+    (error) => {
+      if (error.code === "ENOENT") return false
+      throw error
+    }
   )
 const samePath = (a, b) => resolve(a).toLowerCase() === resolve(b).toLowerCase()
 
@@ -108,18 +111,23 @@ function packageEntry(directory, value) {
     : file
 }
 
-async function ordinaryEntry(directory, file) {
-  if (!file) return false
+// G13：探测结果分类——仅 ENOENT 视为缺失；其他错误输出不可探测及原因码，不与缺失混淆
+export async function entryState(directory, file) {
+  if (!file) return { state: "missing" }
   try {
     const info = await lstat(file)
-    return (
+    const usable =
       info.isFile() &&
       !info.isSymbolicLink() &&
       samePath(await realpath(directory), directory) &&
       samePath(await realpath(file), file)
-    )
-  } catch {
-    return false
+    return usable ? { state: "available" } : { state: "missing" }
+  } catch (error) {
+    if (error.code === "ENOENT") return { state: "missing" }
+    return {
+      state: "unavailable",
+      reason: `${error.code ?? "error"}：${error.message}`,
+    }
   }
 }
 
@@ -196,17 +204,17 @@ export function softwareService(run) {
               ? manifest.bin
               : manifest?.bin?.opencli
           )
-          const usable = await ordinaryEntry(directory, cli)
+          const entry = await entryState(directory, cli)
+          const usable = entry.state === "available"
           const daemon = cli ? join(dirname(cli), "daemon.js") : undefined
+          const daemonState = await entryState(directory, daemon)
           value = {
             state: manifest ? "installed" : "not-installed",
             version:
               typeof manifest?.version === "string" ? manifest.version : null,
             path: manifest ? directory : null,
             cliPath: usable ? cli : null,
-            daemonPath: (await ordinaryEntry(directory, daemon))
-              ? daemon
-              : null,
+            daemonPath: daemonState.state === "available" ? daemon : null,
             license:
               typeof manifest?.license === "string" ? manifest.license : null,
             npmPath: npm.wrapper,
@@ -214,9 +222,11 @@ export function softwareService(run) {
             usable,
             issue:
               (await compatibilityIssue(directory)) ||
-              (manifest && !usable
-                ? "全局OpenCLI程序入口缺失或不在实际安装目录，请重新安装官方包。"
-                : ""),
+              (entry.state === "unavailable"
+                ? `全局OpenCLI程序入口不可探测（${entry.reason}），请检查安装目录权限。`
+                : manifest && !usable
+                  ? "全局OpenCLI程序入口缺失或不在实际安装目录，请重新安装官方包。"
+                  : ""),
             npm,
             directory,
           }

@@ -3,15 +3,13 @@ import { ArrowLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import "./settings.css"
 
-export type SettingsSection =
-  "models" | "mcp" | "plugins" | "storage" | "updates" | "developer"
+export type SettingsSection = "models" | "mcp" | "storage" | "updates"
 const groups = [
   {
     title: "模型与执行",
     sections: [
       { id: "models", label: "模型连接" },
       { id: "mcp", label: "MCP 服务" },
-      { id: "plugins", label: "插件" },
     ],
   },
   {
@@ -19,7 +17,6 @@ const groups = [
     sections: [
       { id: "storage", label: "数据与存储" },
       { id: "updates", label: "关于与更新" },
-      { id: "developer", label: "开发工具" },
     ],
   },
 ] as const

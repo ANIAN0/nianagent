@@ -25,7 +25,7 @@ import { promisify } from "node:util"
 import { execFile } from "node:child_process"
 import lockfile from "proper-lockfile"
 import { ConversationStore } from "./conversation-store.mjs"
-import { validateOfflineStorage } from "./storage-validation.mjs"
+import { validateOfflineStorage } from "./storage-offline.mjs"
 import { withAcquiredLock } from "./atomic-file.mjs"
 /** 只有本模块固定说明可公开；JSON/FS/SDK异常绝不按文本语言猜测安全性。 */
 export class MigrationError extends Error {

@@ -17,8 +17,8 @@ import {
 } from "@/components/ui/dialog"
 import type { MessageAttachment } from "../conversation-types"
 import "./messages.css"
-import { useMaterialThumbnail } from "@/features/materials/use-material-thumbnail"
-import { MaterialThumbnail } from "@/features/materials/material-thumbnail"
+import { useMaterialThumbnail } from "@/components/composer/use-material-thumbnail"
+import { MaterialThumbnail } from "@/components/composer/material-thumbnail"
 import { useMessageEnvironment } from "./message-environment"
 
 export function MessageAttachments({

@@ -344,7 +344,12 @@ export async function createPiSession(
     ports.resources.set(session, instructionState)
     return session
   } catch (error) {
-    session.dispose()
+    try {
+      session.dispose()
+    } catch {
+      // 释放失败不掩盖创建/绑定首因（T20 首因语义）；disposed 已置位，不重复释放
+    }
+    // closing 由 dispose 的 finally 置位且 closePiResources 以 allSettled 收敛，不会 reject
     await instructionState.closing
     throw error
   }

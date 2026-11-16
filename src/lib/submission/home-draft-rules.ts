@@ -1,0 +1,190 @@
+// 提交协议与纯草稿规则（G04 下沉的共享层）：首页与对话两侧只依赖本模块，
+// 禁止运行时互相导入；存储端口（localStorage 读写）留在各自 feature。
+import type { ComposerDraft, Material } from "@/lib/composer/types"
+import type { FeedbackDescription } from "@/lib/operation-issue"
+import { sameMaterial } from "@/lib/composer/material-service-port"
+
+export type HomeSubmission = {
+  sessionId: string
+  /** Recorded before the first await; receipt inspection never guesses a different request. */
+  clientRequestId?: string
+  /** Recovery phase is persisted before crossing a side-effect boundary. */
+  stage?: "prepared" | "sending" | "rejected" | "accepted"
+  cwd?: string
+  draft: ComposerDraft
+  originalDraft?: ComposerDraft
+  /** Versioned separation between the immutable copy and the next editable input. */
+  followingDraft?: true
+  transfer?: { draft: ComposerDraft; signature: string }
+  signatures: string[]
+}
+
+export type HomeDraftCache = {
+  key: number
+  workspaceId?: string
+  sessionId?: string
+  recovery?: boolean
+  draft?: ComposerDraft
+  issue?: FeedbackDescription
+}
+
+export function draftSignature(draft: ComposerDraft) {
+  return JSON.stringify([
+    draft.workspaceId,
+    draft.text.trim(),
+    draft.materials.map((item) => item.id),
+    draft.model,
+    draft.thinking,
+  ])
+}
+
+export function homeDraftSignature(draft: ComposerDraft) {
+  return JSON.stringify([
+    draftSignature(draft),
+    draft.session.toolIds,
+    draft.session.instructionScope,
+  ])
+}
+
+export type HomeDraftRecovery = { draft: ComposerDraft; merged: boolean }
+
+export function homeDraftRecoveryKey(submission: HomeSubmission) {
+  return JSON.stringify([
+    submission.sessionId,
+    homeDraftSignature(submission.originalDraft ?? submission.draft),
+  ])
+}
+
+function uniqueMaterials(items: Material[]) {
+  return items.filter(
+    (item, index, all) =>
+      all.findIndex((candidate) => sameMaterial(candidate, item)) === index
+  )
+}
+
+function joinText(first: string, second: string) {
+  if (!first.trim()) return second
+  if (!second.trim() || first === second) return first
+  return `${first}\n\n${second}`
+}
+
+export function followingHomeDraft(submitted: ComposerDraft): ComposerDraft {
+  const following = { ...structuredClone(submitted), text: "", materials: [] }
+  delete following.homeRecoveryKey
+  delete following.homeTransferId
+  return following
+}
+
+/** A retained Home owner also owns edits saved before its history exists. */
+export function ownedFollowingHomeDraft(
+  submission: HomeSubmission,
+  editing?: ComposerDraft
+): ComposerDraft | undefined {
+  if (!editing || editing.sessionId !== submission.sessionId) return
+  if (editing.workspaceId === submission.draft.workspaceId) return editing
+  if (editing.workspaceId) return
+  // Older selected views saved an empty workspace/model while history was
+  // unavailable. Retain their next text/materials with the durable Home owner.
+  const seed = followingHomeDraft(submission.draft)
+  return {
+    ...seed,
+    ...editing,
+    workspaceId: seed.workspaceId,
+    model: editing.model || seed.model,
+    thinking: editing.thinking || seed.thinking,
+    session: seed.session,
+  }
+}
+
+/** A definitive refusal restores the original and preserves anything written meanwhile. */
+export function recoverRejectedHomeDraft(
+  submission: HomeSubmission,
+  following: ComposerDraft
+): HomeDraftRecovery {
+  const original = submission.originalDraft ?? submission.draft
+  const recoveryKey = homeDraftRecoveryKey(submission)
+  if (
+    submission.clientRequestId &&
+    following.homeRecoveryKey ===
+      JSON.stringify(["chat", submission.sessionId, submission.clientRequestId])
+  )
+    return {
+      draft: { ...structuredClone(following), homeRecoveryKey: recoveryKey },
+      merged: true,
+    }
+  if (following.homeRecoveryKey === recoveryKey)
+    return { draft: structuredClone(following), merged: true }
+  const sameOriginal =
+    homeDraftSignature(following) === homeDraftSignature(original)
+  const merged =
+    !sameOriginal && !!(following.text.trim() || following.materials.length)
+  return {
+    merged,
+    draft: {
+      ...structuredClone(following),
+      sessionId: submission.sessionId,
+      workspaceId: original.workspaceId,
+      homeRecoveryKey: recoveryKey,
+      text: sameOriginal
+        ? original.text
+        : joinText(original.text, following.text),
+      materials: uniqueMaterials([
+        ...structuredClone(original.materials),
+        ...structuredClone(following.materials),
+      ]),
+    },
+  }
+}
+
+/** Preserve another conversation draft while adopting this homepage's next message once. */
+export function adoptFollowingHomeDraft(
+  submission: HomeSubmission,
+  following: ComposerDraft,
+  existing?: ComposerDraft
+): ComposerDraft {
+  if (existing?.homeTransferId === submission.sessionId) return existing
+  const original = submission.draft
+  const existingIsOriginal =
+    !!existing && homeDraftSignature(existing) === homeDraftSignature(original)
+  const prior = existing && !existingIsOriginal ? existing : undefined
+  return {
+    ...structuredClone(following),
+    sessionId: submission.sessionId,
+    homeTransferId: submission.sessionId,
+    text: joinText(prior?.text ?? "", following.text),
+    materials: uniqueMaterials([
+      ...structuredClone(prior?.materials ?? []),
+      ...structuredClone(following.materials),
+    ]),
+  }
+}
+
+/** The original cause keeps its product issue; this metadata prevents a second merge. */
+export function withHomeDraftRecovery(
+  error: unknown,
+  recovery: HomeDraftRecovery
+) {
+  const failure = new Error(
+    error instanceof Error ? error.message : "消息未能开始。",
+    { cause: error }
+  )
+  if (error instanceof Error && error.name === "AbortError")
+    failure.name = error.name
+  if (error && typeof error === "object" && "issue" in error)
+    Object.assign(failure, { issue: error.issue })
+  return Object.assign(failure, { homeDraftRecovery: recovery })
+}
+
+export function homeDraftRecoveryFromError(
+  error: unknown
+): HomeDraftRecovery | undefined {
+  if (!error || typeof error !== "object" || !("homeDraftRecovery" in error))
+    return
+  const value = error.homeDraftRecovery as HomeDraftRecovery | undefined
+  if (
+    value?.draft &&
+    typeof value.draft.text === "string" &&
+    Array.isArray(value.draft.materials)
+  )
+    return value
+}

@@ -9,7 +9,7 @@ import { unresolvedComposerQuery } from "./composer-draft-query.ts"
 import {
   fileReferenceFeedback,
   isFileReference,
-} from "../../features/materials/material-reference-feedback.ts"
+} from "@/lib/composer/material-reference-feedback"
 
 type DraftBlock = {
   kind:

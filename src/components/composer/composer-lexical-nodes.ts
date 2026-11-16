@@ -13,7 +13,7 @@ import {
 } from "lexical"
 
 import type { Material } from "@/lib/composer/types"
-import { fileReferenceFeedback } from "@/features/materials/material-reference-feedback"
+import { fileReferenceFeedback } from "@/lib/composer/material-reference-feedback"
 
 /** 引用节点及文本偏移桥；不持有 React 页面状态。 */
 export type SerializedReference = SerializedTextNode & {

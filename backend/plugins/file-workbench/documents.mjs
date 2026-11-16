@@ -101,6 +101,11 @@ export class Documents {
             }
           }
           position += bytesRead
+          // 与图片/PDF 预览同哲学：文本分页只覆盖文件前部，防止逐页拖走超大文件。
+          if (position > 32 * 1024 * 1024)
+            throw new Error(
+              "文本预览覆盖前32MiB，更靠后的行请使用外部编辑器打开。"
+            )
         }
       }
       if (
@@ -111,6 +116,8 @@ export class Documents {
         line < 1
       )
         throw new Error("文本读取位置无效。")
+      if (offset > 32 * 1024 * 1024)
+        throw new Error("文本预览覆盖前32MiB，之后的内容请使用外部编辑器打开。")
       const buffer = Buffer.alloc(
         Math.min(2 * 1024 * 1024, target.value.size - offset)
       )

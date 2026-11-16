@@ -7,11 +7,18 @@ import {
   feedbackFromError,
   type FeedbackDescription,
 } from "@/lib/operation-issue"
-import { ConversationOperationFeedback } from "./conversation-operation-feedback"
+import {
+  CommandRecoveryFeedback,
+  ConversationRecoveryBanner,
+} from "./conversation-recovery-banner"
+import { ConversationQueuePanel } from "./conversation-queue-panel"
 import type { ConversationActionIssue } from "./use-live-conversation"
 import { Button } from "@/components/ui/button"
 import type { ComposerData, ComposerDraft } from "@/lib/composer/types"
-import type { ConversationSnapshot } from "@/contracts/rpc.generated"
+import type {
+  ConversationSnapshot,
+  ExtensionPresentation,
+} from "@/contracts/rpc.generated"
 import { ConversationPage } from "./conversation-page"
 import type { ConversationReadingPosition } from "./conversation-list"
 import { ConversationComposer } from "./composer/conversation-composer"
@@ -20,16 +27,16 @@ import { MessageEnvironmentProvider } from "./messages/message-environment"
 
 import { SubmissionReceipt } from "@/components/feedback/submission-receipt"
 import type { ConversationSubmissionEchoValue } from "./conversation-submission"
-import { MaterialServiceContext } from "@/features/materials/material-service"
-import { QueueDock } from "./composer/queue-dock"
+import { MaterialServiceContext } from "@/lib/composer/material-service-port"
 import { QueueOperationRecovery } from "./composer/queue-operation-recovery"
 import {
   queueOperationIssueKey,
   type QueueOperationRecord,
 } from "./queue-operation-recovery"
 import type { Material } from "@/lib/composer/types"
-import { MaterialPreviewDialog } from "@/features/materials/material-preview"
+import { MaterialPreviewDialog } from "@/components/composer/material-preview"
 import {
+  type ReactNode,
   useContext,
   useEffect,
   useLayoutEffect,
@@ -50,106 +57,132 @@ import { useConversationStopShortcut } from "./use-conversation-stop-shortcut"
 // Ephemeral disclosure state survives a view switch; it stores no message data.
 const sessionDisclosures = new BoundedCache<string, Map<string, boolean>>(100)
 
-export type LiveConversationViewProps = {
-  id: string
-  title: string
-  workspacePath?: string
-  snapshot?: ConversationSnapshot
-  error?: string
+export type LiveConversationStatusProps = {
   readIssue?: FeedbackDescription
+  readPending?: boolean
   actionIssue?: ConversationActionIssue
   draftError?: string
   receiptIssue?: FeedbackDescription
-  onCleanReceipt?: () => void
-  queueIssues?: Record<string, FeedbackDescription | undefined>
-  queueRecoveryReason?: string
-  queueRecoveryRecords?: readonly QueueOperationRecord[]
-  queueRecoveryIssuesByRequest?: Record<string, FeedbackDescription | undefined>
-  queueStorageIssue?: FeedbackDescription
-  queueOriginalRetryAllowed?: Record<string, boolean | undefined>
-  queueOperationPendingByRequest?: Record<string, boolean | undefined>
-  onRetryQueueOriginal?: (record: QueueOperationRecord) => void
   readReceiptIssue?: FeedbackDescription
-  onRetryReadReceipt?: () => void
   pending?: boolean
   stopPending?: boolean
   stopUnconfirmed?: boolean
+  unconfirmed?: boolean
   pendingSubmission?: ConversationSubmissionEchoValue
-  data: ComposerData
-  draft: ComposerDraft
-  positions?: Map<string, ConversationReadingPosition>
-  onChange: (draft: ComposerDraft) => void
-  onRecoverDraft?: (draft: ComposerDraft) => void | Promise<unknown>
-  onSend: (draft: ComposerDraft, delivery?: BusyInputMode) => void
-  onStop: () => void
-  onContinue: () => void
-  onReload: () => void
-  readPending?: boolean
-  onQueueEdit?: (
+}
+
+export type LiveConversationQueueProps = {
+  issues?: Record<string, FeedbackDescription | undefined>
+  recoveryReason?: string
+  recoveryRecords?: readonly QueueOperationRecord[]
+  recoveryIssuesByRequest?: Record<string, FeedbackDescription | undefined>
+  storageIssue?: FeedbackDescription
+  originalRetryAllowed?: Record<string, boolean | undefined>
+  operationPendingByRequest?: Record<string, boolean | undefined>
+  onRetryOriginal?: (record: QueueOperationRecord) => void
+  onEdit?: (
     itemId: string,
     text: string,
     materials?: ComposerDraft["materials"],
     revision?: number,
     clientEditId?: string
   ) => Promise<unknown>
-  onQueueItemRead?: import("./composer/queue-dock.types").QueueDockProps["onReadItem"]
-  onQueueRemove?: (itemId: string) => void
-  onQueueDeliver?: (itemId: string) => void
+  onItemRead?: import("./composer/queue-dock.types").QueueDockProps["onReadItem"]
+  onRemove?: (itemId: string) => void
+  onDeliver?: (itemId: string) => void
+}
+
+export type LiveConversationActionProps = {
+  onChange: (draft: ComposerDraft) => void
+  onRecoverDraft?: (draft: ComposerDraft) => void | Promise<unknown>
+  onSend: (draft: ComposerDraft, delivery?: BusyInputMode) => void
+  onStop: () => void
+  onContinue: () => void
+  onReload: () => void
   onSaveDraft?: () => void
-  unconfirmed?: boolean
+  onCleanReceipt?: () => void
+  onRetryReadReceipt?: () => void
   onReconcile?: () => void
   onOpenConversation?: (id: string) => void
   onOpenSettings?: () => void
+}
+
+export type LiveConversationViewProps = {
+  id: string
+  title: string
+  workspacePath?: string
+  snapshot?: ConversationSnapshot
+  error?: string
+  data: ComposerData
+  draft: ComposerDraft
+  positions?: Map<string, ConversationReadingPosition>
   captureNavigation?: () => () => boolean
   controlService?: ConversationControlService
+  headerActions?: ReactNode
+  renderTurnDeliveries?: (records: ExtensionPresentation[]) => ReactNode
+  status?: LiveConversationStatusProps
+  queue?: LiveConversationQueueProps
+  actions: LiveConversationActionProps
 }
+
 export function LiveConversationView({
   id,
   title,
   workspacePath,
   snapshot,
   error,
-  readIssue: providedReadIssue,
-  actionIssue,
-  draftError,
-  receiptIssue,
-  onCleanReceipt,
-  queueIssues,
-  queueRecoveryReason,
-  queueRecoveryRecords = [],
-  queueRecoveryIssuesByRequest,
-  queueStorageIssue,
-  queueOriginalRetryAllowed,
-  queueOperationPendingByRequest,
-  onRetryQueueOriginal,
-  readReceiptIssue,
-  onRetryReadReceipt,
-  pending,
-  stopPending,
-  stopUnconfirmed: providedStopUnconfirmed,
-  pendingSubmission,
   data,
   draft,
   positions,
-  onChange,
-  onRecoverDraft,
-  onSend,
-  onStop,
-  onContinue,
-  onReload,
-  readPending,
-  onQueueEdit,
-  onQueueItemRead,
-  onQueueRemove,
-  onQueueDeliver,
-  onSaveDraft,
-  unconfirmed,
-  onReconcile,
-  onOpenConversation,
-  onOpenSettings,
   captureNavigation,
   controlService,
+  headerActions,
+  renderTurnDeliveries,
+  status = {},
+  queue = {},
+  actions,
 }: LiveConversationViewProps) {
+  const {
+    readIssue: providedReadIssue,
+    readPending,
+    actionIssue,
+    draftError,
+    receiptIssue,
+    readReceiptIssue,
+    pending,
+    stopPending,
+    stopUnconfirmed: providedStopUnconfirmed,
+    unconfirmed,
+    pendingSubmission,
+  } = status
+  const {
+    issues: queueIssues,
+    recoveryReason: queueRecoveryReason,
+    recoveryRecords: queueRecoveryRecords = [],
+    recoveryIssuesByRequest: queueRecoveryIssuesByRequest,
+    storageIssue: queueStorageIssue,
+    originalRetryAllowed: queueOriginalRetryAllowed,
+    operationPendingByRequest: queueOperationPendingByRequest,
+    onRetryOriginal: onRetryQueueOriginal,
+    onEdit: onQueueEdit,
+    onItemRead: onQueueItemRead,
+    onRemove: onQueueRemove,
+    onDeliver: onQueueDeliver,
+  } = queue
+  const {
+    onChange,
+    onRecoverDraft,
+    onSend,
+    onStop,
+    onContinue,
+    onReload,
+    onSaveDraft,
+    onCleanReceipt,
+    onRetryReadReceipt,
+    onReconcile,
+    onOpenConversation,
+    onOpenSettings,
+  } = actions
   const [activeMaterial, setActiveMaterial] = useState<Material | null>(null)
   const materialService = useContext(MaterialServiceContext)
   const permissionService = useContext(PermissionServiceContext)
@@ -527,6 +560,7 @@ export function LiveConversationView({
     cwd,
     receiptUnknown,
     onReconcile,
+    renderTurnDeliveries,
   })
 
   return (
@@ -581,6 +615,7 @@ export function LiveConversationView({
                 打开来源会话
               </Button>
             ) : undefined}
+            {headerActions}
           </>
         }
         notice={
@@ -708,53 +743,7 @@ export function LiveConversationView({
             modeIssue={currentQueueIssues.mode}
             queueRecovery={
               <>
-                {(command.pending || command.issue) && (
-                  <OperationFeedback
-                    notify={false}
-                    density="compact"
-                    title={
-                      command.receipt?.status === "started"
-                        ? `正在执行 /${command.receipt.name}`
-                        : command.receipt?.status === "failed"
-                          ? "扩展命令未完成"
-                          : "扩展命令待核对"
-                    }
-                    message={`扩展命令${command.receipt?.name ? ` /${command.receipt.name}` : ""}：${
-                      command.issue?.message ??
-                      command.receipt?.issue?.summary ??
-                      "原命令与参数已保留；核对不会重复执行。"
-                    }`}
-                    severity={
-                      command.receipt?.status === "failed" ? "error" : "info"
-                    }
-                    actions={
-                      (command.pending || command.storageBlocked) && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={command.checking}
-                          onClick={() => {
-                            if (
-                              command.receipt &&
-                              ["completed", "failed"].includes(
-                                command.receipt.status
-                              )
-                            )
-                              command.acknowledge()
-                            else void command.check()
-                          }}
-                        >
-                          {command.receipt &&
-                          ["completed", "failed"].includes(
-                            command.receipt.status
-                          )
-                            ? "清理原回执"
-                            : "核对原命令"}
-                        </Button>
-                      )
-                    }
-                  />
-                )}
+                <CommandRecoveryFeedback command={command} />
                 <QueueOperationRecovery
                   records={originalQueueRecords}
                   issues={queueIssues}
@@ -779,180 +768,62 @@ export function LiveConversationView({
                 snapshot?.contextState ?? { status: "unavailable" }),
             }}
             dock={
-              <>
-                {snapshot?.queue &&
-                  onQueueEdit &&
-                  onQueueRemove &&
-                  onQueueDeliver && (
-                    <QueueDock
-                      sessionId={id}
-                      pendingSubmission={
-                        pendingSubmission?.kind === "send" &&
-                        pendingSubmission.placement === "queued" &&
-                        !snapshot.queue.acceptedRequestIds?.includes(
-                          pendingSubmission.id
-                        ) &&
-                        !(
-                          snapshot.inputAccepted &&
-                          snapshot.clientRequestId === pendingSubmission.id
-                        )
-                          ? pendingSubmission
-                          : undefined
-                      }
-                      pending={pending && !receiptUnknown}
-                      unconfirmed={receiptUnknown}
-                      checking={receiptUnknown && pending}
-                      onCheckSubmission={onReconcile}
-                      retiredItems={snapshot.queue.retiredItems}
-                      onReadItem={onQueueItemRead}
-                      revision={snapshot.queue.revision}
-                      items={snapshot.queue.items.map((item) => ({
-                        ...item,
-                        draft: {
-                          ...draft,
-                          text: item.text,
-                          materials: item.materials,
-                        },
-                      }))}
-                      running={running}
-                      stopping={stopping}
-                      busy={stopping || !!mutationBlockedReason}
-                      checkPending={readPending}
-                      paused={snapshot.queue.paused}
-                      waitingApproval={!!approval}
-                      cwd={snapshot.cwd}
-                      issue={
-                        queueIssue &&
-                        !Object.values(queueIssues ?? {}).some(
-                          (issue) => issue?.code === queueIssue.code
-                        )
-                          ? { ...queueIssue, message: queueIssue.summary }
-                          : undefined
-                      }
-                      issues={{ ...currentQueueIssues, mode: undefined }}
-                      onCheck={onReload}
-                      onRecoverEdit={async (
-                        text,
-                        materials = [],
-                        recoveryKey
-                      ) => {
-                        const recoveredDraft: ComposerDraft =
-                          recoveryKey &&
-                          latestDraft.current.homeRecoveryKey === recoveryKey
-                            ? latestDraft.current
-                            : {
-                                ...latestDraft.current,
-                                homeRecoveryKey: recoveryKey,
-                                text: latestDraft.current.text
-                                  ? `${latestDraft.current.text}\n${text}`
-                                  : text,
-                                materials: [
-                                  ...latestDraft.current.materials,
-                                  ...materials.filter(
-                                    (material) =>
-                                      !latestDraft.current.materials.some(
-                                        (existing) =>
-                                          existing.id === material.id
-                                      )
-                                  ),
-                                ],
-                              }
-                        await (onRecoverDraft ?? onChange)(recoveredDraft)
-                        if (!mounted.current) return
-                        requestAnimationFrame(() => {
-                          inputRef.current?.focus()
-                          const length = inputRef.current?.value.length ?? 0
-                          inputRef.current?.setSelectionRange(length, length)
-                        })
-                      }}
-                      onEdit={onQueueEdit}
-                      onRemove={onQueueRemove}
-                      onSendNow={onQueueDeliver}
-                    />
-                  )}
-              </>
+              <ConversationQueuePanel
+                id={id}
+                snapshot={snapshot}
+                draft={draft}
+                latestDraft={latestDraft}
+                inputRef={inputRef}
+                mounted={mounted}
+                pending={pending}
+                receiptUnknown={!!receiptUnknown}
+                readPending={readPending}
+                running={running}
+                stopping={stopping}
+                mutationBlockedReason={mutationBlockedReason}
+                hasApproval={!!approval}
+                pendingSubmission={pendingSubmission}
+                queueIssue={queueIssue}
+                queueIssues={queueIssues}
+                currentQueueIssues={currentQueueIssues}
+                onReload={onReload}
+                onReconcile={onReconcile}
+                onChange={onChange}
+                onRecoverDraft={onRecoverDraft}
+                queue={{
+                  onItemRead: onQueueItemRead,
+                  onEdit: onQueueEdit,
+                  onRemove: onQueueRemove,
+                  onDeliver: onQueueDeliver,
+                }}
+              />
             }
             feedback={
-              snapshot?.notice ||
-              snapshot?.historyNotice ||
-              needsResend ||
-              inlineActionIssue ||
-              draftError ||
-              receiptIssue ? (
-                <div className="flex flex-col gap-2">
-                  {snapshot?.historyNotice && (
-                    <OperationFeedback
-                      notify={false}
-                      density="compact"
-                      title="历史记录提示"
-                      message={`历史记录：${snapshot.historyNotice}`}
-                      severity="info"
-                    />
-                  )}
-                  {snapshot?.notice && (
-                    <OperationFeedback
-                      notify={false}
-                      density="compact"
-                      title={
-                        snapshot.notice.kind === "input-handled"
-                          ? "扩展已处理输入"
-                          : "上下文压缩未完成"
-                      }
-                      message={`${snapshot.notice.kind === "input-handled" ? "扩展输入" : "上下文压缩"}：${snapshot.notice.message}`}
-                      severity="warning"
-                    />
-                  )}
-                  {needsResend && !pendingQueue && !unconfirmed && (
-                    <OperationFeedback
-                      notify={false}
-                      density="compact"
-                      title="消息尚未发送"
-                      message={
-                        runIssue?.summary ??
-                        "内容已保留，请修正后在输入框发送。"
-                      }
-                      details={runIssue?.details}
-                      severity={
-                        snapshot?.phase === "interrupted" ? "info" : "error"
-                      }
-                      actions={
-                        runIssue?.recovery === "settings" &&
-                        data.modelCatalog && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={data.modelCatalog.onOpenSettings}
-                          >
-                            检查模型设置
-                          </Button>
-                        )
-                      }
-                    />
-                  )}
-                  <ConversationOperationFeedback
-                    submissionKind={pendingSubmission?.kind}
-                    actionIssue={inlineActionIssue}
-                    draftError={draftError}
-                    receiptIssue={receiptIssue}
-                    onCleanReceipt={onCleanReceipt}
-                    unconfirmed={false}
-                    pending={
-                      pending ||
-                      (inlineActionIssue?.action === "stop" && stopPending)
-                    }
-                    readPending={readPending}
-                    onReload={onReload}
-                    onReconcile={onReconcile}
-                    onSaveDraft={onSaveDraft}
-                    onStop={onStop}
-                    onContinue={onContinue}
-                    continueDisabledReason={mutationBlockedReason}
-                    onOpenSettings={
-                      onOpenSettings ?? data.modelCatalog?.onOpenSettings
-                    }
-                  />
-                </div>
-              ) : undefined
+              <ConversationRecoveryBanner
+                snapshot={snapshot}
+                needsResend={needsResend}
+                pendingQueue={pendingQueue}
+                unconfirmed={unconfirmed}
+                runIssue={runIssue}
+                onOpenSettings={
+                  onOpenSettings ?? data.modelCatalog?.onOpenSettings
+                }
+                hasModelCatalog={!!data.modelCatalog}
+                pendingSubmission={pendingSubmission}
+                inlineActionIssue={inlineActionIssue}
+                draftError={draftError}
+                receiptIssue={receiptIssue}
+                onCleanReceipt={onCleanReceipt}
+                pending={pending}
+                stopPending={stopPending}
+                readPending={readPending}
+                onReload={onReload}
+                onReconcile={onReconcile}
+                onSaveDraft={onSaveDraft}
+                onStop={onStop}
+                onContinue={onContinue}
+                mutationBlockedReason={mutationBlockedReason}
+              />
             }
           />
         }

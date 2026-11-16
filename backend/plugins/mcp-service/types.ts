@@ -6,6 +6,11 @@ export type SharedToolDescriptor = {
   inputSchema: Record<string, unknown>
   annotations: Record<string, boolean>
 }
+export type McpServiceIdentity = {
+  actors: number
+  credentials: number
+  valid: number
+}
 export type McpServiceStatus = {
   running: boolean
   url: string
@@ -15,7 +20,24 @@ export type McpServiceStatus = {
   tools: SharedToolDescriptor[]
   issue: string
   logIssue: string
+  identity: McpServiceIdentity
   protocol: string
+}
+export type RegisteredCredential = {
+  actorId: string
+  displayName: string
+  kind: string
+  credentialId: string
+  createdAt: string
+  revokedAt: string
+  valid: boolean
+}
+export type RegistrationResult = {
+  actorId: string
+  displayName: string
+  credentialId: string
+  token: string
+  revision: number
 }
 export type McpServiceClient = {
   read(signal?: AbortSignal): Promise<McpServiceStatus>
@@ -25,4 +47,19 @@ export type McpServiceClient = {
   ): Promise<McpServiceStatus>
   reveal(signal?: AbortSignal): Promise<{ token: string }>
   reset(revision: number, signal?: AbortSignal): Promise<McpServiceStatus>
+  register(
+    input: { displayName: string },
+    signal?: AbortSignal
+  ): Promise<RegistrationResult>
+  rotate(
+    input: { actorId: string },
+    signal?: AbortSignal
+  ): Promise<RegistrationResult>
+  revoke(
+    input: { credentialId: string },
+    signal?: AbortSignal
+  ): Promise<McpServiceStatus>
+  credentials(signal?: AbortSignal): Promise<{
+    credentials: RegisteredCredential[]
+  }>
 }

@@ -19,6 +19,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
 import "./startup-surface.css"
+import { bootElapsed } from "./boot-epoch"
 
 export type StartupStep = {
   id: string
@@ -80,7 +81,10 @@ export function StartupSurface({
   failureView: FailureView,
 }: StartupSurfaceProps) {
   const [details, setDetails] = useState(false)
-  const [showStage, setShowStage] = useState(false)
+  // 阶段披露跟随页面原点：实例交接沿用已过的等待，不重置延迟。
+  const [showStage, setShowStage] = useState(
+    () => bootElapsed() >= STAGE_REVEAL_DELAY
+  )
   const [copyState, setCopyState] = useState<{
     diagnostics: string
     status: "copying" | "copied" | "failed"
@@ -88,12 +92,13 @@ export function StartupSurface({
   const copying = useRef(false)
   const lifetime = useRef(0)
   useEffect(() => {
+    if (showStage) return
     const timer = window.setTimeout(
       () => setShowStage(true),
-      STAGE_REVEAL_DELAY
+      Math.max(0, STAGE_REVEAL_DELAY - bootElapsed())
     )
     return () => window.clearTimeout(timer)
-  }, [])
+  }, [showStage])
   useEffect(() => {
     lifetime.current += 1
     return () => {

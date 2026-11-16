@@ -52,6 +52,8 @@
   mask: url("./moon-phase.svg") center / contain no-repeat;
   animation: moon-body-breathe var(--breathing-cycle) var(--breathing-ease)
     infinite;
+  /* 与 index.html 静态页共享 --boot-phase：实例交接时月体相位不回卷。 */
+  animation-delay: var(--boot-phase, 0ms);
 }
 
 .breathing-startup .startup-surface::after {
@@ -67,6 +69,7 @@
   );
   animation: moon-light-breathe var(--breathing-cycle) var(--breathing-ease)
     infinite;
+  animation-delay: var(--boot-phase, 0ms);
 }
 
 .breathing-startup .startup-surface > h1 {
@@ -85,7 +88,7 @@
   font-weight: 550;
   line-height: 40px;
   letter-spacing: -0.04em;
-  animation: moon-enter 400ms ease-out both;
+  /* 入场动画只属于静态页首例；React 接管例重放即是跳变。 */
 }
 
 .breathing-startup .startup-wait,

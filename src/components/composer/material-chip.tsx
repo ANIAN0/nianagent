@@ -11,8 +11,8 @@ import {
   AttachmentTitle,
   AttachmentTrigger,
 } from "@/components/ui/attachment"
-import { useMaterialThumbnail } from "@/features/materials/use-material-thumbnail"
-import { MaterialThumbnail } from "@/features/materials/material-thumbnail"
+import { useMaterialThumbnail } from "@/components/composer/use-material-thumbnail"
+import { MaterialThumbnail } from "@/components/composer/material-thumbnail"
 import type { Material } from "@/lib/composer/types"
 
 export type MaterialChipProps = {

@@ -21,8 +21,7 @@ export class ConversationCommands {
     const owner = this.conversations,
       state = owner.active.get(sessionId)
     const runner =
-      state?.session?.extensionRunner ||
-      owner.sessions.active.get(sessionId)?.session?.extensionRunner
+      state?.session?.extensionRunner || owner.sessions.commandRunner(sessionId)
     const available = !!state && !state.entry.busy && !state.controlBusy
     const reason = !state ? "发送首条消息后可执行" : "当前工作结束后可执行"
     return [

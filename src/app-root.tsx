@@ -11,14 +11,29 @@ import { isRemoteWeb } from "@/lib/rpc/remote-transport"
 
 const startup =
   new URLSearchParams(window.location.search).get("moon-startup") === "1"
+const loadWorkbench = () => import("./app-entry")
+const remotePortModules = import.meta.glob<{
+  registerRemoteAccessPorts: () => void
+}>("../backend/plugins/remote-access/register-ports.ts")
+
+async function loadRemoteEntry() {
+  const bootstrap =
+    remotePortModules["../backend/plugins/remote-access/register-ports.ts"]
+  if (bootstrap) {
+    const { registerRemoteAccessPorts } = await loadStartupModule(bootstrap())
+    registerRemoteAccessPorts()
+  }
+  return loadStartupModule(import("@/features/startup/remote-entry"))
+}
+
 const Entry = lazy(() =>
-  loadStartupModule(
-    isRemoteWeb()
-      ? import("@/features/startup/remote-entry")
-      : startup
-        ? import("@/features/startup/startup-migration-app")
-        : import("@/features/startup/boot-app")
-  )
+  isRemoteWeb()
+    ? loadRemoteEntry()
+    : loadStartupModule(
+        startup
+          ? import("@/features/startup/startup-migration-app")
+          : import("@/features/startup/boot-app")
+      )
 )
 const loadingSteps = [
   { id: "interface", label: "加载启动界面", status: "active" as const },
@@ -114,7 +129,7 @@ export function mountApplication() {
       <Suspense
         fallback={<StartupSurface status="starting" steps={loadingSteps} />}
       >
-        <Entry />
+        <Entry loadWorkbench={loadWorkbench} />
       </Suspense>
     </TooltipProvider>
   )

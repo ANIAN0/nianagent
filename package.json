@@ -1,17 +1,17 @@
 {
   "name": "moon",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "packageManager": "pnpm@11.24.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "pnpm contract:check && pnpm typecheck && node scripts/build-frontend.mjs",
+    "build": "pnpm notes:build && pnpm contract:check && pnpm typecheck && node scripts/build-frontend.mjs",
     "lint": "node scripts/project-index.mjs && eslint .",
     "format": "prettier --write \"{src,backend,scripts,devtools}/**/*.{ts,tsx,mjs}\" && cargo fmt --manifest-path src-tauri/Cargo.toml && cargo fmt --manifest-path scripts/release-verifier/Cargo.toml",
-    "typecheck": "tsc -b --pretty false && tsc -p backend/tsconfig.json --pretty false",
+    "typecheck": "tsc -b --pretty false && tsc -p backend/tsconfig.json --pretty false && pnpm --filter notes-workbench typecheck",
     "preview": "vite preview",
-    "notes:build": "node scripts/build-notes-workbench.mjs && node scripts/build-notes-preview.mjs",
+    "notes:build": "pnpm --filter notes-workbench build",
     "backend:package": "node scripts/package-backend.mjs",
     "desktop:build": "node scripts/build-desktop.mjs",
     "release:version": "node scripts/release-version.mjs",
@@ -19,6 +19,7 @@
     "release:prepare": "node scripts/prepare-desktop-release.mjs",
     "release:verify": "node scripts/verify-release-assets.mjs",
     "contract:generate": "node scripts/generate-model-contract.mjs && node scripts/generate-desktop-contract.mjs",
+    "boundary:check": "node scripts/check-module-boundaries.mjs",
     "contract:check": "node scripts/generate-model-contract.mjs --check && node scripts/generate-desktop-contract.mjs --check && node scripts/api-documentation.mjs --check"
   },
   "dependencies": {

@@ -1,13 +1,22 @@
+import { currentTraceId } from "./request-context.mjs"
+import { randomUUID } from "node:crypto"
+
+// G09：每个终态 issue 携带 errorId（可定位唯一日志与责任模块）；traceId 随上下文贯通（G10）。
 const issue = (code, summary, recovery = "retry", details) => ({
   code,
   summary,
   recovery,
+  errorId: randomUUID().slice(0, 8),
+  traceId: currentTraceId(),
   severity:
     code === "cancelled"
       ? "info"
       : code === "result_unknown"
         ? "warning"
         : "error",
+  // T20-2：领域回执自带终态——result_unknown 明确表示无法证明已提交或被拒，
+  // 消费方不得按错误类改判为 rejected。
+  ...(code === "result_unknown" ? { outcome: "unknown" } : {}),
   ...(details ? { details } : {}),
 })
 const storageCodes = new Set([
@@ -186,7 +195,37 @@ export function publicIssue(error, operation, cancelled = false) {
   )
 }
 
+// T20-1/AC14：同一次失败在同一操作上下文内只规范一次——以 error 对象为一级键、
+// 「操作名/取消态/链路」为二级键缓存规范脱敏结果，终态日志与各层响应复用同一 issue
+// （同 errorId）。同一 error 实例进入不同操作或链路（如 trace-A 普通失败、trace-B 取消）
+// 时各自规范，取消码与 traceId 不跨操作混淆；并发操作之间不共享身份。
+const canonicalFailures = new WeakMap()
+/** A terminal transport result retains its identity after leaving AsyncLocalStorage. */
+export class TransportFailure extends Error {
+  constructor(operation, failure, cause) {
+    super(failure.error, { cause })
+    this.name = "TransportFailure"
+    this.operation = operation
+    this.failure = Object.freeze({
+      ...failure,
+      issue: Object.freeze({ ...failure.issue }),
+    })
+  }
+}
+
 export function publicFailure(error, operation, cancelled = false) {
+  if (error instanceof TransportFailure && error.operation === operation)
+    return error.failure
+  const memoizable = error instanceof Object
+  const key = `${operation ?? ""}\u0000${cancelled ? 1 : 0}\u0000${currentTraceId()}`
+  const cached = memoizable ? canonicalFailures.get(error)?.get(key) : undefined
+  if (cached) return cached
   const result = publicIssue(error, operation, cancelled)
-  return { error: result.summary, issue: result }
+  const failure = { error: result.summary, issue: result }
+  if (memoizable) {
+    const perError = canonicalFailures.get(error) ?? new Map()
+    perError.set(key, failure)
+    if (!canonicalFailures.has(error)) canonicalFailures.set(error, perError)
+  }
+  return failure
 }

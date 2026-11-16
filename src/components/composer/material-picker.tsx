@@ -19,7 +19,7 @@ import {
   InputGroupAddon,
 } from "@/components/ui/input-group"
 
-import { MaterialCandidateList } from "@/features/materials/material-candidate-list"
+import { MaterialCandidateList } from "@/components/composer/material-candidate-list"
 
 export function MaterialPicker(props: MaterialPickerProps) {
   // A disabled phase owns no open candidates. Restoring the phase starts closed

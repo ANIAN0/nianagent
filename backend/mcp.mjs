@@ -491,8 +491,8 @@ export class McpService {
     try {
       cwd = await realpath(cwd || process.cwd())
       check((await stat(cwd)).isDirectory(), "测试工作目录不是目录。")
-    } catch {
-      throw new Error("测试工作目录不存在或不可访问。")
+    } catch (error) {
+      throw new Error("测试工作目录不存在或不可访问。", { cause: error })
     }
     signal?.throwIfAborted()
     const client = ownClose(

@@ -15,7 +15,7 @@ import { ComposerInputCard } from "@/components/composer/composer-input-card"
 import {
   insertComposerText,
   removeComposerMaterial,
-} from "@/features/materials/composer-material-edit"
+} from "@/components/composer/composer-material-edit"
 import { Button } from "@/components/ui/button"
 import { ComposerToolbar } from "@/components/composer/composer-toolbar"
 import { PromptInput } from "@/components/composer/prompt-input"
@@ -30,7 +30,7 @@ import type { ComposerData, ComposerDraft } from "@/lib/composer/types"
 import { ConversationSendControl } from "./conversation-send-control"
 import type { ContextUsageProps } from "./context-usage"
 import { ComposerAuxiliaryBar } from "./composer-auxiliary-bar"
-import { useComposerMaterials } from "@/features/materials/use-composer-materials"
+import { useMaterialRuntime } from "@/lib/composer/material-runtime-port"
 import { OperationFeedback } from "@/components/feedback/operation-feedback"
 import { NotificationToast } from "@/components/ui/notification-toast"
 import type { FeedbackDescription } from "@/lib/operation-issue"
@@ -172,6 +172,7 @@ export function ConversationComposer({
     stopping ||
     blocked ||
     (running && !allowQueue)
+  const { useComposerMaterials } = useMaterialRuntime()
   const materialController = useComposerMaterials({
     sessionId,
     cwd: workspacePath,

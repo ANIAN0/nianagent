@@ -2,18 +2,22 @@ import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
-  connectRemote,
-  readConnection,
-  type ConnectionInfo,
-} from "../../../backend/plugins/remote-access/client"
-import BootApp from "./boot-app"
+  connectRemoteHost,
+  readRemoteConnection,
+  type RemoteConnectionInfo,
+} from "@/lib/rpc/remote-ports"
+import BootApp, { type WorkbenchLoader } from "./boot-app"
 
 const savedKey = "moon.remote.connection"
 function hasConnectionParameters() {
   const fields = new URLSearchParams(window.location.hash.slice(1))
   return ["server", "key", "gateway"].some((field) => fields.has(field))
 }
-export default function RemoteEntry() {
+export default function RemoteEntry({
+  loadWorkbench,
+}: {
+  loadWorkbench: WorkbenchLoader
+}) {
   const [link, setLink] = useState(() =>
     hasConnectionParameters()
       ? window.location.href
@@ -27,12 +31,12 @@ export default function RemoteEntry() {
     const value = submittedLink
     let active = true,
       close: (() => void) | undefined
-    let connection: ConnectionInfo | undefined
+    let connection: RemoteConnectionInfo | undefined
     const connectionChanged = () => {
       if (!hasConnectionParameters()) return
-      let next: ConnectionInfo
+      let next: RemoteConnectionInfo
       try {
-        next = readConnection(window.location.href)
+        next = readRemoteConnection(window.location.href)
       } catch {
         return
       }
@@ -54,10 +58,10 @@ export default function RemoteEntry() {
       void Promise.resolve()
         .then(() => {
           if (!active) return () => {}
-          const info = readConnection(value)
+          const info = readRemoteConnection(value)
           connection = info
           localStorage.setItem(savedKey, value)
-          return connectRemote(info, (connected, message) => {
+          return connectRemoteHost(info, (connected, message) => {
             if (active) {
               setReady(connected)
               setIssue(message)
@@ -86,7 +90,7 @@ export default function RemoteEntry() {
   }, [submittedLink])
   const connect = () => {
     try {
-      readConnection(link)
+      readRemoteConnection(link)
       localStorage.setItem(savedKey, link)
       // Reset all module owners and pending work before accepting another host.
       window.history.replaceState(
@@ -114,7 +118,7 @@ export default function RemoteEntry() {
             </Button>
           </p>
         )}
-        <BootApp />
+        <BootApp loadWorkbench={loadWorkbench} />
       </div>
     )
   return (

@@ -20,6 +20,18 @@ const nullable = (schema) => ({ anyOf: [schema, { type: "null" }] })
 const text = { type: "string", maxLength: 4096 },
   token = { type: "string", pattern: "^[a-f0-9-]{36}$" }
 const output = object({ value: { type: "object", additionalProperties: true } })
+const deviceList = object({
+  items: {
+    type: "array",
+    items: object({
+      id: str("客户端公钥标识(base64url)"),
+      state: str("trusted=已信任;pending=待本机确认", {
+        enum: ["trusted", "pending"],
+      }),
+      online: bool("当前是否在线"),
+    }),
+  },
+})
 const connection = object({
   online: bool("与 evework 控制通道在线"),
   issue: str("当前连接说明"),
@@ -51,9 +63,9 @@ export const remoteModule = {
   source:
     "backend/plugins/remote-access/host.mjs → uploads.mjs / directories.mjs",
   storage:
-    "插件身份 connection.json；材料目录中的 uploads 接收记录；网页草稿、原请求及上传记录按认证主机和数据集隔离；在线通道在内存中",
+    "插件身份 connection.json 与设备允许表 clients.json；材料目录中的 uploads 接收记录；网页草稿、原请求及上传记录按认证主机和数据集隔离；在线通道在内存中",
   responsibility:
-    "连接 evework 网页入口，并向已认证客户端提供目录选择和分块文件接收。",
+    "连接 evework 网页入口；设备须在本机允许表确认后才能执行远程操作，并向已信任客户端提供目录选择和分块文件接收。",
 }
 export const remoteOperations = {
   connection: definition(
@@ -83,7 +95,31 @@ export const remoteOperations = {
     "重置远程连接身份",
     object(),
     connection,
-    "保存新身份、断开原客户端并重新连接，原连接链接失效。",
+    "保存新身份、断开原客户端并重新连接，原连接链接失效；设备允许表同时清空。",
+    {},
+    false
+  ),
+  clients: definition(
+    "读取设备信任列表",
+    object(),
+    deviceList,
+    "只读已信任与待确认设备；待确认设备完成握手后不能执行任何远程操作。",
+    {},
+    false
+  ),
+  trust: definition(
+    "信任待确认设备",
+    object({ id: str("客户端公钥标识", { minLength: 43, maxLength: 43 }) }),
+    deviceList,
+    "将待确认设备写入持久允许表；此后其远程请求按已认证放行。",
+    {},
+    false
+  ),
+  forget: definition(
+    "移除已信任设备",
+    object({ id: str("客户端公钥标识", { minLength: 43, maxLength: 43 }) }),
+    deviceList,
+    "从允许表移除并断开其在线连接；再次连接需重新本机确认。",
     {},
     false
   ),

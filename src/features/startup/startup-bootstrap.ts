@@ -73,20 +73,10 @@ export function createStartupBootstrap() {
   return {
     fail() {
       if (!surface.isConnected) return
-      // 临时资源等待（如开发环境依赖重优化）先静默重载一次；重载仍失败才亮恢复页。
-      try {
-        if (window.sessionStorage.getItem("moon-boot-reload") !== "1") {
-          window.sessionStorage.setItem("moon-boot-reload", "1")
-          window.location.reload()
-          return
-        }
-      } catch {
-        /* 存储不可用时直接显示失败。 */
-      }
       dot?.remove()
       surface.dataset.status = "failed"
       if (stageLine) stageLine.hidden = false
-      if (stage) stage.textContent = "界面加载超时，请重新加载。"
+      if (stage) stage.textContent = "界面资源未能加载，请重新加载。"
       if (actions) actions.hidden = false
       const copy =
         document.getElementById("moon-initial-copy") ??

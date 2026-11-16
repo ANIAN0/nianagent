@@ -17,8 +17,8 @@ import {
 } from "lucide-react"
 
 import type { Material } from "@/lib/composer/types"
-import { type MaterialCandidate as Candidate } from "@/features/materials/material-candidate-list"
-import { useResourceCatalog } from "@/features/materials/use-resource-catalog"
+import { type MaterialCandidate as Candidate } from "@/components/composer/material-candidate-list"
+import { useResourceCatalog } from "@/components/composer/use-resource-catalog"
 import {
   useComposerPanel,
   useComposerPanelInactive,
@@ -86,7 +86,6 @@ export function useMaterialPicker({
     cwd: workspacePath,
     query,
     enabled: open && (pane === "resources" || inputMode !== "button"),
-    fallback: materials,
   })
   const available =
     inputMode === "file"

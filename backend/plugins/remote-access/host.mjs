@@ -54,10 +54,14 @@ const safeOperations = new Set([
   "conversationList",
   "conversationInfo",
   "conversationMarkRead",
+  "conversationRename",
+  "conversationSetPinned",
+  "conversationSetArchived",
   "conversationReceiptRead",
   "conversationSend",
   "conversationRead",
   "conversationStop",
+  "conversationSearch",
   "conversationRetry",
   "conversationFollow",
   "conversationPermissionRead",
@@ -95,8 +99,32 @@ export async function activate(host) {
   let keys = noiseKeyPairFromSecret(
     Uint8Array.from(Buffer.from(identity.secret, "base64"))
   )
+  // 设备允许表：持久化的已信任客户端公钥；重置连接时一并清空。
+  const clientsFile = join(host.directory, "clients.json")
+  let trustedClients = new Set()
+  try {
+    const value = JSON.parse(await readFile(clientsFile, "utf8"))
+    if (value && Array.isArray(value.clients))
+      trustedClients = new Set(
+        value.clients
+          .map((item) => String(item.id))
+          .filter((id) => /^[A-Za-z0-9_-]{43}$/.test(id))
+      )
+  } catch (error) {
+    if (error.code !== "ENOENT")
+      throw new Error("受信任设备记录无法读取；原文件保留。", { cause: error })
+  }
+  const saveClients = async (ids) => {
+    await replaceJson(clientsFile, {
+      version: 1,
+      clients: [...ids].map((id) => ({ id })),
+    })
+    trustedClients = ids
+  }
+  // 待确认设备仅在内存中：完成握手但未获信任的客户端，供本机页面确认。
+  const pendingClients = new Map()
   const profile = JSON.parse(
-    await readFile(join(host.services().directory, "moon-data.json"), "utf8")
+    await readFile(join(host.dataRoot(), "moon-data.json"), "utf8")
   )
   const peers = new Map(),
     selected = new Map()
@@ -106,9 +134,29 @@ export async function activate(host) {
     closed = false,
     online = false,
     attempt = 0,
+    lastCloseReason = "",
     issue = "正在连接evework。"
-  const closePeers = () => {
-    for (const peer of peers.values()) peer.close()
+  const recordClose = (reason) => {
+    lastCloseReason = reason
+    host.diagnostics?.append({
+      module: "remote",
+      event: "connection.closed",
+      level:
+        reason === "normal-offline" || reason === "host-closed"
+          ? "info"
+          : "warn",
+      traceId: randomUUID(),
+      outcome: "unknown",
+      repeatKey: reason,
+      error: {
+        code: reason,
+        errorId: randomUUID().slice(0, 8),
+        cause: "远程连接已关闭。",
+      },
+    })
+  }
+  const closePeers = (reason = "host-closed") => {
+    for (const peer of peers.values()) peer.close(reason)
     peers.clear()
   }
   const status = () => {
@@ -120,7 +168,8 @@ export async function activate(host) {
     }).toString()
     return {
       online,
-      issue,
+      issue:
+        issue + (lastCloseReason ? `；最近关闭原因：${lastCloseReason}` : ""),
       clients: [...peers.values()].filter((peer) => peer.ready).length,
       url: online ? url.href : "",
     }
@@ -144,11 +193,15 @@ export async function activate(host) {
       lastMessage = Date.now(),
       sending = Promise.resolve(),
       queuedBytes = 0,
-      queuedMessages = 0
+      queuedMessages = 0,
+      closeReason = ""
     const controllers = new Map()
     const peer = {
       ready: false,
-      close: () => {
+      close: (reason = "normal-offline") => {
+        if (closeReason) return
+        closeReason = reason
+        lastCloseReason = reason
         clearInterval(timer)
         clearTimeout(handshakeTimer)
         channel?.close()
@@ -164,13 +217,13 @@ export async function activate(host) {
         queuedMessages >= 64 ||
         queuedBytes + bytes.length > messageLimit + 65536
       ) {
-        peer.close()
+        peer.close("backpressure-limit")
         throw new Error("远程接收过慢，通道已关闭。")
       }
       const frames = channel.sealMessage(bytes)
       const size = frames.reduce((sum, frame) => sum + frame.length, 0)
       if (queuedBytes + size > messageLimit + 65536) {
-        peer.close()
+        peer.close("send-queue-full")
         throw new Error("远程发送队列已满，通道已关闭。")
       }
       queuedBytes += size
@@ -189,7 +242,7 @@ export async function activate(host) {
             )
           }
         })
-        .catch(() => peer.close())
+        .catch(() => peer.close("send-error"))
         .finally(() => {
           queuedBytes -= size
           queuedMessages -= 1
@@ -211,6 +264,11 @@ export async function activate(host) {
         controllers.size >= 64
       )
         throw new Error("远程请求无效。")
+      // 设备允许表：每次请求实时核对；待确认设备保持连接但拿不到任何操作。
+      if (!trustedClients.has(context.clientId))
+        throw new Error(
+          "forbidden：此设备尚未受信任，请在 Moon 本机远程访问页确认。"
+        )
       const controller = new AbortController()
       controller.readOnly =
         [
@@ -292,9 +350,9 @@ export async function activate(host) {
       }
     }
     socket.on("open", () => {
-      handshakeTimer = setTimeout(() => peer.close(), 15000)
+      handshakeTimer = setTimeout(() => peer.close("handshake-timeout"), 15000)
     })
-    socket.on("error", () => peer.close())
+    socket.on("error", () => peer.close("socket-error"))
     socket.on("message", (bytes, binary) => {
       try {
         if (!binary) throw new Error("Noise需要二进制帧。")
@@ -306,15 +364,23 @@ export async function activate(host) {
           if (state.complete) {
             const result = state.finish()
             channel = new NoiseMessageTransport(result.transport)
+            const clientId = Buffer.from(result.remoteStaticPublicKey).toString(
+              "base64url"
+            )
+            if (!trustedClients.has(clientId))
+              pendingClients.set(clientId, {
+                id: clientId,
+                online: true,
+                firstSeen: Date.now(),
+              })
             context = Object.freeze({
               source: "remote",
-              clientId: Buffer.from(result.remoteStaticPublicKey).toString(
-                "base64url"
-              ),
+              clientId,
               connectionId,
               profileId: profile.dataSetId,
               foreground: true,
             })
+            peer.clientId = clientId
             peer.ready = true
             clearTimeout(handshakeTimer)
             void send({
@@ -324,10 +390,10 @@ export async function activate(host) {
             })
             timer = setInterval(() => {
               try {
-                if (Date.now() - lastMessage > 35000) peer.close()
+                if (Date.now() - lastMessage > 35000) peer.close("idle-timeout")
                 else void send({ type: "ping" })
               } catch {
-                peer.close()
+                peer.close("heartbeat-error")
               }
             }, 10000)
           }
@@ -336,19 +402,28 @@ export async function activate(host) {
           if (plaintext) {
             const packet = decode(plaintext)
             plaintext.fill(0)
-            void dispatch(packet).catch(() => peer.close())
+            void dispatch(packet).catch(() => peer.close("dispatch-error"))
           }
         }
-      } catch {
-        peer.close()
+      } catch (error) {
+        peer.close(
+          error?.code === "handshake_failed"
+            ? "authentication-failed"
+            : "protocol-error"
+        )
       }
     })
     socket.on("close", () => {
+      if (!closeReason) recordClose("normal-offline")
       clearInterval(timer)
       clearTimeout(handshakeTimer)
       channel?.close()
       if (peers.get(connectionId) === peer) peers.delete(connectionId)
-      if (context) selected.delete(context.clientId)
+      if (context) {
+        selected.delete(context.clientId)
+        const pending = pendingClients.get(context.clientId)
+        if (pending) pending.online = false
+      }
       for (const controller of controllers.values())
         if (controller.readOnly) controller.abort()
       // Accepted Agent work owns its original lifecycle. Disconnect ends reads,
@@ -362,7 +437,8 @@ export async function activate(host) {
       { followRedirects: false, maxPayload: 2048 }
     )
     control = socket
-    let lastPong = Date.now()
+    let lastPong = Date.now(),
+      controlReason = ""
     socket.on("open", () => {
       if (closed || control !== socket) return socket.terminate()
       online = true
@@ -371,10 +447,13 @@ export async function activate(host) {
       heartbeat = setInterval(() => {
         if (closed || control !== socket) return
         try {
-          if (Date.now() - lastPong > 35000) socket.terminate()
-          else
+          if (Date.now() - lastPong > 35000) {
+            controlReason = "control-idle-timeout"
+            socket.terminate()
+          } else
             socket.send(JSON.stringify({ type: "ping", nonce: randomUUID() }))
         } catch {
+          controlReason = "control-heartbeat-error"
           clearInterval(heartbeat)
           socket.terminate()
         }
@@ -391,16 +470,23 @@ export async function activate(host) {
         else if (frame.type === "sync" && Array.isArray(frame.connectionIds)) {
           closePeers()
           for (const id of frame.connectionIds) openPeer(id)
-        } else socket.terminate()
+        } else {
+          controlReason = "control-protocol-error"
+          socket.terminate()
+        }
       } catch {
+        controlReason = "control-protocol-error"
         socket.terminate()
       }
     })
-    socket.on("error", () => {})
+    socket.on("error", () => {
+      controlReason ||= "control-socket-error"
+    })
     socket.on("close", () => {
       if (closed || control !== socket) return
       clearInterval(heartbeat)
-      closePeers()
+      closePeers("control-offline")
+      recordClose(controlReason || "control-offline")
       online = false
       issue = "连接已中断；正在重新连接，主机已接受的任务继续。"
       retry = setTimeout(
@@ -410,12 +496,63 @@ export async function activate(host) {
     })
   }
   connect()
+  const devicesSnapshot = () => ({
+    items: [
+      ...[...pendingClients.values()].map((info) => ({
+        id: info.id,
+        state: "pending",
+        online: info.online,
+      })),
+      ...[...trustedClients].map((id) => ({
+        id,
+        state: "trusted",
+        online: [...peers.values()].some(
+          (peer) => peer.ready && peer.clientId === id
+        ),
+      })),
+    ],
+  })
   return {
     operations: {
       ...uploadOperations(host),
       connection: {
         ...remoteOperations.connection,
         execute: async () => ({ value: status() }),
+      },
+      clients: {
+        ...remoteOperations.clients,
+        execute: async () => ({ value: devicesSnapshot() }),
+      },
+      trust: {
+        ...remoteOperations.trust,
+        execute: async (input) => {
+          const id = String(input?.id || "")
+          if (!/^[A-Za-z0-9_-]{43}$/.test(id)) throw new Error("设备标识无效。")
+          if (!pendingClients.has(id))
+            throw new Error("该设备不在待确认列表中。")
+          const next = new Set(trustedClients)
+          next.add(id)
+          await saveClients(next)
+          pendingClients.delete(id)
+          return { value: devicesSnapshot() }
+        },
+      },
+      forget: {
+        ...remoteOperations.forget,
+        execute: async (input) => {
+          const id = String(input?.id || "")
+          if (!/^[A-Za-z0-9_-]{43}$/.test(id)) throw new Error("设备标识无效。")
+          if (!trustedClients.has(id) && !pendingClients.has(id))
+            throw new Error("该设备不在信任列表中。")
+          const next = new Set(trustedClients)
+          next.delete(id)
+          await saveClients(next)
+          pendingClients.delete(id)
+          // 未信任即断开；再次连接需重新本机确认。
+          for (const peer of peers.values())
+            if (peer.ready && peer.clientId === id) peer.close()
+          return { value: devicesSnapshot() }
+        },
       },
       directories: {
         ...remoteOperations.directories,
@@ -432,6 +569,9 @@ export async function activate(host) {
             secret: Buffer.from(nextKeys.secretKey).toString("base64"),
           }
           await replaceJson(identityFile, nextIdentity)
+          // 重置身份即清空允许表：所有设备需凭新链接重新本机确认。
+          await saveClients(new Set())
+          pendingClients.clear()
           clearTimeout(retry)
           clearInterval(heartbeat)
           closePeers()
@@ -449,7 +589,8 @@ export async function activate(host) {
         },
       },
     },
-    status: () => issue,
+    status: () =>
+      issue + (lastCloseReason ? `；最近关闭原因：${lastCloseReason}` : ""),
     close() {
       closed = true
       online = false

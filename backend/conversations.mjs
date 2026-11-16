@@ -16,6 +16,7 @@ import {
 export { acceptedRequestIds } from "./conversation-core.mjs"
 
 import { join } from "node:path"
+import { readFile } from "node:fs/promises"
 import { randomUUID } from "node:crypto"
 
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai"
@@ -25,7 +26,7 @@ import { ConversationLive } from "./conversation-live.mjs"
 import { ConversationPermissions } from "./conversation-permissions.mjs"
 import { ConversationCommands } from "./conversation-commands.mjs"
 import { conversationStatistics } from "./conversation-statistics.mjs"
-import { publicFailure } from "./operation-issue.mjs"
+import { publicFailure, operationError } from "./operation-issue.mjs"
 import { requestContext } from "./request-context.mjs"
 
 import { assertSchema, schemas } from "./schema.mjs"
@@ -93,7 +94,7 @@ export class ConversationService {
         restore: this.restore.bind(this),
         sessions: {
           exclusive: this.sessions.exclusive.bind(this.sessions),
-          active: this.sessions.active,
+          detachRuntime: this.sessions.detachRuntime.bind(this.sessions),
           readExclusive: this.sessions.readExclusive.bind(this.sessions),
           copyConfigurationExclusive:
             this.sessions.copyConfigurationExclusive.bind(this.sessions),
@@ -120,7 +121,6 @@ export class ConversationService {
       sessions: {
         identity: this.sessions.identity.bind(this.sessions),
         exclusive: this.sessions.exclusive.bind(this.sessions),
-        resources: this.sessions.resources,
       },
       active: this.active,
       touch: this.touch.bind(this),
@@ -133,7 +133,7 @@ export class ConversationService {
       initializeStore,
       active: this.active,
       sessions: {
-        active: this.sessions.active,
+        commandRunner: this.sessions.commandRunner.bind(this.sessions),
         identity: this.sessions.identity.bind(this.sessions),
         exclusive: this.sessions.exclusive.bind(this.sessions),
         refreshForRunExclusive: this.sessions.refreshForRunExclusive.bind(
@@ -255,7 +255,7 @@ export class ConversationService {
         existing.unsubscribe?.()
         existing.session?.dispose()
         existing.session = undefined
-        this.sessions.active.delete(existing.record.id)
+        this.sessions.detachRuntime(existing.record.id, existing.entry)
         existing.manager = await this.fileManager(record)
         try {
           await this.queue.reconcile(existing)
@@ -468,14 +468,14 @@ export class ConversationService {
       session.dispose()
       this.ensureOpen()
     }
-    this.sessions.active.get(record.id)?.session.dispose()
-    state.entry = {
+    const runtimeEntry = {
       revision: config.revision,
       session,
       persistent: true,
       busy: false,
     }
-    this.sessions.active.set(record.id, state.entry)
+    this.sessions.adoptRuntime(record.id, runtimeEntry)
+    state.entry = runtimeEntry
     state.session = session
     this.persistence.get(state.manager).beforeInput = (message) => {
       const prompt = state.nativePrompt
@@ -756,6 +756,38 @@ export class ConversationService {
     }
     await Promise.all(pending)
   }
+  // 正文搜索：不 restore Pi 会话，直接对 JSONL 行扫描文本与思考字段；
+  // 单行/单文件损坏只跳过自身，不阻断其余结果。
+  async search({ query, workspaceId, archived = "hide" } = {}, signal) {
+    if (typeof query !== "string") throw new Error("搜索关键词无效。")
+    const sanitized = query.replaceAll("\u0000", "").slice(0, 500)
+    if (sanitized.trim().length < 1) throw new Error("搜索关键词无效。")
+    if (archived !== "hide" && archived !== "all" && archived !== "only")
+      throw new Error("归档过滤无效。")
+    const term = sanitized.trim().toLocaleLowerCase()
+    const records = await this.store.list({ workspaceId, archived }, signal)
+    const items = []
+    let hasMore = false
+    for (const record of records) {
+      signal?.throwIfAborted()
+      if (!record.sessionFile) continue
+      let snippet
+      try {
+        snippet = await searchSessionFile(record.sessionFile, term, signal)
+      } catch (error) {
+        if (error?.name === "AbortError") throw error
+        continue
+      }
+      if (!snippet) continue
+      if (items.length >= 20) {
+        hasMore = true
+        break
+      }
+      items.push({ conversationId: record.id, snippet })
+    }
+    return { items, hasMore }
+  }
+
   async read(sessionId, _afterVersion, signal) {
     identity(sessionId)
     return this.sessions.exclusive(sessionId, async () => {
@@ -950,6 +982,79 @@ export class ConversationService {
       return this.snapshot(state)
     })
   }
+  /** 待决工作摘要端口（G01）：运行/审批未决时返回 true；外部不读内部状态。 */
+  hasPendingWork() {
+    for (const state of this.active.values()) {
+      if (
+        state.entry?.busy ||
+        state.controlBusy ||
+        state.phase === "running" ||
+        state.phase === "stopping" ||
+        this.permissions.pendingFor(state.record?.id).length
+      )
+        return true
+    }
+    return false
+  }
+
+  maintenanceActivities() {
+    return [...this.active]
+      .filter(
+        ([, state]) =>
+          state.entry?.busy ||
+          state.controlBusy ||
+          state.phase === "running" ||
+          state.phase === "stopping"
+      )
+      .map(([id, state]) => ({
+        id,
+        kind: "conversation",
+        label: state.record.title || "运行中的会话",
+        sessionId: id,
+        stoppable: true,
+      }))
+  }
+
+  setMaintenanceFrozen(frozen) {
+    this.maintenanceFrozen = frozen
+  }
+
+  async stopForMaintenance() {
+    await this.controls.close({ strict: true })
+    for (const { id } of this.maintenanceActivities()) {
+      // 等待发送的原子接受边界结束，不能在runId提交前猜测停止对象。
+      await this.sessions.exclusive(id, () => {})
+      const state = this.active.get(id)
+      if (!state) continue
+      if (state.entry?.busy) await this.stop(id, state.record.runId)
+      await state.run
+      if (state.entry?.busy || state.controlBusy)
+        throw operationError(
+          "maintenance_unconfirmed",
+          "尚不能确认会话已停止。"
+        )
+    }
+  }
+
+  maintenanceCheckpoint() {
+    // 返回只读核验能力；私有状态留在领域内，关闭清空Map后仍可核对原保存结果。
+    const states = [...this.active.values()]
+    return () => {
+      if (
+        states.some(
+          (state) =>
+            state.maintenanceSaveError ||
+            state.historyError ||
+            this.persistence.get(state.manager)?.error
+        )
+      )
+        throw operationError(
+          "maintenance_unconfirmed",
+          "会话或队列存在未确认保存的内容，请重新启动 Moon 后核对原记录；不会继续迁移或安装。"
+        )
+    }
+  }
+
   close({ strict = false } = {}) {
     if (this.closing) return this.closing
     this.closed = true
@@ -1028,4 +1133,52 @@ export class ConversationService {
   queueItemRead(...args) {
     return this.queue.readItem(...args)
   }
+}
+
+// 正文搜索辅助：提取 JSONL 条目中的文本与思考字段，返回首个命中片段。
+const SEARCH_SNIPPET_BEFORE = 50
+const SEARCH_SNIPPET_AFTER = 60
+function collectSearchTexts(value, sink = []) {
+  if (!value || typeof value !== "object") return sink
+  if (Array.isArray(value)) {
+    for (const item of value) collectSearchTexts(item, sink)
+    return sink
+  }
+  for (const [key, item] of Object.entries(value)) {
+    if (typeof item === "string") {
+      // 仅收录叙述性字段；标识、类型、路径等键不参与匹配。
+      if (key === "text" || key === "thinking") sink.push(item)
+    } else if (item) {
+      collectSearchTexts(item, sink)
+    }
+  }
+  return sink
+}
+export async function searchSessionFile(file, term, signal) {
+  const needle = term.toLocaleLowerCase()
+  const raw = await readFile(file, {
+    encoding: "utf8",
+    signal,
+  })
+  for (const line of raw.split("\n")) {
+    if (!line) continue
+    let entry
+    try {
+      entry = JSON.parse(line)
+    } catch {
+      continue
+    }
+    for (const text of collectSearchTexts(entry)) {
+      const normalized = text.replace(/\s+/g, " ")
+      const index = normalized.toLocaleLowerCase().indexOf(needle)
+      if (index < 0) continue
+      const start = Math.max(0, index - SEARCH_SNIPPET_BEFORE)
+      const end = Math.min(
+        normalized.length,
+        index + term.length + SEARCH_SNIPPET_AFTER
+      )
+      return `${start > 0 ? "…" : ""}${normalized.slice(start, end)}${end < normalized.length ? "…" : ""}`
+    }
+  }
+  return null
 }

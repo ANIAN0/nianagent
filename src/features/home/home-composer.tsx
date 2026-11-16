@@ -1,4 +1,4 @@
-import { MaterialSourcesBridge } from "@/features/materials/material-sources-bridge"
+import { useMaterialRuntime } from "@/lib/composer/material-runtime-port"
 import { PageErrorBoundary } from "@/components/feedback/page-error-boundary"
 import { useHomeComposer } from "./use-home-composer"
 import type { HomeComposerProps } from "./home-composer.types"
@@ -8,7 +8,7 @@ import { ComposerNotification } from "@/components/composer/composer-notificatio
 import "./home.css"
 
 import { ComposerInputCard } from "@/components/composer/composer-input-card"
-import { removeComposerMaterial } from "@/features/materials/composer-material-edit"
+import { removeComposerMaterial } from "@/components/composer/composer-material-edit"
 import { Field, FieldGroup } from "@/components/ui/field"
 import { WorkspacePicker } from "./workspace-picker"
 import { PromptInput } from "@/components/composer/prompt-input"
@@ -84,6 +84,7 @@ function HomeComposerView({
     acknowledgeRestoration,
     result,
   } = controller
+  const { MaterialSourcesBridge } = useMaterialRuntime()
   return (
     <section className="home-launch" aria-label="新建工作">
       <MaterialSourcesBridge

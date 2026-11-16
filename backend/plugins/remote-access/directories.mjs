@@ -1,5 +1,6 @@
 import { opendir, realpath, stat } from "node:fs/promises"
 import { dirname, isAbsolute, join } from "node:path"
+import { assertLocalPath } from "../../local-path.mjs"
 
 export async function browseDirectories(path, signal) {
   signal?.throwIfAborted()
@@ -22,6 +23,8 @@ export async function browseDirectories(path, signal) {
     return { path: "", parent: "", entries: roots, truncated: false }
   }
   if (!isAbsolute(path)) throw new Error("请输入主机目录的绝对路径。")
+  // 拒绝 UNC/设备路径：realpath 阶段会向远端发起 SMB 认证泄漏本机凭据。
+  assertLocalPath(path, "目录")
   const actual = await realpath(path)
   if (!(await stat(actual)).isDirectory()) throw new Error("所选路径不是目录。")
   const entries = []

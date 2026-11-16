@@ -1,9 +1,11 @@
 import { readFile } from "node:fs/promises"
+import { randomUUID } from "node:crypto"
 import { developmentStorage } from "./storage-bootstrap.mjs"
 import { request as httpRequest } from "node:http"
 import { runtimeVersion } from "./runtime.mjs"
 import { readJsonBody } from "./http-body.mjs"
 import { operationError, publicFailure } from "./operation-issue.mjs"
+import { currentTraceId, withRequestContext } from "./request-context.mjs"
 
 function unconfirmed(error) {
   const failure = new Error("未能确认此次操作的结果，请先核对状态。", {
@@ -15,6 +17,10 @@ function unconfirmed(error) {
     summary: failure.message,
     recovery: "check",
     severity: "warning",
+    // T20-2：与 issue 工厂一致——result_unknown 回执自带 unknown 终态；G09 要求 errorId/traceId
+    outcome: "unknown",
+    errorId: randomUUID().slice(0, 8),
+    traceId: currentTraceId(),
     ...(error?.code === "MOON_RESPONSE_TIMEOUT"
       ? { details: "传输响应等待已超时；无法据此判断操作是否提交。" }
       : {}),
@@ -43,6 +49,7 @@ function requestRuntime(runtime, operation, input, signal, clientId) {
           headers: {
             "content-type": "application/json",
             "x-moon-token": runtime.token,
+            "x-moon-trace": currentTraceId(),
             ...(clientId ? { "x-moon-client": clientId } : {}),
           },
           signal,
@@ -188,33 +195,38 @@ export function modelBackendPlugin() {
         if (!res.writableEnded) controller.abort()
       })
       const operation = req.url.split("?")[0].replace(/^\//, "")
-      try {
-        const input = await readJsonBody(
-          req,
-          ["materialUpload", "pluginCall"].includes(operation)
-            ? 16 * 1024 * 1024
-            : 1024 * 1024
-        )
-        const result = await bridge.call(
-          operation,
-          input,
-          controller.signal,
-          req.headers["x-moon-client"]
-        )
-        res.setHeader("content-type", "application/json")
-        res.setHeader("cache-control", "no-store")
-        res.end(JSON.stringify({ result }))
-      } catch (error) {
-        if (!res.destroyed) {
-          res.statusCode = 400
-          res.setHeader("content-type", "application/json")
-          res.end(
-            JSON.stringify(
-              publicFailure(error, operation, controller.signal.aborted)
+      return withRequestContext(
+        { source: "local", clientId: "vite-bridge" },
+        async () => {
+          try {
+            const input = await readJsonBody(
+              req,
+              ["materialUpload", "pluginCall"].includes(operation)
+                ? 16 * 1024 * 1024
+                : 1024 * 1024
             )
-          )
+            const result = await bridge.call(
+              operation,
+              input,
+              controller.signal,
+              req.headers["x-moon-client"]
+            )
+            res.setHeader("content-type", "application/json")
+            res.setHeader("cache-control", "no-store")
+            res.end(JSON.stringify({ result }))
+          } catch (error) {
+            if (!res.destroyed) {
+              res.statusCode = 400
+              res.setHeader("content-type", "application/json")
+              res.end(
+                JSON.stringify(
+                  publicFailure(error, operation, controller.signal.aborted)
+                )
+              )
+            }
+          }
         }
-      }
+      )
     })
   }
   return {

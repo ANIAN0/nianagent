@@ -1,5 +1,6 @@
 import { realpath, stat, open } from "node:fs/promises"
 import { resolve, relative, isAbsolute, sep, extname } from "node:path"
+import { assertLocalPath } from "../../local-path.mjs"
 
 export const within = (root, path) => {
   const local = relative(root, path)
@@ -25,6 +26,8 @@ export async function targetPath(context, input, directory = false) {
     input.length > 4096
   )
     throw new Error("文件路径无效。")
+  // 拒绝 UNC/设备路径：realpath 阶段会向远端发起 SMB 认证泄漏本机凭据。
+  assertLocalPath(input, "文件路径")
   const root = await realpath(context.cwd)
   const requested = resolve(root, input)
   let path

@@ -12,7 +12,46 @@ use std::{
     },
     time::Duration,
 };
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
+/// G20：操作终态统一字段日志（与 Node JSONL schema 字段对齐；供诊断关联 traceId）。
+fn log_operation_terminal(
+    event: &str,
+    trace_id: &str,
+    operation_id: &str,
+    duration_ms: u128,
+    outcome: &str,
+    error_code: &str,
+    error_cause: &str,
+    error_id: &str,
+) {
+    let level = if outcome == "committed" {
+        "debug"
+    } else if outcome == "unknown" {
+        "warn"
+    } else {
+        "error"
+    };
+    let line = json!({
+        "schemaVersion": 1,
+        "timestamp": time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339).expect("UTC timestamp"),
+        "process": format!("moon-rust-{}", std::process::id()),
+        "module": "desktop", "event": event,
+        "level": level, "traceId": trace_id, "operationId": operation_id,
+        "durationMs": duration_ms.min(u64::MAX as u128) as u64, "outcome": outcome,
+        "error": if error_code.is_empty() { Value::Null } else { json!({
+            "code": error_code, "errorId": error_id,
+            "cause": if error_cause.is_empty() { "" } else { "桌面操作未确认完成；按关联标识查看领域记录。" }
+        }) }
+    });
+    if outcome == "committed" || error_code == "cancelled" {
+        log::debug!(target: "moon::terminal", "{line}");
+    } else if outcome == "unknown" {
+        log::warn!(target: "moon::terminal", "{line}");
+    } else {
+        log::error!(target: "moon::terminal", "{line}");
+    }
+}
+
 type Reply = Result<Value, String>;
 type Pending = Arc<Mutex<HashMap<String, mpsc::Sender<Reply>>>>;
 struct Bridge {
@@ -108,7 +147,7 @@ impl ModelBackend {
             }
             self.stopping.store(false, Ordering::SeqCst);
         }
-        self.send("$startup", "$runtime", json!({}))?
+        self.send("$startup", "$runtime", json!({}), None)?
             .recv_timeout(Duration::from_secs(30))
             .map_err(|_| "桌面服务启动超时。".to_string())??;
         Ok(())
@@ -138,10 +177,55 @@ impl ModelBackend {
         bridge.take();
     }
     pub fn internal(&self, operation: &str, input: Value, timeout: Duration) -> Reply {
-        let id = format!("host-{}", uuid::Uuid::new_v4());
-        self.send(&id, operation, input)?
-            .recv_timeout(timeout)
-            .map_err(|_| "后端维护确认超时，状态可能已部分关闭，请重新启动Moon恢复。".to_string())?
+        let trace_id = uuid::Uuid::new_v4().to_string();
+        let id = format!("host-{}-{}", &trace_id[..8], uuid::Uuid::new_v4());
+        let started = std::time::Instant::now();
+        let outcome_result = self
+            .send(&id, operation, input, Some(&trace_id))?
+            .recv_timeout(timeout);
+        let duration = started.elapsed().as_millis();
+        match &outcome_result {
+            Ok(Ok(_)) => {
+                log_operation_terminal(operation, &trace_id, &id, duration, "committed", "", "", "")
+            }
+            Ok(Err(_)) => log_operation_terminal(
+                operation,
+                &trace_id,
+                &id,
+                duration,
+                "unknown",
+                "maintenance_failed",
+                "维护调用未确认完成。",
+                "",
+            ),
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                // 超时无法证明领域是否接受：终态记 unknown
+                log_operation_terminal(
+                    operation,
+                    &trace_id,
+                    &id,
+                    duration,
+                    "unknown",
+                    "operation_timeout",
+                    "后端维护确认超时，状态可能已部分关闭，请重新启动Moon恢复。",
+                    "",
+                )
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => log_operation_terminal(
+                operation,
+                &trace_id,
+                &id,
+                duration,
+                "unknown",
+                "operation_failed",
+                "后端维护确认通道已断开，请重新启动Moon恢复。",
+                "",
+            ),
+        }
+        match outcome_result {
+            Ok(value) => Ok(value?),
+            Err(_) => Err("后端维护确认超时，状态可能已部分关闭，请重新启动Moon恢复。".to_string()),
+        }
     }
     pub fn finish_maintenance_shutdown(&self) -> Result<(), String> {
         self.stopping.store(true, Ordering::SeqCst);
@@ -172,6 +256,7 @@ impl ModelBackend {
         request_id: &str,
         operation: &str,
         input: Value,
+        trace_id: Option<&str>,
     ) -> Result<mpsc::Receiver<Reply>, String> {
         let mut bridge = self.bridge.lock().map_err(|_| "模型进程锁异常。")?;
         if self.stopping.load(Ordering::SeqCst) || self.terminating.load(Ordering::SeqCst) {
@@ -190,6 +275,10 @@ impl ModelBackend {
                 // cannot use its verbatim drive prefix as the entry script.
                 .arg(dunce::simplified(&self.script))
                 .env("MOON_DATA_DIR", &self.directory)
+                .env(
+                    "MOON_NOTES_DEV",
+                    if cfg!(debug_assertions) { "1" } else { "0" },
+                )
                 .env("MOON_RUNTIME_FILE", self.directory.join("runtime.json"))
                 .env(
                     "MOON_DESKTOP_EXECUTABLE",
@@ -254,6 +343,14 @@ impl ModelBackend {
                             );
                             continue;
                         }
+                        if value["operation"] == "$notify" {
+                            // 后端主动通知（如插件包任务完成）：转成 Tauri event，
+                            // 远程/Web 端不经过此通道，由各自轮询兜底。
+                            if let Some(app) = host_app.as_ref() {
+                                let _ = app.emit("moon://plugins-state", value["event"].clone());
+                            }
+                            continue;
+                        }
                         if let Some(id) = value["id"].as_str() {
                             if let Ok(mut map) = readers.lock() {
                                 if let Some(sender) = map.remove(id) {
@@ -295,7 +392,12 @@ impl ModelBackend {
         }
         // 先登记原请求再写入管道，避免极快回复找不到接收方；发送失败只撤回本身份。
         pending.insert(request_id.to_owned(), sender);
-        let message = json!({"id":request_id,"operation":operation,"input":input});
+        let message = match trace_id {
+            Some(trace) => {
+                json!({"id":request_id,"operation":operation,"input":input,"traceId":trace})
+            }
+            None => json!({"id":request_id,"operation":operation,"input":input}),
+        };
         if write_message(&bridge.input, &message).is_err() {
             pending.remove(request_id);
             return Err("模型请求发送失败。".into());
@@ -322,9 +424,22 @@ pub async fn model_request(
     request_id: String,
     operation: String,
     input: Value,
+    trace_id: Option<String>,
 ) -> Reply {
     if operation.starts_with('$') {
         return Err("内部宿主命令不可从业务RPC调用。".into());
+    }
+    // G10：桌面命令生成调用链标识并随信封传递；Node 端进入请求上下文，跨进程可按 traceId 关联
+    let trace_id = match trace_id {
+        Some(value)
+            if value.len() == 36 && value.chars().all(|c| c.is_ascii_hexdigit() || c == '-') =>
+        {
+            value
+        }
+        _ => uuid::Uuid::new_v4().to_string(),
+    };
+    if trace_id.len() > 100 {
+        return Err("请求参数过大。".into());
     }
     let maximum = if operation == "materialUpload" || operation == "pluginCall" {
         16 * 1024 * 1024
@@ -339,16 +454,91 @@ pub async fn model_request(
     } else {
         60
     };
-    let receiver = backend.send(&request_id, &operation, input)?;
+    let receiver = backend.send(&request_id, &operation, input, Some(&trace_id))?;
+    let started = std::time::Instant::now();
     let result = tauri::async_runtime::spawn_blocking(move || {
         receiver.recv_timeout(Duration::from_secs(timeout))
     })
     .await
     .map_err(|_| "请求任务失败。")?;
     match result {
-        Ok(value) => value,
+        Ok(reply) => {
+            // G20：桌面业务命令终态统一字段日志；失败分类依据领域回执（MOON_RPC_REJECTED 载荷的 issue.code）
+            let (outcome, cause, error_code, error_id) = match &reply {
+                Ok(_) => ("committed", String::new(), String::new(), String::new()),
+                Err(message) if message == "请求已取消。" => (
+                    "unknown",
+                    message.clone(),
+                    "cancelled".to_string(),
+                    String::new(),
+                ),
+                Err(message) => {
+                    let issue = message
+                        .strip_prefix("MOON_RPC_REJECTED:")
+                        .and_then(|payload| serde_json::from_str::<Value>(payload).ok())
+                        .and_then(|payload| payload.get("issue").cloned());
+                    let code = issue
+                        .as_ref()
+                        .and_then(|issue| issue.get("code"))
+                        .and_then(|code| code.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let error_id = issue
+                        .as_ref()
+                        .and_then(|issue| issue.get("errorId"))
+                        .and_then(|error_id| error_id.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    // result_unknown 依据领域回执保持 unknown；其余明确拒绝
+                    let outcome = if code == "result_unknown"
+                        || code.is_empty()
+                        || issue
+                            .as_ref()
+                            .and_then(|issue| issue.get("outcome"))
+                            .and_then(Value::as_str)
+                            == Some("unknown")
+                    {
+                        "unknown"
+                    } else {
+                        "rejected"
+                    };
+                    (
+                        outcome,
+                        message.clone(),
+                        if code.is_empty() {
+                            "operation_failed".to_string()
+                        } else {
+                            code
+                        },
+                        error_id,
+                    )
+                }
+            };
+            log_operation_terminal(
+                &operation,
+                &trace_id,
+                &request_id,
+                started.elapsed().as_millis(),
+                outcome,
+                &error_code,
+                &cause,
+                &error_id,
+            );
+            reply
+        }
         Err(_) => {
             backend.cancel(&request_id);
+            // 超时取消不证明领域未接受：终态记 unknown
+            log_operation_terminal(
+                &operation,
+                &trace_id,
+                &request_id,
+                started.elapsed().as_millis(),
+                "unknown",
+                "operation_timeout",
+                "模型服务响应超时。",
+                "",
+            );
             Err("模型服务响应超时。".into())
         }
     }
@@ -401,4 +591,88 @@ fn open_in_system_browser(url: &str) -> Result<(), String> {
             .map_err(|_| "无法打开浏览器。")?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+    fn backend(script: PathBuf, directory: PathBuf) -> ModelBackend {
+        ModelBackend {
+            app: None,
+            directory_picker_busy: Arc::new(AtomicBool::new(false)),
+            stopping: AtomicBool::new(false),
+            terminating: AtomicBool::new(false),
+            bridge: Mutex::new(None),
+            script,
+            node: "node".into(),
+            directory,
+        }
+    }
+    #[test]
+    fn real_node_rpc_trace_and_owned_shutdown() {
+        let directory =
+            std::env::temp_dir().join(format!("moon-native-rpc-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let host = backend(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../backend/rpc.mjs"),
+            directory.clone(),
+        );
+        host.start().unwrap();
+        assert!(host.start().is_err());
+        let trace = uuid::Uuid::new_v4().to_string();
+        let response = host
+            .send("native-negative", "notAnOperation", json!({}), Some(&trace))
+            .unwrap()
+            .recv_timeout(Duration::from_secs(20))
+            .unwrap()
+            .unwrap_err();
+        let response: Value =
+            serde_json::from_str(response.strip_prefix("MOON_RPC_REJECTED:").unwrap()).unwrap();
+        assert_eq!(response["issue"]["traceId"], trace);
+        assert_eq!(response["issue"]["errorId"].as_str().unwrap().len(), 8);
+        host.shutdown_confirmed().unwrap();
+        assert!(host.bridge.lock().unwrap().is_none());
+        host.start().unwrap();
+        host.shutdown_confirmed().unwrap();
+        host.shutdown();
+        assert!(host.start().is_err());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+    #[test]
+    fn bounded_wait_and_cancel_never_kill_another_child() {
+        let directory =
+            std::env::temp_dir().join(format!("moon-native-deadline-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let script = directory.join("fixture.mjs");
+        std::fs::write(&script, "import {createInterface} from 'node:readline';createInterface({input:process.stdin}).on('line',line=>{const p=JSON.parse(line);if(p.operation==='$runtime')process.stdout.write(JSON.stringify({id:p.id,result:{version:'fixture'}})+'\\n')})").unwrap();
+        let host = backend(script, directory.clone());
+        let mut other = Command::new("node")
+            .args(["-e", "setInterval(()=>{},1000)"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        host.start().unwrap();
+        let started = std::time::Instant::now();
+        assert!(
+            host.internal("$hold", json!({}), Duration::from_millis(40))
+                .is_err()
+        );
+        assert!(started.elapsed() < Duration::from_secs(2));
+        let pending = host.send("cancelled", "$hold", json!({}), None).unwrap();
+        host.cancel("cancelled");
+        assert_eq!(
+            pending
+                .recv_timeout(Duration::from_secs(2))
+                .unwrap()
+                .unwrap_err(),
+            "请求已取消。"
+        );
+        host.shutdown_confirmed().unwrap();
+        assert!(other.try_wait().unwrap().is_none());
+        other.kill().unwrap();
+        other.wait().unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
+    }
 }

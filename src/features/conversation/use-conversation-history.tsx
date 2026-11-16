@@ -1,6 +1,7 @@
 import type {
   ConversationControlOperation,
   ConversationRuntime,
+  ExtensionPresentation,
   OperationIssue,
 } from "@/contracts/rpc.generated"
 
@@ -45,6 +46,7 @@ export function useConversationHistory({
   cwd,
   receiptUnknown,
   onReconcile,
+  renderTurnDeliveries,
 }: {
   snapshot: ConversationSnapshot | undefined
   stopping: boolean
@@ -67,6 +69,7 @@ export function useConversationHistory({
   cwd: string
   receiptUnknown: boolean | undefined
   onReconcile: (() => void) | undefined
+  renderTurnDeliveries?: (records: ExtensionPresentation[]) => React.ReactNode
 }) {
   const [projectTurns] = useState(createConversationTurnProjector)
   const turns = useMemo(
@@ -103,6 +106,7 @@ export function useConversationHistory({
       content: (
         <ConversationTurnView
           turn={turn}
+          renderTurnDeliveries={renderTurnDeliveries}
           stopFeedbackProvided={
             (stopping || (runFailed && snapshot?.phase === "interrupted")) &&
             index === turns.length - 1 &&

@@ -698,6 +698,7 @@ export class ConversationQueue {
         item.text = text
         item.materials = prepared.displayMaterials
         item.origin = rememberRequestContext()
+        delete item.legacyQueue
         item.status = "pending"
         item.error = ""
         item.editBaseRevision = revision
@@ -796,6 +797,15 @@ export class ConversationQueue {
     for (const item of items) {
       try {
         const origin = await restoreRequestContext(item.origin)
+        // G12/AC20：隔离门禁——legacy 条目只标记与保留，不继续材料准备/执行；
+        // 显式合法恢复路径：用户在界面对该条目重新编辑后发送（生成新请求身份）。
+        // 标记落盘不等于权限隔离。
+        if (origin.legacyQueue) {
+          item.legacyQueue = true
+          throw new Error(
+            "历史队列条目缺少可信来源，已隔离保留；请在界面重新编辑后发送。"
+          )
+        }
         const materials = await withRequestContext(origin, () =>
           this.conversations.models.materials.resolveForPrompt({
             sessionId: state.record.id,
@@ -1000,9 +1010,26 @@ export class ConversationQueue {
       return
     const slash = state.record.modelId.indexOf("/")
     check(slash > 0, "此会话缺少有效模型，请先选择模型。")
-    const origin = await restoreRequestContext(
-      state.queue.items.find((item) => item.status === "pending")?.origin
-    )
+    const item = state.queue.items.find((item) => item.status === "pending")
+    if (!item) return
+    let origin
+    try {
+      origin = await restoreRequestContext(item.origin)
+      check(
+        !origin.legacyQueue,
+        "历史队列条目缺少可信来源，已隔离；请在界面重新编辑后发送。"
+      )
+    } catch (error) {
+      // 冷恢复与运行中交付一样，隔离结论必须落盘，不能只改内存 paused。
+      await this.commit(state, (queue) => {
+        queue.paused = true
+        item.status = "failed"
+        item.error =
+          "队列条目来源或身份无效，已隔离保留；请在界面重新编辑后发送。"
+        if (origin?.legacyQueue) item.legacyQueue = true
+      })
+      throw error
+    }
     const snapshot = await withRequestContext(origin, () =>
       this.conversations.start({
         sessionId: state.record.id,

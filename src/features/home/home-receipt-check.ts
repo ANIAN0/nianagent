@@ -1,4 +1,4 @@
-import type { HomeSubmission } from "@/features/conversation/conversation-draft-store"
+import type { HomeSubmission } from "@/lib/submission/home-draft-rules"
 
 /** Same session is insufficient: a definitive refusal can be followed by a new attempt. */
 export function sameHomeSubmissionAttempt(

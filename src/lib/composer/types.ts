@@ -17,6 +17,8 @@ export type Conversation = {
   id: string
   workspaceId: string
   title: string
+  pinned?: boolean
+  archived?: boolean
   updatedLabel?: string
   message?: string
   status?: ConversationStatus

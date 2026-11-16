@@ -22,6 +22,20 @@ export class AuthorizationJobs {
         (!job.settled || job.cleanupError)
     )
   }
+  maintenanceActivities() {
+    return [...this.jobs]
+      .filter(([, job]) => !job.settled || job.cleanupError)
+      .map(([id]) => ({
+        id,
+        kind: "authorization",
+        label: "进行中的模型授权",
+        sessionId: null,
+        stoppable: true,
+      }))
+  }
+  async stopForMaintenance() {
+    for (const { id } of this.maintenanceActivities()) await this.cancel(id)
+  }
   async start(connection, signal, operationRequestId) {
     if (this.closed) throw new Error("授权服务已关闭。")
     if (connection?.kind !== "subscription") throw new Error("请选择订阅连接。")

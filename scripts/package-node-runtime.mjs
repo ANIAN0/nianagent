@@ -68,7 +68,7 @@ export async function packageNodeRuntime(output) {
         "-NoProfile",
         "-NonInteractive",
         "-Command",
-        "Expand-Archive -LiteralPath $env:MOON_NODE_ARCHIVE -DestinationPath $env:MOON_NODE_EXTRACT -Force",
+        "$ProgressPreference = 'SilentlyContinue'; Expand-Archive -LiteralPath $env:MOON_NODE_ARCHIVE -DestinationPath $env:MOON_NODE_EXTRACT -Force",
       ],
       {
         stdio: "inherit",

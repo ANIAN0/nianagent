@@ -1,6 +1,6 @@
-import type { ReactNode, RefObject } from "react"
+import { useContext, type ReactNode, type RefObject } from "react"
 import { InputGroupAddon } from "@/components/ui/input-group"
-import { DisabledControlReason } from "@/components/composer/disabled-control-reason"
+import { DisabledControlReason } from "@/components/feedback/disabled-control-reason"
 import { MaterialPicker } from "@/components/composer/material-picker"
 import { ModelPicker } from "@/components/composer/model-picker"
 import { SessionConfig } from "@/components/composer/session-config"
@@ -10,7 +10,7 @@ import type {
   ComposerDraft,
   Material,
 } from "@/lib/composer/types"
-import { SessionPermissionControl } from "@/features/conversation/permissions/permission-picker"
+import { PermissionControlContext } from "@/lib/composer/session-config-port"
 
 export type ComposerToolbarProps = {
   disabled?: boolean
@@ -22,6 +22,7 @@ export type ComposerToolbarProps = {
   materialsDisabled?: boolean
   materialsDisabledReason?: string
   allowCompact?: boolean
+  leadingControls?: ReactNode
   sendControl?: ReactNode
   sessionId?: string
   data: Pick<
@@ -54,6 +55,7 @@ export function ComposerToolbar({
   materialsDisabled = false,
   materialsDisabledReason,
   allowCompact = false,
+  leadingControls,
   sendControl,
   sessionId,
   data,
@@ -67,6 +69,7 @@ export function ComposerToolbar({
   onChooseAttachments,
   choosingMaterials,
 }: ComposerToolbarProps) {
+  const renderPermissionControl = useContext(PermissionControlContext)
   const materialLocked =
     disabled || materialsDisabled || data.materialsEnabled === false
   const materialLockReason =
@@ -109,12 +112,12 @@ export function ComposerToolbar({
         ) : (
           materialPicker
         )}
-        <SessionPermissionControl
-          key={sessionId}
-          sessionId={sessionId}
-          disabled={disabled || configurationDisabled || configurationLoading}
-          disabledReason={configurationDisabledReason}
-        />
+        {leadingControls ??
+          renderPermissionControl?.({
+            sessionId,
+            disabled: disabled || configurationDisabled || configurationLoading,
+            disabledReason: configurationDisabledReason,
+          })}
       </div>
       <div className="moon-composer-toolbar-trailing">
         <ModelPicker

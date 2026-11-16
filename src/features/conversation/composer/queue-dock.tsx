@@ -13,7 +13,7 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
-import { MaterialPreviewDialog } from "@/features/materials/material-preview"
+import { MaterialPreviewDialog } from "@/components/composer/material-preview"
 import { QueueEditEditor } from "./queue-edit-editor"
 import { QueueAttachments } from "./queue-attachments"
 import { QueueActionHint } from "./queue-action-hint"
@@ -363,12 +363,11 @@ function QueueDockContent({
                   />
                   <div className="conversation-queue-text">
                     <QueueMessagePreview text={item.draft.text} />
-                    {!issue && !deliverIssue && item.error && (
+                    {!deliverIssue && item.error && (
                       <OperationFeedback
                         notify={false}
                         title="这条消息尚未交付"
-                        message="请核对队列状态后继续处理。原消息和材料已保留。"
-                        details={item.error}
+                        message={item.error}
                         severity="warning"
                       />
                     )}

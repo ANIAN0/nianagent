@@ -114,11 +114,17 @@ export function toolResult(result) {
       }
     }
   }
+  const text = result.text || "OpenCLI正常结束，未提供文字结果。"
+  // 结果进入 Pi 上下文与 MCP 响应：超大 stdout 截断并如实说明，防单次调用打满上下文。
+  const bounded =
+    text.length <= 400 * 1024
+      ? text
+      : `${text.slice(0, 400 * 1024)}\n\n[结果已截断：原始输出 ${text.length} 字符，仅保留前 400KiB。]`
   return {
     content: [
       {
         type: "text",
-        text: result.text || "OpenCLI正常结束，未提供文字结果。",
+        text: bounded,
       },
     ],
   }

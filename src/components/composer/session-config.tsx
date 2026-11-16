@@ -26,7 +26,6 @@ import { OperationFeedback } from "@/components/feedback/operation-feedback"
 import { RecoveryAction } from "@/components/feedback/recovery-action"
 
 import { Skeleton } from "@/components/ui/skeleton"
-import { ExtensionConfig } from "@/features/extensions/extension-config"
 
 import { ToolPicker } from "@/components/composer/tool-picker"
 import { InstructionScopePicker } from "@/components/composer/instruction-scope-picker"
@@ -41,7 +40,7 @@ export function SessionConfig(props: SessionConfigProps) {
 }
 function SessionConfigPanel({
   loading = false,
-  extensionService: suppliedExtensions,
+  renderExtensionManager: suppliedExtensionManager,
   disabled = false,
   disabledReason = "当前操作完成后可修改会话配置。",
   sessionId,
@@ -62,7 +61,7 @@ function SessionConfigPanel({
     extensionOpen,
     activeTab,
     toolPicker,
-    extensionService,
+    renderExtensionManager,
     setExtensionOpen,
     reloadCandidate,
     refreshCapabilities,
@@ -82,7 +81,7 @@ function SessionConfigPanel({
     apply,
   } = useSessionConfiguration({
     loading,
-    extensionService: suppliedExtensions,
+    renderExtensionManager: suppliedExtensionManager,
     disabled,
     disabledReason,
     sessionId,
@@ -147,15 +146,12 @@ function SessionConfigPanel({
           onEscapeKeyDown={handleEscape}
           className="flex h-[560px] max-h-[calc(100dvh-32px)] flex-col gap-0 overflow-hidden rounded-xl p-0 sm:max-w-[640px] [&>[data-slot=dialog-close]]:top-4 [&>[data-slot=dialog-close]]:right-4"
         >
-          {extensionOpen && extensionService && (
-            <ExtensionConfig
-              embedded
-              open
-              onOpenChange={setExtensionOpen}
-              service={extensionService}
-              onConfigured={() => void refreshCapabilities()}
-            />
-          )}
+          {extensionOpen &&
+            renderExtensionManager?.({
+              open: true,
+              onOpenChange: setExtensionOpen,
+              onConfigured: () => void refreshCapabilities(),
+            })}
           <div className={extensionOpen ? "hidden" : "contents"}>
             <DialogHeader className="px-6 pt-6 pb-4">
               <DialogTitle className="text-base leading-6">
@@ -249,7 +245,7 @@ function SessionConfigPanel({
                       </TabsTrigger>
                       <TabsTrigger value="instructions">AGENTS.md</TabsTrigger>
                     </TabsList>
-                    {extensionService && activeTab === "tools" && (
+                    {renderExtensionManager && activeTab === "tools" && (
                       <Button
                         type="button"
                         variant="outline"

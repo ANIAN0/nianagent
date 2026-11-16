@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react"
 import QRCode from "qrcode"
+import { Copy, ExternalLink, RefreshCw, RotateCcw } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Badge } from "@/components/ui/badge"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Skeleton } from "@/components/ui/skeleton"
 import { callPlugin } from "@/features/plugins/plugin-service"
 
 export const id = "remote-access"
@@ -97,8 +102,114 @@ export function Page() {
           }
         }}
       />
+      <Devices />
       <UploadReservations />
     </div>
+  )
+}
+type DeviceRecord = {
+  id: string
+  state: "trusted" | "pending"
+  online: boolean
+}
+/** 设备信任区：新设备完成配对后须在此确认；未确认设备无任何远程操作。 */
+function Devices() {
+  const [items, setItems] = useState<DeviceRecord[]>([])
+  const [error, setError] = useState("")
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    const controller = new AbortController()
+    const read = () => {
+      if (document.hidden) return
+      void callPlugin<{ value: { items: DeviceRecord[] } }>(
+        id,
+        "clients",
+        {},
+        undefined,
+        controller.signal
+      )
+        .then((result) => {
+          if (!controller.signal.aborted) {
+            setItems(result.value.items)
+            setError("")
+          }
+        })
+        .catch(() => {
+          /* 读取失败保留上一次结果；空列表时本区不渲染。 */
+        })
+    }
+    read()
+    const timer = setInterval(read, 2000)
+    return () => {
+      controller.abort()
+      clearInterval(timer)
+    }
+  }, [])
+  const act = async (operation: "trust" | "forget", deviceId: string) => {
+    setBusy(true)
+    setError("")
+    try {
+      const result = await callPlugin<{ value: { items: DeviceRecord[] } }>(
+        id,
+        operation,
+        { id: deviceId }
+      )
+      setItems(result.value.items)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "操作未完成。")
+    } finally {
+      setBusy(false)
+    }
+  }
+  if (!items.length) return null
+  return (
+    <section className="flex flex-col gap-2 text-sm" aria-label="设备信任">
+      <h2 className="text-[13px] font-medium">设备信任</h2>
+      {error && <p role="alert">{error}</p>}
+      <ul className="flex flex-col gap-2">
+        {items.map((item) => (
+          <li
+            key={`${item.state}:${item.id}`}
+            className="flex flex-wrap items-center gap-2"
+          >
+            <span
+              className={
+                item.state === "pending"
+                  ? "font-medium"
+                  : "text-muted-foreground"
+              }
+            >
+              {item.state === "pending" ? "待确认设备" : "已信任设备"}
+              {item.online ? " · 在线" : ""}
+            </span>
+            <code className="text-xs text-muted-foreground">
+              {item.id.slice(0, 12)}…
+            </code>
+            {item.state === "pending" ? (
+              <Button
+                size="sm"
+                disabled={busy}
+                onClick={() => void act("trust", item.id)}
+              >
+                信任此设备
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={busy}
+                onClick={() => void act("forget", item.id)}
+              >
+                移除
+              </Button>
+            )}
+          </li>
+        ))}
+      </ul>
+      <p className="text-xs text-muted-foreground">
+        新设备完成配对后需在此确认才能执行任何远程操作；重置连接会清空此列表。
+      </p>
+    </section>
   )
 }
 type UploadReservation = {
@@ -177,42 +288,63 @@ export function UploadReservationsView({
 }) {
   return (
     <section
-      className="flex w-full flex-col items-start gap-3"
+      className="flex w-full flex-col gap-3 rounded-xl border bg-card p-5"
       aria-label="未完成的远程上传"
     >
-      <h3>未完成的远程上传</h3>
-      <p className="text-sm text-muted-foreground">
-        断开或刷新后遗留的接收可以取消占位。此操作会阻止原上传继续接收，保留文件和原记录；已经准备或发送的材料不会被删除。
-      </p>
-      <Button variant="outline" disabled={busy} onClick={onRefresh}>
-        重新读取接收记录
-      </Button>
-      {issue && <p role="alert">{issue}</p>}
-      {!items.length && <p role="status">没有未完成的接收占位。</p>}
-      {items.map((item) => (
-        <div
-          key={item.token}
-          className="flex w-full flex-wrap items-center justify-between gap-2 rounded-md border p-3"
-        >
-          <div className="min-w-0 flex-1 break-all">
-            <p>{item.name}</p>
-            <p className="text-xs text-muted-foreground">
-              {item.offset ?? "未知"} / {item.bytes ?? "未知"} 字节
-              {item.uncertain
-                ? " · 准备或归属结果待核对，原副本保留"
-                : " · 接收未结束"}
-            </p>
-          </div>
-          <Button
-            variant="outline"
-            disabled={busy}
-            onClick={() => onCancel(item)}
-          >
-            取消接收并保留副本
-          </Button>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-semibold">未完成的远程上传</h3>
+          <p className="text-xs text-muted-foreground">
+            断开或刷新后遗留的接收可取消占位，保留原文件与记录。
+          </p>
         </div>
-      ))}
-      {more && <p>还有其他记录；处理后重新读取。</p>}
+        <Button variant="ghost" size="sm" disabled={busy} onClick={onRefresh}>
+          <RefreshCw className="size-3.5" />
+          刷新记录
+        </Button>
+      </div>
+      {issue && (
+        <Alert>
+          <AlertDescription>{issue}</AlertDescription>
+        </Alert>
+      )}
+      {!items.length ? (
+        <p role="status" className="text-xs text-muted-foreground">
+          没有未完成的接收占位。
+        </p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {items.map((item) => (
+            <div
+              key={item.token}
+              className="flex w-full flex-wrap items-center justify-between gap-3 rounded-lg border p-3"
+            >
+              <div className="min-w-0 flex-1 break-all">
+                <p className="text-sm font-medium">{item.name}</p>
+                <p className="text-xs text-muted-foreground">
+                  {item.offset ?? "未知"} / {item.bytes ?? "未知"} 字节
+                  {item.uncertain
+                    ? " · 准备或归属结果待核对，原副本保留"
+                    : " · 接收未结束"}
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                onClick={() => onCancel(item)}
+              >
+                取消接收并保留副本
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+      {more && (
+        <p className="text-xs text-muted-foreground">
+          还有其他记录；处理后重新读取。
+        </p>
+      )}
     </section>
   )
 }
@@ -232,31 +364,90 @@ export function RemoteConnectionView({
   onReset: () => void
 }) {
   return (
-    <div className="flex flex-col items-start gap-3">
-      <p role="status">
-        {status?.issue || "正在读取远程连接…"} · 已连接{status?.clients || 0}端
-      </p>
-      {error && <p role="alert">{error}</p>}
-      {status?.url && (
-        <>
-          {qr && (
-            <img src={qr} width={240} height={240} alt="连接本机Moon的二维码" />
+    <section
+      className="flex flex-col gap-4 rounded-xl border bg-card p-5"
+      aria-label="远程访问连接"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <h3 className="text-sm font-semibold">远程访问连接</h3>
+          <Badge variant={status?.online ? "secondary" : "outline"}>
+            {status ? (status.online ? "在线" : "未连接") : "读取中"}
+          </Badge>
+          {status && (
+            <span className="text-xs text-muted-foreground">
+              已连接 {status.clients} 端
+            </span>
           )}
-          <a href={status.url} target="_blank" rel="noreferrer">
-            打开连接链接
-          </a>
-          <Button variant="outline" onClick={onCopy}>
-            复制链接
-          </Button>
-          <p className="text-sm text-muted-foreground">
-            通过此链接可以控制本机Moon的正常会话，请只交给需要连接的人。公网手机需使用可访问的HTTPS地址。
-          </p>
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+          disabled={busy || !status}
+          onClick={onReset}
+        >
+          <RotateCcw className="size-3.5" />
+          重置全部连接
+        </Button>
+      </div>
+      {error && (
+        <Alert>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      {!status ? (
+        <Skeleton className="h-40 w-full rounded-lg" />
+      ) : (
+        <>
+          {status.issue && (
+            <p role="status" className="text-xs text-muted-foreground">
+              {status.issue}
+            </p>
+          )}
+          {status.url && (
+            <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
+              {qr && (
+                <div className="w-fit shrink-0 rounded-xl border bg-white p-2.5">
+                  <img
+                    src={qr}
+                    width={176}
+                    height={176}
+                    alt="连接本机Moon的二维码"
+                    className="block"
+                  />
+                </div>
+              )}
+              <div className="flex min-w-0 flex-1 flex-col gap-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Input
+                    readOnly
+                    aria-label="远程连接地址"
+                    className="min-w-[180px] flex-1 font-mono text-xs"
+                    value={status.url}
+                  />
+                  <Button variant="outline" size="sm" onClick={onCopy}>
+                    <Copy className="size-3.5" />
+                    复制链接
+                  </Button>
+                  <Button variant="outline" size="sm" asChild>
+                    <a href={status.url} target="_blank" rel="noreferrer">
+                      <ExternalLink className="size-3.5" />
+                      打开
+                    </a>
+                  </Button>
+                </div>
+                <p className="text-xs leading-5 text-muted-foreground">
+                  通过此链接或二维码可控制本机 Moon
+                  的正常会话，请只交给需要连接的人。公网手机访问需配置可访问的
+                  HTTPS 地址。
+                </p>
+              </div>
+            </div>
+          )}
         </>
       )}
-      <Button variant="outline" disabled={busy} onClick={onReset}>
-        重置全部连接
-      </Button>
-    </div>
+    </section>
   )
 }
 

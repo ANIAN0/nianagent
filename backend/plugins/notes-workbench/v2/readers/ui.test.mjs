@@ -1,0 +1,58 @@
+import test from "node:test"
+import assert from "node:assert/strict"
+import { parseManifest, validPreviewRoute } from "./ui.mjs"
+
+test("预览路由必须与浏览器路径一致且不能切换来源或携带查询片段", () => {
+  for (const route of [
+    "/",
+    "/details",
+    "/nested/page",
+    "/%E8%AF%A6%E6%83%85",
+    "/with%20space",
+  ])
+    assert.equal(validPreviewRoute(route), true, route)
+  for (const route of [
+    "//outside.test/",
+    "/a?x=1",
+    "/a#target",
+    "/a/../b",
+    "/%2e%2e/b",
+    "/a%2fb",
+    "/a%5cb",
+    "/%00",
+    "/%0A",
+    "/详情",
+    "/bad%",
+    "/a\\b",
+  ])
+    assert.throws(
+      () =>
+        parseManifest(
+          JSON.stringify({
+            routes: { "/": "index.html", [route]: "index.html" },
+          }),
+          ["index.html"]
+        ),
+      (error) => error.code === "unsupported_artifact",
+      route
+    )
+  for (const file of [
+    "/index.html",
+    "../index.html",
+    "a\\b.html",
+    "index.html?x",
+    "index.html#x",
+  ])
+    assert.throws(
+      () => parseManifest(JSON.stringify({ routes: { "/": file } }), [file]),
+      (error) => error.code === "unsupported_artifact",
+      file
+    )
+  assert.deepEqual(
+    parseManifest(
+      '{"routes":{"/":"index.html","/details":"nested/details.html"}}',
+      ["index.html", "nested/details.html"]
+    ),
+    { routes: { "/": "index.html", "/details": "nested/details.html" } }
+  )
+})

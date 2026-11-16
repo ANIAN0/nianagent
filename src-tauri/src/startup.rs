@@ -593,10 +593,9 @@ impl StartupGate {
     }
     fn fail(&self, app: &AppHandle, mut failure: StartupIssue, persist: bool) -> StartupSnapshot {
         log::warn!(
-            "首启迁移未完成：阶段={:?}，原因={:?}，{}",
+            "首启迁移未完成：阶段={:?}，原因={:?}",
             failure.stage,
-            failure.code,
-            failure.message
+            failure.code
         );
         let mut record = self
             .inner

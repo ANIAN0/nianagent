@@ -24,4 +24,15 @@ export class ConversationCatalogService {
   async markRead(id, revision, signal) {
     return conversationSummary(await this.store.markRead(id, revision, signal))
   }
+  async rename(id, title, signal) {
+    return conversationSummary(await this.store.rename(id, title, signal))
+  }
+  async setPinned(id, pinned, signal) {
+    return conversationSummary(await this.store.setPinned(id, pinned, signal))
+  }
+  async setArchived(id, archived, signal) {
+    return conversationSummary(
+      await this.store.setArchived(id, archived, signal)
+    )
+  }
 }

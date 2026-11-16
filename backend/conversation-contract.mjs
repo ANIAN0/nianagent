@@ -527,6 +527,51 @@ export const conversationOperations = {
     effect: "停止模型与工具，保留已写入消息和真实工具结果，不回滚已执行操作。",
     example: { sessionId: "sample-session", runId: "sample-run" },
   },
+  conversationSearch: {
+    ...common,
+    method: "conversations.search",
+    args: ["filter", "$signal"],
+    title: "搜索会话正文",
+    input: ["filter?"],
+    request: obj(
+      {
+        filter: obj(
+          {
+            query: str("搜索关键词；忽略大小写，去除 NUL 后最多 500 字符", {
+              minLength: 1,
+              maxLength: 500,
+            }),
+            workspaceId: str("可选工作区标识", {
+              minLength: 1,
+              maxLength: 128,
+            }),
+            archived: str("归档过滤；缺省 hide", {
+              enum: ["hide", "all", "only"],
+            }),
+          },
+          ["query"]
+        ),
+      },
+      []
+    ),
+    response: obj({
+      items: arr(
+        obj({
+          conversationId: id,
+          snippet: str("首个命中的上下文片段，两端截断以 … 标记", {
+            minLength: 1,
+            maxLength: 700,
+          }),
+        })
+      ),
+      hasMore: { type: "boolean", description: "是否还有未返回的命中会话" },
+    }),
+    condition:
+      "只读；逐会话直接扫描 Pi 会话 JSONL 的文本与思考字段，不 restore 会话；按最近更新顺序返回前 20 个命中会话，hasMore 标记超出。正文不可读或单行损坏跳过自身。",
+    effect: "无写入。",
+    errors: "关键词无效、归档过滤无效、请求已取消。",
+    example: { filter: { query: "部署" } },
+  },
   conversationRetry: {
     ...common,
     method: "conversations.retry",

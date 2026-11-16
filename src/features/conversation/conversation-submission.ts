@@ -1,7 +1,7 @@
 import type { ComposerDraft } from "@/lib/composer/types"
-import { sameMaterial } from "@/features/materials/material-service"
+import { sameMaterial } from "@/lib/composer/material-service-port"
+import { draftSignature } from "@/lib/submission/home-draft-rules"
 import {
-  draftSignature,
   saveConversationDraft,
   saveConversationRequest,
   type PendingSubmission,

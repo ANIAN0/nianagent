@@ -1,5 +1,4 @@
 import type { ReactNode } from "react"
-import { PluginSidebarToggle } from "@/features/plugins/plugin-sidebar"
 import "./conversation-layout.css"
 
 export interface ConversationHeaderProps {
@@ -29,10 +28,7 @@ export function ConversationHeader({
         </div>
         {workspacePath && <span title={workspacePath}>{workspacePath}</span>}
       </div>
-      <div className="conversation-header-actions">
-        {actions}
-        <PluginSidebarToggle />
-      </div>
+      <div className="conversation-header-actions">{actions}</div>
     </header>
   )
 }

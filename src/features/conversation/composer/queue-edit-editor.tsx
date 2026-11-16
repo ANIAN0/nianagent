@@ -13,11 +13,11 @@ import { useComposerKeyboard } from "@/components/composer/composer-keymap"
 import { MaterialPicker } from "@/components/composer/material-picker"
 import { SelectedMaterials } from "@/components/composer/selected-materials"
 import type { ComposerDraft, Material } from "@/lib/composer/types"
-import { useComposerMaterials } from "@/features/materials/use-composer-materials"
+import { useMaterialRuntime } from "@/lib/composer/material-runtime-port"
 import {
   insertComposerText,
   removeComposerMaterial,
-} from "@/features/materials/composer-material-edit"
+} from "@/components/composer/composer-material-edit"
 import { OperationFeedback } from "@/components/feedback/operation-feedback"
 
 export function QueueEditEditor({
@@ -63,6 +63,7 @@ export function QueueEditEditor({
     latest.current = next
     onChange(next)
   }
+  const { useComposerMaterials } = useMaterialRuntime()
   const controller = useComposerMaterials({
     sessionId,
     cwd,

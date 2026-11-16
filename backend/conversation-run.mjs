@@ -648,7 +648,7 @@ export class ConversationRun {
           state.unsubscribe?.()
           state.session?.dispose()
           state.session = undefined
-          this.ports.sessions.active.delete(state.record.id)
+          this.ports.sessions.detachRuntime(state.record.id, state.entry)
           state.toolProgress.clear()
           try {
             state.manager = await this.ports.fileManager(state.record)

@@ -85,7 +85,11 @@ export function managedProcess(
       return settled
     },
     stop() {
+      // 先礼貌收尾；宽限后强杀，避免子进程或浏览器窗口僵死存活到退出。
       child.stdin.end()
+      setTimeout(() => {
+        if (!settled) child.kill()
+      }, 5000)
     },
   }
 }

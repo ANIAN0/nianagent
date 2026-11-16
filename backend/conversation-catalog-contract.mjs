@@ -30,6 +30,14 @@ const properties = {
   },
   modelId: text("最后使用的 Moon 模型选择标识"),
   thinking: text("最后使用的 Pi 思考等级"),
+  pinned: {
+    type: "boolean",
+    description: "是否由用户置顶；置顶不改变时间排序键",
+  },
+  archived: {
+    type: "boolean",
+    description: "是否已归档；归档会话默认不出现在列表",
+  },
   lastMessage: text("最近消息摘要，最多 2000 字符", { maxLength: 2000 }),
   lastError: text("最后一次运行错误；正常时为空"),
   runId: text("当前或最后一次运行标识；尚未运行时为空"),
@@ -64,6 +72,21 @@ export const conversationSchemas = {
       query: text("标题、工作目录或最近消息关键词；忽略大小写", {
         maxLength: 500,
       }),
+      limit: {
+        type: "integer",
+        minimum: 1,
+        maximum: 500,
+        description: "可选分页大小；缺省返回全部匹配条目。",
+      },
+      before: text(
+        "可选分页游标：上一页最后一条的 updatedAt、pinned、archived 与 id，以 | 连接；返回排序位置严格靠后的条目。",
+        { maxLength: 560 }
+      ),
+      archived: {
+        type: "string",
+        enum: ["hide", "all", "only"],
+        description: "归档过滤；缺省 hide，只返回未归档会话。",
+      },
     },
     []
   ),
@@ -78,7 +101,8 @@ export const conversationOperations = {
     title: "读取会话列表",
     input: ["filter?"],
     result: "ConversationSummary[]",
-    condition: "只读；按最后更新时间倒序。空目录返回空列表，不填充模拟历史。",
+    condition:
+      "只读；置顶领先，其余按最后更新时间倒序（同刻按 id），归档仅当过滤要求时出现。缺省返回未归档的全部匹配条目；提供 limit/before 时按游标分页。空目录返回空列表，不填充模拟历史。",
     errors: "过滤参数无效、目录元数据损坏或不可读取、请求已取消。",
     effect: "无写入；结果包含真实状态及未读标记，不包含 Pi 会话文件路径。",
     example: { filter: { query: "" } },
@@ -118,5 +142,57 @@ export const conversationOperations = {
     errors: "会话不存在、参数无效、存储失败、提交前取消。",
     effect: "锁内原子清除已读标记，保留运行状态和时间排序；提交后取消不回滚。",
     example: { id: "sample-conversation", revision: 1 },
+  },
+  conversationRename: {
+    module: "会话列表",
+    method: "conversationCatalog.rename",
+    args: ["id", "title", "$signal"],
+    request: object({
+      id,
+      title: text("新标题", { minLength: 1, maxLength: 400 }),
+    }),
+    response: { $ref: "ConversationSummary" },
+    title: "重命名会话",
+    input: ["id", "title"],
+    result: "ConversationSummary",
+    condition: "幂等；标题未变化时无额外写入。重命名不改变 updatedAt 排序键。",
+    errors: "会话不存在、标题无效、存储失败、提交前取消。",
+    effect: "锁内原子更新标题并递增版本；不改变未读标记。",
+    example: { id: "sample-conversation", title: "新标题" },
+  },
+  conversationSetPinned: {
+    module: "会话列表",
+    method: "conversationCatalog.setPinned",
+    args: ["id", "pinned", "$signal"],
+    request: object({
+      id,
+      pinned: { type: "boolean", description: "目标置顶状态" },
+    }),
+    response: { $ref: "ConversationSummary" },
+    title: "设置会话置顶",
+    input: ["id", "pinned"],
+    result: "ConversationSummary",
+    condition: "幂等；状态未变化时无额外写入。置顶不改变 updatedAt 排序键。",
+    errors: "会话不存在、参数无效、存储失败、提交前取消。",
+    effect: "锁内原子更新置顶并递增版本；列表排序置顶领先。",
+    example: { id: "sample-conversation", pinned: true },
+  },
+  conversationSetArchived: {
+    module: "会话列表",
+    method: "conversationCatalog.setArchived",
+    args: ["id", "archived", "$signal"],
+    request: object({
+      id,
+      archived: { type: "boolean", description: "目标归档状态" },
+    }),
+    response: { $ref: "ConversationSummary" },
+    title: "设置会话归档",
+    input: ["id", "archived"],
+    result: "ConversationSummary",
+    condition:
+      "幂等；状态未变化时无额外写入。运行中的会话拒绝归档，需先经 conversationStop 停止。归档不改变 updatedAt。",
+    errors: "会话不存在、会话正在运行、参数无效、存储失败、提交前取消。",
+    effect: "锁内原子更新归档并递增版本；列表默认隐藏已归档会话。",
+    example: { id: "sample-conversation", archived: true },
   },
 }

@@ -5,7 +5,7 @@ use tauri::{
 };
 
 pub fn report_host_error(message: &str) {
-    log::error!("Moon: {message}");
+    log::error!("桌面宿主失败，具体原因已显示在宿主错误对话框。");
     if let Err(error) = write_early_host_error(message) {
         eprintln!("Moon: {message}\n早期日志未能保存：{error}");
     }
@@ -33,7 +33,7 @@ pub fn report_host_error(message: &str) {
 }
 
 fn write_early_host_error(message: &str) -> Result<(), String> {
-    use std::{fs, io::Write, path::PathBuf};
+    use std::{fs, path::PathBuf};
     let base = if cfg!(debug_assertions) {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()
@@ -55,24 +55,8 @@ fn write_early_host_error(message: &str) -> Result<(), String> {
     if canonical_directory != canonical_base.join(".moon-control/startup/logs") {
         return Err("日志目录超出当前控制目录。".into());
     }
-    let file = directory.join(format!("moon-host-error-{}.log", uuid::Uuid::new_v4()));
-    let mut output = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(file)
-        .map_err(|_| "早期日志文件不可写。")?;
-    let timestamp = time::OffsetDateTime::now_utc()
-        .format(&time::format_description::well_known::Rfc3339)
-        .unwrap_or_default();
-    writeln!(
-        output,
-        "{timestamp} Moon {} PID {}: {}",
-        env!("CARGO_PKG_VERSION"),
-        std::process::id(),
-        message.replace('\0', "")
-    )
-    .and_then(|_| output.sync_all())
-    .map_err(|_| "早期日志未能落盘。".into())
+    crate::diagnostics::write_early(&directory, message)
+        .map_err(|_| "早期诊断日志未能落盘。".into())
 }
 
 pub fn show_main(app: &AppHandle) -> Result<(), String> {

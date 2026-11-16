@@ -4,7 +4,9 @@ import reactHooks from "eslint-plugin-react-hooks"
 import reactRefresh from "eslint-plugin-react-refresh"
 import tseslint from "typescript-eslint"
 import { defineConfig, globalIgnores } from "eslint/config"
+import path from "node:path"
 import moonUi from "./scripts/eslint-ui-consistency.mjs"
+import { moonBoundary } from "./scripts/eslint-module-boundaries.mjs"
 
 export default defineConfig([
   globalIgnores([
@@ -15,13 +17,61 @@ export default defineConfig([
     "backend/plugins/notes-workbench/workbench.bundle.mjs",
   ]),
   {
-    files: ["backend/**/*.mjs", "scripts/**/*.mjs"],
+    files: [
+      "backend/**/*.mjs",
+      "scripts/**/*.mjs",
+      // notes-workbench 应用构建脚本（package.json type:module，不进发行包白名单）。
+      "backend/plugins/notes-workbench/build.js",
+    ],
     extends: [js.configs.recommended],
     languageOptions: { globals: globals.node },
     rules: {
       "no-unused-vars": ["error", { args: "after-used", argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
     },
   },
+  // G15 领域依赖边界（运行时导入；类型依赖由 tseslint 单独报告）：
+  // ① 业务领域不得导入装配根；② 插件不得导入兄弟插件私有文件（各自仅列兄弟）。
+  {
+    files: ["backend/**/*.mjs"],
+    ignores: [
+      "backend/services.mjs",
+      "backend/rpc.mjs",
+      "backend/storage-validation.mjs",
+      "backend/plugin-host.mjs",
+      "backend/plugins/**",
+    ],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["*/services.mjs", "**/services.mjs"],
+              message: "业务领域不得导入装配根（services.mjs）；依赖经构造端口注入（G02/G15）。",
+            },
+          ],
+        },
+      ],
+    },
+  },
+    {
+      files: ["backend/plugins/**/*.{mjs,js,ts,tsx}"],
+      plugins: moonBoundary.plugins,
+      rules: {
+        // G02/G15/G17/AC16：插件只能使用平台公共端口与自身文件；边界按解析路径判定，
+        // 覆盖任意相对深度与动态入口之外的全部静态 import/export source。
+        "moon-boundary/boundary": "error",
+      },
+    },
+    {
+      files: ["src/**/*.{ts,tsx,js,jsx,mjs}", "backend/**/*.mjs"],
+      ignores: ["backend/plugins/**"],
+      plugins: moonBoundary.plugins,
+      rules: {
+        // P0 方向性模块边界：禁止核心直连插件内部、下层反依赖上层、跨 feature/后端跨领域直连。
+        "moon-boundary/layering": "error",
+      },
+    },
   {
     files: ["**/*.{ts,tsx}"],
     extends: [

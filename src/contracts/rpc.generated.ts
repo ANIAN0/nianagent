@@ -6,6 +6,9 @@ export const transportRecoveryByOperation = {
   pluginCall: "none",
   pluginImport: "check",
   pluginPackage: "check",
+  pluginPackageStatus: "reload",
+  pluginPackageCancel: "check",
+  pluginRecover: "check",
   list: "reload",
   revealKey: "reload",
   providers: "reload",
@@ -30,12 +33,16 @@ export const transportRecoveryByOperation = {
   conversationList: "reload",
   conversationInfo: "reload",
   conversationMarkRead: "check",
+  conversationRename: "check",
+  conversationSetPinned: "check",
+  conversationSetArchived: "check",
   conversationRead: "reload",
   conversationFollow: "reload",
   conversationReceiptRead: "reload",
   conversationSend: "check",
   conversationRetry: "check",
   conversationStop: "check",
+  conversationSearch: "reload",
   conversationQueueEdit: "check",
   conversationQueueRemove: "check",
   conversationQueueMode: "check",
@@ -78,8 +85,17 @@ export const queueReceiptOperationNames = [
   "conversationQueueDeliver",
 ] as const
 export type BrowserBootStatus = {
-  /** 启动所需模型、会话、MCP、工作区、队列/控制和维护记录通过纯schema读取验证；可选插件错误单独呈现 */
+  /** 平台层可达且启动确认已完成；各领域存储结果在 domains 中逐域呈现，单域损坏不使其为假 */
   readable: boolean
+  /** 各领域存储核验结果；损坏域以 ok=false 与安全错误说明呈现 */
+  domains?: {
+    /**  */
+    name: string
+    /**  */
+    ok: boolean
+    /**  */
+    issue?: string
+  }[]
 }
 export type PluginContribution = {
   /** 受信清单声明的稳定标识 */
@@ -151,6 +167,23 @@ export type PluginResource = {
   data: string
   /** 资源MIME */
   mime: string
+}
+export type PluginPackageTask = {
+  /** 包任务阶段 */
+  phase:
+    | "none"
+    | "running"
+    | "applying"
+    | "cancelling"
+    | "done"
+    | "failed"
+    | "cancelled"
+  /** 包管理动作 */
+  action?: "install" | "update" | "remove"
+  /** 受控失败原因 */
+  error?: string
+  /** 失败所在阶段 */
+  failedAt?: "install" | "resolve" | "apply"
 }
 export type PluginResponse = {
   /** 按所属插件原生操作schema验证的JSON对象；编码后最多16MiB，文件源字节限制独立 */
@@ -233,6 +266,10 @@ export type OperationIssue = {
   summary: string
   /** 可选安全诊断，只含允许公开的错误码与操作类别 */
   details?: string
+  /** 本次终态失败的可定位标识（8位短随机码）；按 errorId 可关联唯一日志条目与责任模块 */
+  errorId?: string
+  /** 所属调用链标识；与授权身份、operationId 正交。空串表示无请求上下文的失败 */
+  traceId?: string
   /** 所属操作允许的恢复方向；具体按钮由该操作的调用方提供 */
   recovery: "retry" | "reload" | "check" | "settings" | "restart" | "none"
   /** 取消/等待属于info，非阻断问题warning，操作失败error */
@@ -445,6 +482,10 @@ export type ConversationSummary = {
   modelId: string
   /** 最后使用的 Pi 思考等级 */
   thinking: string
+  /** 是否由用户置顶；置顶不改变时间排序键 */
+  pinned: boolean
+  /** 是否已归档；归档会话默认不出现在列表 */
+  archived: boolean
   /** 最近消息摘要，最多 2000 字符 */
   lastMessage: string
   /** 最后一次运行错误；正常时为空 */
@@ -466,6 +507,12 @@ export type ConversationFilter = {
   workspaceId?: string
   /** 标题、工作目录或最近消息关键词；忽略大小写 */
   query?: string
+  /** 可选分页大小；缺省返回全部匹配条目。 */
+  limit?: number
+  /** 可选分页游标：上一页最后一条的 updatedAt、pinned、archived 与 id，以 | 连接；返回排序位置严格靠后的条目。 */
+  before?: string
+  /** 归档过滤；缺省 hide，只返回未归档会话。 */
+  archived?: "hide" | "all" | "only"
 }
 export type ConversationRequestReceipt = {
   /** 稳定的业务会话/请求标识 */
@@ -1408,6 +1455,15 @@ export type RpcRequests = {
     /** 显式包管理操作 */
     action: "install" | "update" | "remove"
   }
+  pluginPackageStatus: {
+    /** 受信清单声明的稳定标识 */
+    id: string
+  }
+  pluginPackageCancel: {
+    /** 受信清单声明的稳定标识 */
+    id: string
+  }
+  pluginRecover: Record<string, never>
   extensionList: Record<string, never>
   extensionConfigure: {
     /** 已发现模块稳定ID */
@@ -1585,6 +1641,24 @@ export type RpcRequests = {
     /** 页面已展示的摘要版本 */
     revision: number
   }
+  conversationRename: {
+    /** 稳定会话标识 */
+    id: string
+    /** 新标题 */
+    title: string
+  }
+  conversationSetPinned: {
+    /** 稳定会话标识 */
+    id: string
+    /** 目标置顶状态 */
+    pinned: boolean
+  }
+  conversationSetArchived: {
+    /** 稳定会话标识 */
+    id: string
+    /** 目标归档状态 */
+    archived: boolean
+  }
   conversationReceiptRead: {
     /** 稳定的业务会话/请求标识 */
     sessionId: string
@@ -1622,6 +1696,17 @@ export type RpcRequests = {
     sessionId: string
     /** 稳定的业务会话/请求标识 */
     runId: string
+  }
+  conversationSearch: {
+    /**  */
+    filter?: {
+      /** 搜索关键词；忽略大小写，去除 NUL 后最多 500 字符 */
+      query: string
+      /** 可选工作区标识 */
+      workspaceId?: string
+      /** 归档过滤；缺省 hide */
+      archived?: "hide" | "all" | "only"
+    }
   }
   conversationRetry: {
     /** 稳定的业务会话/请求标识 */
@@ -1795,7 +1880,10 @@ export type RpcResults = {
   pluginConfigure: PluginDescriptor
   pluginCall: PluginResponse
   pluginImport: PluginDescriptor
-  pluginPackage: PluginDescriptor[]
+  pluginPackage: PluginPackageTask
+  pluginPackageStatus: PluginPackageTask
+  pluginPackageCancel: PluginPackageTask
+  pluginRecover: PluginDescriptor[]
   extensionList: ExtensionDescriptor[]
   extensionConfigure: ExtensionDescriptor
   writeReceiptRead: WriteReceipt
@@ -1823,10 +1911,24 @@ export type RpcResults = {
   conversationList: ConversationSummary[]
   conversationInfo: ConversationSummary | null
   conversationMarkRead: ConversationSummary
+  conversationRename: ConversationSummary
+  conversationSetPinned: ConversationSummary
+  conversationSetArchived: ConversationSummary
   conversationReceiptRead: ConversationRequestReceipt
   conversationSend: ConversationSnapshot
   conversationRead: ConversationSnapshot
   conversationStop: ConversationSnapshot
+  conversationSearch: {
+    /**  */
+    items: {
+      /** 稳定的业务会话/请求标识 */
+      conversationId: string
+      /** 首个命中的上下文片段，两端截断以 … 标记 */
+      snippet: string
+    }[]
+    /** 是否还有未返回的命中会话 */
+    hasMore: boolean
+  }
   conversationRetry: ConversationSnapshot
   conversationFollow: ConversationFrame
   conversationPermissionRead: ConversationPermission

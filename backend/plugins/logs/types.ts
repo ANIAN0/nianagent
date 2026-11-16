@@ -1,4 +1,6 @@
 export type LogEntry = {
+  actorId?: string
+  credentialId?: string
   id: string
   time: string
   source: string
@@ -27,6 +29,35 @@ export type LogPage = {
   issue: string
   retention: { days: number; maxEntries: number; maxBytes: number }
 }
+export type TransportLogRecord = {
+  schemaVersion: number
+  timestamp: string
+  level: string
+  process: string
+  module: string
+  event: string
+  traceId: string
+  operationId: string
+  durationMs?: number
+  outcome: string
+  repeated?: number
+  error?: { code: string; errorId: string; cause: string; frames?: string }
+}
+export type TransportLogFilter = {
+  module?: string
+  errorId?: string
+  from?: string
+  to?: string
+  traceId?: string
+  level?: string
+  limit?: number
+}
+export type TransportLogPage = {
+  records: TransportLogRecord[]
+  dropped: number
+  queued: number
+  issue: string
+}
 export type LogsClient = {
   query(
     input: Partial<LogFilter> & { offset: number; limit: number },
@@ -36,4 +67,8 @@ export type LogsClient = {
     id: string,
     signal?: AbortSignal
   ): Promise<{ entry: LogEntry; issue: string }>
+  operationQuery(
+    input: TransportLogFilter,
+    signal?: AbortSignal
+  ): Promise<TransportLogPage>
 }

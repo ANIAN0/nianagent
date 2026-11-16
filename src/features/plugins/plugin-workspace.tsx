@@ -17,7 +17,11 @@ import type {
   RpcRequests,
 } from "@/contracts/rpc.generated"
 import type { PluginContext, PluginWebModule } from "./plugin-api"
-import { refreshPluginRegistry, usePluginRegistry } from "./plugin-web"
+import {
+  refreshPluginRegistry,
+  usePluginRegistry,
+  reportPluginLifecycleFailure,
+} from "./plugin-web"
 import { callPlugin } from "./plugin-service"
 import { isRemoteWeb } from "@/lib/rpc/remote-transport"
 import { rpcCall } from "@/lib/rpc/client"
@@ -33,6 +37,7 @@ import {
   openSidebarTab,
   closeSidebarTab,
   readSidebarLayout,
+  emptySidebarLayout,
   saveSidebarLayout,
   type PluginSidebarLayout,
 } from "./plugin-sidebar-state"
@@ -218,7 +223,19 @@ export function PluginSessionWorkspace({
     request: RpcRequests["conversationApprovalReply"]
   ) => Promise<unknown>
 }) {
-  const [layout, setLayout] = useState(() => readSidebarLayout(sessionId))
+  const [initialLayout] = useState(() => {
+    try {
+      return { layout: readSidebarLayout(sessionId), error: "" }
+    } catch {
+      return {
+        layout: emptySidebarLayout(),
+        error: "插件面板布局无法读取，原记录保留。请检查本机存储后重新读取。",
+      }
+    }
+  })
+  const [layout, setLayout] = useState(initialLayout.layout)
+  const [layoutReadError, setLayoutReadError] = useState(initialLayout.error)
+  const [layoutWriteError, setLayoutWriteError] = useState("")
   const current = useRef(layout)
   const material = useRef(onMaterial)
   const snapshotRef = useRef(snapshot)
@@ -242,8 +259,24 @@ export function PluginSessionWorkspace({
     []
   )
   useEffect(() => {
-    saveSidebarLayout(sessionId, layout)
-  }, [sessionId, layout])
+    if (layoutReadError) return
+    let cancelled = false
+    void Promise.resolve()
+      .then(() => {
+        if (cancelled) return
+        saveSidebarLayout(sessionId, layout)
+        setLayoutWriteError("")
+      })
+      .catch(() => {
+        if (!cancelled)
+          setLayoutWriteError(
+            "插件面板布局尚未保存。当前调整仍待保存，请检查本机存储后重试。"
+          )
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [sessionId, layout, layoutReadError])
   const context = useMemo(
     () =>
       (pluginId: string, tabId?: string, resource?: string): PluginContext => {
@@ -363,7 +396,7 @@ export function PluginSessionWorkspace({
   )
   useEffect(() => {
     if (!lifetime || lifetime.aborted) return
-    const disposers: (() => void)[] = []
+    const disposers: { id: string; dispose: () => void }[] = []
     if (active)
       for (const entry of registry.entries) {
         if (entry.descriptor.state !== "active") continue
@@ -371,17 +404,17 @@ export function PluginSessionWorkspace({
           const dispose = entry.module?.connectSession?.(
             context(entry.descriptor.id)
           )
-          if (dispose) disposers.push(dispose)
+          if (dispose) disposers.push({ id: entry.descriptor.id, dispose })
         } catch {
-          /* A failed optional subscription must not prevent other plugins. */
+          reportPluginLifecycleFailure(entry.descriptor.id, "连接")
         }
       }
     return () => {
-      disposers.reverse().forEach((dispose) => {
+      disposers.reverse().forEach(({ id, dispose }) => {
         try {
           dispose()
         } catch {
-          /* Release remaining subscriptions. */
+          reportPluginLifecycleFailure(id, "释放")
         }
       })
     }
@@ -534,6 +567,26 @@ export function PluginSessionWorkspace({
     () => ({ context, modules: registry.entries }),
     [context, registry.entries]
   )
+  if (layoutReadError)
+    return (
+      <SessionContext value={value}>
+        {children}
+        <p role="alert">{layoutReadError}</p>
+        <Button
+          variant="outline"
+          onClick={() => {
+            try {
+              setLayout(readSidebarLayout(sessionId))
+              setLayoutReadError("")
+            } catch {
+              setLayoutReadError("插件面板布局仍无法读取，原记录保留。")
+            }
+          }}
+        >
+          重新读取面板布局
+        </Button>
+      </SessionContext>
+    )
   return (
     <SessionContext value={value}>
       <PluginSidebar
@@ -617,6 +670,26 @@ export function PluginSessionWorkspace({
           }))
         }
       >
+        {layoutWriteError && (
+          <Alert>
+            <AlertDescription>{layoutWriteError}</AlertDescription>
+            <Button
+              variant="outline"
+              onClick={() => {
+                try {
+                  saveSidebarLayout(sessionId, layout)
+                  setLayoutWriteError("")
+                } catch {
+                  setLayoutWriteError(
+                    "插件面板布局仍未保存，请检查本机存储后重试。"
+                  )
+                }
+              }}
+            >
+              重试保存布局
+            </Button>
+          </Alert>
+        )}
         {children}
       </PluginSidebar>
     </SessionContext>
@@ -680,7 +753,10 @@ class DeliveryBoundary extends ReactComponent<
   }
   render() {
     return this.state.failed ? (
-      <p>{this.props.fallback}</p>
+      <div role="alert">
+        <p>交付视图加载失败。以下为已保存的交付摘要：</p>
+        <p>{this.props.fallback}</p>
+      </div>
     ) : (
       this.props.children
     )

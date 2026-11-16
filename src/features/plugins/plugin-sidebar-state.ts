@@ -18,7 +18,7 @@ export const tabKey = (tab: Pick<PluginTab, "pluginId" | "id" | "resource">) =>
   JSON.stringify([tab.pluginId, tab.id, tab.resource || ""])
 const layouts = new Map<string, PluginSidebarLayout>()
 const storageKey = (sessionId: string) => `moon.plugin-sidebar.v1.${sessionId}`
-const empty = (): PluginSidebarLayout => ({
+export const emptySidebarLayout = (): PluginSidebarLayout => ({
   tabs: [],
   selected: "",
   expanded: false,
@@ -30,9 +30,9 @@ export function readSidebarLayout(sessionId: string): PluginSidebarLayout {
   const retained = layouts.get(sessionId)
   if (retained) return retained
   try {
-    const value = JSON.parse(
-      localStorage.getItem(storageKey(sessionId)) || "null"
-    )
+    const raw = localStorage.getItem(storageKey(sessionId))
+    if (raw === null) return emptySidebarLayout()
+    const value = JSON.parse(raw)
     if (
       value &&
       Array.isArray(value.tabs) &&
@@ -81,17 +81,19 @@ export function readSidebarLayout(sessionId: string): PluginSidebarLayout {
       layouts.set(sessionId, layout)
       return layout
     }
-  } catch {
-    /* Storage is optional; a session still works in memory. */
+    throw new Error("插件面板布局结构无效。")
+  } catch (cause) {
+    throw new Error(
+      "插件面板布局无法读取，原记录保留；请检查本机存储后重新读取。",
+      { cause }
+    )
   }
-  return empty()
 }
 
 export function saveSidebarLayout(
   sessionId: string,
   layout: PluginSidebarLayout
 ) {
-  layouts.set(sessionId, layout)
   try {
     localStorage.setItem(
       storageKey(sessionId),
@@ -106,8 +108,9 @@ export function saveSidebarLayout(
         })),
       })
     )
-  } catch {
-    /* Keep the current window usable if storage is unavailable. */
+    layouts.set(sessionId, layout)
+  } catch (cause) {
+    throw new Error("插件面板布局未保存，请检查本机存储后重试。", { cause })
   }
 }
 

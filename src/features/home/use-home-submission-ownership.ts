@@ -5,16 +5,17 @@ import type { ComposerDraft } from "@/lib/composer/types"
 import { useHomeSubmissionNavigation } from "./use-home-submission-navigation"
 import { feedbackFromError } from "@/lib/operation-issue"
 
-import type { useLiveConversation } from "@/features/conversation/use-live-conversation"
-import type { ModelConnection } from "@/features/models/model-types"
-import type { ConversationSnapshot } from "@/contracts/rpc.generated"
+import type { ConversationHandoffPort } from "@/lib/submission/conversation-handoff"
+import type {
+  ConversationSnapshot,
+  ModelConnection,
+} from "@/contracts/rpc.generated"
 import type { useWorkspaces } from "@/features/workspaces/use-workspaces"
-import type { SessionService } from "@/features/session/session-service"
-import { consumeHomeSession } from "@/features/session/session-service"
+import type { SessionService } from "@/lib/composer/session-config-port"
 import {
   acceptHomeDraftCache,
+  consumeHomeSession,
   finishHomeSubmission,
-  homeDraftSignature,
   removeHomeSubmission,
   restoreHomeSubmissions,
   prepareHomeSubmission as persistHomeSubmission,
@@ -22,17 +23,19 @@ import {
   recordHomeTransfer,
   saveHomeSubmission,
   saveHomeDraft as persistHomeDraft,
-  saveConversationDraft,
   restoreHomeDraft,
+} from "./home-draft-store"
+import {
+  homeDraftSignature,
   type HomeSubmission,
   type HomeDraftCache,
-} from "@/features/conversation/conversation-draft-store"
+} from "@/lib/submission/home-draft-rules"
 import { sameHomeSubmissionAttempt } from "@/features/home/home-receipt-check"
 import {
   homeDraftRecoveryKey,
   ownedFollowingHomeDraft,
   withHomeDraftRecovery,
-} from "@/features/home/home-submission-draft"
+} from "@/lib/submission/home-draft-rules"
 import {
   changeOwnedHomeCache,
   hasPreparingHomeMaterials,
@@ -42,7 +45,7 @@ import {
 } from "@/features/home/home-submission-lifecycle"
 
 export type HomeSubmissionControllerOptions = {
-  chat: ReturnType<typeof useLiveConversation>
+  chat: ConversationHandoffPort
   connections: ModelConnection[]
   workspaces: ReturnType<typeof useWorkspaces>
   sessionService: SessionService
@@ -56,13 +59,19 @@ export function useHomeSubmissionOwnership({
   chat,
 }: {
   chat: Pick<
-    ReturnType<typeof useLiveConversation>,
-    "adoptHomeDraft" | "settleHomeReceipt" | "currentDraft" | "change"
+    ConversationHandoffPort,
+    | "adoptHomeDraft"
+    | "settleHomeReceipt"
+    | "currentDraft"
+    | "change"
+    | "readStoredDraft"
+    | "saveStoredDraft"
   >
 }) {
   const {
     currentDraft: readConversationDraft,
     change: changeConversationDraft,
+    saveStoredDraft,
   } = chat
   const [notice, setNotice] = useState("")
   const [homeDraft, setHomeDraftState] = useState<HomeDraftCache>({ key: 0 })
@@ -83,11 +92,11 @@ export function useHomeSubmissionOwnership({
       const home = homeDraftRef.current
       if (home.key === viewKey && !home.recovery) persistHomeDraft(draft)
       else if (draft.sessionId) {
-        saveConversationDraft(draft.sessionId, draft)
+        saveStoredDraft(draft.sessionId, draft)
         changeConversationDraft(draft.sessionId, draft)
       }
     },
-    [changeConversationDraft]
+    [changeConversationDraft, saveStoredDraft]
   )
   const homeNavigation = useHomeSubmissionNavigation(homeDraft.key)
   const [homeSubmissions, setHomeSubmissions] = useState(restoreHomeSubmissions)
@@ -385,7 +394,8 @@ export function useHomeSubmissionOwnership({
       saveHomeSubmission(refused)
       const recovery = recoverRejectedHomeSubmission(
         submission,
-        currentHomeEditing(submission)
+        currentHomeEditing(submission),
+        chat
       )
       const preserveOwner =
         homeSelectionActivities.current.has(submission.sessionId) ||
@@ -516,7 +526,8 @@ export function useHomeSubmissionOwnership({
       }
       const handoff = recordHomeTransfer(
         acceptedSubmission,
-        currentHomeEditing(submission)
+        currentHomeEditing(submission),
+        chat
       )
       homeSubmissionsRef.current = {
         ...homeSubmissionsRef.current,

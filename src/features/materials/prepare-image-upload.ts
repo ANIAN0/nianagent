@@ -1,6 +1,6 @@
 import type { MaterialService } from "./material-service"
 import { isRemoteWeb } from "@/lib/rpc/remote-transport"
-import { uploadRemoteFile } from "../../../backend/plugins/remote-access/upload-client"
+import { uploadRemoteFile } from "@/lib/rpc/remote-ports"
 
 /** Read and upload one immutable File under the same cancellable operation. */
 export async function prepareImageUpload({

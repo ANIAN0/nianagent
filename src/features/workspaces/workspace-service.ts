@@ -1,7 +1,7 @@
 import { createContext } from "react"
 import { rpcCall } from "@/lib/rpc/client"
 import { isRemoteWeb } from "@/lib/rpc/remote-transport"
-import { chooseRemoteDirectory } from "../../../backend/plugins/remote-access/directory-chooser"
+import { chooseRemoteDirectory } from "@/lib/rpc/remote-ports"
 import type { WorkspaceList, WorkspaceRecord } from "@/contracts/rpc.generated"
 
 export type WorkspaceService = {

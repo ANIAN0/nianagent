@@ -1,8 +1,8 @@
 import { profileLocalStorage as localStorage } from "@/lib/rpc/profile-storage"
 import type { ComposerDraft } from "@/lib/composer/types"
 import type { FeedbackDescription } from "@/lib/operation-issue"
-import type { MaterialService } from "@/features/materials/material-service"
-import { materialsBlockMaintenance } from "@/features/materials/upload-retry-sources"
+import type { MaterialService } from "@/lib/composer/material-service-port"
+import { materialsBlockMaintenance } from "@/lib/composer/upload-retry-sources"
 
 export type QueueEditSubmission = {
   /** Stable clientEditId sent to the host; a shared CAS revision alone is not a receipt. */

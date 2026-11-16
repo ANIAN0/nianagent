@@ -8,6 +8,14 @@ export type FeedbackDescription = {
   severity?: OperationIssue["severity"]
 }
 
+/** A short server-issued identifier links the visible failure to local diagnostics. */
+export function issueMessage(issue: OperationIssue): string {
+  return typeof issue.errorId === "string" &&
+    /^[a-f0-9]{8}$/i.test(issue.errorId)
+    ? `${issue.summary}（错误编号 ${issue.errorId}）`
+    : issue.summary
+}
+
 export function isOperationIssue(value: unknown): value is OperationIssue {
   if (!value || typeof value !== "object") return false
   const issue = value as Record<string, unknown>
@@ -34,7 +42,7 @@ export function feedbackFromError(
     isOperationIssue(error.issue)
   )
     return {
-      message: error.issue.summary,
+      message: issueMessage(error.issue),
       details: error.issue.details,
       code: error.issue.code,
       recovery: error.issue.recovery,

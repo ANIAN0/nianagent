@@ -2,7 +2,7 @@ mod boot;
 mod desktop_commands;
 mod desktop_contract_generated;
 mod desktop_runtime;
-mod developer_tools;
+mod diagnostics;
 mod managed_child;
 mod migration;
 mod models;
@@ -72,7 +72,6 @@ pub fn run() -> Result<(), String> {
             models::cancel_model_request,
             models::open_authorization_url,
             models::open_local_url,
-            developer_tools::open_developer_tools,
             native_files::file_editors,
             native_files::file_choose_editor,
             native_files::file_open,
@@ -168,17 +167,8 @@ pub fn run() -> Result<(), String> {
             let result = (|| -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(gate) = &startup_gate {
                     app.manage(gate.clone());
-                    app.handle().plugin(
-                        tauri_plugin_log::Builder::default()
-                            .level(log::LevelFilter::Info)
-                            .targets([tauri_plugin_log::Target::new(
-                                tauri_plugin_log::TargetKind::Folder {
-                                    path: gate.control.join("startup/logs"),
-                                    file_name: Some("moon-startup".into()),
-                                },
-                            )])
-                            .build(),
-                    )?;
+                    app.handle()
+                        .plugin(diagnostics::plugin(gate.control.join("startup/logs")))?;
                     for window in &windows {
                         tauri::WebviewWindowBuilder::from_config(app.handle(), window)?
                             .data_directory(gate.profile.clone())
@@ -202,17 +192,8 @@ pub fn run() -> Result<(), String> {
                 }
                 let paths = paths.as_ref().ok_or("正常存储根缺失。")?;
                 {
-                    app.handle().plugin(
-                        tauri_plugin_log::Builder::default()
-                            .level(log::LevelFilter::Info)
-                            .targets([tauri_plugin_log::Target::new(
-                                tauri_plugin_log::TargetKind::Folder {
-                                    path: paths.data.join("logs"),
-                                    file_name: Some("moon".into()),
-                                },
-                            )])
-                            .build(),
-                    )?;
+                    app.handle()
+                        .plugin(diagnostics::plugin(paths.data.join("logs")))?;
                 }
                 // 状态及未启Node的稳定服务对象先受管理，窗口能在耗时启动期间读取真实阶段与退出。
                 let boot = boot::BootRuntime::new(paths.clone());

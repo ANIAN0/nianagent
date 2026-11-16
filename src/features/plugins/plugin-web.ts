@@ -1,10 +1,11 @@
 import * as React from "react"
-import { useEffect, useState, useSyncExternalStore } from "react"
+import { useEffect, useSyncExternalStore } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Field, FieldLabel, FieldDescription } from "@/components/ui/field"
 import { Badge } from "@/components/ui/badge"
 import { rpcCall } from "@/lib/rpc/client"
+import { feedbackFromError } from "@/lib/operation-issue"
 import type { PluginDescriptor } from "@/contracts/rpc.generated"
 import { callPlugin } from "./plugin-service"
 import type { PluginWebModule, PluginWebFactory } from "./plugin-api"
@@ -21,9 +22,21 @@ type Entry = {
   dispose?: () => void
 }
 let entries: Entry[] = []
+let registryError = ""
+let revision = 0
 let refreshing: Promise<void> | undefined
 let again = false
-const notify = () => listeners.forEach((listener) => listener())
+const notify = () => {
+  revision++
+  listeners.forEach((listener) => listener())
+}
+export function reportPluginLifecycleFailure(
+  pluginId: string,
+  phase: "连接" | "释放"
+) {
+  registryError = `插件 ${pluginId} 的会话${phase}失败，请重新加载插件；其他插件保持各自状态。`
+  notify()
+}
 const key = (p: PluginDescriptor) =>
   `${p.id}:${p.generation}:${p.version}:${p.state}`
 async function load(descriptor: PluginDescriptor): Promise<Entry> {
@@ -122,15 +135,18 @@ async function load(descriptor: PluginDescriptor): Promise<Entry> {
     }
   } catch (error) {
     lifetime.abort()
+    let cleanupFailed = false
     try {
       module?.dispose?.()
     } catch {
-      /* Preserve the original loading error. */
+      cleanupFailed = true
     }
     urls.forEach(URL.revokeObjectURL)
     return {
       descriptor,
-      error: error instanceof Error ? error.message : "插件前端未能加载。",
+      error:
+        feedbackFromError(error, "插件前端未能加载。").message +
+        (cleanupFailed ? " 插件资源释放也未完成，请重新启动 Moon。" : ""),
     }
   }
 }
@@ -156,15 +172,26 @@ export function refreshPluginRegistry() {
               : { descriptor }
           )
       }
+      const cleanupFailures: string[] = []
       previous.forEach((e) => {
         try {
           e.dispose?.()
         } catch {
-          /* Continue disposing other plugins. */
+          cleanupFailures.push(e.descriptor.id)
         }
       })
       entries = next
+      registryError = cleanupFailures.length
+        ? `插件卸载未完成：${cleanupFailures.join("、")}。请重新启动 Moon。`
+        : ""
       notify()
+    } catch (error) {
+      registryError = feedbackFromError(
+        error,
+        "插件目录未能更新，请重新读取。"
+      ).message
+      notify()
+      throw error
     } finally {
       refreshing = undefined
       if (again) {
@@ -187,37 +214,28 @@ if (import.meta.hot)
       try {
         entry.dispose?.()
       } catch {
-        /* Finish remaining cleanup. */
+        console.error("Moon 开发页面热重载：插件资源释放失败，请刷新页面。")
       }
     })
     listeners.clear()
   })
 export function usePluginRegistry(enabled = true) {
-  const value = useSyncExternalStore(
+  useSyncExternalStore(
     (listener) => {
       listeners.add(listener)
       return () => {
         listeners.delete(listener)
       }
     },
-    () => entries
+    () => revision
   )
-  const [failure, setFailure] = useState<{
-    entries: typeof entries
-    message: string
-  } | null>(null)
   useEffect(() => {
-    if (enabled)
-      void refreshPluginRegistry().catch((e) =>
-        setFailure({
-          entries,
-          message: e instanceof Error ? e.message : "插件目录未能读取。",
-        })
-      )
+    // The registry records errors for every refresh owner, including background events.
+    if (enabled) void refreshPluginRegistry().catch(() => {})
   }, [enabled])
   return {
-    entries: value,
-    error: failure?.entries === value ? failure.message : "",
+    entries,
+    error: registryError,
   }
 }
 export function getPluginModule(id: string) {

@@ -37,6 +37,26 @@ export class SessionService {
     this.resources = new WeakMap()
     this.closing = new Set()
   }
+  /** 活动快照端口（G01）：外部（装配/维护）只读摘要，不查看内部 Map 字段。 */
+  hasBusyWork() {
+    for (const entry of this.active.values())
+      if (entry.busy || !entry.session.isIdle) return true
+    return false
+  }
+  commandRunner(sessionId) {
+    return this.active.get(sessionId)?.session?.extensionRunner
+  }
+  adoptRuntime(sessionId, entry) {
+    this.ensureOpen()
+    this.identity(sessionId)
+    this.active.get(sessionId)?.session.dispose()
+    this.active.set(sessionId, entry)
+  }
+  detachRuntime(sessionId, expectedEntry) {
+    // 迟到的失败收尾不能移除同sessionId的新运行实例。
+    if (this.active.get(sessionId) !== expectedEntry) return false
+    return this.active.delete(sessionId)
+  }
   async exclusive(sessionId, action) {
     const previous = this.gates.get(sessionId) || Promise.resolve()
     let release

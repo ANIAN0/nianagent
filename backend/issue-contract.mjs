@@ -7,6 +7,16 @@ export const issueSchemas = {
       code: text("稳定问题类别，不能通过解析显示文案决定恢复动作"),
       summary: text("已脱敏的用户原因；不包含提供方响应、凭据或内部文件标识"),
       details: text("可选安全诊断，只含允许公开的错误码与操作类别"),
+      errorId: {
+        type: "string",
+        description:
+          "本次终态失败的可定位标识（8位短随机码）；按 errorId 可关联唯一日志条目与责任模块",
+      },
+      traceId: {
+        type: "string",
+        description:
+          "所属调用链标识；与授权身份、operationId 正交。空串表示无请求上下文的失败",
+      },
       recovery: {
         type: "string",
         enum: ["retry", "reload", "check", "settings", "restart", "none"],

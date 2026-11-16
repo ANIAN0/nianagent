@@ -18,9 +18,11 @@ import { ToolCall } from "./tool-call"
 import { ExecutionProcess } from "./execution-process"
 import { MessageAttachments } from "./message-attachments"
 import { MessageActions } from "./message-actions"
-import type { ConversationStatistics } from "@/contracts/rpc.generated"
+import type {
+  ConversationStatistics,
+  ExtensionPresentation,
+} from "@/contracts/rpc.generated"
 import { useMessageEnvironment } from "./message-environment"
-import { PluginDeliveryList } from "@/features/plugins/plugin-workspace"
 
 export interface ConversationTurnRecord {
   id: string
@@ -42,6 +44,7 @@ export function ConversationTurnView({
   onRetry,
   onOpenAttachment,
   workspacePath,
+  renderTurnDeliveries,
 }: {
   turn: ProjectedConversationTurn
   records?: readonly ConversationTurnRecord[]
@@ -61,6 +64,7 @@ export function ConversationTurnView({
   onRetry?: () => void
   onOpenAttachment?: (attachment: MessageAttachment) => void
   workspacePath?: string
+  renderTurnDeliveries?: (records: ExtensionPresentation[]) => ReactNode
 }) {
   const tail = turn.tail
   const running = tail?.status === "streaming"
@@ -200,9 +204,9 @@ export function ConversationTurnView({
               ))}
             </div>
           )}
-          {(closed || showStoppedNotice) && (
-            <PluginDeliveryList
-              records={tools
+          {(closed || showStoppedNotice) &&
+            renderTurnDeliveries?.(
+              tools
                 .filter(
                   (tool) =>
                     tool.status === "success" && tool.presentation?.pluginId
@@ -211,9 +215,8 @@ export function ConversationTurnView({
                   ...tool.presentation!,
                   summary:
                     tool.presentation!.summary || tool.result || "交付记录",
-                }))}
-            />
-          )}
+                }))
+            )}
           {visibleIssues.map((issue) => (
             <div key={issue.id} data-issue-entry={issue.id}>
               {issue.content}

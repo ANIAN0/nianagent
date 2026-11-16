@@ -3,7 +3,6 @@ import tailwindcss from "@tailwindcss/vite"
 import react from "@vitejs/plugin-react"
 import { defineConfig, type ResolvedConfig } from "vite"
 import { modelBackendPlugin } from "./backend/bridge.mjs"
-import { developerToolsPlugin } from "./scripts/devtools-plugin.ts"
 import { pdfAssetsPlugin } from "./scripts/pdf-assets-plugin.ts"
 import { assertWebBase } from "./scripts/web-base.mjs"
 
@@ -21,17 +20,12 @@ export function createMoonViteConfig() {
       react(),
       tailwindcss(),
       modelBackendPlugin(),
-      developerToolsPlugin(),
       pdfAssetsPlugin(),
     ],
     build: {
       rolldownOptions: {
         input: {
           app: resolve(import.meta.dirname, "index.html"),
-          pluginDevelopment: resolve(
-            import.meta.dirname,
-            "devtools/plugin-development.html"
-          ),
         },
       },
     },

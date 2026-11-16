@@ -255,6 +255,11 @@ export function PluginSidebar({
         >
           <ResizablePanel id="conversation" minSize={compact ? 0 : "360px"}>
             <div className="plugin-session-main" inert={expanded && overlay}>
+              {active && !expanded && error && (
+                <Alert className="plugin-pane-error">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
               {children}
             </div>
           </ResizablePanel>

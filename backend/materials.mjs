@@ -1,4 +1,5 @@
 import { replaceJson } from "./atomic-file.mjs"
+import { assertLocalPath } from "./local-path.mjs"
 import { beginUploadUse } from "./material-upload-use.mjs"
 import {
   access,
@@ -372,6 +373,8 @@ export class MaterialService {
       try {
         if (scope !== "workspace" && !isAbsolute(source))
           throw new Error("请选择文件的实际绝对路径。")
+        // 两个范围都先拒 UNC/设备路径：realpath 阶段会发起 SMB 认证泄漏凭据。
+        assertLocalPath(source, "附件路径")
         const path = await realpath(
           scope === "workspace" ? resolve(cwd, source) : source
         )
@@ -743,8 +746,13 @@ export class MaterialService {
               source: actual,
               description: relative(cwd, actual),
             })
-          } catch {
-            /* Unreadable files are not available candidates. */
+          } catch (error) {
+            if (signal?.aborted) throw error
+            if (diagnostics.length < 60)
+              diagnostics.push({
+                scope: "files",
+                message: `文件“${relative(cwd, path)}”无法读取，未加入候选。`,
+              })
           }
         }
       }
@@ -852,23 +860,41 @@ export class MaterialService {
       }
       return
     }
+    // G09：失败原因分类——路径失效/类型不符/权限不可读分开呈现，不再合并掩盖
+    let referenceError = "引用来源已不存在，请重新选择或移除。"
     try {
-      const currentPath = await realpath(record.source)
+      let currentPath
+      try {
+        currentPath = await realpath(record.source)
+      } catch (error) {
+        if (error.code !== "ENOENT")
+          referenceError = "引用来源不可读，请检查文件权限后重新选择或移除。"
+        throw error
+      }
       if (
         (record.type !== "file" && !same(currentPath, record.source)) ||
         (record.scope === "workspace" && !within(record.cwd, currentPath))
-      )
-        throw new Error()
+      ) {
+        referenceError = "引用来源已被移动或替换，请重新选择或移除。"
+        throw new Error(referenceError)
+      }
       const sourceStat = await stat(record.source)
       if (
         record.type === "directory"
           ? !sourceStat.isDirectory()
           : !sourceStat.isFile()
-      )
-        throw new Error()
-      await access(record.source, constants.R_OK)
-    } catch {
-      throw new Error("引用来源已不存在或不可读，请重新选择或移除。")
+      ) {
+        referenceError = "引用来源类型与记录不符，请重新选择或移除。"
+        throw new Error(referenceError)
+      }
+      try {
+        await access(record.source, constants.R_OK)
+      } catch (error) {
+        referenceError = "引用来源不可读，请检查文件权限后重新选择或移除。"
+        throw error
+      }
+    } catch (error) {
+      throw new Error(referenceError, { cause: error })
     }
     if (record.type === "skill") {
       const resources = await this.sessions.skillResources(

@@ -1,5 +1,5 @@
 import { replaceJson, withAcquiredLock } from "./atomic-file.mjs"
-import { mkdir, readFile } from "node:fs/promises"
+import { mkdir, readFile, stat } from "node:fs/promises"
 import { join, isAbsolute } from "node:path"
 
 import { setTimeout as delay } from "node:timers/promises"
@@ -34,12 +34,59 @@ const editable = new Set([
   "lastRequestFingerprint",
 ])
 
+// 分页游标："<updatedAt>|<pinned 0|1>|<archived 0|1>|<id>"，
+// 各段均不含竖线（ISO 8601 / 布尔位 / 会话标识字符集）。
+function parseCursor(value) {
+  if (value === undefined) return undefined
+  check(value.length <= 560, "分页游标无效。")
+  const parts = value.split("|")
+  check(parts.length === 4, "分页游标无效。")
+  const [updatedAt, pinned, archived, id] = parts
+  const time = Date.parse(updatedAt)
+  check(Number.isFinite(time), "分页游标无效。")
+  check(pinned === "0" || pinned === "1", "分页游标无效。")
+  check(archived === "0" || archived === "1", "分页游标无效。")
+  check(/^[a-zA-Z0-9_-]{1,128}$/.test(id), "分页游标无效。")
+  return { time, pinned: pinned === "1", archived: archived === "1", id }
+}
+
+// 展示排序：未归档在先，置顶领先，其余按最后更新时间倒序（同刻按 id）。
+function compareConversationOrder(a, b) {
+  if (a.archived !== b.archived) return a.archived ? 1 : -1
+  if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
+  return (
+    Date.parse(b.updatedAt) - Date.parse(a.updatedAt) ||
+    a.id.localeCompare(b.id)
+  )
+}
+
+// 游标指向上一页最后一条；返回其排序位置严格靠后的条目判定。
+function isAfterCursor(item, cursor) {
+  if (item.archived !== cursor.archived) return !cursor.archived
+  if (item.pinned !== cursor.pinned) return !item.pinned
+  const itemTime = Date.parse(item.updatedAt)
+  return (
+    itemTime < cursor.time ||
+    (itemTime === cursor.time && item.id.localeCompare(cursor.id) > 0)
+  )
+}
+
 // Shared by the Pi runner and the list service. This file only owns metadata;
 // Pi SessionManager owns transcript persistence and branching.
 export class ConversationStore {
   constructor(directory) {
     this.directory = join(directory, "conversations")
     this.file = join(this.directory, "index.json")
+    this.cache = null
+  }
+  async stamp() {
+    try {
+      const stats = await stat(this.file)
+      return `${stats.mtimeMs}:${stats.size}`
+    } catch (error) {
+      if (error.code === "ENOENT") return "missing"
+      return null
+    }
   }
   validate(record) {
     assertSchema(conversationRecordSchema, record, "已保存会话摘要")
@@ -55,20 +102,21 @@ export class ConversationStore {
       "会话时间元数据损坏；原文件未覆盖。"
     )
   }
-  async document(signal) {
-    signal?.throwIfAborted()
+  async load() {
     let data
     try {
       data = JSON.parse(await readFile(this.file, "utf8"))
     } catch (error) {
       if (error.code === "ENOENT")
-        return { version: 1, conversations: [], requestReceipts: [] }
+        return { version: 2, conversations: [], requestReceipts: [] }
       throw new Error("会话目录损坏或无法读取；原文件未覆盖。", {
         cause: error,
       })
     }
+    // 版本 2 增加 pinned/archived；读取兼容版本 1 并就地补默认，落盘时统一为 2。
     check(
-      data?.version === 1 && Array.isArray(data.conversations),
+      (data?.version === 1 || data?.version === 2) &&
+        Array.isArray(data.conversations),
       "会话目录结构损坏；原文件未覆盖。"
     )
     const ids = new Set()
@@ -79,14 +127,31 @@ export class ConversationStore {
       )
       item.lastRequestId ??= ""
       item.lastRequestFingerprint ??= ""
+      item.pinned ??= false
+      item.archived ??= false
       this.validate(item)
       check(!ids.has(item.id), "会话目录存在重复标识；原文件未覆盖。")
       ids.add(item.id)
     }
     data.requestReceipts ??= []
     this.validateReceipts(data.requestReceipts)
-    signal?.throwIfAborted()
+    data.version = 2
     return data
+  }
+  async document(signal) {
+    signal?.throwIfAborted()
+    // 目录以单文件全量读写；2 秒轮询的读取成本用 mtime+size 命中的缓存承担，
+    // 返回克隆以保持既有语义（调用方可自由改写返回值）。
+    const before = await this.stamp()
+    if (before && this.cache?.stamp === before) {
+      signal?.throwIfAborted()
+      return structuredClone(this.cache.document)
+    }
+    const data = await this.load()
+    signal?.throwIfAborted()
+    const after = await this.stamp()
+    if (after && after === before) this.cache = { stamp: after, document: data }
+    return structuredClone(data)
   }
   validateReceipts(receipts) {
     check(Array.isArray(receipts), "发送回执结构损坏；原文件未覆盖。")
@@ -244,6 +309,12 @@ export class ConversationStore {
       this.validateReceipts(document.requestReceipts)
       await replaceJson(this.file, document, { signal, pretty: true })
       committed()
+      try {
+        const stamp = await this.stamp()
+        if (stamp) this.cache = { stamp, document }
+      } catch {
+        this.cache = null
+      }
       return structuredClone(result)
     })
   }
@@ -267,24 +338,40 @@ export class ConversationStore {
       return { result: null, changed }
     }, signal)
   }
-  async list({ workspaceId, query = "" } = {}, signal) {
+  async list(
+    { workspaceId, query = "", limit, before, archived = "hide" } = {},
+    signal
+  ) {
     check(typeof query === "string" && query.length <= 500, "搜索关键词无效。")
+    check(
+      limit === undefined ||
+        (Number.isSafeInteger(limit) && limit >= 1 && limit <= 500),
+      "分页大小无效。"
+    )
+    check(before === undefined || typeof before === "string", "分页游标无效。")
+    check(
+      archived === "hide" || archived === "all" || archived === "only",
+      "归档过滤无效。"
+    )
     const term = query.trim().toLocaleLowerCase()
+    const cursor = parseCursor(before)
     const { conversations } = await this.document(signal)
-    return conversations
+    const matches = conversations
       .filter(
         (item) =>
+          (archived === "all" ||
+            (archived === "only" ? item.archived : !item.archived)) &&
           (!workspaceId || item.workspaceId === workspaceId) &&
           (!term ||
             `${item.title}\n${item.cwd}\n${item.lastMessage}`
               .toLocaleLowerCase()
               .includes(term))
       )
-      .sort(
-        (a, b) =>
-          Date.parse(b.updatedAt) - Date.parse(a.updatedAt) ||
-          a.id.localeCompare(b.id)
-      )
+      .sort(compareConversationOrder)
+    if (!cursor) return limit === undefined ? matches : matches.slice(0, limit)
+    const start = matches.findIndex((item) => isAfterCursor(item, cursor))
+    const rest = matches.slice(start === -1 ? matches.length : start)
+    return limit === undefined ? rest : rest.slice(0, limit)
   }
   async get(id, signal) {
     identity(id)
@@ -331,6 +418,8 @@ export class ConversationStore {
         revision: 1,
         status: "idle",
         unread: false,
+        pinned: false,
+        archived: false,
         lastMessage: "",
         lastError: "",
         runId: "",
@@ -414,6 +503,52 @@ export class ConversationStore {
       if (!record.unread || record.revision !== revision)
         return { result: record, changed: false }
       record.unread = false
+      record.revision++
+      return { result: record, changed: true }
+    }, signal)
+  }
+  async rename(id, title, signal) {
+    identity(id)
+    check(
+      typeof title === "string" &&
+        title.trim().length >= 1 &&
+        title.length <= 400,
+      "会话标题无效。"
+    )
+    return this.transaction((data) => {
+      const record = data.conversations.find((item) => item.id === id)
+      check(record, "会话不存在，请刷新列表。")
+      if (record.title === title) return { result: record, changed: false }
+      record.title = title
+      record.revision++
+      return { result: record, changed: true }
+    }, signal)
+  }
+  async setPinned(id, pinned, signal) {
+    identity(id)
+    check(typeof pinned === "boolean", "置顶状态无效。")
+    return this.transaction((data) => {
+      const record = data.conversations.find((item) => item.id === id)
+      check(record, "会话不存在，请刷新列表。")
+      if (record.pinned === pinned) return { result: record, changed: false }
+      record.pinned = pinned
+      record.revision++
+      return { result: record, changed: true }
+    }, signal)
+  }
+  async setArchived(id, archived, signal) {
+    identity(id)
+    check(typeof archived === "boolean", "归档状态无效。")
+    return this.transaction((data) => {
+      const record = data.conversations.find((item) => item.id === id)
+      check(record, "会话不存在，请刷新列表。")
+      if (record.archived === archived)
+        return { result: record, changed: false }
+      check(
+        !archived || record.status !== "running",
+        "会话正在运行，请先停止再归档。"
+      )
+      record.archived = archived
       record.revision++
       return { result: record, changed: true }
     }, signal)

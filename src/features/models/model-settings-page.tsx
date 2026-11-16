@@ -16,8 +16,6 @@ import {
 import { ConnectionList } from "./connection-list"
 import { ConnectionEditor } from "./connection-editor"
 import { type LeaveGuard } from "@/lib/navigation/leave-guard"
-import { McpSettings } from "@/features/mcp/mcp-settings"
-import type { McpService } from "@/features/mcp/mcp-service"
 import { AddConnectionDialog } from "./add-connection-dialog"
 import { SettingsConfirmDialog } from "@/components/operations/settings-confirmation"
 import {
@@ -48,15 +46,11 @@ type Deletion = {
 const unresolvedDeletions = new WeakMap<ModelService, Map<string, Deletion>>()
 export type ModelSettingsContentProps = {
   service: ModelService
-  mcpService?: McpService
-  section: "models" | "mcp"
   onConnectionsChange?: (connections: ModelConnection[]) => void
   registerLeave?: (guard: LeaveGuard | null) => void
 }
 export function ModelSettingsContent({
   service,
-  mcpService,
-  section,
   onConnectionsChange,
   registerLeave,
 }: ModelSettingsContentProps) {
@@ -344,16 +338,9 @@ export function ModelSettingsContent({
     deletionIssue?.recovery === "settings" ||
     deletionIssue?.recovery === "reload"
   return (
-    <div
-      ref={root}
-      className="h-full min-h-0"
-      aria-label={section === "models" ? "模型设置" : "MCP 设置"}
-    >
+    <div ref={root} className="h-full min-h-0" aria-label="模型设置">
       <div className="h-full min-h-0">
-        {section === "mcp" && (
-          <McpSettings service={mcpService} registerLeave={storeGuard} />
-        )}
-        {section === "models" && activeEditor && (
+        {activeEditor && (
           <ConnectionEditor
             key={activeEditor.id}
             initial={activeEditor}
@@ -397,7 +384,7 @@ export function ModelSettingsContent({
             }}
           />
         )}
-        {!activeEditor && section === "models" && (
+        {!activeEditor && (
           <div className="model-scroll">
             {notice && (
               <p className="model-page-notice" role="status">

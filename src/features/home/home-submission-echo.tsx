@@ -10,8 +10,8 @@ import {
 import { SubmissionReceipt } from "@/components/feedback/submission-receipt"
 import { ComposerNotification } from "@/components/composer/composer-notification"
 import { RecoveryAction } from "@/components/feedback/recovery-action"
-import { MaterialPreviewDialog } from "@/features/materials/material-preview"
-import type { HomeSubmission } from "@/features/conversation/conversation-draft-store"
+import { MaterialPreviewDialog } from "@/components/composer/material-preview"
+import type { HomeSubmission } from "@/lib/submission/home-draft-rules"
 import type { FeedbackDescription } from "@/lib/operation-issue"
 import type { Material } from "@/lib/composer/types"
 
