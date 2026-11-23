@@ -29,11 +29,11 @@ export async function readSettingsWriteReceipt<
 ) {
   if (!read)
     throw Object.assign(
-      new Error("当前服务不支持写入结果核对，请更新并重启 Moon。"),
+      new Error("当前服务不支持写入结果核对，请更新并重启 moon。"),
       {
         issue: {
           code: "host_version",
-          summary: "当前服务不支持写入结果核对，请更新并重启 Moon。",
+          summary: "当前服务不支持写入结果核对，请更新并重启 moon。",
           recovery: "restart",
           severity: "error",
         },

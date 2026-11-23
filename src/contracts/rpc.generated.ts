@@ -71,6 +71,7 @@ export const transportRecoveryByOperation = {
   conversationApprovalReply: "check",
   conversationCommandRun: "check",
   conversationCommandRead: "reload",
+  telemetryReportPerf: "none",
 } as const
 export const receiptOperationNames = [
   "extensionConfigure",
@@ -96,6 +97,30 @@ export type BrowserBootStatus = {
     /**  */
     issue?: string
   }[]
+}
+export type FrontendPerfKind =
+  "loaf" | "longtask" | "event-timing" | "render" | "inp"
+export type FrontendPerfEvent = {
+  /**  */
+  kind: FrontendPerfKind
+  /** 事件名称（Event Timing 样本为 click、keydown 等浏览器事件名） */
+  name: string
+  /** 样本持续时间（毫秒）。Event Timing 记录浏览器报告的单条事件持续时间。 */
+  durationMs: number
+  /** 主线程阻塞耗时（毫秒） */
+  blockingMs?: number
+  /** 采集时的页面视图标识 */
+  route?: string
+  /** 简短归因信息（如脚本或函数名） */
+  detail?: string
+}
+export type FrontendPerfReportRequest = {
+  /** 待写入本机诊断日志的前端性能事件批次 */
+  events: FrontendPerfEvent[]
+}
+export type FrontendPerfReportResult = {
+  /** 本批交给本机诊断写入器的样本条数；日志异步落盘，重复样本可能合并。 */
+  accepted: number
 }
 export type PluginContribution = {
   /** 受信清单声明的稳定标识 */
@@ -500,6 +525,13 @@ export type ConversationSummary = {
     sourceTitle: string
     /** 来源Pi已完成回复标识 */
     sourceEntryId: string
+  }
+  /**  */
+  pending?: {
+    /** 等待用户决定的本次工具授权数量 */
+    approvals: number
+    /** 等待用户回应的插件确认、选择或输入数量 */
+    answers: number
   }
 }
 export type ConversationFilter = {
@@ -992,6 +1024,21 @@ export type ConversationPermission = {
   /** 权限配置CAS版本，运行中禁止更改 */
   revision: number
 }
+export type ConversationApprovalDetails = {
+  /** 宿主确认的工具来源 */
+  sourceKind: "builtin" | "plugin" | "extension" | "unknown"
+  /** 已确认的插件名称 */
+  sourceName?: string
+  /**  */
+  target?: {
+    /** 宿主识别的审批目标 */
+    kind: "path" | "command"
+    /** 规范化绝对路径或原始命令 */
+    value: string
+  }
+  /** 目标以外无法确认的访问范围 */
+  scopeNotice?: string
+}
 export type ConversationApproval = {
   /** 稳定标识 */
   id: string
@@ -1011,6 +1058,8 @@ export type ConversationApproval = {
   toolCallId?: string
   /** 完整工具参数JSON */
   input?: string
+  /**  */
+  details?: ConversationApprovalDetails
   /**  */
   options?: string[]
   /** 到期自动拒绝，ISO时间 */
@@ -1414,6 +1463,7 @@ export type AuthState = {
 }
 export type RpcRequests = {
   bootStatus: Record<string, never>
+  telemetryReportPerf: FrontendPerfReportRequest
   pluginResource: {
     /** 受信清单声明的稳定标识 */
     id: string
@@ -1658,6 +1708,8 @@ export type RpcRequests = {
     id: string
     /** 目标归档状态 */
     archived: boolean
+    /** 调用方确认的运行标识；空字符串表示从未运行 */
+    expectedRunId?: string
   }
   conversationReceiptRead: {
     /** 稳定的业务会话/请求标识 */
@@ -1797,6 +1849,8 @@ export type RpcRequests = {
   sessionCatalog: {
     /**  */
     cwd: string
+    /** 可选正式会话标识，用于读取同工作目录内已登记的动态工具 */
+    sessionId?: string
   }
   sessionRead: {
     /**  */
@@ -1875,6 +1929,7 @@ export type RpcRequests = {
 }
 export type RpcResults = {
   bootStatus: BrowserBootStatus
+  telemetryReportPerf: FrontendPerfReportResult
   pluginResource: PluginResource
   pluginList: PluginDescriptor[]
   pluginConfigure: PluginDescriptor

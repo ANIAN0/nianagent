@@ -29,17 +29,6 @@ export type BootFrontendInput = {
   stage: BootFrontendStage
   ready: boolean
 }
-export type StartupSelection = "import" | "fresh"
-export type StartupPhase =
-  | "awaitingConfirmation"
-  | "preparing"
-  | "ready"
-  | "inspecting"
-  | "copying"
-  | "validating"
-  | "committing"
-  | "readyToOpen"
-  | "failed"
 export type StartupFailureStage =
   | "runtime"
   | "target"
@@ -70,39 +59,6 @@ export type StartupIssue = {
   path: string | null
   retryable: boolean
 }
-export type StartupCapabilities = {
-  chooseDirectory: boolean
-  prepare: boolean
-  migrate: boolean
-  createFresh: boolean
-  retry: boolean
-  openDiagnostics: boolean
-  exit: boolean
-  continueStartup: boolean
-}
-export type StartupSnapshot = {
-  revision: number
-  operationId: string | null
-  planId: string | null
-  planExpiresAt: string | null
-  phase: StartupPhase
-  selection: StartupSelection | null
-  sourceDirectory: string
-  legacyProfileDirectory: string | null
-  targetDirectory: string
-  defaultDirectory: string
-  retainedCopyDirectories: string[]
-  fileCount: number | null
-  totalBytes: number | null
-  availableBytes: number | null
-  completedFiles: number
-  copiedBytes: number | null
-  issue: StartupIssue | null
-  capabilities: StartupCapabilities
-}
-export type StartupState = StartupSnapshot | null
-export type StartupStartInput = { planId: string; targetDirectory: string }
-export type StartupOperationInput = { operationId: string }
 export type IssueCode =
   | "validation"
   | "permission"
@@ -144,15 +100,27 @@ export type StorageInfo = {
   legacyCopyRetained: boolean
   retainedCopyDirectories: string[]
   directoryMappings: StorageDirectoryMapping[]
-  usedBytes: number
+  usedBytes: number | null
   availableBytes: number | null
 }
+export type StorageCapacityInput = { dataSetId: string; generation: number }
+export type StorageCapacity = { usedBytes: number }
 export type DesktopCapabilities = {
   migrateData: boolean
   openDataDirectory: boolean
   checkUpdates: boolean
   installUpdates: boolean
   unavailableReason: string | null
+}
+export type StorageLegacySource = {
+  sourceDirectory: string
+  legacyProfileDirectory: string | null
+}
+export type OptionalLegacySource = StorageLegacySource | null
+export type ImportPrepareInput = {
+  sourceDirectory: string
+  targetDirectory: string
+  legacy: boolean
 }
 export type MigrationPlan = {
   planId: string
@@ -273,22 +241,17 @@ export type DesktopRequests = {
   boot_retry: BootAttemptInput
   boot_acknowledge_frontend: BootFrontendInput
   boot_exit: BootAttemptInput
-  startup_get_state: undefined
-  startup_choose_directory: undefined
-  startup_prepare_migration: MigrationPrepareInput
-  startup_start_migration: StartupStartInput
-  startup_prepare_fresh: MigrationPrepareInput
-  startup_start_fresh: StartupStartInput
-  startup_retry_migration: StartupOperationInput
-  startup_open_diagnostics: undefined
-  startup_continue: StartupOperationInput
-  startup_exit: undefined
   desktop_get_state: undefined
+  storage_measure_capacity: StorageCapacityInput
   desktop_open_data_directory: undefined
+  desktop_open_log_directory: undefined
+  desktop_export_diagnostics: undefined
   desktop_open_retained_copy: RetainedCopyInput
   desktop_choose_data_directory: undefined
   storage_prepare_migration: MigrationPrepareInput
   storage_start_migration: MigrationStartInput
+  storage_detect_legacy_sources: undefined
+  storage_prepare_import: ImportPrepareInput
   desktop_acknowledge_startup: StartupAcknowledgeInput
   desktop_acknowledge_flush: FlushAcknowledgeInput
   desktop_restart: undefined
@@ -307,22 +270,17 @@ export type DesktopResults = {
   boot_retry: BootSnapshot
   boot_acknowledge_frontend: BootSnapshot
   boot_exit: null
-  startup_get_state: StartupState
-  startup_choose_directory: string | null
-  startup_prepare_migration: StartupSnapshot
-  startup_start_migration: StartupSnapshot
-  startup_prepare_fresh: StartupSnapshot
-  startup_start_fresh: StartupSnapshot
-  startup_retry_migration: StartupSnapshot
-  startup_open_diagnostics: null
-  startup_continue: null
-  startup_exit: null
   desktop_get_state: DesktopSnapshot
+  storage_measure_capacity: StorageCapacity
   desktop_open_data_directory: null
+  desktop_open_log_directory: null
+  desktop_export_diagnostics: string | null
   desktop_open_retained_copy: null
   desktop_choose_data_directory: string | null
   storage_prepare_migration: MigrationPlan
   storage_start_migration: MaintenanceState
+  storage_detect_legacy_sources: OptionalLegacySource
+  storage_prepare_import: MigrationPlan
   desktop_acknowledge_startup: null
   desktop_acknowledge_flush: null
   desktop_restart: null
@@ -401,91 +359,6 @@ export const desktopCommandMetadata = {
     effect: "仅当前未ready尝试，实际停止宿主与启动子进程。",
     source: "src-tauri/src/boot.rs",
   },
-  startup_get_state: {
-    module: "首启迁移",
-    title: "读取首启迁移状态",
-    input: null,
-    result: "StartupState",
-    effect: "仅startup窗口读取当前权威状态；正常业务模式返回null。",
-    source: "src-tauri/src/desktop_commands.rs",
-  },
-  startup_choose_directory: {
-    module: "首启迁移",
-    title: "选择迁移目标",
-    input: null,
-    result: "OptionalString",
-    effect: "系统目录选择；取消不改变状态，换目标令旧计划失效。",
-    source: "src-tauri/src/desktop_commands.rs",
-  },
-  startup_prepare_migration: {
-    module: "首启迁移",
-    title: "检查首启迁移目标",
-    input: "MigrationPrepareInput",
-    result: "StartupSnapshot",
-    effect:
-      "只检查元数据、运行资源与空间，不读取业务正文；五分钟计划绑定当前目标与身份。",
-    source: "src-tauri/src/desktop_commands.rs",
-  },
-  startup_start_migration: {
-    module: "首启迁移",
-    title: "确认迁移并启动",
-    input: "StartupStartInput",
-    result: "StartupSnapshot",
-    effect: "明确确认后检查、复制和验证；旧副本保留，同计划重复开始幂等。",
-    source: "src-tauri/src/desktop_commands.rs",
-  },
-  startup_prepare_fresh: {
-    module: "首次启动",
-    title: "检查新数据集目录",
-    input: "MigrationPrepareInput",
-    result: "StartupSnapshot",
-    effect:
-      "不读旧业务或旧profile；只为无登记数据的首次启动准备独立空目标计划。",
-    source: "src-tauri/src/desktop_commands.rs",
-  },
-  startup_start_fresh: {
-    module: "首次启动",
-    title: "不导入旧数据并启动",
-    input: "StartupStartInput",
-    result: "StartupSnapshot",
-    effect:
-      "创建独立dataset及profile并权威提交bootstrap；旧数据和失败副本保留，不接管旧非空目标。",
-    source: "src-tauri/src/desktop_commands.rs",
-  },
-  startup_retry_migration: {
-    module: "首启迁移",
-    title: "重试未提交首次启动操作",
-    input: "StartupOperationInput",
-    result: "StartupSnapshot",
-    effect:
-      "仅失败且未提交的同operation按原selection重做导入或空数据初始化，不重放unknown业务请求。",
-    source: "src-tauri/src/desktop_commands.rs",
-  },
-  startup_open_diagnostics: {
-    module: "首启迁移",
-    title: "打开首启诊断目录",
-    input: null,
-    result: null,
-    effect: "只打开当前固定维护控制目录，不接受任意路径或清理请求。",
-    source: "src-tauri/src/desktop_commands.rs",
-  },
-  startup_continue: {
-    module: "首启迁移",
-    title: "打开已提交数据的Moon",
-    input: "StartupOperationInput",
-    result: null,
-    effect: "只在bootstrap和目标身份确认已提交后，经受控helper交接正常启动。",
-    source: "src-tauri/src/desktop_commands.rs",
-  },
-  startup_exit: {
-    module: "首启迁移",
-    title: "退出首启界面",
-    input: null,
-    result: null,
-    effect:
-      "确认前、失败或readyToOpen可退出；检查复制校验提交期间不结束worker。",
-    source: "src-tauri/src/desktop_commands.rs",
-  },
   desktop_get_state: {
     module: "桌面",
     title: "读取桌面状态",
@@ -494,12 +367,39 @@ export const desktopCommandMetadata = {
     effect: "只读当前宿主状态。",
     source: "src-tauri/src/desktop_commands.rs",
   },
+  storage_measure_capacity: {
+    module: "数据与存储",
+    title: "统计当前数据目录容量",
+    input: "StorageCapacityInput",
+    result: "StorageCapacity",
+    effect:
+      "按数据集和代次只读计算当前目录容量；维护中暂停，拒绝链接与过期身份。",
+    source: "src-tauri/src/desktop_commands.rs",
+  },
   desktop_open_data_directory: {
     module: "数据与存储",
     title: "打开数据目录",
     input: null,
     result: null,
     effect: "只打开当前数据目录。",
+    source: "src-tauri/src/desktop_commands.rs",
+  },
+  desktop_open_log_directory: {
+    module: "数据与存储",
+    title: "打开日志目录",
+    input: null,
+    result: null,
+    effect:
+      "只打开当前数据目录下的日志目录；不可用和权限错误通过 DesktopIssue 返回。",
+    source: "src-tauri/src/desktop_commands.rs",
+  },
+  desktop_export_diagnostics: {
+    module: "数据与存储",
+    title: "导出脱敏诊断",
+    input: null,
+    result: "OptionalString",
+    effect:
+      "原生保存对话框仅导出宿主白名单字段；取消返回 null，成功返回目标文件路径，失败返回 DesktopIssue。",
     source: "src-tauri/src/desktop_commands.rs",
   },
   desktop_open_retained_copy: {
@@ -532,6 +432,23 @@ export const desktopCommandMetadata = {
     input: "MigrationStartInput",
     result: "MaintenanceState",
     effect: "冻结新写、保存前端恢复状态、排空并离线复制；保留旧副本。",
+    source: "src-tauri/src/desktop_commands.rs",
+  },
+  storage_detect_legacy_sources: {
+    module: "数据与存储",
+    title: "检测旧版数据目录",
+    input: null,
+    result: "OptionalLegacySource",
+    effect:
+      "只读检测本机AppData旧版Moon数据或profile是否存在；无法读取时返回 DesktopIssue。",
+    source: "src-tauri/src/desktop_commands.rs",
+  },
+  storage_prepare_import: {
+    module: "数据与存储",
+    title: "预检导入已有数据",
+    input: "ImportPrepareInput",
+    result: "MigrationPlan",
+    effect: "校验已有数据源与新空目标目录、空间及权限，不关闭服务。",
     source: "src-tauri/src/desktop_commands.rs",
   },
   desktop_acknowledge_startup: {
@@ -658,21 +575,6 @@ export const desktopSchemaMetadata = {
       ready: { type: "boolean" },
     },
   },
-  StartupSelection: { type: "string", enum: ["import", "fresh"] },
-  StartupPhase: {
-    type: "string",
-    enum: [
-      "awaitingConfirmation",
-      "preparing",
-      "ready",
-      "inspecting",
-      "copying",
-      "validating",
-      "committing",
-      "readyToOpen",
-      "failed",
-    ],
-  },
   StartupFailureStage: {
     type: "string",
     enum: [
@@ -713,54 +615,6 @@ export const desktopSchemaMetadata = {
       path: { nullable: { type: "string" } },
       retryable: { type: "boolean" },
     },
-  },
-  StartupCapabilities: {
-    type: "object",
-    properties: {
-      chooseDirectory: { type: "boolean" },
-      prepare: { type: "boolean" },
-      migrate: { type: "boolean" },
-      createFresh: { type: "boolean" },
-      retry: { type: "boolean" },
-      openDiagnostics: { type: "boolean" },
-      exit: { type: "boolean" },
-      continueStartup: { type: "boolean" },
-    },
-  },
-  StartupSnapshot: {
-    type: "object",
-    properties: {
-      revision: { type: "integer" },
-      operationId: { nullable: { type: "string" } },
-      planId: { nullable: { type: "string" } },
-      planExpiresAt: { nullable: { type: "string" } },
-      phase: { $ref: "StartupPhase" },
-      selection: { nullable: { $ref: "StartupSelection" } },
-      sourceDirectory: { type: "string" },
-      legacyProfileDirectory: { nullable: { type: "string" } },
-      targetDirectory: { type: "string" },
-      defaultDirectory: { type: "string" },
-      retainedCopyDirectories: { type: "array", items: { type: "string" } },
-      fileCount: { nullable: { type: "integer" } },
-      totalBytes: { nullable: { type: "integer" } },
-      availableBytes: { nullable: { type: "integer" } },
-      completedFiles: { type: "integer" },
-      copiedBytes: { nullable: { type: "integer" } },
-      issue: { nullable: { $ref: "StartupIssue" } },
-      capabilities: { $ref: "StartupCapabilities" },
-    },
-  },
-  StartupState: { nullable: { $ref: "StartupSnapshot" } },
-  StartupStartInput: {
-    type: "object",
-    properties: {
-      planId: { type: "string" },
-      targetDirectory: { type: "string" },
-    },
-  },
-  StartupOperationInput: {
-    type: "object",
-    properties: { operationId: { type: "string" } },
   },
   IssueCode: {
     type: "string",
@@ -835,9 +689,20 @@ export const desktopSchemaMetadata = {
         type: "array",
         items: { $ref: "StorageDirectoryMapping" },
       },
-      usedBytes: { type: "integer" },
+      usedBytes: { nullable: { type: "integer" } },
       availableBytes: { nullable: { type: "integer" } },
     },
+  },
+  StorageCapacityInput: {
+    type: "object",
+    properties: {
+      dataSetId: { type: "string" },
+      generation: { type: "integer" },
+    },
+  },
+  StorageCapacity: {
+    type: "object",
+    properties: { usedBytes: { type: "integer" } },
   },
   DesktopCapabilities: {
     type: "object",
@@ -847,6 +712,22 @@ export const desktopSchemaMetadata = {
       checkUpdates: { type: "boolean" },
       installUpdates: { type: "boolean" },
       unavailableReason: { nullable: { type: "string" } },
+    },
+  },
+  StorageLegacySource: {
+    type: "object",
+    properties: {
+      sourceDirectory: { type: "string" },
+      legacyProfileDirectory: { nullable: { type: "string" } },
+    },
+  },
+  OptionalLegacySource: { nullable: { $ref: "StorageLegacySource" } },
+  ImportPrepareInput: {
+    type: "object",
+    properties: {
+      sourceDirectory: { type: "string" },
+      targetDirectory: { type: "string" },
+      legacy: { type: "boolean" },
     },
   },
   MigrationPlan: {
@@ -1033,7 +914,6 @@ export const desktopSchemaMetadata = {
 } as const
 export type DesktopEvents = {
   "moon://boot-state": BootSnapshot
-  "moon://startup-state": StartupSnapshot
   "moon://desktop-state": DesktopSnapshot
   "moon://maintenance-flush": FlushRequest
 }

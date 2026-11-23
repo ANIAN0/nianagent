@@ -1,6 +1,11 @@
+import { loadPiSdk } from "./pi-sdk.mjs"
+import { currentTraceId } from "./request-context.mjs"
 import { settleResources } from "./close-resources.mjs"
 import { withAcquiredLock, withCleanup, stageJson } from "./atomic-file.mjs"
-import { createPiSession } from "./pi-session-adapter.mjs"
+import {
+  createPiSession,
+  readPiToolDefinitions,
+} from "./pi-session-adapter.mjs"
 import {
   names,
   descriptions,
@@ -10,23 +15,17 @@ import {
 import { mkdir, readFile, stat, realpath } from "node:fs/promises"
 import { join, dirname, isAbsolute, resolve, delimiter } from "node:path"
 import { existsSync } from "node:fs"
+import { isDeepStrictEqual } from "node:util"
 
 import lockfile from "proper-lockfile"
-import {
-  DefaultResourceLoader,
-  loadProjectContextFiles,
-  SettingsManager,
-  getAgentDir,
-  getShellConfig,
-  getPowerShellConfig,
-} from "@earendil-works/pi-coding-agent"
 import { assertSchema, schemas } from "./schema.mjs"
 import { operationError } from "./operation-issue.mjs"
 
 // Pi owns tool registration and context construction; Moon owns only its selected
 // configuration, atomic commit and lifetime. No inference is performed here.
 export class SessionService {
-  constructor(directory, models) {
+  constructor(directory, models, diagnostics) {
+    this.diagnostics = diagnostics
     this.directory = join(directory, "session-config")
     this.agentDir = join(directory, "agent")
     this.file = join(this.directory, "sessions.json")
@@ -118,6 +117,25 @@ export class SessionService {
     }
     return value
   }
+  async measure(phase, action) {
+    const start = performance.now()
+    let outcome = "unknown"
+    try {
+      const value = await action()
+      outcome = "committed"
+      return value
+    } finally {
+      const durationMs = Math.round(performance.now() - start)
+      this.diagnostics?.append({
+        module: "session-setup",
+        event: `session.${phase}`,
+        level: outcome !== "committed" || durationMs >= 1000 ? "warn" : "info",
+        traceId: currentTraceId(),
+        durationMs,
+        outcome,
+      })
+    }
+  }
   async instructions(cwd) {
     // Pi deliberately logs and skips unreadable context files. Fail explicitly in
     // Moon instead of presenting a partial instruction set as successfully loaded.
@@ -148,6 +166,7 @@ export class SessionService {
         }
       }
     }
+    const { loadProjectContextFiles } = await this.sdk("instructions.importPi")
     return loadProjectContextFiles({ cwd, agentDir: this.agentDir }).map(
       (file) => ({
         ...file,
@@ -163,15 +182,16 @@ export class SessionService {
     const tool = session
       ?.getAllTools()
       .find((candidate) => candidate.name === name)
+    return this.toolAvailability(name, tool, session?.getToolDefinition(name))
+  }
+  toolAvailability(name, tool, definition) {
     if (tool && tool.sourceInfo?.source !== "builtin") {
-      const actual = this.models.plugins?.currentTool(
-        tool,
-        session.getToolDefinition(name)
-      )
+      const actual = this.models.plugins?.currentTool(tool, definition)
       return actual?.entry && actual.entry.state !== "active"
         ? "所属插件已停用或加载失败。"
         : ""
     }
+    const { getShellConfig, getPowerShellConfig, getAgentDir } = this.pi
     if (name === "bash" || name === "powershell") {
       try {
         ;(name === "bash" ? getShellConfig : getPowerShellConfig)()
@@ -206,6 +226,7 @@ export class SessionService {
       "File tools (read, write, edit, ls, grep, find) run in the native host filesystem. Prefer paths relative to this working directory; use native absolute paths only when necessary.",
     ]
     if (process.platform === "win32") {
+      const { getShellConfig, getPowerShellConfig } = this.pi
       try {
         lines.push(
           `Bash executable resolved by Pi: ${JSON.stringify(getShellConfig().shell)}.`
@@ -232,88 +253,140 @@ export class SessionService {
     }
     return lines.join("\n")
   }
+  async sdk(phase) {
+    return (this.pi ??= await this.measure(phase, loadPiSdk))
+  }
   async create(...args) {
+    await this.sdk("create.importPi")
     const service = this
-    return createPiSession(
-      {
-        ensureOpen: this.ensureOpen.bind(this),
-        models: this.models,
-        agentDir: this.agentDir,
-        get closed() {
-          return service.closed
+    return this.measure("create", () =>
+      createPiSession(
+        {
+          measure: this.measure.bind(this),
+          ensureOpen: this.ensureOpen.bind(this),
+          models: this.models,
+          agentDir: this.agentDir,
+          get closed() {
+            return service.closed
+          },
+          runtimePrompt: this.runtimePrompt.bind(this),
+          closing: this.closing,
+          availability: this.availability.bind(this),
+          resources: this.resources,
         },
-        runtimePrompt: this.runtimePrompt.bind(this),
-        closing: this.closing,
-        availability: this.availability.bind(this),
-        resources: this.resources,
-      },
-      ...args
+        ...args
+      )
     )
   }
-  async catalog(cwd, signal) {
+  async catalog(cwd, signal, sessionId) {
     this.ensureOpen()
-    cwd = await this.cwd(cwd)
-    const instructions = await this.instructions(cwd)
-    const session = await this.create(cwd, instructions, undefined, signal)
-    try {
-      signal?.throwIfAborted()
+    if (sessionId !== undefined) this.identity(sessionId)
+    cwd = await this.measure("catalog.cwd", () => this.cwd(cwd))
+    signal?.throwIfAborted()
+    const [instructions, mcpTools] = await Promise.all([
+      this.measure("catalog.instructions", () => this.instructions(cwd)),
+      this.measure(
+        "catalog.mcpCatalog",
+        async () => this.models.mcp?.catalog() ?? []
+      ),
+    ])
+    signal?.throwIfAborted()
+    const sdk = await this.sdk("catalog.importPi")
+    const declarations = await readPiToolDefinitions(this, sdk, cwd, signal)
+    this.ensureOpen()
+    signal?.throwIfAborted()
+    const live = this.active.get(sessionId)
+    const dynamic =
+      live?.persistent && live.session.sessionManager.getCwd() === cwd
+        ? this.livePluginTools(live.session)
+        : []
+    return this.projectCatalog(
+      cwd,
+      instructions,
+      mcpTools,
+      declarations,
+      dynamic
+    )
+  }
+  livePluginTools(session) {
+    return session.getAllTools().flatMap((tool) => {
+      if (
+        tool.sourceInfo?.source === "builtin" ||
+        tool.exposure === "hidden" ||
+        tool.name.startsWith("mcp__") ||
+        tool.name.startsWith("moon_ext__") ||
+        ["codemode", "tool_search"].includes(tool.name)
+      )
+        return []
+      const definition = session.getToolDefinition(tool.name)
+      const actual = this.models.plugins?.currentTool(tool, definition)
+      return actual?.entry ? [{ tool, definition }] : []
+    })
+  }
+  projectCatalog(
+    cwd,
+    instructions,
+    mcpTools,
+    { registered, snapshot },
+    dynamic
+  ) {
+    const toolIds = []
+    const titles = new Map(
+      snapshot.descriptors.flatMap(({ tools }) =>
+        tools.map(({ id, name }) => [id, name])
+      )
+    )
+    const loadedIds = new Set(registered.map(({ tool }) => tool.name))
+    const definitions = [
+      ...registered,
+      ...dynamic.filter(({ tool }) => !loadedIds.has(tool.name)),
+    ]
+    const tools = definitions.map(({ tool, definition }) => {
+      const actual = this.models.plugins?.currentTool(tool, definition)
+      const unavailableReason = this.toolAvailability(
+        tool.name,
+        tool,
+        definition
+      )
+      if (
+        loadedIds.has(tool.name) &&
+        tool.exposure !== "hidden" &&
+        !unavailableReason
+      )
+        toolIds.push(tool.name)
       return {
-        cwd,
-        tools: [
-          ...session.getAllTools().map((tool) => {
-            const actual = this.models.plugins?.currentTool(
-              tool,
-              session.getToolDefinition(tool.name)
-            )
-            return {
-              id: tool.name,
-              name:
-                (actual ? actual.definition?.label : names[tool.name]) ||
-                this.resources
-                  .get(session)
-                  ?.extensionSnapshot.descriptors.flatMap(
-                    (descriptor) => descriptor.tools
-                  )
-                  .find((entry) => entry.id === tool.name)?.name ||
-                tool.name,
-              description: actual
-                ? tool.description
-                : descriptions[tool.name] || tool.description,
-              group:
-                actual?.source ||
-                this.models.extensions?.toolSource(tool.name) ||
-                "Pi 内置工具",
-              detail: tool.description,
-              available: !this.availability(tool.name, session),
-              unavailableReason: this.availability(tool.name, session),
-            }
-          }),
-          ...(this.models.mcp ? await this.models.mcp.catalog() : []),
-          ...extensionSnapshotTools(
-            this.resources.get(session)?.extensionSnapshot,
-            session.getAllTools()
-          ),
-        ],
-        instructions,
-        defaults: {
-          toolIds: [
-            ...session
-              .getAllTools()
-              .filter(
-                (tool) =>
-                  tool.exposure !== "hidden" &&
-                  !this.availability(tool.name, session)
-              )
-              .map((tool) => tool.name),
-            ...(this.models.mcp ? await this.models.mcp.catalog() : [])
-              .filter((tool) => tool.available)
-              .map((tool) => tool.id),
-          ],
-          instructionScope: "all",
-        },
+        id: tool.name,
+        name:
+          (actual ? actual.definition?.label : names[tool.name]) ||
+          titles.get(tool.name) ||
+          tool.name,
+        description: actual
+          ? tool.description
+          : descriptions[tool.name] || tool.description,
+        group:
+          actual?.source ||
+          this.models.extensions?.toolSource(tool.name) ||
+          "Pi 内置工具",
+        detail: tool.description,
+        available: !unavailableReason,
+        unavailableReason,
       }
-    } finally {
-      session.dispose()
+    })
+    toolIds.push(
+      ...mcpTools.filter((tool) => tool.available).map((tool) => tool.id)
+    )
+    return {
+      cwd,
+      tools: [
+        ...tools,
+        ...mcpTools,
+        ...extensionSnapshotTools(
+          snapshot,
+          definitions.map(({ tool }) => tool)
+        ),
+      ],
+      instructions,
+      defaults: { toolIds, instructionScope: "all" },
     }
   }
   async skillResources(cwd, sessionId, signal) {
@@ -324,6 +397,7 @@ export class SessionService {
     const live = this.active
       .get(sessionId)
       ?.session?.resourceLoader?.getSkills()
+    const { DefaultResourceLoader, SettingsManager } = await loadPiSdk()
     const loader = new DefaultResourceLoader({
       cwd,
       agentDir: this.agentDir,
@@ -436,6 +510,51 @@ export class SessionService {
       )
     )
   }
+  async canApplyLiveTools(live, resource, toolIds, instructions) {
+    // Reloading Pi discards tools registered by callbacks that have already run.
+    // Keep the existing registry when only the direct tool selection changes.
+    if (
+      !resource ||
+      !isDeepStrictEqual(resource.files, instructions) ||
+      (this.models.plugins?.fingerprint() || "") !== resource.pluginFingerprint
+    )
+      return false
+    const pluginIds = new Set(
+      this.livePluginTools(live.session).map(({ tool }) => tool.name)
+    )
+    const tools = new Map(
+      live.session.getAllTools().map((tool) => [tool.name, tool])
+    )
+    const extensions = await this.models.extensions?.sessionSnapshot(toolIds)
+    if (
+      extensions &&
+      (extensions.fingerprint !== resource.extensionSnapshot.fingerprint ||
+        !isDeepStrictEqual(
+          extensions.entries.map((entry) => entry.toolIds),
+          resource.extensionSnapshot.entries.map((entry) => entry.toolIds)
+        ))
+    )
+      return false
+    const mcp = await this.models.mcp?.sessionEntries(toolIds)
+    if (mcp?.fingerprint !== resource.mcpSnapshot.fingerprint) return false
+    const mcpTools = await this.models.mcp?.catalog()
+    const mcpIds = new Set(
+      mcpTools?.filter((tool) => tool.available).map((tool) => tool.id)
+    )
+    if (!isDeepStrictEqual(mcpIds, resource.mcpAvailable)) return false
+    return toolIds.every((id) => {
+      if (id.startsWith("mcp__")) return mcpIds.has(id)
+      const tool = tools.get(id)
+      return (
+        tool &&
+        tool.exposure !== "hidden" &&
+        (tool.sourceInfo?.source === "builtin" ||
+          pluginIds.has(id) ||
+          id.startsWith("moon_ext__")) &&
+        !this.toolAvailability(id, tool, live.session.getToolDefinition(id))
+      )
+    })
+  }
   // Fork owns a new identity but inherits the exact saved instruction snapshot;
   // re-discovering files here would silently change the confirmed configuration.
   async copyConfiguration(sessionId, source) {
@@ -497,6 +616,7 @@ export class SessionService {
       let oldMcp
       let oldAvailable
       let oldExtensions
+      let useLiveTools = false
 
       return withCleanup(
         async () => {
@@ -531,7 +651,17 @@ export class SessionService {
             instructionScope === "directory"
               ? all.filter((file) => file.source === "directory")
               : all
-          candidate = await this.create(cwd, instructions, toolIds, signal)
+          const resource = live?.persistent && this.resources.get(live.session)
+          useLiveTools =
+            !!resource &&
+            (await this.canApplyLiveTools(
+              live,
+              resource,
+              toolIds,
+              instructions
+            ))
+          if (!useLiveTools)
+            candidate = await this.create(cwd, instructions, toolIds, signal)
           this.ensureOpen()
           const record = {
             sessionId,
@@ -540,8 +670,24 @@ export class SessionService {
             toolIds: [...toolIds],
             instructionScope,
             instructions,
-            effectiveToolIds: candidate.getActiveToolNames(),
+            effectiveToolIds: candidate?.getActiveToolNames() ?? [],
             unavailableToolIds: [],
+          }
+          if (useLiveTools) {
+            check(
+              new Set(toolIds).size === toolIds.length,
+              "工具选择不能重复。"
+            )
+            signal?.throwIfAborted()
+            oldTools = live.session.getActiveToolNames()
+            Object.assign(record, this.snapshot(record, live.session))
+            check(
+              toolIds.every(
+                (id) =>
+                  id.startsWith("mcp__") || record.effectiveToolIds.includes(id)
+              ),
+              "部分工具未能启用，请重新读取工具目录。"
+            )
           }
           assertSchema(schemas.SessionConfiguration, record)
           data.sessions[sessionId] = record
@@ -552,8 +698,7 @@ export class SessionService {
           })
           signal?.throwIfAborted()
           this.ensureOpen()
-          if (live?.persistent) {
-            const resource = this.resources.get(live.session)
+          if (live?.persistent && !useLiveTools) {
             check(resource, "会话资源不可用，请重新打开会话。")
             oldInstructions = resource.files
             oldTools = live.session.getActiveToolNames()
@@ -587,7 +732,8 @@ export class SessionService {
           markCommitted()
           if (live?.persistent) {
             live.revision = record.revision
-            candidate.dispose()
+            if (useLiveTools) resource.toolIds = [...toolIds]
+            else candidate.dispose()
           } else if (this.closed) candidate.dispose()
           else {
             this.active.get(sessionId)?.session.dispose()
@@ -606,6 +752,8 @@ export class SessionService {
                   if (candidate && !committed) candidate.dispose()
                 },
                 async () => {
+                  if (!committed && useLiveTools && oldTools)
+                    live.session.setActiveToolsByName(oldTools)
                   if (!committed && live?.persistent && oldInstructions) {
                     this.resources.get(live.session).files = oldInstructions
                     this.resources.get(live.session).toolIds = oldSelection

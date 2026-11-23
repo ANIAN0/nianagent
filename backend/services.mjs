@@ -1,6 +1,7 @@
 // @ts-check
 import { ModelService } from "./models.mjs"
 import { BootService } from "./boot.mjs"
+import { TelemetryService } from "./telemetry.mjs"
 import { PluginHost } from "./plugin-host.mjs"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
@@ -9,6 +10,7 @@ import { ExtensionService } from "./extensions.mjs"
 import { SessionService } from "./sessions.mjs"
 import { MaterialService } from "./materials.mjs"
 import { WorkspaceService } from "./workspaces.mjs"
+import { pickNativeDirectory } from "./native-directory.mjs"
 import { ConversationStore } from "./conversation-store.mjs"
 import { ConversationCatalogService } from "./conversation-catalog.mjs"
 import { ConversationService } from "./conversations.mjs"
@@ -24,17 +26,28 @@ import { requestContext, withRequestContext } from "./request-context.mjs"
 
 /** 服务装配根：业务服务不再创建其他领域；就绪失败只阻断真实依赖它的操作。 */
 export class MoonServices {
-  /** @param {string} directory @param {{dispatchRequest?: (operation: string, input: any, signal?: AbortSignal) => Promise<any>, diagnostics?: {append: (record: any) => any}, operationLog?: {query: (input: any) => Promise<any>, status: () => {queued: number, dropped: number, issue: string}}, notify?: (value: any) => void}} [options] */
+  /** @param {string} directory @param {{dispatchRequest?: (operation: string, input: any, signal?: AbortSignal) => Promise<any>, diagnostics?: {append: (record: any) => any}, operationLog?: {query: (input: any) => Promise<any>, status: () => {queued: number, dropped: number, issue: string}}, notify?: (value: any) => void, onStartupStep?: (name: string, elapsed: number) => void}} [options] */
   constructor(directory, options = {}) {
+    let stepStarted = performance.now()
+    /** @param {string} name */
+    const recordStep = (name) => {
+      const now = performance.now()
+      options.onStartupStep?.(name, now - stepStarted)
+      stepStarted = now
+    }
     // G05：启动检查——每个契约操作必须归属已注册服务根；未知根不再默认 models
     assertRegistryCovers(operations)
     const self = this
     this.closed = false
     this.directory = directory
     this.ready = new Map()
+    recordStep("registry")
     this.models = new ModelService(directory)
+    recordStep("models")
     this.mcp = new McpService(directory)
+    recordStep("mcp")
     this.extensions = new ExtensionService(directory)
+    recordStep("extensions")
     this.plugins = new PluginHost(directory, {
       authorizeSession: this.authorizeSession.bind(this),
       // G01：装配只消费领域活动快照端口，不遍历会话/对话内部状态
@@ -87,6 +100,10 @@ export class MoonServices {
         identity: (value) => self.sessions.identity(value),
         cwd: (value) => self.sessions.cwd(value),
       },
+      workspaces: {
+        list: (signal) => self.workspaces.list(signal),
+        pickDirectory: (signal) => pickNativeDirectory(signal),
+      },
       extensions: {
         list: (signal) => this.extensions.list(signal),
         configure: (id, revision, enabled, configuration, signal) =>
@@ -99,12 +116,18 @@ export class MoonServices {
           ),
       },
     })
-    this.sessions = new SessionService(directory, {
-      runtime: this.models.runtime.bind(this.models),
-      mcp: this.mcp,
-      extensions: this.extensions,
-      plugins: this.plugins,
-    })
+    recordStep("plugins")
+    this.sessions = new SessionService(
+      directory,
+      {
+        runtime: this.models.runtime.bind(this.models),
+        mcp: this.mcp,
+        extensions: this.extensions,
+        plugins: this.plugins,
+      },
+      options.diagnostics
+    )
+    recordStep("sessions")
     this.materials = new MaterialService(
       directory,
       this.sessions,
@@ -112,11 +135,11 @@ export class MoonServices {
       (pending, materialId) =>
         this.conversations.uploadAdoption(pending, materialId)
     )
+    recordStep("materials")
     this.workspaces = new WorkspaceService(directory)
+    recordStep("workspaces")
     this.conversationStore = new ConversationStore(directory)
-    this.conversationCatalog = new ConversationCatalogService(
-      this.conversationStore
-    )
+    recordStep("conversationStore")
     this.conversations = new ConversationService(
       directory,
       {
@@ -136,8 +159,15 @@ export class MoonServices {
           this.conversationStore.initialize({ recoverInterrupted: true })
         )
     )
+    this.conversationCatalog = new ConversationCatalogService(
+      this.conversationStore,
+      () => this.conversations.permissions.pendingBySession()
+    )
+    recordStep("conversations")
     this.jobs = this.models.jobs
     this.boot = new BootService(directory, this.storageReaders())
+    this.telemetry = new TelemetryService({ diagnostics: options.diagnostics })
+    recordStep("bootAndTelemetry")
   }
   storageReaders() {
     return {

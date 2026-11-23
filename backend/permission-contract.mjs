@@ -25,6 +25,20 @@ export const permissionSchemas = {
     mode,
     revision: num("权限配置CAS版本，运行中禁止更改"),
   }),
+  ConversationApprovalDetails: obj(
+    {
+      sourceKind: str("宿主确认的工具来源", {
+        enum: ["builtin", "plugin", "extension", "unknown"],
+      }),
+      sourceName: str("已确认的插件名称"),
+      target: obj({
+        kind: str("宿主识别的审批目标", { enum: ["path", "command"] }),
+        value: str("规范化绝对路径或原始命令"),
+      }),
+      scopeNotice: str("目标以外无法确认的访问范围"),
+    },
+    ["sourceKind"]
+  ),
   ConversationApproval: obj(
     {
       id,
@@ -36,6 +50,7 @@ export const permissionSchemas = {
       toolName: str("工具名称"),
       toolCallId: str("Pi 工具调用标识，与 runId 共同关联当前待执行工具"),
       input: str("完整工具参数JSON"),
+      details: ref("ConversationApprovalDetails"),
       options: { type: "array", items: str("允许选项") },
       expiresAt: str("到期自动拒绝，ISO时间"),
     },

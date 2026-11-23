@@ -1,6 +1,7 @@
 import { mergeOperationGroups } from "./service-registry.mjs"
 import { workspaceOperations } from "./workspace-contract.mjs"
 import { bootOperations } from "./boot-contract.mjs"
+import { telemetryOperations } from "./telemetry-contract.mjs"
 import { pluginOperations } from "./plugin-contract.mjs"
 import { conversationOperations as catalogOperations } from "./conversation-catalog-contract.mjs"
 import { conversationOperations } from "./conversation-contract.mjs"
@@ -22,6 +23,7 @@ export { schemas, assertSchema } from "./schema.mjs"
 // Authority for RPC names, required input fields, documentation and dispatch.
 export const operations = mergeOperationGroups(
   bootOperations,
+  telemetryOperations,
   pluginOperations,
   extensionOperations,
   writeReceiptOperations,
@@ -39,16 +41,29 @@ export const operations = mergeOperationGroups(
     sessionCatalog: {
       module: "会话配置",
       method: "sessions.catalog",
-      args: ["cwd", "$signal"],
-      request: object({ cwd: { type: "string", maxLength: 4096 } }),
+      args: ["cwd", "$signal", "sessionId"],
+      request: object(
+        {
+          cwd: { type: "string", maxLength: 4096 },
+          sessionId: {
+            type: "string",
+            pattern: "^[a-zA-Z0-9_-]{1,128}$",
+            description:
+              "可选正式会话标识，用于读取同工作目录内已登记的动态工具",
+          },
+        },
+        ["cwd"]
+      ),
       response: ref("SessionCatalog"),
       title: "会话工具与指令目录",
-      input: ["cwd"],
+      input: ["cwd", "sessionId?"],
       result: "SessionCatalog",
       condition:
-        "空 cwd 使用服务当前目录；显式路径必须为存在的绝对目录；只读，可取消；读取 Pi 内置工具及已验证的 MCP 工具缓存，不连接 MCP 服务、不执行工具或模型调用。",
-      errors: "目录无效、指令文件读取失败、Pi 初始化失败。",
-      effect: "读取工具和指令及实际 MCP 目录验证记录，不保存会话配置。",
+        "空 cwd 使用服务当前目录；显式路径必须为存在的绝对目录。可选 sessionId 仅补充同目录且已绑定正式运行时中的可见插件工具。会话不存在、尚未启动或目录不匹配时返回普通目录。动态工具不进入默认选择。",
+      errors:
+        "目录或会话标识无效、指令文件读取失败、Pi 初始化失败、请求已取消。",
+      effect:
+        "读取工具、指令及 MCP 目录验证记录；不创建或恢复 Pi 会话、不触发生命周期、不连接 MCP、不执行工具或调用模型、不保存会话配置。",
       example: { cwd: "H:/workspace/moon" },
     },
     sessionRead: {
@@ -110,7 +125,7 @@ export const operations = mergeOperationGroups(
       input: ["sessionId", "cwd", "toolIds", "instructionScope"],
       result: "SessionConfiguration",
       condition:
-        "新建省略 revision；更新必须带当前 revision，cwd 不可变。锁内复查版本，未知/重复工具拒绝。构建真实 Pi 会话成功才提交；rename 前取消无写入，提交后取消不回滚，可读取确认。正在运行的会话拒绝更改。",
+        "新建省略 revision；更新必须带当前 revision，cwd 不可变。锁内复查版本，未知/重复工具拒绝。现有正式会话的指令与扩展、MCP 资源未变化时，可直接在其中切换已登记的工具。否则构建真实 Pi 会话成功才提交。rename 前取消无写入，提交后取消不回滚，可读取确认。正在运行的会话拒绝更改。",
       errors:
         "版本冲突、目录无效、工具不可用、指令读取失败、会话忙、存储失败。",
       effect:
@@ -465,6 +480,7 @@ export const transportRecoveryByOperation = {
   conversationApprovalReply: "check",
   conversationCommandRun: "check",
   conversationCommandRead: "reload",
+  telemetryReportPerf: "none",
 }
 for (const [name, definition] of Object.entries(operations)) {
   if (!Object.hasOwn(transportRecoveryByOperation, name))

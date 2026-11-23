@@ -1,6 +1,6 @@
+import { loadPiSdk } from "./pi-sdk.mjs"
 import { settleResources } from "./close-resources.mjs"
-import { getSupportedThinkingLevels } from "@earendil-works/pi-ai"
-import { ModelRuntime } from "@earendil-works/pi-coding-agent"
+import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/models"
 import { ModelStore, memoryCredentials } from "./store.mjs"
 import { AuthorizationJobs } from "./oauth.mjs"
 import { assertSchema, schemas } from "./contract.mjs"
@@ -158,6 +158,7 @@ export class ModelService {
     await this.store.initialize()
   }
   async runtime(connection, credentials = this.store.credentialStore()) {
+    const { ModelRuntime } = await loadPiSdk()
     const runtime = await ModelRuntime.create({
       credentials,
       modelsPath: null,
@@ -182,9 +183,11 @@ export class ModelService {
     return runtime
   }
   async providers() {
-    const runtime = await this.runtime()
-    return runtime
-      .getProviders()
+    // Moon disables the external model config here, so provider identities
+    // come from the same built-in catalog used by ModelRuntime.
+    const { builtinProviders } =
+      await import("@earendil-works/pi-ai/providers/all")
+    return builtinProviders()
       .filter((value) => value.auth?.oauth)
       .map((value) => ({ id: value.id, name: value.name }))
   }
@@ -282,17 +285,10 @@ export class ModelService {
     const previous = before.connections.find(
       (item) => item.id === connection.id
     )
-    requireValue(
-      previous || connection.revision === undefined,
-      "连接已删除，请刷新后重新添加。"
-    )
+    assertConnectionRevision(connection, previous)
     requireValue(
       !previous || previous.kind === connection.kind,
       "连接类型不能更改。"
-    )
-    requireValue(
-      !previous || previous.revision === connection.revision,
-      "连接已被其他窗口更新，请重新打开后修改。"
     )
     requireValue(
       !before.connections.some(
@@ -364,10 +360,7 @@ export class ModelService {
         !(data.authorizations[providerId(stored)]?.expiresAt > Date.now()),
         "该连接正在授权，请先取消或等待结束。"
       )
-      requireValue(
-        current?.revision === previous?.revision,
-        "连接已更新，请重新读取。"
-      )
+      assertConnectionRevision(connection, current)
       requireValue(
         !data.connections.some(
           (item) =>
@@ -661,6 +654,14 @@ export class ModelService {
       strict
     )
   }
+}
+function assertConnectionRevision(connection, current) {
+  if (current?.revision !== connection.revision)
+    throw operationError(
+      "model_connection_revision_conflict",
+      "连接已更新或删除，请重新读取后修改。",
+      "reload"
+    )
 }
 function pickModel(model) {
   return {

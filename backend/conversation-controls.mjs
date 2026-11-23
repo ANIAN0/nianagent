@@ -1,9 +1,9 @@
+import { loadPiSdk } from "./pi-sdk.mjs"
 import { settleResources } from "./close-resources.mjs"
 import { replaceJson } from "./atomic-file.mjs"
 import { readFile, readdir } from "node:fs/promises"
 import { join, resolve, relative, isAbsolute } from "node:path"
 import { randomUUID } from "node:crypto"
-import { SessionManager } from "@earendil-works/pi-coding-agent"
 import { assertSchema, schemas } from "./schema.mjs"
 
 const check = (value, message) => {
@@ -367,6 +367,7 @@ export class ConversationControls {
           } catch (historyError) {
             // Pi mutates its in-memory branch before a synchronous file append.
             // Failed writes cannot remain authority for a later receipt lookup.
+            const { SessionManager } = await loadPiSdk()
             state.manager = SessionManager.inMemory(
               state.record.cwd,
               undefined,

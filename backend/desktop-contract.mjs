@@ -44,18 +44,6 @@ export const desktopSchemas = {
     stage: ref("BootFrontendStage"),
     ready: bool,
   }),
-  StartupSelection: enumeration("import", "fresh"),
-  StartupPhase: enumeration(
-    "awaitingConfirmation",
-    "preparing",
-    "ready",
-    "inspecting",
-    "copying",
-    "validating",
-    "committing",
-    "readyToOpen",
-    "failed"
-  ),
   StartupFailureStage: enumeration(
     "runtime",
     "target",
@@ -88,39 +76,6 @@ export const desktopSchemas = {
     path: nullable(str),
     retryable: bool,
   }),
-  StartupCapabilities: object({
-    chooseDirectory: bool,
-    prepare: bool,
-    migrate: bool,
-    createFresh: bool,
-    retry: bool,
-    openDiagnostics: bool,
-    exit: bool,
-    continueStartup: bool,
-  }),
-  StartupSnapshot: object({
-    revision: num,
-    operationId: nullable(str),
-    planId: nullable(str),
-    planExpiresAt: nullable(str),
-    phase: ref("StartupPhase"),
-    selection: nullable(ref("StartupSelection")),
-    sourceDirectory: str,
-    legacyProfileDirectory: nullable(str),
-    targetDirectory: str,
-    defaultDirectory: str,
-    retainedCopyDirectories: array(str),
-    fileCount: nullable(num),
-    totalBytes: nullable(num),
-    availableBytes: nullable(num),
-    completedFiles: num,
-    copiedBytes: nullable(num),
-    issue: nullable(ref("StartupIssue")),
-    capabilities: ref("StartupCapabilities"),
-  }),
-  StartupState: nullable(ref("StartupSnapshot")),
-  StartupStartInput: object({ planId: str, targetDirectory: str }),
-  StartupOperationInput: object({ operationId: str }),
   IssueCode: enumeration(
     "validation",
     "permission",
@@ -176,15 +131,27 @@ export const desktopSchemas = {
     legacyCopyRetained: bool,
     retainedCopyDirectories: array(str),
     directoryMappings: array(ref("StorageDirectoryMapping")),
-    usedBytes: num,
+    usedBytes: nullable(num),
     availableBytes: nullable(num),
   }),
+  StorageCapacityInput: object({ dataSetId: str, generation: num }),
+  StorageCapacity: object({ usedBytes: num }),
   DesktopCapabilities: object({
     migrateData: bool,
     openDataDirectory: bool,
     checkUpdates: bool,
     installUpdates: bool,
     unavailableReason: nullable(str),
+  }),
+  StorageLegacySource: object({
+    sourceDirectory: str,
+    legacyProfileDirectory: nullable(str),
+  }),
+  OptionalLegacySource: nullable(ref("StorageLegacySource")),
+  ImportPrepareInput: object({
+    sourceDirectory: str,
+    targetDirectory: str,
+    legacy: bool,
   }),
   MigrationPlan: object({
     planId: str,
@@ -379,76 +346,6 @@ export const desktopCommands = {
     null,
     "仅当前未ready尝试，实际停止宿主与启动子进程。"
   ),
-  startup_get_state: command(
-    "首启迁移",
-    "读取首启迁移状态",
-    null,
-    "StartupState",
-    "仅startup窗口读取当前权威状态；正常业务模式返回null。"
-  ),
-  startup_choose_directory: command(
-    "首启迁移",
-    "选择迁移目标",
-    null,
-    "OptionalString",
-    "系统目录选择；取消不改变状态，换目标令旧计划失效。"
-  ),
-  startup_prepare_migration: command(
-    "首启迁移",
-    "检查首启迁移目标",
-    "MigrationPrepareInput",
-    "StartupSnapshot",
-    "只检查元数据、运行资源与空间，不读取业务正文；五分钟计划绑定当前目标与身份。"
-  ),
-  startup_start_migration: command(
-    "首启迁移",
-    "确认迁移并启动",
-    "StartupStartInput",
-    "StartupSnapshot",
-    "明确确认后检查、复制和验证；旧副本保留，同计划重复开始幂等。"
-  ),
-  startup_prepare_fresh: command(
-    "首次启动",
-    "检查新数据集目录",
-    "MigrationPrepareInput",
-    "StartupSnapshot",
-    "不读旧业务或旧profile；只为无登记数据的首次启动准备独立空目标计划。"
-  ),
-  startup_start_fresh: command(
-    "首次启动",
-    "不导入旧数据并启动",
-    "StartupStartInput",
-    "StartupSnapshot",
-    "创建独立dataset及profile并权威提交bootstrap；旧数据和失败副本保留，不接管旧非空目标。"
-  ),
-  startup_retry_migration: command(
-    "首启迁移",
-    "重试未提交首次启动操作",
-    "StartupOperationInput",
-    "StartupSnapshot",
-    "仅失败且未提交的同operation按原selection重做导入或空数据初始化，不重放unknown业务请求。"
-  ),
-  startup_open_diagnostics: command(
-    "首启迁移",
-    "打开首启诊断目录",
-    null,
-    null,
-    "只打开当前固定维护控制目录，不接受任意路径或清理请求。"
-  ),
-  startup_continue: command(
-    "首启迁移",
-    "打开已提交数据的Moon",
-    "StartupOperationInput",
-    null,
-    "只在bootstrap和目标身份确认已提交后，经受控helper交接正常启动。"
-  ),
-  startup_exit: command(
-    "首启迁移",
-    "退出首启界面",
-    null,
-    null,
-    "确认前、失败或readyToOpen可退出；检查复制校验提交期间不结束worker。"
-  ),
   desktop_get_state: command(
     "桌面",
     "读取桌面状态",
@@ -456,12 +353,33 @@ export const desktopCommands = {
     "DesktopSnapshot",
     "只读当前宿主状态。"
   ),
+  storage_measure_capacity: command(
+    "数据与存储",
+    "统计当前数据目录容量",
+    "StorageCapacityInput",
+    "StorageCapacity",
+    "按数据集和代次只读计算当前目录容量；维护中暂停，拒绝链接与过期身份。"
+  ),
   desktop_open_data_directory: command(
     "数据与存储",
     "打开数据目录",
     null,
     null,
     "只打开当前数据目录。"
+  ),
+  desktop_open_log_directory: command(
+    "数据与存储",
+    "打开日志目录",
+    null,
+    null,
+    "只打开当前数据目录下的日志目录；不可用和权限错误通过 DesktopIssue 返回。"
+  ),
+  desktop_export_diagnostics: command(
+    "数据与存储",
+    "导出脱敏诊断",
+    null,
+    "OptionalString",
+    "原生保存对话框仅导出宿主白名单字段；取消返回 null，成功返回目标文件路径，失败返回 DesktopIssue。"
   ),
   desktop_open_retained_copy: command(
     "数据与存储",
@@ -490,6 +408,20 @@ export const desktopCommands = {
     "MigrationStartInput",
     "MaintenanceState",
     "冻结新写、保存前端恢复状态、排空并离线复制；保留旧副本。"
+  ),
+  storage_detect_legacy_sources: command(
+    "数据与存储",
+    "检测旧版数据目录",
+    null,
+    "OptionalLegacySource",
+    "只读检测本机AppData旧版Moon数据或profile是否存在；无法读取时返回 DesktopIssue。"
+  ),
+  storage_prepare_import: command(
+    "数据与存储",
+    "预检导入已有数据",
+    "ImportPrepareInput",
+    "MigrationPlan",
+    "校验已有数据源与新空目标目录、空间及权限，不关闭服务。"
   ),
   desktop_acknowledge_startup: command(
     "桌面维护",
@@ -550,7 +482,6 @@ export const desktopCommands = {
 }
 export const desktopEvents = {
   "moon://boot-state": "BootSnapshot",
-  "moon://startup-state": "StartupSnapshot",
   "moon://desktop-state": "DesktopSnapshot",
   "moon://maintenance-flush": "FlushRequest",
 }

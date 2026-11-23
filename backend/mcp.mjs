@@ -6,13 +6,6 @@ import { join, resolve } from "node:path"
 import { homedir } from "node:os"
 import { createHash } from "node:crypto"
 import lockfile from "proper-lockfile"
-import {
-  McpClient,
-  StdioTransport,
-  StreamableHttpTransport,
-  McpAuthRequiredError,
-} from "@earendil-works/pi-mcp"
-import { MemoryOAuthStateStore } from "@earendil-works/pi-mcp/oauth"
 import { assertSchema, schemas } from "./schema.mjs"
 import { operationError } from "./operation-issue.mjs"
 import { recordedWrite, validateWriteReceipts } from "./write-receipts.mjs"
@@ -161,6 +154,7 @@ function ownClose(resource) {
   return resource
 }
 export function createMcpTransport(
+  { StdioTransport, StreamableHttpTransport, McpAuthRequiredError },
   entry,
   cwd,
   authProvider,
@@ -200,15 +194,28 @@ export function createMcpTransport(
     onStatus(status)
   }
   const send = transport.send.bind(transport)
-  transport.send = (message) => {
-    if (message.id !== undefined && message.method)
+  transport.send = (message, options) => {
+    const signal = options?.signal
+    if (message.id !== undefined && message.method) {
       requests.set(message.id, message.method)
+      // Pi aborts this signal when it stops waiting, including after a reply.
+      signal?.addEventListener("abort", () => requests.delete(message.id), {
+        once: true,
+      })
+    }
     return Promise.resolve()
-      .then(() => send(message))
+      .then(() => {
+        signal?.throwIfAborted()
+        return send(message, options)
+      })
       .catch((error) => {
+        requests.delete(message.id)
+        if (signal?.aborted) throw error
         publish({
-          state: isAuthError(error) ? "needs-auth" : "failed",
-          error: safeMcpError(error, config),
+          state: isAuthError(error, McpAuthRequiredError)
+            ? "needs-auth"
+            : "failed",
+          error: safeMcpError(error, config, McpAuthRequiredError),
         })
         throw error
       })
@@ -226,8 +233,8 @@ export function createMcpTransport(
   })
   transport.onError((error) =>
     publish({
-      state: isAuthError(error) ? "needs-auth" : "failed",
-      error: safeMcpError(error, config),
+      state: isAuthError(error, McpAuthRequiredError) ? "needs-auth" : "failed",
+      error: safeMcpError(error, config, McpAuthRequiredError),
     })
   )
   transport.onClose(() => {
@@ -239,12 +246,13 @@ export function createMcpTransport(
   })
   return transport
 }
-const isAuthError = (error) =>
-  error instanceof McpAuthRequiredError ||
+const isAuthError = (error, McpAuthRequiredError) =>
+  (McpAuthRequiredError && error instanceof McpAuthRequiredError) ||
   error?.name === "McpOAuthAuthorizationRequiredError" ||
   [401, 403].includes(error?.status)
-export function safeMcpError(error, config) {
-  if (isAuthError(error)) return "服务需要授权，请配置有效凭据后重新测试。"
+export function safeMcpError(error, config, McpAuthRequiredError) {
+  if (isAuthError(error, McpAuthRequiredError))
+    return "服务需要授权，请配置有效凭据后重新测试。"
   if (error?.code === "ENOENT")
     return "找不到可执行文件，请检查命令路径及运行依赖。"
   if (error?.code === "EACCES") return "无法访问可执行文件或目录，请检查权限。"
@@ -268,11 +276,21 @@ export class McpService {
     this.clients = new Set()
     this.runtime = new Map()
     this.toolSources = new Map()
+    this.closed = false
+  }
+  async runtimeCredentials() {
+    this.credentials ??= import("@earendil-works/pi-mcp/oauth").then(
+      ({ MemoryOAuthStateStore }) =>
+        this.createCredentials(MemoryOAuthStateStore)
+    )
+    return this.credentials
+  }
+  createCredentials(MemoryOAuthStateStore) {
     // OAuth account management is outside this module. An explicit isolated
     // store prevents the native extension from reading another Pi CLI's tokens.
     const oauth = new Map()
     const key = (name, url) => `${identity(name)}|${new URL(url).href}`
-    this.credentials = {
+    return {
       forServer: (name, url) => {
         const id = key(name, url)
         if (!oauth.has(id)) oauth.set(id, new MemoryOAuthStateStore())
@@ -286,7 +304,6 @@ export class McpService {
       tokens: (name, url) => oauth.get(key(name, url))?.load()?.tokens,
       remove: (name, url) => oauth.delete(key(name, url)),
     }
-    this.closed = false
   }
   async document() {
     let document
@@ -495,6 +512,10 @@ export class McpService {
       throw new Error("测试工作目录不存在或不可访问。", { cause: error })
     }
     signal?.throwIfAborted()
+    const sdk = await import("@earendil-works/pi-mcp")
+    signal?.throwIfAborted()
+    check(!this.closed, "MCP 服务已关闭。")
+    const { McpClient, McpAuthRequiredError } = sdk
     const client = ownClose(
       new McpClient({
         name: "moon-validation",
@@ -510,6 +531,7 @@ export class McpService {
     let result
     try {
       const transport = createMcpTransport(
+        sdk,
         { name: configuration.name, config },
         cwd
       )
@@ -534,8 +556,10 @@ export class McpService {
     } catch (error) {
       signal?.throwIfAborted()
       result = {
-        state: isAuthError(error) ? "needs-auth" : "failed",
-        error: safeMcpError(error, config),
+        state: isAuthError(error, McpAuthRequiredError)
+          ? "needs-auth"
+          : "failed",
+        error: safeMcpError(error, config, McpAuthRequiredError),
         tools: [],
         testedAt: new Date().toISOString(),
       }

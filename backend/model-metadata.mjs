@@ -1,4 +1,4 @@
-import { getSupportedThinkingLevels } from "@earendil-works/pi-ai"
+import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/models"
 const levels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
 const normalize = (value) =>
   String(value || "")

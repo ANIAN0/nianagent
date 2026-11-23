@@ -249,3 +249,37 @@ test("会话运行实例由所属模块替换，旧实例迟到清理不能删�
   assert.equal(sessions.detachRuntime("session", current), true)
   assert.equal(sessions.hasBusyWork(), false)
 })
+
+test("工具目录只读一次 MCP 缓存，且不创建完整 Pi 会话", async () => {
+  const tool = {
+    id: "mcp__fixture__list",
+    name: "样本工具",
+    description: "读取样本目录",
+    group: "MCP · 样本",
+    detail: "已验证缓存",
+    available: true,
+    unavailableReason: "",
+  }
+  let reads = 0
+  const sessions = new SessionService(process.env.TEMP ?? process.cwd(), {
+    mcp: {
+      async catalog() {
+        reads++
+        return [tool]
+      },
+    },
+    runtime() {
+      throw new Error("目录查询不应创建模型运行时")
+    },
+  })
+  try {
+    const result = await sessions.catalog(process.cwd())
+    assert.equal(reads, 1)
+    assert.equal(result.tools.filter(({ id }) => id === tool.id).length, 1)
+    assert.ok(result.defaults.toolIds.includes(tool.id))
+    assert.ok(result.defaults.toolIds.includes("read"))
+    assert.equal(sessions.active.size, 0)
+  } finally {
+    await sessions.close()
+  }
+})

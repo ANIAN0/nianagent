@@ -43,7 +43,6 @@ export function inspectConversationReceipt(
 }
 
 export type ConversationHandoffPort = {
-  drafts: Record<string, ComposerDraft>
   subscribeInputReceipts: (
     listener: (snapshot: ConversationSnapshot) => void
   ) => () => void

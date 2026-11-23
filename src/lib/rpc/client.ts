@@ -44,7 +44,7 @@ function transportIssue(
     code: "result_unknown",
     summary:
       recovery === "reload"
-        ? "无法读取最新内容，请确认 Moon 服务可用后重新读取。"
+        ? "无法读取最新内容，请确认 moon 服务可用后重新读取。"
         : recovery === "none"
           ? "未能确认此次操作的结果。它可能已经完成，为避免重复执行，不提供自动重试。"
           : "未能确认此次操作的结果，当前输入已保留，请先核对原操作。",
@@ -79,9 +79,9 @@ export async function rpcCall<K extends ModelOperation>(
     }
   }
   if (!maintenanceAllowsRpc(operation))
-    throw new RpcRequestRejected("Moon 正在维护，暂不能提交新的变更。", {
+    throw new RpcRequestRejected("moon 正在维护，暂不能提交新的变更。", {
       code: "maintenance_busy",
-      summary: "Moon 正在维护，暂不能提交新的变更。当前输入和原请求保留。",
+      summary: "moon 正在维护，暂不能提交新的变更。当前输入和原请求保留。",
       severity: "info",
       recovery: "retry",
     })
@@ -113,10 +113,10 @@ export async function rpcCall<K extends ModelOperation>(
       }
       if (message.includes("Command model_request not found")) {
         throw new RpcRequestRejected(
-          "当前桌面版本不支持此操作，请更新并重启 Moon。",
+          "当前桌面版本不支持此操作，请更新并重启 moon。",
           {
             code: "host_version",
-            summary: "当前桌面版本不支持此操作，请更新并重启 Moon。",
+            summary: "当前桌面版本不支持此操作，请更新并重启 moon。",
             recovery: "restart",
             severity: "error",
           }

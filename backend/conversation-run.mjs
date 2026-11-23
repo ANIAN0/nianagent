@@ -1,8 +1,8 @@
 // @ts-check
+import { loadPiSdk } from "./pi-sdk.mjs"
 
 import { randomUUID, createHash } from "node:crypto"
 
-import { SessionManager } from "@earendil-works/pi-coding-agent"
 import { requestContext } from "./request-context.mjs"
 
 import { conversationStatistics } from "./conversation-statistics.mjs"
@@ -664,6 +664,7 @@ export class ConversationRun {
           } catch (error) {
             // Preserve the file, including any partial write. A later read/send
             // validates it again; never reuse Pi's uncertain in-memory entries.
+            const { SessionManager } = await loadPiSdk()
             state.manager = SessionManager.inMemory(
               state.record.cwd,
               undefined,

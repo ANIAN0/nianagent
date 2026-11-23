@@ -6,7 +6,11 @@ import type {
 } from "@/contracts/rpc.generated"
 
 export type SessionService = {
-  catalog: (cwd: string, signal?: AbortSignal) => Promise<SessionCatalog>
+  catalog: (
+    cwd: string,
+    signal?: AbortSignal,
+    sessionId?: string
+  ) => Promise<SessionCatalog>
   read: (
     sessionId: string,
     signal?: AbortSignal

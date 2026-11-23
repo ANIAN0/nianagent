@@ -1,3 +1,4 @@
+import { loadPiSdk } from "./pi-sdk.mjs"
 import { replaceJson } from "./atomic-file.mjs"
 import { assertLocalPath } from "./local-path.mjs"
 import { beginUploadUse } from "./material-upload-use.mjs"
@@ -24,10 +25,6 @@ import { createHash, randomUUID } from "node:crypto"
 import { pickNativeFiles } from "./native-directory.mjs"
 import { operationError } from "./operation-issue.mjs"
 import { sortMaterialCatalogFiles } from "./material-catalog-sort.mjs"
-import {
-  resizeImage,
-  formatDimensionNote,
-} from "@earendil-works/pi-coding-agent"
 
 const maximumImage = 8 * 1024 * 1024
 const hash = (value) => createHash("sha256").update(value).digest("hex")
@@ -538,6 +535,7 @@ export class MaterialService {
         "暂支持 PNG、JPEG、WebP 和 GIF 图片；所选内容不是有效图片。",
         "none"
       )
+    const { resizeImage } = await loadPiSdk()
     const piImage = await resizeImage(data, mimeType)
     signal?.throwIfAborted()
     if (!piImage)
@@ -1099,6 +1097,7 @@ export class MaterialService {
           throw new Error(
             `当前模型不支持图片“${record.name}”，请选择视觉模型或移除图片。`
           )
+        const { resizeImage, formatDimensionNote } = await loadPiSdk()
         const prepared =
           record.piImage ??
           (await resizeImage(

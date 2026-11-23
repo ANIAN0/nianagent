@@ -28,6 +28,22 @@ const operationLogger = createBoundedJsonlLogger({
 })
 // T20-3：诊断窄端口——logs 插件只消费只读查询与状态摘要（读取侧再次按白名单投影），
 // 不暴露写入面与文件路径
+// A timer measures wall time lost by the RPC process even when an SDK import
+// holds the event loop and operation timers cannot run.
+let lastTick = performance.now()
+setInterval(() => {
+  const now = performance.now()
+  const delay = Math.round(now - lastTick - 100)
+  lastTick = now
+  if (delay >= 500)
+    operationLogger.append({
+      module: "rpc",
+      event: "runtime.eventLoopDelay",
+      level: "warn",
+      durationMs: delay,
+      outcome: "committed",
+    })
+}, 100).unref()
 const operationLog = createDiagnosticQuery(
   join(directory, "logs"),
   operationLogger
@@ -46,22 +62,45 @@ function ensureInitialized() {
   })
   return initialized
 }
+function logStartupTiming(event, durationMs, issue) {
+  operationLogger.append({
+    module: "startup",
+    event: `startup.${event}`,
+    durationMs: Math.round(durationMs),
+    level: issue ? "warn" : "info",
+    outcome: issue ? "unknown" : "committed",
+    ...(issue && {
+      error: {
+        code: "domain_validation_failed",
+        errorId: "",
+        cause: issue,
+      },
+    }),
+  })
+}
 async function initializeService() {
-  // Publish the transport before loading Pi's large dependency graph. Tauri's
-  // startup handshake must not wait for model libraries or user-data recovery.
+  const startedAt = performance.now()
+  // Assemble services after the host handshake. Each operation loads its own
+  // model, session or MCP runtime only when it needs that capability.
   const { MoonServices } = await import("./services.mjs")
+  logStartupTiming("importServices", performance.now() - startedAt)
+  const assemblyStarted = performance.now()
   if (closing) throw new Error("Moon 正在退出。")
   const candidate = new MoonServices(directory, {
     dispatchRequest: dispatch,
+    onStartupStep: (name, elapsed) =>
+      logStartupTiming(`assemble.${name}`, elapsed),
     operationLog,
     diagnostics: { append: (record) => operationLogger.append(record) },
     // 后端主动通知经 stdout 下发（$notify 无 id），桌面端转 Tauri 事件
     notify: (value) => send(value),
   })
+  logStartupTiming("assemble", performance.now() - assemblyStarted)
   candidate.conversations.setMaintenanceFrozen(Boolean(maintenance.operationId))
   service = candidate
   try {
     if (closing) throw new Error("Moon 正在退出。")
+    logStartupTiming("initializeService", performance.now() - startedAt)
     return candidate
   } catch (error) {
     await candidate.close()
@@ -195,12 +234,26 @@ async function closeRuntime() {
   }
 }
 async function validateStorage() {
+  const startedAt = performance.now()
   // Desktop startup shares the browser's domain-isolation contract. Strict
   // all-domain validation remains owned by offline maintenance.
-  return validateDomains(
-    (await ensureInitialized()).storageReaders(),
-    directory
+  const ready = await ensureInitialized()
+  logStartupTiming(
+    "validateStorage.waitForServices",
+    performance.now() - startedAt
   )
+  const result = await validateDomains(
+    ready.storageReaders(),
+    directory,
+    (domain, durationMs) =>
+      logStartupTiming(
+        `validateDomain.${domain.name}`,
+        durationMs,
+        domain.issue
+      )
+  )
+  logStartupTiming("validateStorage", performance.now() - startedAt)
+  return result
 }
 
 const input = createInterface({ input: process.stdin, crlfDelay: Infinity })

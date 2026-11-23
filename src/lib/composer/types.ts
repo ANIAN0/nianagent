@@ -10,6 +10,8 @@ export type Workspace = {
 export type ConversationStatus =
   "idle" | "running" | "stopping" | "waiting" | "completed" | "failed"
 export type Conversation = {
+  pending?: { approvals: number; answers: number }
+  runId?: string
   unread?: boolean
   revision?: number
   updatedAt?: string

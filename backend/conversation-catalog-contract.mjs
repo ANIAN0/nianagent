@@ -63,7 +63,21 @@ export const conversationRecordSchema = object(
 )
 export const conversationSchemas = {
   ConversationSummary: object(
-    properties,
+    {
+      ...properties,
+      pending: object({
+        approvals: {
+          type: "integer",
+          minimum: 0,
+          description: "等待用户决定的本次工具授权数量",
+        },
+        answers: {
+          type: "integer",
+          minimum: 0,
+          description: "等待用户回应的插件确认、选择或输入数量",
+        },
+      }),
+    },
     Object.keys(properties).filter((key) => key !== "lineage")
   ),
   ConversationFilter: object(
@@ -104,7 +118,7 @@ export const conversationOperations = {
     condition:
       "只读；置顶领先，其余按最后更新时间倒序（同刻按 id），归档仅当过滤要求时出现。缺省返回未归档的全部匹配条目；提供 limit/before 时按游标分页。空目录返回空列表，不填充模拟历史。",
     errors: "过滤参数无效、目录元数据损坏或不可读取、请求已取消。",
-    effect: "无写入；结果包含真实状态及未读标记，不包含 Pi 会话文件路径。",
+    effect: "无写入；结果包含执行状态、未读标记与当前待处理数量。审批或回答创建后可见，应答、到期、停止或重启后清除。待处理数量独立于持久化 revision 与排序。",
     example: { filter: { query: "" } },
   },
   conversationInfo: {
@@ -180,18 +194,25 @@ export const conversationOperations = {
   conversationSetArchived: {
     module: "会话列表",
     method: "conversationCatalog.setArchived",
-    args: ["id", "archived", "$signal"],
-    request: object({
-      id,
-      archived: { type: "boolean", description: "目标归档状态" },
-    }),
+    args: ["id", "archived", "$signal", "expectedRunId"],
+    request: object(
+      {
+        id,
+        archived: { type: "boolean", description: "目标归档状态" },
+        expectedRunId: text("调用方确认的运行标识；空字符串表示从未运行", {
+          maxLength: 128,
+          pattern: "^[a-zA-Z0-9_-]*$",
+        }),
+      },
+      ["id", "archived"]
+    ),
     response: { $ref: "ConversationSummary" },
     title: "设置会话归档",
     input: ["id", "archived"],
     result: "ConversationSummary",
     condition:
-      "幂等；状态未变化时无额外写入。运行中的会话拒绝归档，需先经 conversationStop 停止。归档不改变 updatedAt。",
-    errors: "会话不存在、会话正在运行、参数无效、存储失败、提交前取消。",
+      "幂等；状态未变化时无额外写入。运行中、停止中或有待处理请求时拒绝归档。可用 expectedRunId 防止确认后归档其他运行。归档不改变 updatedAt。",
+    errors: "会话不存在、运行已变化、会话尚有执行或待处理请求、参数无效、存储失败、提交前取消。",
     effect: "锁内原子更新归档并递增版本；列表默认隐藏已归档会话。",
     example: { id: "sample-conversation", archived: true },
   },

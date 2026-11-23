@@ -19,7 +19,7 @@ import { join } from "node:path"
 import { readFile } from "node:fs/promises"
 import { randomUUID } from "node:crypto"
 
-import { getSupportedThinkingLevels } from "@earendil-works/pi-ai"
+import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/models"
 import { ConversationQueue } from "./conversation-queue.mjs"
 import { ConversationControls } from "./conversation-controls.mjs"
 import { ConversationLive } from "./conversation-live.mjs"

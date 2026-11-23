@@ -66,6 +66,11 @@ export const serviceRegistry = {
     source: "backend/services.mjs",
     storage: "原写回执读取端口（MoonServices.writeReceipts.read）",
   },
+  telemetry: {
+    ready: [],
+    source: "backend/telemetry.mjs",
+    storage: "仅追加本机诊断日志（logs/moon-node.jsonl）",
+  },
 }
 
 /** 装配时拒绝重复公开名称，不能让后加载的领域覆盖已有操作。 */

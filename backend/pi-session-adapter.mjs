@@ -1,19 +1,10 @@
 // @ts-check
+import { loadPiSdk } from "./pi-sdk.mjs"
 import { closePiResources, bindPiResourceScope } from "./pi-resource-scope.mjs"
 
 import { join } from "node:path"
 
 import { randomUUID } from "node:crypto"
-
-import {
-  createAgentSession,
-  DefaultResourceLoader,
-  SessionManager,
-  SettingsManager,
-  createCodemodeExtension,
-  createToolSearchExtension,
-  createMcpExtension,
-} from "@earendil-works/pi-coding-agent"
 
 import {
   createMcpTransport,
@@ -22,14 +13,126 @@ import {
 } from "./mcp.mjs"
 import { check } from "./session-core.mjs"
 
+/** @param {import("./extensions.mjs").ExtensionService | undefined} extensions
+ * @param {() => Awaited<ReturnType<import("./extensions.mjs").ExtensionService["sessionSnapshot"]>>} snapshot
+ * @param {string} cwd
+ * @param {boolean} persistent
+ * @param {Set<() => Promise<void>>} closers
+ * @returns {import("@earendil-works/pi-coding-agent").InlineExtension[]}
+ */
+function moduleFactories(extensions, snapshot, cwd, persistent, closers) {
+  if (!extensions) return []
+  return snapshot().entries.map(({ descriptor }) => ({
+    name: `moon-ext-${descriptor.id}`,
+    factory: (pi) => {
+      const entry = snapshot().entries.find(
+        (candidate) => candidate.descriptor.id === descriptor.id
+      )
+      if (entry)
+        for (const factory of extensions.factories(
+          { entries: [entry] },
+          cwd,
+          persistent,
+          closers
+        ))
+          factory.factory(pi)
+    },
+  }))
+}
+
+/** Collect factory-registered Pi tool definitions with runtime precedence.
+ * Lifecycle registrations belong to bound sessions.
+ * @param {Pick<import("./sessions.mjs").SessionService, "agentDir" | "models" | "measure">} ports
+ * @param {Awaited<ReturnType<typeof loadPiSdk>>} sdk
+ * @param {string} cwd
+ * @param {AbortSignal} [signal]
+ */
+export async function readPiToolDefinitions(ports, sdk, cwd, signal) {
+  const { extensions, plugins } = ports.models
+  const snapshot = await ports.measure("catalog.extensions", async () =>
+    extensions
+      ? await extensions.sessionSnapshot()
+      : { entries: [], descriptors: [], fingerprint: "" }
+  )
+  signal?.throwIfAborted()
+  const additionalExtensionPaths = (await plugins?.extensionPaths()) || []
+  const pluginFactories = (await plugins?.factories(cwd, {})) || []
+  signal?.throwIfAborted()
+  const resources = new sdk.DefaultResourceLoader({
+    cwd,
+    agentDir: ports.agentDir,
+    settingsManager: sdk.SettingsManager.inMemory({ cacheWarming: "off" }),
+    noExtensions: true,
+    noSkills: true,
+    noPromptTemplates: true,
+    noThemes: true,
+    noContextFiles: true,
+    additionalExtensionPaths,
+    extensionFactories: [
+      ...pluginFactories,
+      ...moduleFactories(extensions, () => snapshot, cwd, false, new Set()),
+    ],
+  })
+  await ports.measure("catalog.resources", () => resources.reload())
+  signal?.throwIfAborted()
+  const loaded = resources.getExtensions()
+  plugins?.prepareNative(loaded)
+
+  const builtinDefinitions = [
+    sdk.createReadToolDefinition(cwd),
+    sdk.createBashToolDefinition(cwd),
+    sdk.createPowerShellToolDefinition(cwd),
+    sdk.createEditToolDefinition(cwd),
+    sdk.createWriteToolDefinition(cwd),
+    sdk.createGrepToolDefinition(cwd),
+    sdk.createFindToolDefinition(cwd),
+    sdk.createLsToolDefinition(cwd),
+  ]
+  /** @type {Map<string, {
+   *   definition: import("@earendil-works/pi-coding-agent").ToolDefinition,
+   *   tool: { name: string, description: string, sourceInfo: { source: string, path?: string }, exposure: string }
+   * }>} */
+  const registered = new Map(
+    builtinDefinitions.map((definition) => [
+      definition.name,
+      {
+        definition,
+        tool: {
+          name: definition.name,
+          description: definition.description,
+          sourceInfo: { source: "builtin" },
+          exposure: definition.exposure ?? "direct",
+        },
+      },
+    ])
+  )
+  const names = new Set()
+  // Pi takes the first extension declaration, overriding a built-in of that name.
+  for (const extension of loaded.extensions)
+    for (const { definition, sourceInfo } of extension.tools.values()) {
+      if (names.has(definition.name)) continue
+      names.add(definition.name)
+      registered.set(definition.name, {
+        definition,
+        tool: {
+          name: definition.name,
+          description: definition.description,
+          sourceInfo,
+          exposure: definition.exposure ?? "direct",
+        },
+      })
+    }
+  return { registered: [...registered.values()], snapshot }
+}
+
 /** SDK 构建、绑定和恢复只在此边界处理，不承担配置 CAS。 */
-/** @param {Pick<import("./sessions.mjs").SessionService, "ensureOpen" | "models" | "agentDir" | "closed" | "runtimePrompt" | "closing" | "availability" | "resources">} ports
+/** @param {Pick<import("./sessions.mjs").SessionService, "ensureOpen" | "models" | "agentDir" | "closed" | "runtimePrompt" | "closing" | "availability" | "resources" | "measure">} ports
  * @param {string} cwd
  * @param {Array<{path:string,content:string}>} instructions
  * @param {string[] | undefined} toolIds
  * @param {AbortSignal} [signal]
  * @param {boolean} [recover]
- * @param {Partial<Parameters<typeof createAgentSession>[0]> & {pluginScope?: any, extensionFactories?: import("@earendil-works/pi-coding-agent").InlineExtension[], uiContext?: import("@earendil-works/pi-coding-agent").ExtensionUIContext, thinking?: NonNullable<Parameters<typeof createAgentSession>[0]>["thinkingLevel"]}} [options]
+ * @param {Partial<import("@earendil-works/pi-coding-agent").CreateAgentSessionOptions> & {pluginScope?: any, extensionFactories?: import("@earendil-works/pi-coding-agent").InlineExtension[], uiContext?: import("@earendil-works/pi-coding-agent").ExtensionUIContext, thinking?: NonNullable<import("@earendil-works/pi-coding-agent").CreateAgentSessionOptions>["thinkingLevel"]}} [options]
  */
 export async function createPiSession(
   ports,
@@ -42,15 +145,40 @@ export async function createPiSession(
 ) {
   ports.ensureOpen()
   signal?.throwIfAborted()
+  const {
+    createAgentSession,
+    DefaultResourceLoader,
+    SessionManager,
+    SettingsManager,
+    createCodemodeExtension,
+    createToolSearchExtension,
+    createMcpExtension,
+  } = await ports.measure("adapter.importPi", () => loadPiSdk())
   const settingsManager = SettingsManager.inMemory({ cacheWarming: "off" })
   const mcpEnabled = !!options.sessionManager
   const mcp = ports.models.mcp
+  const mcpSdk = mcpEnabled
+    ? await ports.measure(
+        "create.importMcp",
+        () => import("@earendil-works/pi-mcp")
+      )
+    : undefined
+  const mcpCredentials = mcpEnabled
+    ? await mcp?.runtimeCredentials()
+    : undefined
+  signal?.throwIfAborted()
   const mcpSnapshot = mcp
-    ? await mcp.sessionEntries(toolIds)
+    ? await ports.measure("create.mcpSessionEntries", () =>
+        mcp.sessionEntries(toolIds)
+      )
     : { servers: [], errors: [] }
-  const mcpTools = mcp ? await mcp.catalog() : []
+  const mcpTools = mcp
+    ? await ports.measure("create.mcpCatalog", () => mcp.catalog())
+    : []
   const extensionSnapshot = ports.models.extensions
-    ? await ports.models.extensions.sessionSnapshot(toolIds)
+    ? await ports.measure("create.extensions", () =>
+        ports.models.extensions.sessionSnapshot(toolIds)
+      )
     : { entries: [], descriptors: [], fingerprint: "" }
   const instructionState = {
     files: instructions,
@@ -107,22 +235,13 @@ export async function createPiSession(
           cwd,
           options.pluginScope || {}
         )) || []),
-        ...instructionState.extensionSnapshot.descriptors.map((descriptor) => ({
-          name: `moon-ext-${descriptor.id}`,
-          factory: (pi) => {
-            const entry = instructionState.extensionSnapshot.entries.find(
-              (candidate) => candidate.descriptor.id === descriptor.id
-            )
-            if (entry)
-              for (const factory of ports.models.extensions.factories(
-                { entries: [entry] },
-                cwd,
-                mcpEnabled,
-                instructionState.extensionClosers
-              ))
-                factory.factory(pi)
-          },
-        })),
+        ...moduleFactories(
+          ports.models.extensions,
+          () => instructionState.extensionSnapshot,
+          cwd,
+          mcpEnabled,
+          instructionState.extensionClosers
+        ),
         ...(mcpEnabled
           ? [
               {
@@ -137,7 +256,7 @@ export async function createPiSession(
                 const generation = instructionState.generation
                 return createMcpExtension({
                   loadConfig: () => instructionState.mcpSnapshot,
-                  credentials: mcp?.credentials,
+                  credentials: mcpCredentials,
                   logPath: join(ports.agentDir, "mcp.log"),
                   createTransport: (entry, sessionCwd, authProvider) => {
                     check(
@@ -153,6 +272,7 @@ export async function createPiSession(
                     let transport
                     try {
                       transport = createMcpTransport(
+                        mcpSdk,
                         entry,
                         sessionCwd,
                         authProvider,
@@ -167,7 +287,11 @@ export async function createPiSession(
                     } catch (error) {
                       instructionState.mcpStatuses.set(entry.name, {
                         state: "failed",
-                        error: safeMcpError(error, entry.config),
+                        error: safeMcpError(
+                          error,
+                          entry.config,
+                          mcpSdk?.McpAuthRequiredError
+                        ),
                       })
                       throw error
                     }
@@ -196,7 +320,7 @@ export async function createPiSession(
         })),
       }),
     })
-  /** @type {DefaultResourceLoader | undefined} */
+  /** @type {import("@earendil-works/pi-coding-agent").DefaultResourceLoader | undefined} */
   let loadedResources
   // Pi 1.1 exposes cache invalidation through a previously loaded loader's
   // reload(). An empty loader performs that step without invoking old sources.
@@ -210,45 +334,49 @@ export async function createPiSession(
     noThemes: true,
     noContextFiles: true,
   })
-  let cacheResetReady = false
   // Pi retains this public ResourceLoader interface across session.reload().
   // Rebuild the concrete loader from current explicit sources on every reload.
-  const resourceLoader = new Proxy(/** @type {DefaultResourceLoader} */ ({}), {
-    get(_target, key) {
-      if (key === "reload")
-        return async (reloadOptions) => {
-          if (!cacheResetReady) {
+  const resourceLoader = new Proxy(
+    /** @type {import("@earendil-works/pi-coding-agent").DefaultResourceLoader} */ ({}),
+    {
+      get(_target, key) {
+        if (key === "reload")
+          return async (reloadOptions) => {
             await cacheResetLoader.reload()
-            cacheResetReady = true
+            loadedResources = await loadResources()
+            await loadedResources.reload(reloadOptions)
+            ports.models.plugins?.prepareNative(
+              loadedResources.getExtensions(),
+              options.pluginScope
+            )
+            instructionState.pluginFingerprint =
+              ports.models.plugins?.fingerprint() || ""
           }
-          await cacheResetLoader.reload()
-          loadedResources = await loadResources()
-          await loadedResources.reload(reloadOptions)
-          ports.models.plugins?.prepareNative(
-            loadedResources.getExtensions(),
-            options.pluginScope
-          )
-          instructionState.pluginFingerprint =
-            ports.models.plugins?.fingerprint() || ""
-        }
-      const value = Reflect.get(loadedResources, key)
-      return typeof value === "function" ? value.bind(loadedResources) : value
-    },
-  })
+        const value = Reflect.get(loadedResources, key)
+        return typeof value === "function" ? value.bind(loadedResources) : value
+      },
+    }
+  )
   let session
   try {
-    await resourceLoader.reload()
+    await ports.measure("create.resources", () => resourceLoader.reload())
     signal?.throwIfAborted()
-    ;({ session } = await createAgentSession({
-      cwd,
-      agentDir: ports.agentDir,
-      settingsManager,
-      resourceLoader,
-      sessionManager: options.sessionManager || SessionManager.inMemory(cwd),
-      modelRuntime: options.modelRuntime || (await ports.models.runtime()),
-      ...(options.model ? { model: options.model } : {}),
-      ...(options.thinking ? { thinkingLevel: options.thinking } : {}),
-    }))
+    const modelRuntime =
+      options.modelRuntime ||
+      (await ports.measure("create.modelRuntime", () => ports.models.runtime()))
+    signal?.throwIfAborted()
+    ;({ session } = await ports.measure("create.createSession", () =>
+      createAgentSession({
+        cwd,
+        agentDir: ports.agentDir,
+        settingsManager,
+        resourceLoader,
+        sessionManager: options.sessionManager || SessionManager.inMemory(cwd),
+        modelRuntime,
+        ...(options.model ? { model: options.model } : {}),
+        ...(options.thinking ? { thinkingLevel: options.thinking } : {}),
+      })
+    ))
   } catch (error) {
     instructionState.disposed = true
     await closePiResources(instructionState)
@@ -267,41 +395,43 @@ export async function createPiSession(
     ports.ensureOpen()
     signal?.throwIfAborted()
     if (mcpEnabled) mcp?.runtime.set(owner, instructionState.mcpStatuses)
-    await session.bindExtensions({
-      ...(options.uiContext
-        ? { uiContext: options.uiContext, mode: "rpc" }
-        : {}),
-      onError: (error) => {
-        // This is a real host binding: Pi reuses it after reload and therefore
-        // emits session_start itself exactly once. Retain a safe, inspectable
-        // diagnostic in the authoritative Pi history, never the raw SDK error.
-        const diagnostic = {
-          source: /^<inline:[A-Za-z0-9_-]+>$/.test(error.extensionPath)
-            ? error.extensionPath
-            : "Pi extension",
-          event: new Set([
-            "session_start",
-            "session_shutdown",
-            "tool_call",
-            "tool_result",
-            "turn_end",
-            "agent_before_settle",
-            "before_agent_start",
-            "resources_discover",
-            "prepare_loadout",
-          ]).has(error.event)
-            ? error.event
-            : "extension",
-          message: "会话扩展未完成操作，请核对会话配置和待处理消息状态。",
-          occurredAt: new Date().toISOString(),
-        }
-        instructionState.extensionError = diagnostic
-        session.sessionManager.appendCustomEntry(
-          "moon-extension-error",
-          diagnostic
-        )
-      },
-    })
+    await ports.measure("create.bindExtensions", () =>
+      session.bindExtensions({
+        ...(options.uiContext
+          ? { uiContext: options.uiContext, mode: "rpc" }
+          : {}),
+        onError: (error) => {
+          // This is a real host binding: Pi reuses it after reload and therefore
+          // emits session_start itself exactly once. Retain a safe, inspectable
+          // diagnostic in the authoritative Pi history, never the raw SDK error.
+          const diagnostic = {
+            source: /^<inline:[A-Za-z0-9_-]+>$/.test(error.extensionPath)
+              ? error.extensionPath
+              : "Pi extension",
+            event: new Set([
+              "session_start",
+              "session_shutdown",
+              "tool_call",
+              "tool_result",
+              "turn_end",
+              "agent_before_settle",
+              "before_agent_start",
+              "resources_discover",
+              "prepare_loadout",
+            ]).has(error.event)
+              ? error.event
+              : "extension",
+            message: "会话扩展未完成操作，请核对会话配置和待处理消息状态。",
+            occurredAt: new Date().toISOString(),
+          }
+          instructionState.extensionError = diagnostic
+          session.sessionManager.appendCustomEntry(
+            "moon-extension-error",
+            diagnostic
+          )
+        },
+      })
+    )
     if (toolIds) {
       const available = new Set([
         ...session.getAllTools().map((tool) => tool.name),

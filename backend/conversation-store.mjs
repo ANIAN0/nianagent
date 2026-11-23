@@ -444,6 +444,10 @@ export class ConversationStore {
     return this.transaction((data) => {
       const record = data.conversations.find((item) => item.id === id)
       check(record, "会话不存在，请刷新列表。")
+      check(
+        patch.status !== "running" || !record.archived,
+        "会话已归档，请先恢复会话再启动运行。"
+      )
       if (request) {
         const receipt = data.requestReceipts.find(
           (item) =>
@@ -536,7 +540,7 @@ export class ConversationStore {
       return { result: record, changed: true }
     }, signal)
   }
-  async setArchived(id, archived, signal) {
+  async setArchived(id, archived, signal, { expectedRunId, hasPending } = {}) {
     identity(id)
     check(typeof archived === "boolean", "归档状态无效。")
     return this.transaction((data) => {
@@ -544,10 +548,17 @@ export class ConversationStore {
       check(record, "会话不存在，请刷新列表。")
       if (record.archived === archived)
         return { result: record, changed: false }
-      check(
-        !archived || record.status !== "running",
-        "会话正在运行，请先停止再归档。"
-      )
+      if (archived) {
+        check(
+          expectedRunId === undefined || record.runId === expectedRunId,
+          "会话已开始其他运行，请重新确认归档。"
+        )
+        check(
+          record.status !== "running" && record.status !== "stopping",
+          "会话尚未停止，请在停止后归档。"
+        )
+        check(!hasPending?.(record), "会话有待处理请求，请处理后再归档。")
+      }
       record.archived = archived
       record.revision++
       return { result: record, changed: true }

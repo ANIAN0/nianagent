@@ -1,11 +1,6 @@
+import { loadPiSdk } from "./pi-sdk.mjs"
 import { mkdir, readFile } from "node:fs/promises"
 import { resolve, relative, isAbsolute } from "node:path"
-
-import {
-  CURRENT_SESSION_VERSION,
-  parseSessionEntries,
-  SessionManager,
-} from "@earendil-works/pi-coding-agent"
 
 import { requireValue, runFailureIssue } from "./conversation-core.mjs"
 
@@ -82,6 +77,8 @@ export class PiHistory {
       : "旧格式历史尚未保存稳定的消息标识，暂不能创建分支；继续发送一次消息后由 Pi 自动迁移。"
   }
   async fileManager(record, persistent = false) {
+    const { CURRENT_SESSION_VERSION, parseSessionEntries, SessionManager } =
+      await loadPiSdk()
     await mkdir(this.ports.directory, { recursive: true, mode: 0o700 })
     if (!record.sessionFile)
       return this.safeHistory(

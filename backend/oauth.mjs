@@ -1,5 +1,5 @@
+import { loadPiSdk } from "./pi-sdk.mjs"
 import { settleResources } from "./close-resources.mjs"
-import { CredentialSynchronizationError } from "@earendil-works/pi-coding-agent"
 import { randomUUID, createHash } from "node:crypto"
 import { operationError } from "./operation-issue.mjs"
 const ownerEpoch = randomUUID()
@@ -113,9 +113,9 @@ export class AuthorizationJobs {
           ? "授权已取消或超时。"
           : "订阅授权未完成，请核对连接后重试。"
         if (
-          error instanceof CredentialSynchronizationError &&
-          error.operation === "login" &&
-          !controller.signal.aborted
+          error?.operation === "login" &&
+          !controller.signal.aborted &&
+          error instanceof (await loadPiSdk()).CredentialSynchronizationError
         ) {
           try {
             const current = (await this.service.list()).find(

@@ -38,7 +38,7 @@ const DOMAIN_CHECKS = [
 
 const DOMAIN_CHECK_TIMEOUT_MS = 10_000
 
-export async function validateDomains(ready, directory) {
+export async function validateDomains(ready, directory, onDomain) {
   // 并行核验 + 每域超时：某域长期等待不再阻塞其他域与工作台入口（Q13）；
   // 超时域显式呈现为不可用，不以空数据冒充成功，底层读取自行结束不消费其结果。
   const withTimeout = async (run) => {
@@ -64,33 +64,40 @@ export async function validateDomains(ready, directory) {
   }
   const domains = await Promise.all(
     DOMAIN_CHECKS.map(async ({ name, run }) => {
+      const startedAt = Date.now()
       try {
         // AC11：检查器以 ready 为入参（run() 无参调用会让五域全部 TypeError，
         // 被误报为数据损坏）；超时隔离语义不变。
         await withTimeout(() => run(ready))
-        return { name, ok: true }
+        const item = { name, ok: true }
+        onDomain?.(item, Date.now() - startedAt)
+        return item
       } catch (error) {
-        return {
+        const item = {
           name,
           ok: false,
           // 显式呈现损坏/超时域；原始数据不动，恢复入口由各域自身提供
           issue: error instanceof Error ? error.message : String(error),
         }
+        onDomain?.(item, Date.now() - startedAt)
+        return item
       }
     })
   )
   // 队列/控制/维护记录沿用全量逻辑单独核验，失败同样按域隔离呈现
   let legacy = null
+  const legacyStartedAt = Date.now()
   try {
     await withTimeout(() => validateQueueAndMaintenance(ready, directory))
   } catch (error) {
     legacy = error instanceof Error ? error.message : String(error)
   }
-  domains.push(
+  const legacyItem =
     legacy === null
       ? { name: "queue-control-maintenance", ok: true }
       : { name: "queue-control-maintenance", ok: false, issue: legacy }
-  )
+  onDomain?.(legacyItem, Date.now() - legacyStartedAt)
+  domains.push(legacyItem)
   return { readable: true, domains }
 }
 

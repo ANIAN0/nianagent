@@ -81,14 +81,32 @@ export class ConversationPermissions {
       .filter((item) => item.sessionId === sessionId)
       .map((item) => item.public)
   }
+  pendingBySession() {
+    const pending = new Map()
+    const now = Date.now()
+    for (const item of this.pending.values()) {
+      if (item.deadline <= now || item.state.stopRequested) continue
+      if (item.public.runId !== (item.state.record.runId || "")) continue
+      const projection = pending.get(item.sessionId) ?? {
+        runId: item.public.runId,
+        counts: { approvals: 0, answers: 0 },
+      }
+      const { counts } = projection
+      if (item.public.kind === "tool") counts.approvals++
+      else counts.answers++
+      pending.set(item.sessionId, projection)
+    }
+    return pending
+  }
   ask(state, request, { signal, timeout = 300000 } = {}) {
     const sessionId = state.record.id,
       id = randomUUID()
+    const deadline = Date.now() + timeout
     const publicRequest = {
       id,
       runId: state.record.runId || "",
       ...request,
-      expiresAt: new Date(Date.now() + timeout).toISOString(),
+      expiresAt: new Date(deadline).toISOString(),
     }
     return new Promise((resolve) => {
       const finish = (value) => {
@@ -100,7 +118,13 @@ export class ConversationPermissions {
       }
       const abort = () => finish("cancel")
       const timer = setTimeout(abort, timeout)
-      this.pending.set(id, { sessionId, state, public: publicRequest, finish })
+      this.pending.set(id, {
+        sessionId,
+        state,
+        public: publicRequest,
+        deadline,
+        finish,
+      })
       signal?.addEventListener("abort", abort, { once: true })
       this.conversations.touch(state)
       if (signal?.aborted || state.stopRequested || this.conversations.closed)
@@ -120,9 +144,14 @@ export class ConversationPermissions {
     check(
       item.sessionId === sessionId &&
         item.public.runId === runId &&
+        item.public.runId === (item.state.record.runId || "") &&
         !item.state.stopRequested,
       "审批不属于当前运行。"
     )
+    if (item.deadline <= Date.now()) {
+      item.finish("cancel")
+      throw new Error("审批已结束或已过期，请读取当前状态。")
+    }
     const kind = item.public.kind
     check(
       value === "cancel" ||
@@ -207,6 +236,29 @@ export class ConversationPermissions {
           if (mode === "read-only")
             return { block: true, reason: "只读权限仅允许访问工作区内文件。" }
         }
+        const builtin = registered?.sourceInfo?.source === "builtin"
+        const command = builtin && ["bash", "powershell"].includes(name)
+        const sourceKind = builtin
+          ? "builtin"
+          : actual?.entry
+            ? "plugin"
+            : actual
+              ? "extension"
+              : "unknown"
+        const knownTarget = target
+          ? { kind: "path", value: target }
+          : command && typeof event.input.command === "string"
+            ? { kind: "command", value: event.input.command }
+            : undefined
+        const scopeNotice = command
+          ? "宿主无法预先确认命令实际访问的文件、启动的程序或联网范围。"
+          : !builtin
+            ? "宿主无法预先确认此工具将访问的文件、服务或联网范围。"
+            : !knownTarget
+              ? "宿主未能识别此工具的访问目标。"
+              : ["grep", "find", "ls"].includes(name)
+                ? "实际读取的文件和子目录由工具执行时确定。"
+                : undefined
         const value = await this.ask(
           state,
           {
@@ -221,6 +273,14 @@ export class ConversationPermissions {
               ? { toolCallId: event.toolCallId }
               : {}),
             input: JSON.stringify(event.input, null, 2),
+            details: {
+              sourceKind,
+              ...(actual?.entry?.manifest?.name && {
+                sourceName: actual.entry.manifest.name,
+              }),
+              ...(knownTarget && { target: knownTarget }),
+              ...(scopeNotice && { scopeNotice }),
+            },
             message: target
               ? `允许此工具本次访问：${target}`
               : "此操作可访问本机文件与网络。请确认具体内容，允许仅对这一次生效。",

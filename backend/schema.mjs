@@ -1,5 +1,6 @@
 import { workspaceSchemas } from "./workspace-contract.mjs"
 import { bootSchemas } from "./boot-contract.mjs"
+import { telemetrySchemas } from "./telemetry-contract.mjs"
 import { pluginSchemas } from "./plugin-contract.mjs"
 import { conversationSchemas as catalogSchemas } from "./conversation-catalog-contract.mjs"
 import { conversationSchemas } from "./conversation-contract.mjs"
@@ -39,6 +40,7 @@ export const ref = (name) => ({ $ref: name })
 const levels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
 export const schemas = {
   ...bootSchemas,
+  ...telemetrySchemas,
   ...pluginSchemas,
   ...extensionSchemas,
   ...writeReceiptSchemas,
