@@ -2,9 +2,10 @@ import { useState } from "react"
 import { OperationFeedback } from "@/components/feedback/operation-feedback"
 import { RecoveryAction } from "@/components/feedback/recovery-action"
 import { useConnectionEditor } from "./use-connection-editor"
-import { ArrowLeft, Plus, RefreshCw, LogIn } from "lucide-react"
+import { ArrowLeft, Plus, LogIn } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { ConnectionFields } from "./connection-fields"
+import { ConnectionServiceFields } from "./connection-service-fields"
 import { ModelDirectory, DiscoveredModels } from "./model-directory"
 import { ModelEditor } from "./model-editor"
 import { PiAuthorization } from "./pi-authorization"
@@ -24,6 +25,7 @@ export type ConnectionEditorProps = {
   onSaved: (connection: ModelConnection) => void
   onAccountSaved?: (connection: ModelConnection) => void
   onClose: () => void
+  onReload: () => void
   registerLeave?: (guard: LeaveGuard | null) => void
 }
 export function ConnectionEditor({
@@ -33,6 +35,7 @@ export function ConnectionEditor({
   onSaved,
   onAccountSaved,
   onClose,
+  onReload,
   registerLeave,
 }: ConnectionEditorProps) {
   const state = useConnectionEditor({
@@ -42,14 +45,15 @@ export function ConnectionEditor({
     onSaved,
     onAccountSaved,
     onClose,
+    onReload,
     registerLeave,
   })
   const {
     draft,
+    errors,
     setDraft,
     busy,
     dirty,
-    errors,
     active,
     form,
     checks,
@@ -58,9 +62,6 @@ export function ConnectionEditor({
     setConfirm,
     oauth,
     setOauth,
-    providers,
-    providersFailure,
-    reloadProviders,
     accountFailure,
     accountUnknown,
     accountBlocked,
@@ -69,22 +70,18 @@ export function ConnectionEditor({
     startAuthorization,
     saveFailure,
     recoverStorage,
-    discoveryFailure,
     saveUnknown,
     saveConflict,
     saveBlocked,
-    discoveryBlocked,
     waitingToLeave,
     result,
     candidates,
-    change,
     askLeave,
     cancelRequest,
     acceptAccount,
     updateAccount,
     save,
     checkSaved,
-    discover,
     checkModel,
   } = state
   const [target, setTarget] = useState<{
@@ -104,18 +101,15 @@ export function ConnectionEditor({
             <ArrowLeft />
             连接目录
           </Button>
-          <header className="model-editor-head">
-            <div>
-              <h2 tabIndex={-1}>{active ? initial.name : "添加连接"}</h2>
-              <p>
-                {active
-                  ? "编辑服务与此连接下的模型"
-                  : "连接服务后，可测试并加入模型"}
-              </p>
+          <header className="model-editor-head items-center">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h2 tabIndex={-1}>
+                {active ? initial.name || draft.name : "添加连接"}
+              </h2>
+              <Badge variant="outline">
+                {draft.kind === "subscription" ? "订阅账号" : "自定义服务"}
+              </Badge>
             </div>
-            <span>
-              {draft.kind === "subscription" ? "订阅账号" : "自定义服务"}
-            </span>
           </header>
           <form
             ref={form}
@@ -128,108 +122,11 @@ export function ConnectionEditor({
             }}
             className="model-form"
           >
-            <section
-              className="model-section model-connection-config"
-              aria-labelledby="service-heading"
-            >
-              <div className="model-section-head">
-                <div>
-                  <h3 id="service-heading">服务信息</h3>
-                  <p>填写服务地址与凭据；测试不保存修改。</p>
-                </div>
-              </div>
-              <ConnectionFields
-                onReloadConnection={() => askLeave(onClose)}
-                onRevealKey={
-                  service.revealKey &&
-                  draft.revision !== undefined &&
-                  !saveUnknown
-                    ? async (signal) =>
-                        (
-                          await service.revealKey!(
-                            draft.id,
-                            draft.revision!,
-                            signal
-                          )
-                        ).apiKey
-                    : undefined
-                }
-                value={draft}
-                providers={providers}
-                errors={errors}
-                disabled={!!busy}
-                onChange={change}
-                onClearKey={(action) =>
-                  setConfirm({
-                    title: "清除已保存密钥？",
-                    description:
-                      "保存连接后不再使用当前密钥；取消编辑仍保留原配置。",
-                    label: "清除密钥",
-                    destructive: true,
-                    action,
-                  })
-                }
-              />
-              {providersFailure && (
-                <OperationFeedback
-                  notify={false}
-                  title="无法读取订阅提供者"
-                  {...providersFailure}
-                  actions={
-                    <RecoveryAction
-                      issue={providersFailure}
-                      onRetry={reloadProviders}
-                      onReload={reloadProviders}
-                      labels={{ retry: "重新读取" }}
-                    />
-                  }
-                />
-              )}
-              <div className="flex flex-wrap items-center gap-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={
-                    !!busy ||
-                    saveUnknown ||
-                    saveConflict ||
-                    discoveryBlocked ||
-                    (draft.kind === "subscription" && !draft.account?.loggedIn)
-                  }
-                  onClick={discover}
-                >
-                  <RefreshCw
-                    className={
-                      busy === "test" ? "motion-safe:animate-spin" : ""
-                    }
-                  />
-                  {busy === "test"
-                    ? "正在读取…"
-                    : draft.kind === "subscription"
-                      ? "读取 Pi 模型目录"
-                      : "测试连接并获取模型"}
-                </Button>
-              </div>
-              {discoveryFailure && (
-                <OperationFeedback
-                  title={
-                    discoveryFailure.code === "cancelled"
-                      ? "测试已取消"
-                      : "未能读取模型目录"
-                  }
-                  {...discoveryFailure}
-                  actions={
-                    <RecoveryAction
-                      issue={discoveryFailure}
-                      onRetry={discover}
-                      onReload={discover}
-                      disabled={!!busy || saveUnknown}
-                      labels={{ retry: "重新测试", reload: "重新读取模型" }}
-                    />
-                  }
-                />
-              )}
-            </section>
+            <ConnectionServiceFields
+              state={state}
+              service={service}
+              onClose={onClose}
+            />
             {draft.kind === "subscription" && (
               <section className="model-section">
                 <div className="model-section-head">
@@ -345,7 +242,7 @@ export function ConnectionEditor({
                       <RecoveryAction
                         issue={saveFailure}
                         onCheck={checkSaved}
-                        onReload={() => askLeave(onClose)}
+                        onReload={() => askLeave(onReload)}
                         onRetry={save}
                         disabled={!!busy}
                         labels={{
@@ -390,25 +287,11 @@ export function ConnectionEditor({
             )}
             <section className="model-section" aria-labelledby="models-heading">
               <div className="model-section-head">
-                <div>
-                  <h3 id="models-heading">
-                    {active ? `${initial.name} 的模型` : "此连接的模型"}
-                  </h3>
-                  <p>
-                    修改加入连接草稿，保存连接后生效。检查模型会发起真实短请求，可能产生费用。
-                  </p>
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={
-                    !!busy || (draft.kind === "subscription" && !!service.auth)
-                  }
-                  onClick={() => setTarget({ draft: blankModel() })}
-                >
-                  <Plus />
-                  手工添加
-                </Button>
+                <h3 id="models-heading">
+                  {active
+                    ? `${initial.name || draft.name} 的模型`
+                    : "此连接的模型"}
+                </h3>
               </div>
               <ModelDirectory
                 onConfigureConnection={() =>
@@ -421,6 +304,22 @@ export function ConnectionEditor({
                 models={draft.models}
                 busy={!!busy || saveUnknown || saveConflict}
                 checks={checks}
+                toolbarAction={
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8"
+                    disabled={
+                      !!busy ||
+                      (draft.kind === "subscription" && !!service.auth)
+                    }
+                    onClick={() => setTarget({ draft: blankModel() })}
+                  >
+                    <Plus data-icon="inline-start" />
+                    手工添加
+                  </Button>
+                }
                 onEdit={(model) =>
                   setTarget({
                     draft: structuredClone(model),
@@ -451,52 +350,65 @@ export function ConnectionEditor({
         </div>
       </div>
       <footer className="model-footer">
-        {(busy === "test" || busy === "check") && (
-          <Button variant="outline" onClick={cancelRequest}>
-            取消请求
-          </Button>
-        )}
-        <p role="status">
-          {busy
-            ? waitingToLeave
-              ? "请等待保存完成；连接测试可取消后离开。"
-              : busy === "save"
-                ? "正在保存连接…"
-                : busy === "receipt"
-                  ? "正在核对原保存，不会重复提交…"
-                  : busy === "account-read"
-                    ? "正在读取当前登录状态…"
-                    : "正在请求服务…"
-            : saveUnknown
-              ? "原保存结果仍待核对，当前草稿已保留。"
-              : Object.keys(errors).length
-                ? "请修正表单中标出的字段。"
-                : dirty
-                  ? "有未保存的修改。"
-                  : "尚无未保存的修改。"}
-        </p>
-        <div>
-          <Button
-            variant="outline"
-            disabled={!!busy}
-            onClick={() => askLeave(onClose)}
-          >
-            取消
-          </Button>
-          <Button
-            form="connection-form"
-            type="submit"
-            disabled={
-              !!busy ||
-              accountBlocked ||
-              saveUnknown ||
-              saveConflict ||
-              saveBlocked ||
-              !dirty
-            }
-          >
-            {busy === "save" ? "正在保存…" : "保存连接"}
-          </Button>
+        <div className="model-footer-inner">
+          <div className="flex flex-wrap items-center gap-3">
+            {(busy === "test" || busy === "check") && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8"
+                onClick={cancelRequest}
+              >
+                取消请求
+              </Button>
+            )}
+            <p role="status">
+              {busy
+                ? waitingToLeave
+                  ? "请等待保存完成；连接测试可取消后离开。"
+                  : busy === "save"
+                    ? "正在保存连接…"
+                    : busy === "receipt"
+                      ? "正在核对原保存，不会重复提交…"
+                      : busy === "account-read"
+                        ? "正在读取当前登录状态…"
+                        : "正在请求服务…"
+                : saveUnknown
+                  ? "原保存结果仍待核对，当前草稿已保留。"
+                  : Object.keys(errors).length
+                    ? "请修正表单中标出的字段。"
+                    : dirty
+                      ? "有未保存的修改。"
+                      : "尚无未保存的修改。"}
+            </p>
+          </div>
+          <div className="model-footer-actions">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8"
+              disabled={!!busy}
+              onClick={() => askLeave(onClose)}
+            >
+              取消
+            </Button>
+            <Button
+              form="connection-form"
+              type="submit"
+              size="sm"
+              className="h-8"
+              disabled={
+                !!busy ||
+                accountBlocked ||
+                saveUnknown ||
+                saveConflict ||
+                saveBlocked ||
+                !dirty
+              }
+            >
+              {busy === "save" ? "正在保存…" : "保存连接"}
+            </Button>
+          </div>
         </div>
       </footer>
       {target && (
@@ -537,7 +449,6 @@ export function ConnectionEditor({
           onCancelled={acceptAccount}
           onClose={() => {
             setOauth(false)
-            onClose()
           }}
         />
       )}

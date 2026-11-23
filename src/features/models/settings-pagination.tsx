@@ -1,5 +1,11 @@
 import { Button } from "@/components/ui/button"
 import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+} from "@/components/ui/pagination"
+import {
   Select,
   SelectContent,
   SelectGroup,
@@ -31,7 +37,7 @@ export function SettingsPagination({
     ),
   ].sort((a, b) => a - b)
   return (
-    <nav className="model-paging" aria-label={`${label}分页`}>
+    <Pagination className="model-paging" aria-label={`${label}分页`}>
       <span>
         {total
           ? `${(page - 1) * size + 1}–${Math.min(page * size, total)}`
@@ -59,39 +65,54 @@ export function SettingsPagination({
           </SelectGroup>
         </SelectContent>
       </Select>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        disabled={page <= 1}
-        onClick={() => onPage(page - 1)}
-      >
-        上一页
-      </Button>
-      {numbers.map((value, index) => (
-        <span key={value}>
-          {index > 0 && value > numbers[index - 1] + 1 ? "…" : null}
+      <PaginationContent className="flex-wrap">
+        <PaginationItem>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={page <= 1}
+            onClick={() => onPage(page - 1)}
+          >
+            上一页
+          </Button>
+        </PaginationItem>
+        {numbers.flatMap((value, index) => {
+          const pageButton = (
+            <PaginationItem key={value}>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                aria-label={`${label}第 ${value} 页`}
+                aria-current={page === value ? "page" : undefined}
+                onClick={() => onPage(value)}
+              >
+                {value}
+              </Button>
+            </PaginationItem>
+          )
+          return index > 0 && value > numbers[index - 1] + 1
+            ? [
+                <PaginationItem key={`gap-${value}`}>
+                  <PaginationEllipsis />
+                </PaginationItem>,
+                pageButton,
+              ]
+            : [pageButton]
+        })}
+        <PaginationItem>
           <Button
             type="button"
             size="sm"
             variant="ghost"
-            aria-label={`${label}第 ${value} 页`}
-            aria-current={page === value ? "page" : undefined}
-            onClick={() => onPage(value)}
+            disabled={page >= pages}
+            onClick={() => onPage(page + 1)}
           >
-            {value}
+            下一页
           </Button>
-        </span>
-      ))}
-      <Button
-        type="button"
-        size="sm"
-        variant="ghost"
-        disabled={page >= pages}
-        onClick={() => onPage(page + 1)}
-      >
-        下一页
-      </Button>
-    </nav>
+        </PaginationItem>
+      </PaginationContent>
+    </Pagination>
   )
 }

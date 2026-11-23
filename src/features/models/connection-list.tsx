@@ -1,35 +1,41 @@
 import { useState } from "react"
+import { Ellipsis, Pencil, Plus, Search, Trash2, X } from "lucide-react"
 import { OperationFeedback } from "@/components/feedback/operation-feedback"
 import { RecoveryAction } from "@/components/feedback/recovery-action"
 import type { FeedbackDescription } from "@/lib/operation-issue"
-import { Ellipsis, Pencil, Plus, Trash2 } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Skeleton } from "@/components/ui/skeleton"
-import {
-  Empty,
-  EmptyHeader,
-  EmptyTitle,
-  EmptyDescription,
-  EmptyContent,
-} from "@/components/ui/empty"
-import {
-  Table,
-  TableHeader,
-  TableBody,
-  TableHead,
-  TableRow,
-  TableCell,
-} from "@/components/ui/table"
 import {
   DropdownMenu,
-  DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { SettingsPagination } from "./settings-pagination"
+import {
+  Empty,
+  EmptyContent,
+  EmptyHeader,
+  EmptyTitle,
+} from "@/components/ui/empty"
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from "@/components/ui/input-group"
+import { DataTablePagination } from "@/components/ui/pagination"
+import { Skeleton } from "@/components/ui/skeleton"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableCellText,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
 import {
   connectionIssue,
   credentialLabel,
@@ -37,6 +43,7 @@ import {
 } from "./model-types"
 
 export type ConnectionListView = { query: string; page: number; size: number }
+
 export function ConnectionList({
   connections,
   loading,
@@ -74,169 +81,198 @@ export function ConnectionList({
     onViewChange
       ? onViewChange(patch)
       : setLocalView((previous) => ({ ...previous, ...patch }))
-  const setQuery = (query: string) => update({ query })
-  const setPage = (page: number) => update({ page })
-  const setSize = (size: number) => update({ size })
-  const filtered = connections.filter((item) =>
-    `${item.name} ${item.endpoint} ${credentialLabel(item)}`
-      .toLowerCase()
-      .includes(query.trim().toLowerCase())
+  const setQuery = (nextQuery: string) => update({ query: nextQuery })
+  const setPage = (nextPage: number) => update({ page: nextPage })
+  const setSize = (nextSize: number) => update({ size: nextSize })
+
+  const term = query.trim().toLowerCase()
+  const filtered = term
+    ? connections.filter((item) =>
+        `${item.name} ${item.endpoint} ${credentialLabel(item)} ${item.account?.name ?? ""}`
+          .toLowerCase()
+          .includes(term)
+      )
+    : connections
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / size))
+  const currentPage = Math.min(page, totalPages)
+  const pageItems = filtered.slice(
+    (currentPage - 1) * size,
+    currentPage * size
   )
-  const currentPage = Math.min(
-    page,
-    Math.max(1, Math.ceil(filtered.length / size))
-  )
+
   return (
     <div className="model-page">
-      <header className="model-head">
-        <div>
-          <h2>模型连接</h2>
-          <p>管理模型服务、凭据与各连接的模型。</p>
-        </div>
-        <Button
-          disabled={loading || busy || !!error || !!failure}
-          onClick={onAdd}
-        >
-          <Plus />
-          添加连接
-        </Button>
-      </header>
-      {loading ? (
-        <div
-          role="status"
-          aria-label="正在读取模型连接"
-          className="flex flex-col gap-3"
-        >
-          <Skeleton className="h-10 w-80 max-w-full" />
-          {[1, 2, 3, 4].map((id) => (
-            <Skeleton className="h-16 w-full" key={id} />
-          ))}
-        </div>
-      ) : error || failure ? (
-        <OperationFeedback
-          notify={false}
-          title="无法读取模型连接"
-          {...(failure ?? {
-            message: error!,
-            code: "read_failed",
-            recovery: "reload",
-          })}
-          actions={
-            <RecoveryAction
-              issue={
-                failure ?? {
-                  message: error!,
-                  code: "read_failed",
-                  recovery: "reload",
-                }
-              }
-              onRetry={onRetry}
-              onReload={onRetry}
-              labels={{ retry: "重新读取" }}
-            />
-          }
-        />
-      ) : (
-        <>
-          <div className="model-toolbar">
-            <Input
-              aria-label="搜索连接"
-              placeholder="搜索连接"
-              value={query}
-              onChange={(event) => {
-                setQuery(event.target.value)
-                setPage(1)
-              }}
-            />
-            <span>
-              {filtered.length} / {connections.length} 个连接
-            </span>
+      <div className="flex flex-col gap-6">
+        <header>
+          <h2 className="text-[20px] leading-7 font-semibold">模型连接</h2>
+        </header>
+
+        {loading ? (
+          <div
+            role="status"
+            aria-label="正在读取模型连接"
+            className="flex flex-col gap-3"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <Skeleton className="h-8 w-72 max-w-full" />
+              <Skeleton className="h-8 w-24" />
+            </div>
+            <Skeleton className="h-56 w-full rounded-lg" />
           </div>
-          {filtered.length ? (
-            <div
-              className="model-table-frame"
-              tabIndex={0}
-              role="region"
-              aria-label="模型连接表格，可横向滚动"
-            >
-              <Table className="model-table connection-table">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>连接</TableHead>
-                    <TableHead>端点与凭据</TableHead>
-                    <TableHead>状态与模型</TableHead>
-                    <TableHead>操作</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filtered
-                    .slice((currentPage - 1) * size, currentPage * size)
-                    .map((item) => {
+        ) : error || failure ? (
+          <OperationFeedback
+            notify={false}
+            title="无法读取模型连接"
+            {...(failure ?? {
+              message: error!,
+              code: "read_failed",
+              recovery: "reload",
+            })}
+            actions={
+              <RecoveryAction
+                issue={
+                  failure ?? {
+                    message: error!,
+                    code: "read_failed",
+                    recovery: "reload",
+                  }
+                }
+                onRetry={onRetry}
+                onReload={onRetry}
+                labels={{ retry: "重新读取" }}
+              />
+            }
+          />
+        ) : (
+          <section className="flex flex-col gap-3" aria-label="模型连接列表">
+            {connections.length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <InputGroup className="h-8 w-full max-w-xs">
+                  <InputGroupAddon>
+                    <Search className="size-3.5" />
+                  </InputGroupAddon>
+                  <InputGroupInput
+                    aria-label="搜索连接"
+                    placeholder="按名称、端点或凭据筛选"
+                    value={query}
+                    onChange={(event) => {
+                      setQuery(event.target.value)
+                      setPage(1)
+                    }}
+                  />
+                  {query && (
+                    <InputGroupAddon align="inline-end">
+                      <InputGroupButton
+                        size="icon-xs"
+                        aria-label="清空筛选"
+                        onClick={() => {
+                          setQuery("")
+                          setPage(1)
+                        }}
+                      >
+                        <X />
+                      </InputGroupButton>
+                    </InputGroupAddon>
+                  )}
+                </InputGroup>
+
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-8"
+                  disabled={busy}
+                  onClick={onAdd}
+                >
+                  <Plus data-icon="inline-start" />
+                  添加连接
+                </Button>
+              </div>
+            )}
+
+            {pageItems.length > 0 ? (
+              <div className="overflow-hidden rounded-lg border border-border">
+                <Table variant="compact">
+                  <TableHeader>
+                    <TableRow className="bg-muted/40 hover:bg-muted/40">
+                      <TableHead className="min-w-[140px]">名称</TableHead>
+                      <TableHead className="w-[140px]">类型</TableHead>
+                      <TableHead className="min-w-[200px]">端点</TableHead>
+                      <TableHead className="w-[136px]">凭据</TableHead>
+                      <TableHead className="w-[76px] text-right">
+                        模型数
+                      </TableHead>
+                      <TableHead className="w-[104px]">状态</TableHead>
+                      <TableHead className="w-[60px] text-right">
+                        操作
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {pageItems.map((item) => {
                       const issue = connectionIssue(item)
                       const itemBusy = busy || blockedIds.includes(item.id)
+                      const kindLabel =
+                        item.kind === "subscription"
+                          ? item.account?.name
+                            ? `订阅 · ${item.account.name}`
+                            : "订阅账号"
+                          : "自定义服务"
+                      const credential = credentialLabel(item)
                       return (
                         <TableRow key={item.id}>
-                          <TableCell>
+                          <TableCell className="max-w-[240px] align-middle">
                             <button
                               id={`model-connection-${item.id}`}
+                              type="button"
                               className="model-name"
                               disabled={itemBusy}
                               onClick={() => onEdit(item)}
                               aria-label={`编辑 ${item.name} 连接`}
                             >
-                              {item.name}
+                              <TableCellText text={item.name} />
                             </button>
-                            <span
-                              className="model-secondary"
-                              title={item.account?.name}
-                            >
-                              {item.kind === "subscription"
-                                ? `订阅账号 · ${item.account?.name ?? "未登录"}`
-                                : "自定义服务"}
-                            </span>
                           </TableCell>
-                          <TableCell>
-                            <span
-                              className="model-technical"
-                              title={item.endpoint}
-                            >
-                              {item.endpoint || "未指定端点"}
-                            </span>
-                            <span
-                              className="model-secondary"
-                              title={credentialLabel(item)}
-                            >
-                              {credentialLabel(item)}
-                            </span>
+                          <TableCell
+                            variant="secondary"
+                            className="max-w-[160px] align-middle"
+                          >
+                            <TableCellText text={kindLabel} />
                           </TableCell>
-                          <TableCell>
-                            <div className="model-status-line">
-                              <span className={issue ? "text-destructive" : ""}>
-                                {issue
-                                  ? item.kind === "subscription"
-                                    ? "登录已失效"
-                                    : "凭据不可用"
-                                  : "已配置"}
-                              </span>
-                              <span className="model-secondary">
-                                {item.models.length} 个模型
-                              </span>
-                            </div>
-                            {issue && (
-                              <span
-                                className="model-secondary text-destructive"
-                                title={issue}
-                              >
-                                {issue}
-                              </span>
+                          <TableCell
+                            variant="secondary"
+                            className="max-w-[320px] align-middle font-mono"
+                          >
+                            <TableCellText text={item.endpoint || "—"} />
+                          </TableCell>
+                          <TableCell
+                            variant="secondary"
+                            className="max-w-[160px] align-middle"
+                          >
+                            <TableCellText text={credential} />
+                          </TableCell>
+                          <TableCell className="text-right align-middle font-medium whitespace-nowrap text-foreground tabular-nums">
+                            {item.models.length}
+                          </TableCell>
+                          <TableCell className="align-middle whitespace-nowrap">
+                            {issue ? (
+                              <Badge variant="destructive" title={issue}>
+                                {item.kind === "subscription"
+                                  ? "登录已失效"
+                                  : "凭据不可用"}
+                              </Badge>
+                            ) : (
+                              <Badge variant="secondary">已配置</Badge>
                             )}
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="text-right align-middle whitespace-nowrap">
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                 <Button
+                                  type="button"
                                   size="icon-sm"
                                   variant="ghost"
+                                  className="size-8"
                                   disabled={itemBusy}
                                   aria-label={`${item.name} 的操作`}
                                 >
@@ -266,41 +302,66 @@ export function ConnectionList({
                         </TableRow>
                       )
                     })}
-                </TableBody>
-              </Table>
-            </div>
-          ) : (
-            <Empty className="model-empty">
-              <EmptyHeader>
-                <EmptyTitle>
-                  {query ? "没有匹配的连接" : "还没有模型连接"}
-                </EmptyTitle>
-                <EmptyDescription>
-                  {query
-                    ? "换个名称或端点试试。"
-                    : "添加服务后，可测试并维护它的模型。"}
-                </EmptyDescription>
-              </EmptyHeader>
-              <EmptyContent>
-                <Button
-                  variant="outline"
-                  onClick={query ? () => setQuery("") : onAdd}
-                >
-                  {query ? "清除搜索" : "添加连接"}
-                </Button>
-              </EmptyContent>
-            </Empty>
-          )}
-          <SettingsPagination
-            total={filtered.length}
-            page={currentPage}
-            size={size}
-            onPage={setPage}
-            onSize={setSize}
-            label="连接"
-          />
-        </>
-      )}
+                  </TableBody>
+                </Table>
+              </div>
+            ) : connections.length > 0 ? (
+              <Empty className="rounded-lg border border-border py-10">
+                <EmptyHeader>
+                  <EmptyTitle className="text-sm font-normal">
+                    未找到匹配的连接
+                  </EmptyTitle>
+                </EmptyHeader>
+                <EmptyContent>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setQuery("")
+                      setPage(1)
+                    }}
+                  >
+                    清空筛选
+                  </Button>
+                </EmptyContent>
+              </Empty>
+            ) : (
+              <Empty className="rounded-lg border border-border py-10">
+                <EmptyHeader>
+                  <EmptyTitle className="text-sm font-normal">
+                    尚未添加模型连接
+                  </EmptyTitle>
+                </EmptyHeader>
+                <EmptyContent>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={busy}
+                    onClick={onAdd}
+                  >
+                    <Plus data-icon="inline-start" />
+                    添加连接
+                  </Button>
+                </EmptyContent>
+              </Empty>
+            )}
+
+            {connections.length > 0 && (
+              <DataTablePagination
+                total={connections.length}
+                filteredTotal={filtered.length}
+                filtered={!!term}
+                page={currentPage}
+                pageSize={size}
+                onPageChange={setPage}
+                onPageSizeChange={setSize}
+                itemLabel="个连接"
+              />
+            )}
+          </section>
+        )}
+      </div>
     </div>
   )
 }

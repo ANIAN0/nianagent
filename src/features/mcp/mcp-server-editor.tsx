@@ -2,6 +2,7 @@ import { useMcpEditor } from "./use-mcp-editor"
 import { ArrowLeft, Loader2, PlugZap } from "lucide-react"
 import { OperationFeedback } from "@/components/feedback/operation-feedback"
 import { RecoveryAction } from "@/components/feedback/recovery-action"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Field,
@@ -76,24 +77,22 @@ export function McpServerEditor({
   return (
     <div className="model-editor">
       <div className="model-scroll">
-        <div className="model-page mx-auto max-w-4xl">
+        <div className="model-page">
           <Button
             variant="ghost"
-            size="icon-sm"
             className="model-back"
-            aria-label="返回 MCP 服务"
+            disabled={!!busy}
             onClick={() => leave(onClose)}
           >
             <ArrowLeft />
+            服务目录
           </Button>
-          <header className="model-editor-head">
-            <div>
+          <header className="model-editor-head items-center">
+            <div className="flex flex-wrap items-center gap-2.5">
               <h2>{persisted ? value.name : "添加 MCP 服务"}</h2>
-              <p>
-                {persisted
-                  ? `个人配置 · ${initial?.source ?? ""}`
-                  : "连接本地程序或远程服务，测试后供会话选择。"}
-              </p>
+              <Badge variant="outline">
+                {value.transport === "stdio" ? "stdio" : "Streamable HTTP"}
+              </Badge>
             </div>
           </header>
           <div className="model-form">
@@ -101,70 +100,107 @@ export function McpServerEditor({
               className="model-section"
               aria-labelledby="mcp-connection-heading"
             >
-              <div className="model-section-head">
-                <h3 id="mcp-connection-heading">连接</h3>
-              </div>
-              <FieldGroup>
-                <Field
-                  data-invalid={!validName && (!!value.name || validation)}
-                >
-                  <FieldLabel htmlFor="mcp-name">服务名称</FieldLabel>
-                  <Input
-                    id="mcp-name"
-                    autoFocus
-                    value={value.name}
-                    disabled={!!busy || persisted}
-                    aria-invalid={!validName && (!!value.name || validation)}
-                    placeholder="如 filesystem、workspace_tools"
-                    onChange={(event) => patch({ name: event.target.value })}
-                  />
-                  {!persisted && (
-                    <FieldDescription>
-                      使用字母、数字、下划线或横线，保存后作为稳定身份。
-                    </FieldDescription>
+              <div className="model-section-head items-center">
+                <h3 id="mcp-connection-heading">连接配置</h3>
+                <div className="flex items-center gap-2">
+                  {busy === "test" && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8"
+                      onClick={cancelTest}
+                    >
+                      取消测试
+                    </Button>
                   )}
-                  {!validName && (!!value.name || validation) && (
-                    <FieldError>
-                      名称限 1–64 个字母、数字、下划线或横线。
-                    </FieldError>
-                  )}
-                </Field>
-                <Field>
-                  <FieldLabel htmlFor="mcp-description">
-                    用途（可选）
-                  </FieldLabel>
-                  <Input
-                    id="mcp-description"
-                    value={value.description}
-                    disabled={!!busy}
-                    onChange={(event) =>
-                      patch({ description: event.target.value })
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8"
+                    disabled={
+                      !!busy || saveUnknown || saveConflict || testBlocked
                     }
-                    placeholder="如读取项目资料和搜索文档"
-                  />
-                </Field>
-                <Field>
-                  <FieldLabel htmlFor="mcp-transport">连接方式</FieldLabel>
-                  <Select
-                    value={value.transport}
-                    disabled={!!busy}
-                    onValueChange={(transport: McpConfiguration["transport"]) =>
-                      patch({ transport })
-                    }
+                    onClick={() => void request("test")}
                   >
-                    <SelectTrigger id="mcp-transport">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        <SelectItem value="stdio">本地程序 · stdio</SelectItem>
-                        <SelectItem value="http">
-                          远程服务 · Streamable HTTP
-                        </SelectItem>
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                </Field>
+                    {busy === "test" ? (
+                      <Loader2
+                        data-icon="inline-start"
+                        className="animate-spin"
+                      />
+                    ) : (
+                      <PlugZap data-icon="inline-start" />
+                    )}
+                    {busy === "test" ? "正在测试…" : "测试连接"}
+                  </Button>
+                </div>
+              </div>
+              <FieldGroup className="gap-5">
+                <FieldGroup className="model-field-grid">
+                  <Field
+                    data-invalid={!validName && (!!value.name || validation)}
+                  >
+                    <FieldLabel htmlFor="mcp-name">服务名称</FieldLabel>
+                    <Input
+                      id="mcp-name"
+                      autoFocus
+                      value={value.name}
+                      disabled={!!busy || persisted}
+                      aria-invalid={!validName && (!!value.name || validation)}
+                      placeholder="如 filesystem、workspace_tools"
+                      onChange={(event) => patch({ name: event.target.value })}
+                    />
+                    {!persisted && (
+                      <FieldDescription>
+                        字母、数字、下划线或横线，保存后不可修改。
+                      </FieldDescription>
+                    )}
+                    {!validName && (!!value.name || validation) && (
+                      <FieldError>
+                        名称限 1–64 个字母、数字、下划线或横线。
+                      </FieldError>
+                    )}
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="mcp-transport">连接方式</FieldLabel>
+                    <Select
+                      value={value.transport}
+                      disabled={!!busy}
+                      onValueChange={(
+                        transport: McpConfiguration["transport"]
+                      ) => patch({ transport })}
+                    >
+                      <SelectTrigger id="mcp-transport">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          <SelectItem value="stdio">
+                            本地程序 · stdio
+                          </SelectItem>
+                          <SelectItem value="http">
+                            远程服务 · Streamable HTTP
+                          </SelectItem>
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <Field className="sm:col-span-2">
+                    <FieldLabel htmlFor="mcp-description">
+                      用途（可选）
+                    </FieldLabel>
+                    <Input
+                      id="mcp-description"
+                      value={value.description}
+                      disabled={!!busy}
+                      onChange={(event) =>
+                        patch({ description: event.target.value })
+                      }
+                      placeholder="如读取项目资料和搜索文档"
+                    />
+                  </Field>
+                </FieldGroup>
                 <McpTransportFields
                   value={value}
                   disabled={!!busy}
@@ -172,46 +208,11 @@ export function McpServerEditor({
                   onChange={patch}
                 />
               </FieldGroup>
-            </section>
-            <section
-              className="model-section"
-              aria-labelledby="mcp-test-heading"
-            >
-              <div className="model-section-head">
-                <div>
-                  <h3 id="mcp-test-heading">连接测试</h3>
-                  <p>检查协议与工具目录；测试不会执行工具。</p>
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-3">
-                <Button
-                  variant="outline"
-                  disabled={
-                    !!busy || saveUnknown || saveConflict || testBlocked
-                  }
-                  onClick={() => void request("test")}
-                >
-                  {busy === "test" ? (
-                    <Loader2
-                      data-icon="inline-start"
-                      className="animate-spin"
-                    />
-                  ) : (
-                    <PlugZap data-icon="inline-start" />
-                  )}
-                  {busy === "test" ? "正在测试…" : "测试连接"}
-                </Button>
-                {busy === "test" && (
-                  <Button variant="ghost" onClick={cancelTest}>
-                    取消测试
-                  </Button>
-                )}
-                {busy === "test" && waitingToLeave && (
-                  <p role="status" className="text-xs text-muted-foreground">
-                    请先取消连接测试，再返回服务目录。
-                  </p>
-                )}
-              </div>
+              {busy === "test" && waitingToLeave && (
+                <p role="status" className="text-xs text-muted-foreground">
+                  请先取消连接测试，再返回服务目录。
+                </p>
+              )}
               {testNotice && (
                 <OperationFeedback
                   title="测试已取消"
@@ -262,55 +263,57 @@ export function McpServerEditor({
               aria-labelledby="mcp-session-heading"
             >
               <div className="model-section-head">
-                <div>
-                  <h3 id="mcp-session-heading">会话提供</h3>
-                  <p>会话配置决定本次调用哪些工具；未选中的工具无法调用。</p>
-                </div>
+                <h3 id="mcp-session-heading">会话提供</h3>
               </div>
-              <FieldGroup>
-                <Field>
-                  <FieldLabel htmlFor="mcp-exposure">工具提供方式</FieldLabel>
-                  <Select
-                    value={value.exposure}
-                    disabled={!!busy}
-                    onValueChange={(exposure: McpConfiguration["exposure"]) =>
-                      patch({ exposure })
-                    }
-                  >
-                    <SelectTrigger id="mcp-exposure">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        <SelectItem value="codemode">
-                          按需组合调用（默认）
-                        </SelectItem>
-                        <SelectItem value="deferred">搜索后调用</SelectItem>
-                        <SelectItem value="direct">直接提供工具</SelectItem>
-                        <SelectItem value="hidden">隐藏所有工具</SelectItem>
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                </Field>
-                <Field data-invalid={!validTimeout}>
-                  <FieldLabel htmlFor="mcp-timeout">请求超时（秒）</FieldLabel>
-                  <Input
-                    id="mcp-timeout"
-                    type="number"
-                    min={1}
-                    max={120}
-                    value={Number.isFinite(value.timeout) ? value.timeout : ""}
-                    disabled={!!busy}
-                    aria-invalid={!validTimeout}
-                    onChange={(event) =>
-                      patch({ timeout: Number(event.target.value) })
-                    }
-                    className="max-w-40"
-                  />
-                  {!validTimeout && (
-                    <FieldError>请输入 1–120 之间的整数。</FieldError>
-                  )}
-                </Field>
+              <FieldGroup className="gap-5">
+                <FieldGroup className="model-field-grid">
+                  <Field>
+                    <FieldLabel htmlFor="mcp-exposure">工具提供方式</FieldLabel>
+                    <Select
+                      value={value.exposure}
+                      disabled={!!busy}
+                      onValueChange={(
+                        exposure: McpConfiguration["exposure"]
+                      ) => patch({ exposure })}
+                    >
+                      <SelectTrigger id="mcp-exposure">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          <SelectItem value="codemode">
+                            按需组合调用（默认）
+                          </SelectItem>
+                          <SelectItem value="deferred">搜索后调用</SelectItem>
+                          <SelectItem value="direct">直接提供工具</SelectItem>
+                          <SelectItem value="hidden">隐藏所有工具</SelectItem>
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <Field data-invalid={!validTimeout}>
+                    <FieldLabel htmlFor="mcp-timeout">
+                      请求超时（秒）
+                    </FieldLabel>
+                    <Input
+                      id="mcp-timeout"
+                      type="number"
+                      min={1}
+                      max={120}
+                      value={
+                        Number.isFinite(value.timeout) ? value.timeout : ""
+                      }
+                      disabled={!!busy}
+                      aria-invalid={!validTimeout}
+                      onChange={(event) =>
+                        patch({ timeout: Number(event.target.value) })
+                      }
+                    />
+                    {!validTimeout && (
+                      <FieldError>请输入 1–120 之间的整数。</FieldError>
+                    )}
+                  </Field>
+                </FieldGroup>
                 <Field orientation="horizontal">
                   <FieldLabel htmlFor="mcp-enabled">启用服务</FieldLabel>
                   <Switch
@@ -374,48 +377,54 @@ export function McpServerEditor({
         </div>
       )}
       <footer className="model-footer">
-        <p role={busy === "save" || busy === "check" ? "status" : undefined}>
-          {busy === "save"
-            ? waitingToLeave
-              ? "正在保存，请等待结果后离开。"
-              : "正在保存服务配置，请稍候…"
-            : busy === "check"
-              ? "正在读取原保存回执，不会重复提交。"
-              : saveUnknown
-                ? "原保存结果仍待核对，当前草稿已保留。"
-                : dirty
-                  ? "有未保存的修改。"
-                  : "保存后在会话配置中选择工具；当前运行继续使用本轮配置。"}
-        </p>
-        <div>
-          <Button
-            variant="outline"
-            disabled={!!busy}
-            onClick={() => leave(onClose)}
-          >
-            取消
-          </Button>
-          <Button
-            disabled={
-              !!busy ||
-              saveUnknown ||
-              saveConflict ||
-              saveBlocked ||
-              !validName ||
-              !validTimeout ||
-              !dirty
-            }
-            onClick={() => void request("save")}
-          >
-            {(busy === "save" || busy === "check") && (
-              <Loader2 data-icon="inline-start" className="animate-spin" />
-            )}
+        <div className="model-footer-inner">
+          <p role={busy === "save" || busy === "check" ? "status" : undefined}>
             {busy === "save"
-              ? "正在保存…"
+              ? waitingToLeave
+                ? "正在保存，请等待结果后离开。"
+                : "正在保存服务配置，请稍候…"
               : busy === "check"
-                ? "正在核对…"
-                : "保存服务"}
-          </Button>
+                ? "正在读取原保存回执，不会重复提交。"
+                : saveUnknown
+                  ? "原保存结果仍待核对，当前草稿已保留。"
+                  : dirty
+                    ? "有未保存的修改。"
+                    : "尚无未保存的修改。"}
+          </p>
+          <div className="model-footer-actions">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8"
+              disabled={!!busy}
+              onClick={() => leave(onClose)}
+            >
+              取消
+            </Button>
+            <Button
+              size="sm"
+              className="h-8"
+              disabled={
+                !!busy ||
+                saveUnknown ||
+                saveConflict ||
+                saveBlocked ||
+                !validName ||
+                !validTimeout ||
+                !dirty
+              }
+              onClick={() => void request("save")}
+            >
+              {(busy === "save" || busy === "check") && (
+                <Loader2 data-icon="inline-start" className="animate-spin" />
+              )}
+              {busy === "save"
+                ? "正在保存…"
+                : busy === "check"
+                  ? "正在核对…"
+                  : "保存服务"}
+            </Button>
+          </div>
         </div>
       </footer>
       <SettingsConfirmDialog

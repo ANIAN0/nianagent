@@ -74,7 +74,7 @@ export function McpVariableFields({
         </Button>
       </div>
       <FieldDescription>
-        支持字面值和 ${"{ENV_NAME}"}；环境变量由 Moon 宿主读取。
+        支持字面值和 ${"{ENV_NAME}"}；环境变量由 moon 宿主读取。
       </FieldDescription>
     </Field>
   )

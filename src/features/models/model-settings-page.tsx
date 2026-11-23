@@ -24,7 +24,6 @@ import {
   writeIsUnknown,
 } from "@/lib/operations/settings-write-recovery"
 import {
-  blankConnection,
   credentialLabel,
   type ModelConnection,
   type ModelService,
@@ -348,6 +347,10 @@ export function ModelSettingsContent({
             service={service}
             registerLeave={storeGuard}
             onClose={() => closeEditor()}
+            onReload={() => {
+              closeEditor()
+              load()
+            }}
             onAccountSaved={(saved) =>
               publish(
                 connections.some((item) => item.id === saved.id)
@@ -454,9 +457,9 @@ export function ModelSettingsContent({
       <AddConnectionDialog
         open={adding}
         onClose={() => setAdding(false)}
-        onChoose={(kind) => {
+        onChoose={(connection) => {
           setAdding(false)
-          edit(blankConnection(kind))
+          edit(connection)
         }}
       />
       <SettingsConfirmDialog

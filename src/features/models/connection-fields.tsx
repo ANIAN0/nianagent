@@ -1,3 +1,11 @@
+import { useState } from "react"
+import { ChevronDown } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import {
@@ -37,6 +45,11 @@ export function ConnectionFields({
   onChange: (patch: Partial<ModelConnection>) => void
   onClearKey: (apply: () => void) => void
 }) {
+  const hasCustomHeaders =
+    !!value.headers.trim() && value.headers.trim() !== "{}"
+  const [advancedOpen, setAdvancedOpen] = useState(hasCustomHeaders)
+  const headersOpen = advancedOpen || !!errors.headers
+
   return (
     <FieldGroup className="gap-5">
       <FieldGroup className="model-field-grid">
@@ -113,10 +126,11 @@ export function ConnectionFields({
           </Field>
         )}
         {value.kind === "api" && (
-          <Field data-invalid={!!errors.endpoint}>
-            <FieldLabel htmlFor="connection-endpoint">
-              服务端点（可选）
-            </FieldLabel>
+          <Field
+            data-invalid={!!errors.endpoint}
+            className="sm:col-span-2"
+          >
+            <FieldLabel htmlFor="connection-endpoint">服务端点</FieldLabel>
             <Input
               id="connection-endpoint"
               value={value.endpoint}
@@ -125,7 +139,6 @@ export function ConnectionFields({
               aria-invalid={!!errors.endpoint}
               onChange={(e) => onChange({ endpoint: e.target.value })}
             />
-            <FieldDescription>可留空保存；测试连接前需填写。</FieldDescription>
             {errors.endpoint && <FieldError>{errors.endpoint}</FieldError>}
           </Field>
         )}
@@ -143,24 +156,47 @@ export function ConnectionFields({
               onReloadConnection,
             }}
           />
-          <Field data-invalid={!!errors.headers}>
-            <FieldLabel htmlFor="connection-headers">自定义请求头</FieldLabel>
-            <Textarea
-              id="connection-headers"
-              rows={4}
-              value={value.headers}
-              disabled={disabled}
-              aria-invalid={!!errors.headers}
-              onChange={(e) => onChange({ headers: e.target.value })}
-            />
-            {errors.headers ? (
-              <FieldError>{errors.headers}</FieldError>
-            ) : (
-              <FieldDescription>
-                填写键和值均为字符串的 JSON 对象。
-              </FieldDescription>
-            )}
-          </Field>
+          <Collapsible open={headersOpen} onOpenChange={setAdvancedOpen}>
+            <CollapsibleTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="-ml-2 h-8 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+              >
+                <ChevronDown
+                  className={
+                    headersOpen
+                      ? "size-3.5 transition-transform"
+                      : "size-3.5 -rotate-90 transition-transform"
+                  }
+                />
+                高级设置（自定义请求头）
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="pt-3">
+              <Field data-invalid={!!errors.headers}>
+                <FieldLabel htmlFor="connection-headers">
+                  自定义请求头
+                </FieldLabel>
+                <Textarea
+                  id="connection-headers"
+                  rows={3}
+                  value={value.headers}
+                  disabled={disabled}
+                  aria-invalid={!!errors.headers}
+                  onChange={(e) => onChange({ headers: e.target.value })}
+                />
+                {errors.headers ? (
+                  <FieldError>{errors.headers}</FieldError>
+                ) : (
+                  <FieldDescription>
+                    键和值均为字符串的 JSON 对象。
+                  </FieldDescription>
+                )}
+              </Field>
+            </CollapsibleContent>
+          </Collapsible>
         </>
       )}
     </FieldGroup>

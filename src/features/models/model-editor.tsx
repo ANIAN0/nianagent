@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from "react"
+import { ChevronDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 import {
   Field,
   FieldGroup,
@@ -47,11 +53,25 @@ export function ModelEditor({
   onSave: (value: ModelDefinition) => void
   onClose: () => void
 }) {
-  const [draft, setDraft] = useState(initial)
+  const [draft, setDraft] = useState<ModelDefinition>(() =>
+    originalId
+      ? initial
+      : {
+          ...initial,
+          reasoning: initial.reasoning ?? false,
+          input: initial.input.length ? initial.input : ["text"],
+          contextWindow: initial.contextWindow ?? 128000,
+          maxTokens: initial.maxTokens ?? 8192,
+        }
+  )
   const [attempted, setAttempted] = useState(false)
   const [confirm, setConfirm] = useState(false)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   const form = useRef<HTMLFormElement>(null)
   const errors = attempted ? modelErrors(draft, existing, originalId) : {}
+  const hasAdvancedError = Boolean(
+    errors.input || errors.contextWindow || errors.maxTokens
+  )
   const dirty = JSON.stringify(initial) !== JSON.stringify(draft)
   useEffect(() => {
     if (!dirty) return
@@ -67,7 +87,11 @@ export function ModelEditor({
   const close = () => (dirty ? setConfirm(true) : onClose())
   function submit() {
     setAttempted(true)
-    if (Object.keys(modelErrors(draft, existing, originalId)).length) {
+    const nextErrors = modelErrors(draft, existing, originalId)
+    if (Object.keys(nextErrors).length) {
+      if (nextErrors.input || nextErrors.contextWindow || nextErrors.maxTokens) {
+        setAdvancedOpen(true)
+      }
       requestAnimationFrame(() =>
         form.current
           ?.querySelector<HTMLElement>(
@@ -273,55 +297,81 @@ export function ModelEditor({
                   </FieldDescription>
                 </FieldSet>
               )}
-              <FieldSet data-invalid={!!errors.input}>
-                <FieldLegend variant="label">输入能力</FieldLegend>
-                <div className="model-radio">
-                  {(["text", "image"] as const).map((kind) => (
-                    <label key={kind}>
-                      <Checkbox
-                        checked={draft.input.includes(kind)}
-                        onCheckedChange={(checked) =>
-                          change({
-                            input: checked
-                              ? [...draft.input, kind]
-                              : draft.input.filter((value) => value !== kind),
-                          })
-                        }
-                      />
-                      {kind === "text" ? "文本" : "图像"}
-                    </label>
-                  ))}
-                </div>
-                {errors.input && <FieldError>{errors.input}</FieldError>}
-              </FieldSet>
-              <FieldGroup className="model-field-grid">
-                {(
-                  [
-                    ["contextWindow", "上下文上限（tokens）"],
-                    ["maxTokens", "最大输出（tokens）"],
-                  ] as const
-                ).map(([key, label]) => (
-                  <Field key={key} data-invalid={!!errors[key]}>
-                    <FieldLabel htmlFor={`model-${key}`}>{label}</FieldLabel>
-                    <Input
-                      id={`model-${key}`}
-                      type="number"
-                      min={1}
-                      step={1}
-                      value={draft[key] ?? ""}
-                      aria-invalid={!!errors[key]}
-                      onChange={(e) =>
-                        change({
-                          [key]: e.target.value
-                            ? Number(e.target.value)
-                            : undefined,
-                        })
-                      }
+              <Collapsible
+                open={advancedOpen || hasAdvancedError}
+                onOpenChange={setAdvancedOpen}
+              >
+                <CollapsibleTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="-ml-2 gap-1.5 text-muted-foreground"
+                  >
+                    <ChevronDown
+                      className={`size-4 transition-transform ${advancedOpen || hasAdvancedError ? "rotate-180" : ""}`}
                     />
-                    {errors[key] && <FieldError>{errors[key]}</FieldError>}
-                  </Field>
-                ))}
-              </FieldGroup>
+                    高级参数（默认 128K 上下文 / 8K 输出）
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="flex flex-col gap-4 pt-3">
+                  <FieldSet data-invalid={!!errors.input}>
+                    <FieldLegend variant="label">输入能力</FieldLegend>
+                    <div className="model-radio">
+                      {(["text", "image"] as const).map((kind) => (
+                        <label key={kind}>
+                          <Checkbox
+                            checked={draft.input.includes(kind)}
+                            onCheckedChange={(checked) =>
+                              change({
+                                input: checked
+                                  ? [...draft.input, kind]
+                                  : draft.input.filter(
+                                      (value) => value !== kind
+                                    ),
+                              })
+                            }
+                          />
+                          {kind === "text" ? "文本" : "图像"}
+                        </label>
+                      ))}
+                    </div>
+                    {errors.input && <FieldError>{errors.input}</FieldError>}
+                  </FieldSet>
+                  <FieldGroup className="model-field-grid">
+                    {(
+                      [
+                        ["contextWindow", "上下文上限（tokens）"],
+                        ["maxTokens", "最大输出（tokens）"],
+                      ] as const
+                    ).map(([key, label]) => (
+                      <Field key={key} data-invalid={!!errors[key]}>
+                        <FieldLabel htmlFor={`model-${key}`}>
+                          {label}
+                        </FieldLabel>
+                        <Input
+                          id={`model-${key}`}
+                          type="number"
+                          min={1}
+                          step={1}
+                          value={draft[key] ?? ""}
+                          aria-invalid={!!errors[key]}
+                          onChange={(e) =>
+                            change({
+                              [key]: e.target.value
+                                ? Number(e.target.value)
+                                : undefined,
+                            })
+                          }
+                        />
+                        {errors[key] && (
+                          <FieldError>{errors[key]}</FieldError>
+                        )}
+                      </Field>
+                    ))}
+                  </FieldGroup>
+                </CollapsibleContent>
+              </Collapsible>
             </FieldGroup>
           </form>
           <DialogFooter>

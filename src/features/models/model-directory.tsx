@@ -1,136 +1,219 @@
-import { useState } from "react"
+import { useState, type ReactNode } from "react"
+import { Ellipsis, Pencil, Plus, Search, Trash2, X } from "lucide-react"
 import { OperationFeedback } from "@/components/feedback/operation-feedback"
 import { RecoveryAction } from "@/components/feedback/recovery-action"
-import type { ModelCheckState } from "./use-connection-editor"
-import { Ellipsis, Pencil, Search, Trash2 } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
-  Empty,
-  EmptyHeader,
-  EmptyTitle,
-  EmptyDescription,
-} from "@/components/ui/empty"
-import {
-  Table,
-  TableHeader,
-  TableBody,
-  TableHead,
-  TableRow,
-  TableCell,
-} from "@/components/ui/table"
-import {
   DropdownMenu,
-  DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { SettingsPagination } from "./settings-pagination"
+import {
+  Empty,
+  EmptyContent,
+  EmptyHeader,
+  EmptyTitle,
+} from "@/components/ui/empty"
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from "@/components/ui/input-group"
+import { DataTablePagination } from "@/components/ui/pagination"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableCellText,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import type { ModelCheckState } from "./use-connection-editor"
 import type { ModelDefinition } from "./model-types"
 import { thinkingLevels, thinkingNames } from "./model-types"
+
+function formatReasoning(model: ModelDefinition) {
+  if (model.reasoning === undefined) return "待确认"
+  if (!model.reasoning) return "—"
+  const levels = thinkingLevels(model)
+  return levels.length
+    ? levels.map((level) => thinkingNames[level]).join(" / ")
+    : "支持"
+}
+
+function formatInput(model: ModelDefinition) {
+  return model.input
+    .map((value) => (value === "text" ? "文本" : "图像"))
+    .join("、")
+}
+
+function formatMetadataTooltip(model: ModelDefinition) {
+  if (!model.metadata) return undefined
+  const base =
+    model.metadata.status === "unknown"
+      ? "Pi 目录未匹配，请手动补全"
+      : `Pi 目录匹配 · ${model.metadata.sources.length} 个来源`
+  if (!model.metadata.conflicts.length) return base
+  const conflictLabels = model.metadata.conflicts.map(
+    (field) =>
+      ({
+        contextWindow: "上下文长度",
+        maxTokens: "输出上限",
+        reasoning: "思考能力",
+        input: "输入类型",
+        "compat.supportsDeveloperRole": "系统说明角色",
+      })[field] ?? (field.startsWith("thinkingLevelMap") ? "思考等级" : field)
+  )
+  return `${base}；待确认：${conflictLabels.join("、")}`
+}
 
 export type ModelDirectoryProps = {
   readOnly?: boolean
   models: ModelDefinition[]
   busy?: boolean
   checks?: Record<string, ModelCheckState>
+  toolbarAction?: ReactNode
   onEdit: (model: ModelDefinition) => void
   onRemove: (model: ModelDefinition) => void
   onCheck: (model: ModelDefinition) => void
   onConfigureConnection?: () => void
 }
+
 export function ModelDirectory({
   readOnly,
   models,
   busy,
   checks = {},
+  toolbarAction,
   onEdit,
   onRemove,
   onCheck,
   onConfigureConnection,
 }: ModelDirectoryProps) {
+  const issueEntries = models
+    .map((model) => ({ model, issue: checks[model.id]?.issue }))
+    .filter(
+      (
+        entry
+      ): entry is {
+        model: ModelDefinition
+        issue: NonNullable<ModelCheckState["issue"]>
+      } => !!entry.issue
+    )
+
   return (
-    <ModelTable
-      models={models}
-      label="模型"
-      empty="此连接还没有模型"
-      description="先测试连接发现模型，或手工添加。空连接也可保存。"
-      status={(model) =>
-        checks[model.id]?.issue ? (
-          <OperationFeedback
-            title="模型检查未完成"
-            {...checks[model.id].issue!}
-            actions={
-              <RecoveryAction
-                issue={checks[model.id].issue!}
-                onRetry={() => onCheck(model)}
-                onSettings={onConfigureConnection}
-                disabled={busy}
-                labels={{ retry: "重新检查", settings: "检查连接配置" }}
-              />
-            }
-          />
-        ) : (
-          checks[model.id] && (
-            <span
-              role={checks[model.id].error ? "alert" : "status"}
-              className={
-                checks[model.id].error
-                  ? "model-secondary text-destructive"
-                  : "model-secondary"
-              }
-            >
-              {checks[model.id].text}
-            </span>
-          )
-        )
-      }
-      actions={(model) => (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              size="icon-sm"
-              variant="ghost"
+    <div className="flex flex-col gap-3">
+      {issueEntries.map(({ model, issue }) => (
+        <OperationFeedback
+          key={model.id}
+          title={`${model.name} 检查未完成`}
+          {...issue}
+          actions={
+            <RecoveryAction
+              issue={issue}
+              onRetry={() => onCheck(model)}
+              onSettings={onConfigureConnection}
               disabled={busy}
-              aria-label={`${model.name} 的操作`}
-            >
-              <Ellipsis />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuGroup>
-              <DropdownMenuItem
-                disabled={readOnly}
-                onSelect={() => onEdit(model)}
+              labels={{ retry: "重新检查", settings: "检查连接配置" }}
+            />
+          }
+        />
+      ))}
+      <ModelTable
+        models={models}
+        label="模型"
+        itemLabel="个模型"
+        emptyTitle="此连接还没有模型"
+        toolbarAction={toolbarAction}
+        statusHeader="状态"
+        renderStatus={(model) => {
+          const check = checks[model.id]
+          if (check?.issue) {
+            return (
+              <Badge variant="destructive" title={check.issue.message}>
+                检查失败
+              </Badge>
+            )
+          }
+          if (check) {
+            return (
+              <Badge
+                variant={check.error ? "destructive" : "secondary"}
+                title={check.text}
               >
-                <Pencil />
-                编辑模型
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => onCheck(model)}>
-                <Search />
-                {checks[model.id]?.issue?.code === "result_unknown"
-                  ? "发起新检查"
-                  : "检查可用性"}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                variant="destructive"
-                onSelect={() => onRemove(model)}
+                {check.text}
+              </Badge>
+            )
+          }
+          if (model.metadata?.status === "unknown") {
+            return (
+              <Badge variant="outline" title={formatMetadataTooltip(model)}>
+                待补全
+              </Badge>
+            )
+          }
+          if (model.metadata?.conflicts.length) {
+            return (
+              <Badge variant="outline" title={formatMetadataTooltip(model)}>
+                待确认
+              </Badge>
+            )
+          }
+          return <span className="text-muted-foreground">—</span>
+        }}
+        renderActions={(model) => (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                size="icon-sm"
+                variant="ghost"
+                className="size-8"
+                disabled={busy}
+                aria-label={`${model.name} 的操作`}
               >
-                <Trash2 />
-                移除模型
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
-    />
+                <Ellipsis />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuGroup>
+                <DropdownMenuItem
+                  disabled={readOnly}
+                  onSelect={() => onEdit(model)}
+                >
+                  <Pencil />
+                  编辑模型
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => onCheck(model)}>
+                  <Search />
+                  {checks[model.id]?.issue?.code === "result_unknown"
+                    ? "发起新检查"
+                    : "检查可用性"}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  variant="destructive"
+                  onSelect={() => onRemove(model)}
+                >
+                  <Trash2 />
+                  移除模型
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      />
+    </div>
   )
 }
+
 export function DiscoveredModels({
   models,
   existing,
@@ -143,24 +226,65 @@ export function DiscoveredModels({
   onAdd: (models: ModelDefinition[]) => void
 }) {
   const [selected, setSelected] = useState<string[]>([])
-  const addable = selected.filter(
-    (id) => !existing.some((model) => model.id === id)
-  )
+  const existingIds = new Set(existing.map((model) => model.id))
+  const addable = selected.filter((id) => !existingIds.has(id))
+
   return (
-    <>
-      <ModelTable
-        models={models}
-        label="候选模型"
-        empty="没有发现模型"
-        description="可以手工添加服务支持的模型。"
-        selection={(model) => (
+    <ModelTable
+      models={models}
+      label="候选模型"
+      itemLabel="个候选模型"
+      emptyTitle="没有发现模型"
+      toolbarAction={
+        <Button
+          type="button"
+          size="sm"
+          className="h-8"
+          disabled={busy || !addable.length}
+          onClick={() => {
+            onAdd(models.filter((model) => addable.includes(model.id)))
+            setSelected([])
+          }}
+        >
+          <Plus data-icon="inline-start" />
+          加入选中模型{addable.length ? `（${addable.length}）` : ""}
+        </Button>
+      }
+      renderHeaderSelection={(pageItems) => {
+        const selectable = pageItems.filter(
+          (model) => !existingIds.has(model.id)
+        )
+        const selectedCount = selectable.filter((model) =>
+          selected.includes(model.id)
+        ).length
+        const allSelected =
+          selectable.length > 0 && selectedCount === selectable.length
+        const someSelected =
+          selectedCount > 0 && selectedCount < selectable.length
+
+        return (
+          <Checkbox
+            aria-label="全选当前页候选模型"
+            disabled={busy || selectable.length === 0}
+            checked={allSelected || (someSelected && "indeterminate")}
+            onCheckedChange={(checked) => {
+              const ids = selectable.map((model) => model.id)
+              setSelected((values) =>
+                checked
+                  ? [...new Set([...values, ...ids])]
+                  : values.filter((value) => !ids.includes(value))
+              )
+            }}
+          />
+        )
+      }}
+      renderRowSelection={(model) => {
+        const alreadyAdded = existingIds.has(model.id)
+        return (
           <Checkbox
             aria-label={`选择 ${model.name}`}
-            disabled={busy || existing.some((item) => item.id === model.id)}
-            checked={
-              existing.some((item) => item.id === model.id) ||
-              selected.includes(model.id)
-            }
+            disabled={busy || alreadyAdded}
+            checked={alreadyAdded || selected.includes(model.id)}
             onCheckedChange={(checked) =>
               setSelected((values) =>
                 checked
@@ -169,183 +293,240 @@ export function DiscoveredModels({
               )
             }
           />
-        )}
-        actions={(model) => (
-          <span className="text-xs text-muted-foreground">
-            {existing.some((item) => item.id === model.id)
-              ? "已加入"
-              : selected.includes(model.id)
-                ? "待加入"
-                : "可加入"}
-          </span>
-        )}
-      />
-      <div>
-        <Button
-          type="button"
-          variant="outline"
-          disabled={busy || !addable.length}
-          onClick={() => {
-            onAdd(models.filter((model) => addable.includes(model.id)))
-            setSelected([])
-          }}
-        >
-          加入选中模型{addable.length ? `（${addable.length}）` : ""}
-        </Button>
-      </div>
-    </>
+        )
+      }}
+      statusHeader="状态"
+      renderStatus={(model) =>
+        existingIds.has(model.id) ? (
+          <Badge variant="secondary">已加入</Badge>
+        ) : selected.includes(model.id) ? (
+          <Badge variant="outline">待加入</Badge>
+        ) : (
+          <span className="text-muted-foreground">可加入</span>
+        )
+      }
+    />
   )
 }
-import type { ReactNode } from "react"
+
 function ModelTable({
   models,
   label,
-  empty,
-  description,
-  status,
-  selection,
-  actions,
+  itemLabel,
+  emptyTitle,
+  toolbarAction,
+  renderHeaderSelection,
+  renderRowSelection,
+  statusHeader,
+  renderStatus,
+  renderActions,
 }: {
   models: ModelDefinition[]
   label: string
-  empty: string
-  description: string
-  status?: (model: ModelDefinition) => ReactNode
-  selection?: (model: ModelDefinition) => ReactNode
-  actions: (model: ModelDefinition) => ReactNode
+  itemLabel: string
+  emptyTitle: string
+  toolbarAction?: ReactNode
+  renderHeaderSelection?: (pageItems: ModelDefinition[]) => ReactNode
+  renderRowSelection?: (model: ModelDefinition) => ReactNode
+  statusHeader?: string
+  renderStatus?: (model: ModelDefinition) => ReactNode
+  renderActions?: (model: ModelDefinition) => ReactNode
 }) {
   const [query, setQuery] = useState("")
   const [page, setPage] = useState(1)
   const [size, setSize] = useState(10)
-  const filtered = models.filter((model) =>
-    `${model.id} ${model.name}`
-      .toLowerCase()
-      .includes(query.trim().toLowerCase())
-  )
-  const currentPage = Math.min(
-    page,
-    Math.max(1, Math.ceil(filtered.length / size))
-  )
+
+  const term = query.trim().toLowerCase()
+  const filtered = term
+    ? models.filter((model) =>
+        `${model.id} ${model.name} ${model.api}`.toLowerCase().includes(term)
+      )
+    : models
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / size))
+  const currentPage = Math.min(page, totalPages)
+  const pageItems = filtered.slice((currentPage - 1) * size, currentPage * size)
+
   return (
-    <>
-      {models.length > 0 && (
-        <div className="model-toolbar model-toolbar-plain">
-          <Input
-            aria-label={`搜索${label}`}
-            placeholder="搜索模型名称或 ID"
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value)
-              setPage(1)
-            }}
-          />
-          <span>
-            {filtered.length} / {models.length} 个{label}
-          </span>
+    <div className="flex flex-col gap-3">
+      {(models.length > 0 || toolbarAction) && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {models.length > 0 ? (
+            <InputGroup className="h-8 w-full max-w-xs">
+              <InputGroupAddon>
+                <Search className="size-3.5" />
+              </InputGroupAddon>
+              <InputGroupInput
+                aria-label={`搜索${label}`}
+                placeholder="按名称、ID 或接口筛选"
+                value={query}
+                onChange={(event) => {
+                  setQuery(event.target.value)
+                  setPage(1)
+                }}
+              />
+              {query && (
+                <InputGroupAddon align="inline-end">
+                  <InputGroupButton
+                    size="icon-xs"
+                    aria-label="清空筛选"
+                    onClick={() => {
+                      setQuery("")
+                      setPage(1)
+                    }}
+                  >
+                    <X />
+                  </InputGroupButton>
+                </InputGroupAddon>
+              )}
+            </InputGroup>
+          ) : (
+            <div />
+          )}
+          {toolbarAction}
         </div>
       )}
-      {filtered.length ? (
-        <div
-          className="model-table-frame"
-          role="region"
-          tabIndex={0}
-          aria-label={`${label}表格，可横向滚动`}
-        >
-          <Table className="model-table model-directory-table">
+
+      {pageItems.length > 0 ? (
+        <div className="overflow-hidden rounded-lg border border-border">
+          <Table variant="compact">
             <TableHeader>
-              <TableRow>
-                <TableHead>模型</TableHead>
-                <TableHead>接口与能力</TableHead>
-                <TableHead>上下文 / 输出</TableHead>
-                <TableHead>{selection ? "状态" : "操作"}</TableHead>
+              <TableRow className="bg-muted/40 hover:bg-muted/40">
+                {renderHeaderSelection && (
+                  <TableHead className="w-[40px]">
+                    {renderHeaderSelection(pageItems)}
+                  </TableHead>
+                )}
+                <TableHead className="min-w-[140px]">名称</TableHead>
+                <TableHead className="min-w-[160px]">模型 ID</TableHead>
+                <TableHead className="w-[140px]">接口</TableHead>
+                <TableHead className="w-[88px]">输入</TableHead>
+                <TableHead className="w-[120px]">推理</TableHead>
+                <TableHead className="w-[96px] text-right">上下文</TableHead>
+                <TableHead className="w-[92px] text-right">最大输出</TableHead>
+                {statusHeader && (
+                  <TableHead className="w-[104px]">{statusHeader}</TableHead>
+                )}
+                {renderActions && (
+                  <TableHead className="w-[60px] text-right">操作</TableHead>
+                )}
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered
-                .slice((currentPage - 1) * size, currentPage * size)
-                .map((model) => (
+              {pageItems.map((model) => {
+                const reasoningText = formatReasoning(model)
+                const inputText = formatInput(model)
+                return (
                   <TableRow key={model.id}>
-                    <TableCell>
-                      <div className="flex items-start gap-2.5">
-                        {selection?.(model)}
-                        <div className="min-w-0">
-                          <strong
-                            className="model-technical"
-                            title={model.name}
-                          >
-                            {model.name}
-                          </strong>
-                          <span className="model-secondary" title={model.id}>
-                            {model.id}
-                          </span>
-                          {status?.(model)}
-                          {model.metadata && (
-                            <span
-                              className="model-secondary"
-                              title={model.metadata.sources.join("\n")}
-                            >
-                              {model.metadata.status === "unknown"
-                                ? "Pi 目录未匹配，请手动补全"
-                                : `Pi 目录匹配 · ${model.metadata.sources.length} 个来源`}
-                              {!!model.metadata.conflicts.length &&
-                                `；待确认：${model.metadata.conflicts.map((field) => ({ contextWindow: "上下文长度", maxTokens: "输出上限", reasoning: "思考能力", input: "输入类型", "compat.supportsDeveloperRole": "系统说明角色" })[field] ?? (field.startsWith("thinkingLevelMap") ? "思考等级" : field)).join("、")}`}
-                            </span>
-                          )}
-                        </div>
-                      </div>
+                    {renderRowSelection && (
+                      <TableCell className="align-middle">
+                        {renderRowSelection(model)}
+                      </TableCell>
+                    )}
+                    <TableCell className="max-w-[200px] align-middle font-medium text-foreground">
+                      <TableCellText text={model.name} />
                     </TableCell>
-                    <TableCell>
-                      <span className="model-technical">{model.api}</span>
-                      <span className="model-secondary">
-                        {model.reasoning === undefined
-                          ? "思考能力待确认"
-                          : model.reasoning
-                            ? "推理"
-                            : "无推理"}{" "}
-                        ·{" "}
-                        {model.input
-                          .map((value) => (value === "text" ? "文本" : "图像"))
-                          .join("、")}
-                      </span>
-                      {model.reasoning && (
-                        <span className="model-secondary">
-                          思考等级：
-                          {thinkingLevels(model)
-                            .map((level) => thinkingNames[level])
-                            .join(" / ") || "待确认"}
-                        </span>
+                    <TableCell
+                      variant="secondary"
+                      className="max-w-[240px] align-middle font-mono"
+                    >
+                      <TableCellText text={model.id} />
+                    </TableCell>
+                    <TableCell className="align-middle whitespace-nowrap">
+                      {model.api ? (
+                        <Badge
+                          variant="outline"
+                          className="px-1.5 font-mono text-[11px] font-normal text-muted-foreground"
+                        >
+                          {model.api}
+                        </Badge>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
                       )}
                     </TableCell>
-                    <TableCell>
-                      {model.contextWindow?.toLocaleString() ?? "待补全"} /{" "}
+                    <TableCell
+                      variant="secondary"
+                      className="max-w-[100px] align-middle"
+                    >
+                      <TableCellText text={inputText} />
+                    </TableCell>
+                    <TableCell
+                      variant="secondary"
+                      className="max-w-[140px] align-middle"
+                    >
+                      <TableCellText text={reasoningText} />
+                    </TableCell>
+                    <TableCell
+                      variant="secondary"
+                      className="text-right align-middle whitespace-nowrap tabular-nums"
+                    >
+                      {model.contextWindow?.toLocaleString() ?? "待补全"}
+                    </TableCell>
+                    <TableCell
+                      variant="secondary"
+                      className="text-right align-middle whitespace-nowrap tabular-nums"
+                    >
                       {model.maxTokens?.toLocaleString() ?? "待补全"}
                     </TableCell>
-                    <TableCell>{actions(model)}</TableCell>
+                    {renderStatus && (
+                      <TableCell className="align-middle whitespace-nowrap">
+                        {renderStatus(model)}
+                      </TableCell>
+                    )}
+                    {renderActions && (
+                      <TableCell className="text-right align-middle whitespace-nowrap">
+                        {renderActions(model)}
+                      </TableCell>
+                    )}
                   </TableRow>
-                ))}
+                )
+              })}
             </TableBody>
           </Table>
         </div>
-      ) : (
-        <Empty className="model-empty">
+      ) : models.length > 0 ? (
+        <Empty className="rounded-lg border border-border py-10">
           <EmptyHeader>
-            <EmptyTitle>{query ? `没有匹配的${label}` : empty}</EmptyTitle>
-            <EmptyDescription>
-              {query ? "请修改搜索词。" : description}
-            </EmptyDescription>
+            <EmptyTitle className="text-sm font-normal">
+              未找到匹配的{label}
+            </EmptyTitle>
+          </EmptyHeader>
+          <EmptyContent>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setQuery("")
+                setPage(1)
+              }}
+            >
+              清空筛选
+            </Button>
+          </EmptyContent>
+        </Empty>
+      ) : (
+        <Empty className="rounded-lg border border-border py-10">
+          <EmptyHeader>
+            <EmptyTitle className="text-sm font-normal">
+              {emptyTitle}
+            </EmptyTitle>
           </EmptyHeader>
         </Empty>
       )}
+
       {models.length > 0 && (
-        <SettingsPagination
-          total={filtered.length}
+        <DataTablePagination
+          total={models.length}
+          filteredTotal={filtered.length}
+          filtered={!!term}
           page={currentPage}
-          size={size}
-          onPage={setPage}
-          onSize={setSize}
-          label={label}
+          pageSize={size}
+          onPageChange={setPage}
+          onPageSizeChange={setSize}
+          itemLabel={itemLabel}
         />
       )}
-    </>
+    </div>
   )
 }

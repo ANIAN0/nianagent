@@ -39,11 +39,11 @@ export function useModelCatalog(onOpenSettings: () => void) {
           )
         )
           throw Object.assign(
-            new Error("模型服务版本不匹配，请重新启动 Moon。"),
+            new Error("模型服务版本不匹配，请重新启动 moon。"),
             {
               issue: {
                 code: "host_version",
-                summary: "模型服务版本不匹配，请重新启动 Moon。",
+                summary: "模型服务版本不匹配，请重新启动 moon。",
                 recovery: "restart",
                 severity: "error",
               },

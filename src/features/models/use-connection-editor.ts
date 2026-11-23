@@ -30,6 +30,7 @@ import {
 } from "@/lib/operations/settings-write-recovery"
 import type { ConnectionEditorProps } from "./connection-editor"
 import type { LeaveGuard } from "@/lib/navigation/leave-guard"
+import { recommendedModel } from "./connection-presets"
 
 export type ModelCheckState = {
   text: string
@@ -348,7 +349,6 @@ export function useConnectionEditor({
         }
       } else if (kind === "test") {
         setDiscoveryFailure(issue)
-        setResult("")
       } else if (kind === "account" || kind === "account-read") {
         if (
           kind === "account-read" ||
@@ -398,7 +398,7 @@ export function useConnectionEditor({
     setOauth(false)
     clearAccountUncertainty()
     setAccountFailure(issue)
-    if (active || issue) {
+    if (active || saved.account?.loggedIn || issue) {
       setDraft((value) =>
         preserveDraft
           ? mergeAccountSnapshot(value, saved)
@@ -476,7 +476,7 @@ export function useConnectionEditor({
             recovery: "restart",
             severity: "error",
             summary:
-              "当前桌面服务无法确认账号操作是否结束，请更新并重启 Moon。再次读取登录值不能确认原退出已停止。",
+              "当前桌面服务无法确认账号操作是否结束，请更新并重启 moon。再次读取登录值不能确认原退出已停止。",
           },
         }
       }
@@ -654,28 +654,54 @@ export function useConnectionEditor({
       signal.throwIfAborted()
       setChecks({})
       setCandidates(found)
+      const recommendation =
+        !active && !captured.models.length
+          ? recommendedModel(captured, found)
+          : undefined
+      if (recommendation && service.evidence !== "demo") {
+        setResult(
+          `已发现 ${found.length} 个候选模型，正在验证 ${recommendation.name}…`
+        )
+        try {
+          await service.check(captured, recommendation, signal)
+          signal.throwIfAborted()
+        } catch (error) {
+          if (!signal.aborted)
+            setResult(
+              `已发现 ${found.length} 个候选模型，推荐模型未能通过调用测试。`
+            )
+          throw error
+        }
+      }
       setDraft((current) => ({
         ...current,
-        models: current.models.map((model) => {
-          const candidate = found.find((item) => item.id === model.id)
-          if (!candidate) return model
-          return {
-            ...model,
-            reasoning: model.reasoning ?? candidate.reasoning,
-            contextWindow: model.contextWindow ?? candidate.contextWindow,
-            maxTokens: model.maxTokens ?? candidate.maxTokens,
-            thinkingLevelMap:
-              model.thinkingLevelMap ?? candidate.thinkingLevelMap,
-            metadata: candidate.metadata,
-          }
-        }),
+        models:
+          recommendation &&
+          service.evidence !== "demo" &&
+          !current.models.length
+            ? [recommendation]
+            : current.models.map((model) => {
+                const candidate = found.find((item) => item.id === model.id)
+                if (!candidate) return model
+                return {
+                  ...model,
+                  reasoning: model.reasoning ?? candidate.reasoning,
+                  contextWindow: model.contextWindow ?? candidate.contextWindow,
+                  maxTokens: model.maxTokens ?? candidate.maxTokens,
+                  thinkingLevelMap:
+                    model.thinkingLevelMap ?? candidate.thinkingLevelMap,
+                  metadata: candidate.metadata,
+                }
+              }),
       }))
       setResult(
         service.evidence === "demo"
           ? `示例目录返回 ${found.length} 个候选模型；未调用真实模型服务。`
           : draft.kind === "subscription"
             ? `已读取 Pi 目录中的 ${found.length} 个候选模型；请检查模型以验证账号调用权限。`
-            : `目录请求成功，发现 ${found.length} 个候选模型；请检查模型以验证推理调用。`
+            : recommendation
+              ? `已验证并添加 ${recommendation.name}。保存连接后可返回工作台发送。`
+              : `目录请求成功，发现 ${found.length} 个候选模型；请选择并检查模型。`
       )
     })
   }
