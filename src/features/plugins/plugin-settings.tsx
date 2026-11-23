@@ -4,9 +4,27 @@ import {
   useMemo,
   useRef,
   useState,
+  type ComponentType,
   type ReactNode,
 } from "react"
-import { ArrowLeft, ChevronRight } from "lucide-react"
+import {
+  ArrowLeft,
+  ChevronRight,
+  FileText,
+  FolderOpen,
+  Network,
+  NotebookPen,
+  Plus,
+  Puzzle,
+  ScrollText,
+  Search,
+  Smartphone,
+  Sparkles,
+  StickyNote,
+  Terminal,
+  X,
+} from "lucide-react"
+import { HoverHint } from "@/components/feedback/hover-hint"
 import type {
   PluginDescriptor,
   PluginPackageTask,
@@ -20,7 +38,6 @@ import { Badge } from "@/components/ui/badge"
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
 import { Field, FieldLabel, FieldDescription } from "@/components/ui/field"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Dialog,
   DialogContent,
@@ -35,14 +52,19 @@ import {
   EmptyTitle,
   EmptyDescription,
 } from "@/components/ui/empty"
-import { PageErrorBoundary } from "@/components/feedback/page-error-boundary"
-import {
-  ExtensionConfigurationFields,
-  readExtensionConfiguration,
-  extensionConfigurationErrors,
-} from "@/features/extensions/extension-configuration-fields"
 import { getPluginModule, usePluginRegistry } from "./plugin-web"
 import { pluginsChanged } from "./plugin-service"
+
+import { PluginDetail } from "./plugin-detail"
+import {
+  configurationReadable,
+  draftChanged,
+  pluginNormalizedStatus,
+  reconcileDrafts,
+  taskLabel,
+  TASK_ACTIVE_PHASES,
+  type ConfigurationDraft,
+} from "./plugin-settings-state"
 
 export type PluginManagementService = {
   list: (signal?: AbortSignal) => Promise<PluginDescriptor[]>
@@ -65,19 +87,25 @@ const managementService: PluginManagementService = {
   packageCancel: (id) => rpcCall("pluginPackageCancel", { id }),
   recover: () => rpcCall("pluginRecover", {}),
 }
-/** 包任务进行中：列表行以阶段替代常规状态，任务终态后回落。 */
-const TASK_ACTIVE_PHASES = ["running", "applying", "cancelling"]
-function taskLabel(task?: PluginPackageTask) {
-  if (!task || !TASK_ACTIVE_PHASES.includes(task.phase)) return ""
-  if (task.phase === "applying") return "正在应用…"
-  if (task.phase === "cancelling") return "正在取消…"
-  return task.action === "update" ? "正在更新…" : "正在安装…"
-}
 /** 状态筛选与 descriptor.state/installed 的映射；与列表状态点共用语义。 */
 type StatusFilter = "all" | "enabled" | "issue" | "pending"
+const SYSTEM_PLUGIN_IDS = new Set(["logs", "remote-access", "mcp-service"])
+const PLUGIN_ICONS: Record<string, ComponentType<{ className?: string }>> = {
+  "file-workbench": FileText,
+  filebrowser: FolderOpen,
+  memos: StickyNote,
+  "notes-workbench": NotebookPen,
+  "example-note": NotebookPen,
+  opencli: Terminal,
+  "skill-workbench": Sparkles,
+  logs: ScrollText,
+  "mcp-service": Network,
+  "remote-access": Smartphone,
+}
+const pluginIconFor = (id: string) => PLUGIN_ICONS[id] ?? Puzzle
 const statusFilters: { id: StatusFilter; label: string }[] = [
   { id: "all", label: "全部" },
-  { id: "enabled", label: "启用" },
+  { id: "enabled", label: "已启用" },
   { id: "issue", label: "异常" },
   { id: "pending", label: "待安装" },
 ]
@@ -96,19 +124,8 @@ const matchesQuery = (plugin: PluginDescriptor, query: string) => {
     plugin.tools.some((tool) => tool.name.toLowerCase().includes(text))
   )
 }
-function PluginStatusDot({ plugin }: { plugin: PluginDescriptor }) {
-  const label = plugin.installed ? pluginStatus(plugin) : "待安装"
-  return (
-    <span
-      className="plugin-status-dot"
-      data-state={plugin.installed ? plugin.state : "uninstalled"}
-      role="img"
-      aria-label={`状态：${label}`}
-    />
-  )
-}
 function renderBusinessPage(plugin: PluginDescriptor, pageId?: string) {
-  const module = getPluginModule(plugin.id)
+  const module = getPluginModule(plugin)
   const Page = module?.pages?.find(
     (page) => !pageId || page.id === pageId
   )?.component
@@ -119,542 +136,18 @@ function renderBusinessPage(plugin: PluginDescriptor, pageId?: string) {
   )
 }
 
-type ConfigurationDraft = ReturnType<typeof readExtensionConfiguration> & {
-  source: string
-  savedValue: string
-  savedSchema: string
-  conflict: boolean
-}
-function readConfigurationDraft(plugin: PluginDescriptor): ConfigurationDraft {
-  const saved = readExtensionConfiguration(
-    plugin.configurationSchema,
-    plugin.configuration
-  )
-  const savedValue = JSON.stringify(saved.configuration)
-  const savedSchema = JSON.stringify(saved.schema)
-  return {
-    ...saved,
-    source: JSON.stringify([savedSchema, savedValue]),
-    savedValue,
-    savedSchema,
-    conflict: false,
-  }
-}
-function reconcileDrafts(
-  plugins: PluginDescriptor[],
-  drafts: Record<string, ConfigurationDraft>
-) {
-  const next: Record<string, ConfigurationDraft> = {}
-  for (const plugin of plugins) {
-    const previous = drafts[plugin.id]
-    try {
-      const saved = readConfigurationDraft(plugin)
-      if (!previous) {
-        next[plugin.id] = saved
-        continue
-      }
-      if (previous.source === saved.source) {
-        next[plugin.id] = previous
-        continue
-      }
-      const draftValue = JSON.stringify(previous.configuration)
-      const clean = draftValue === previous.savedValue && !previous.conflict
-      const matches =
-        draftValue === saved.savedValue &&
-        previous.savedSchema === saved.savedSchema
-      next[plugin.id] =
-        clean || matches
-          ? saved
-          : { ...previous, source: saved.source, conflict: true }
-    } catch {
-      // A damaged descriptor must not discard an existing local draft.
-      if (previous) next[plugin.id] = previous
-    }
-  }
-  return next
-}
-function pluginStatus(plugin: PluginDescriptor) {
-  if (!plugin.installed) return "待安装"
-  if (plugin.state === "active") return plugin.businessState || "已启用"
-  if (plugin.state === "failed") return "异常"
-  if (plugin.state === "loading") return "正在启用"
-  if (plugin.state === "stopping") return "正在停用"
-  return "已停用"
-}
-function configurationReadable(plugin: PluginDescriptor) {
-  try {
-    readExtensionConfiguration(plugin.configurationSchema, plugin.configuration)
-    return true
-  } catch {
-    return false
-  }
-}
-function draftChanged(draft: ConfigurationDraft | undefined) {
-  return (
-    !!draft &&
-    (draft.conflict || JSON.stringify(draft.configuration) !== draft.savedValue)
-  )
-}
-
-type PluginDetailProps = {
-  plugin: PluginDescriptor
-  busy: boolean
-  draft?: ConfigurationDraft
-  task?: PluginPackageTask
-  onBack: () => void
-  onDraft: (draft: ConfigurationDraft) => void
-  onConfigure: (
-    plugin: PluginDescriptor,
-    enabled: boolean,
-    configuration: string
-  ) => void
-  onPackage: (id: string, action: "install" | "update" | "remove") => void
-  onCancelTask: (id: string) => void
-  onRemoveRequest: (plugin: PluginDescriptor) => void
-  renderPage: (plugin: PluginDescriptor, pageId?: string) => ReactNode
-  webError?: string
-}
-
-function ConfigurationEditor({
-  plugin,
-  busy,
-  draft,
-  onDraft,
-  onConfigure,
-}: Pick<
-  PluginDetailProps,
-  "plugin" | "busy" | "draft" | "onDraft" | "onConfigure"
->) {
-  let saved: ConfigurationDraft
-  try {
-    saved = readConfigurationDraft(plugin)
-  } catch {
-    return (
-      <Alert>
-        <AlertTitle>配置无法解析</AlertTitle>
-        <AlertDescription>
-          原配置已保留。可停用此插件，修复来源后重新读取。
-        </AlertDescription>
-      </Alert>
-    )
-  }
-  const configuration = draft || saved
-  const schemaChanged = configuration.savedSchema !== saved.savedSchema
-  const dirty =
-    JSON.stringify(configuration.configuration) !== saved.savedValue ||
-    schemaChanged
-  const errors = extensionConfigurationErrors(
-    configuration.schema,
-    configuration.configuration
-  )
-  const hasFields =
-    Object.keys(configuration.schema.properties || {}).length > 0
-  if (!hasFields && !configuration.conflict) return null
-  return (
-    <section
-      className="plugin-configuration rounded-xl border bg-card p-5"
-      aria-label="插件配置"
-    >
-      <h3 className="text-sm font-semibold">插件配置</h3>
-      {configuration.conflict && (
-        <Alert>
-          <AlertTitle>已保存配置发生变化，草稿已保留</AlertTitle>
-          <AlertDescription>
-            <p>
-              {schemaChanged
-                ? "配置结构已更新，请采用已保存配置后重新编辑。"
-                : "请选择采用已保存配置，或保留草稿并确认覆盖后再保存。"}
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                disabled={busy}
-                onClick={() => onDraft(saved)}
-              >
-                采用已保存配置
-              </Button>
-              {!schemaChanged && (
-                <Button
-                  variant="outline"
-                  disabled={busy}
-                  onClick={() =>
-                    onDraft({
-                      ...configuration,
-                      source: saved.source,
-                      savedValue: saved.savedValue,
-                      savedSchema: saved.savedSchema,
-                      conflict: false,
-                    })
-                  }
-                >
-                  保留草稿并确认覆盖
-                </Button>
-              )}
-            </div>
-          </AlertDescription>
-        </Alert>
-      )}
-      {hasFields && (
-        <>
-          <ExtensionConfigurationFields
-            id={plugin.id}
-            schema={configuration.schema}
-            values={configuration.configuration}
-            disabled={busy}
-            onChange={(value) =>
-              onDraft({ ...configuration, configuration: value })
-            }
-          />
-          {errors.map((error) => (
-            <p key={error} role="alert" className="text-sm text-destructive">
-              {error}
-            </p>
-          ))}
-          <div className="plugin-configuration-actions">
-            <Button
-              size="sm"
-              disabled={
-                busy || !dirty || !!errors.length || configuration.conflict
-              }
-              onClick={() =>
-                onConfigure(
-                  plugin,
-                  plugin.enabled,
-                  JSON.stringify(configuration.configuration)
-                )
-              }
-            >
-              保存配置
-            </Button>
-            {dirty && !configuration.conflict && (
-              <span role="status">有未保存的修改</span>
-            )}
-          </div>
-        </>
-      )}
-    </section>
-  )
-}
-
-function PluginDetail(props: PluginDetailProps) {
-  const {
-    plugin,
-    busy,
-    task,
-    onBack,
-    onConfigure,
-    onPackage,
-    onCancelTask,
-    onRemoveRequest,
-    renderPage,
-  } = props
-  const module = getPluginModule(plugin.id)
-  const pages = plugin.contributions.filter((item) => item.kind === "page")
-  const [activePage, setActivePage] = useState(pages[0]?.id ?? "")
-  const currentPageId = pages.some((p) => p.id === activePage)
-    ? activePage
-    : (pages[0]?.id ?? "")
-
-  return (
-    <article
-      id="plugin-detail"
-      className="plugin-detail"
-      aria-label={plugin.name}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <Button variant="ghost" size="sm" onClick={onBack}>
-          <ArrowLeft className="size-4" />
-          返回插件列表
-        </Button>
-      </div>
-      <header className="plugin-detail-header">
-        <div className="flex min-w-0 flex-col gap-1.5">
-          <div className="flex flex-wrap items-center gap-2.5">
-            <h1 className="text-lg font-semibold">{plugin.name}</h1>
-            <Badge
-              variant={plugin.state === "failed" ? "destructive" : "secondary"}
-            >
-              {taskLabel(task) || pluginStatus(plugin)}
-            </Badge>
-          </div>
-          {plugin.description && (
-            <p className="text-sm text-muted-foreground">
-              {plugin.description}
-            </p>
-          )}
-        </div>
-        <div className="flex items-center gap-3">
-          <Switch
-            aria-label={`启用${plugin.name}`}
-            checked={plugin.enabled}
-            disabled={
-              busy ||
-              taskLabel(task) !== "" ||
-              (!plugin.enabled &&
-                (!plugin.installed || !configurationReadable(plugin)))
-            }
-            onCheckedChange={(enabled) =>
-              onConfigure(plugin, enabled, plugin.configuration)
-            }
-          />
-        </div>
-      </header>
-      {plugin.error && (
-        <Alert>
-          <AlertTitle>插件需要处理</AlertTitle>
-          <AlertDescription>{plugin.error}</AlertDescription>
-        </Alert>
-      )}
-      {props.webError && (
-        <Alert>
-          <AlertTitle>插件界面未能加载</AlertTitle>
-          <AlertDescription>{props.webError}</AlertDescription>
-        </Alert>
-      )}
-      {plugin.integrityChanged && (
-        <Alert>
-          <AlertTitle>来源文件与导入时不一致</AlertTitle>
-          <AlertDescription>
-            插件来源在导入后被修改过；请自行核对该来源可信后再继续使用。
-          </AlertDescription>
-        </Alert>
-      )}
-      {pages.length > 0 && (
-        <section className="min-w-0" aria-label="插件工作区">
-          {plugin.state === "active" ? (
-            pages.length === 1 ? (
-              <PageErrorBoundary key={`${plugin.id}:${pages[0].id}`}>
-                {renderPage(plugin, pages[0].id)}
-              </PageErrorBoundary>
-            ) : (
-              <Tabs value={currentPageId} onValueChange={setActivePage}>
-                <TabsList>
-                  {pages.map((page) => (
-                    <TabsTrigger key={page.id} value={page.id}>
-                      {page.title}
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
-                {pages.map((page) => (
-                  <TabsContent key={page.id} value={page.id}>
-                    <PageErrorBoundary key={`${plugin.id}:${page.id}`}>
-                      {renderPage(plugin, page.id)}
-                    </PageErrorBoundary>
-                  </TabsContent>
-                ))}
-              </Tabs>
-            )
-          ) : (
-            <Empty className="border bg-card">
-              <EmptyHeader>
-                <EmptyTitle>插件当前未启用</EmptyTitle>
-                <EmptyDescription>
-                  开启右上角开关启用{plugin.name}后，即可在此查看与操作。
-                </EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          )}
-        </section>
-      )}
-      <PageErrorBoundary>
-        <ConfigurationEditor {...props} />
-      </PageErrorBoundary>
-      <details className="rounded-xl border bg-card px-5 py-4 text-sm">
-        <summary className="cursor-pointer font-medium text-foreground select-none">
-          影响范围与插件信息
-          <span className="ml-2 text-xs font-normal text-muted-foreground">
-            v{plugin.version} ·{" "}
-            {plugin.sourceKind === "bundled" ? "内置" : plugin.sourceKind}
-            {plugin.tools.length > 0 ? ` · ${plugin.tools.length} 个工具` : ""}
-          </span>
-        </summary>
-        <div className="mt-4 flex flex-col gap-5 border-t pt-4">
-          <div className="grid gap-x-6 gap-y-2.5 text-xs sm:grid-cols-[84px_minmax(0,1fr)]">
-            <span className="text-muted-foreground">版本与来源</span>
-            <span className="text-foreground">
-              v{plugin.version}（
-              {plugin.sourceKind === "bundled" ? "内置" : plugin.sourceKind}）
-            </span>
-            <span className="text-muted-foreground">所在路径</span>
-            <span className="font-mono break-all text-foreground">
-              {plugin.source}
-            </span>
-            {plugin.integrityChanged && (
-              <>
-                <span className="text-destructive">完整性</span>
-                <span className="text-destructive">
-                  来源文件与导入时不一致；请自行核对该来源后再继续使用。
-                </span>
-              </>
-            )}
-          </div>
-
-          {plugin.tools.length > 0 && (
-            <div className="flex flex-col gap-2">
-              <h4 className="text-xs font-medium text-muted-foreground">
-                提供工具（{plugin.tools.length}）
-              </h4>
-              <div className="flex flex-col gap-1.5">
-                {plugin.tools.map((tool) => (
-                  <div
-                    key={tool.id}
-                    className="flex flex-wrap items-center gap-2"
-                  >
-                    <Badge
-                      variant="outline"
-                      title={tool.id}
-                      className="font-normal"
-                    >
-                      {tool.name}
-                    </Badge>
-                    {plugin.state === "active" &&
-                      tool.available === false &&
-                      tool.unavailableReason && (
-                        <span className="plugin-tool-issue text-xs text-muted-foreground">
-                          {tool.unavailableReason}
-                        </span>
-                      )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {(plugin.contributions.length > 0 ||
-            !!plugin.registrations?.commands.length ||
-            !!plugin.registrations?.events.length ||
-            !!plugin.registrations?.providers.length) && (
-            <div className="flex flex-col gap-2">
-              <h4 className="text-xs font-medium text-muted-foreground">
-                扩展入口
-              </h4>
-              <div className="flex flex-wrap gap-1.5">
-                {plugin.contributions.map((item) => {
-                  const loaded =
-                    item.kind === "page"
-                      ? module?.pages?.some((value) => value.id === item.id)
-                      : item.kind === "session-tab"
-                        ? module?.tabs?.some((value) => value.id === item.id)
-                        : module?.deliveries?.some(
-                            (value) =>
-                              value.id === item.id &&
-                              value.version === item.version
-                          )
-                  const kindLabel = {
-                    page: "详情页",
-                    "session-tab": "右侧标签",
-                    delivery: "交付卡片",
-                  }[item.kind]
-                  return (
-                    <Badge
-                      key={`${item.kind}:${item.id}`}
-                      variant={loaded ? "secondary" : "outline"}
-                      className="font-normal"
-                    >
-                      {kindLabel} · {item.title}
-                      {!loaded ? "（未加载）" : ""}
-                    </Badge>
-                  )
-                })}
-                {plugin.registrations?.commands.map((name) => (
-                  <Badge
-                    key={`cmd:${name}`}
-                    variant="outline"
-                    className="font-mono font-normal"
-                  >
-                    /{name}
-                  </Badge>
-                ))}
-                {plugin.registrations?.events.map((name) => (
-                  <Badge
-                    key={`evt:${name}`}
-                    variant="outline"
-                    className="font-normal"
-                  >
-                    钩子：{name}
-                  </Badge>
-                ))}
-                {plugin.registrations?.providers.map((name) => (
-                  <Badge
-                    key={`prv:${name}`}
-                    variant="outline"
-                    className="font-normal"
-                  >
-                    模型：{name}
-                  </Badge>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="flex flex-col gap-1.5">
-            <h4 className="text-xs font-medium text-muted-foreground">
-              外部影响声明
-            </h4>
-            {plugin.effects?.length ? (
-              <ul className="list-disc space-y-1 pl-4 text-xs leading-5 text-foreground">
-                {plugin.effects.map((effect) => (
-                  <li key={effect}>{effect}</li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                作者未声明外部影响。
-              </p>
-            )}
-          </div>
-        </div>
-      </details>
-      {["local", "npm", "git"].includes(plugin.sourceKind) && (
-        <div className="plugin-package-actions">
-          {task && TASK_ACTIVE_PHASES.includes(task.phase) ? (
-            <Button
-              variant="outline"
-              disabled={busy}
-              onClick={() => onCancelTask(plugin.id)}
-            >
-              {task.phase === "cancelling" ? "正在取消…" : "取消任务"}
-            </Button>
-          ) : (
-            <>
-              {["npm", "git"].includes(plugin.sourceKind) && (
-                <Button
-                  variant="outline"
-                  disabled={busy}
-                  onClick={() =>
-                    onPackage(
-                      plugin.id,
-                      plugin.installed ? "update" : "install"
-                    )
-                  }
-                >
-                  {plugin.installed ? "更新插件" : "安装插件"}
-                </Button>
-              )}
-              <Button
-                variant="ghost"
-                disabled={busy}
-                onClick={() => onRemoveRequest(plugin)}
-              >
-                移除导入
-              </Button>
-            </>
-          )}
-        </div>
-      )}
-    </article>
-  )
-}
-
 export function PluginWorkbench({
   service = managementService,
   renderPage = renderBusinessPage,
   active = false,
+  onReturn,
 }: {
   service?: PluginManagementService
   renderPage?: (plugin: PluginDescriptor, pageId?: string) => ReactNode
   /** 宿主视图可见时为真：驱动状态轮询。 */
   active?: boolean
+  /** 返回会话工作台；提供时在列表头部展示显式返回入口。 */
+  onReturn?: () => void
 } = {}) {
   const registry = usePluginRegistry(service === managementService)
   const [plugins, setPlugins] = useState<PluginDescriptor[]>([])
@@ -831,10 +324,10 @@ export function PluginWorkbench({
       if (failures.length)
         throw new Error(`部分插件未能更新。${failures.join("；")}`)
     })
-  const configure: PluginDetailProps["onConfigure"] = (
-    plugin,
-    enabled,
-    configuration
+  const configure = (
+    plugin: PluginDescriptor,
+    enabled: boolean,
+    configuration: string
   ) =>
     void run(() =>
       service.configure({
@@ -856,24 +349,35 @@ export function PluginWorkbench({
         {!selected && (
           <>
             <header className="plugin-settings-header">
-              <h1>插件</h1>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={busy || !updatable.length}
-                  onClick={checkAllUpdates}
-                >
-                  全部更新
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={busy}
-                  onClick={() => void run(read)}
-                >
-                  重新读取
-                </Button>
+              <div className="flex items-center gap-1.5">
+                {onReturn && (
+                  <HoverHint content="返回工作台" label="返回工作台">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="-ml-1.5"
+                      aria-label="返回工作台"
+                      onClick={onReturn}
+                    >
+                      <ArrowLeft className="size-4" />
+                    </Button>
+                  </HoverHint>
+                )}
+                <h1 className="leading-none">插件</h1>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {updatable.length > 0 && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="text-xs"
+                    disabled={busy}
+                    onClick={checkAllUpdates}
+                  >
+                    全部更新
+                  </Button>
+                )}
                 <Dialog
                   open={importOpen}
                   onOpenChange={(open) => {
@@ -882,7 +386,8 @@ export function PluginWorkbench({
                   }}
                 >
                   <DialogTrigger asChild>
-                    <Button variant="outline" size="sm" disabled={busy}>
+                    <Button type="button" className="text-xs" disabled={busy}>
+                      <Plus data-icon="inline-start" className="size-3.5" />
                       导入插件
                     </Button>
                   </DialogTrigger>
@@ -933,29 +438,62 @@ export function PluginWorkbench({
               </div>
             </header>
             <div className="plugin-toolbar">
-              <Input
-                aria-label="搜索插件"
-                placeholder="搜索名称、描述或工具"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-              />
+              <div className="plugin-search">
+                <Search className="plugin-search-icon" aria-hidden="true" />
+                <Input
+                  aria-label="搜索插件"
+                  className="h-8 pr-8 text-xs"
+                  placeholder="搜索插件名称、用途或工具"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                />
+                {query && (
+                  <button
+                    type="button"
+                    aria-label="清除搜索"
+                    className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground"
+                    onClick={() => setQuery("")}
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                )}
+              </div>
               <div
-                className="plugin-filter"
+                className="plugin-filter h-8"
                 role="group"
                 aria-label="按状态筛选"
               >
-                {statusFilters.map((item) => (
-                  <Button
-                    key={item.id}
-                    variant="ghost"
-                    size="sm"
-                    aria-pressed={statusFilter === item.id}
-                    data-active={statusFilter === item.id}
-                    onClick={() => setStatusFilter(item.id)}
-                  >
-                    {item.label}
-                  </Button>
-                ))}
+                {statusFilters.map((item) => {
+                  const showCount = item.id === "issue" || item.id === "pending"
+                  const count = showCount
+                    ? plugins.filter((plugin) => matchesStatus(plugin, item.id))
+                        .length
+                    : 0
+                  return (
+                    <Button
+                      key={item.id}
+                      variant="ghost"
+                      size="sm"
+                      className="h-full gap-1 px-2.5 text-xs font-normal"
+                      aria-pressed={statusFilter === item.id}
+                      data-active={statusFilter === item.id}
+                      onClick={() => setStatusFilter(item.id)}
+                    >
+                      <span>{item.label}</span>
+                      {count > 0 && (
+                        <span
+                          className={
+                            item.id === "issue"
+                              ? "text-xs font-medium text-destructive tabular-nums"
+                              : "text-xs text-muted-foreground tabular-nums"
+                          }
+                        >
+                          {count}
+                        </span>
+                      )}
+                    </Button>
+                  )
+                })}
               </div>
             </div>
           </>
@@ -966,7 +504,18 @@ export function PluginWorkbench({
           <Alert>
             <AlertTitle>插件状态尚未确认</AlertTitle>
             <AlertDescription>
-              {readError} 当前显示可能不是最新状态。
+              <p>{readError} 当前显示可能不是最新状态。</p>
+              <div className="mt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="text-xs"
+                  disabled={busy}
+                  onClick={() => void run(read)}
+                >
+                  重新读取
+                </Button>
+              </div>
             </AlertDescription>
           </Alert>
         )}
@@ -1029,66 +578,135 @@ export function PluginWorkbench({
             />
           </div>
         ) : visible.length > 0 ? (
-          <nav className="plugin-catalog" aria-label="插件列表">
-            <ul className="flex flex-col gap-2.5">
-              {visible.map((plugin) => (
-                <li
-                  key={plugin.id}
-                  className="flex items-center gap-3 rounded-xl border bg-card px-4 py-3 transition-colors hover:bg-accent/40"
-                >
-                  <button
-                    type="button"
-                    className="flex min-w-0 flex-1 flex-col items-start gap-1 text-left"
-                    onClick={() => setSelectedId(plugin.id)}
+          <nav
+            className="plugin-catalog flex flex-col gap-5"
+            aria-label="插件列表"
+          >
+            {(() => {
+              const workspacePlugins = visible.filter(
+                (item) => !SYSTEM_PLUGIN_IDS.has(item.id)
+              )
+              const systemPlugins = visible.filter((item) =>
+                SYSTEM_PLUGIN_IDS.has(item.id)
+              )
+              const groups = [
+                { title: "工作台与扩展", items: workspacePlugins },
+                { title: "系统能力与诊断", items: systemPlugins },
+              ].filter((group) => group.items.length > 0)
+              const showGroupHeaders = groups.length > 1
+              return groups.map((group) => (
+                <section key={group.title} className="flex flex-col gap-2">
+                  {showGroupHeaders && (
+                    <h2 className="px-1 text-xs font-medium text-muted-foreground">
+                      {group.title}
+                    </h2>
+                  )}
+                  <div
+                    role="list"
+                    className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card"
                   >
-                    <div className="flex flex-wrap items-center gap-2">
-                      <PluginStatusDot plugin={plugin} />
-                      <span className="text-sm font-medium">{plugin.name}</span>
-                      <Badge
-                        variant={
-                          plugin.state === "failed"
-                            ? "destructive"
-                            : "secondary"
-                        }
-                      >
-                        {taskLabel(tasks[plugin.id]) || pluginStatus(plugin)}
-                      </Badge>
-                      {draftChanged(drafts[plugin.id]) && (
-                        <Badge variant="outline">未保存</Badge>
-                      )}
-                    </div>
-                    {plugin.description && (
-                      <span className="line-clamp-2 text-xs text-muted-foreground">
-                        {plugin.description}
-                      </span>
-                    )}
-                  </button>
-                  <div className="flex shrink-0 items-center gap-3">
-                    <Switch
-                      aria-label={`启用${plugin.name}`}
-                      checked={plugin.enabled}
-                      disabled={
-                        busy ||
-                        taskLabel(tasks[plugin.id]) !== "" ||
-                        (!plugin.enabled &&
-                          (!plugin.installed || !configurationReadable(plugin)))
-                      }
-                      onCheckedChange={(enabled) =>
-                        configure(plugin, enabled, plugin.configuration)
-                      }
-                    />
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={`查看${plugin.name}详情`}
-                      onClick={() => setSelectedId(plugin.id)}
-                    >
-                      <ChevronRight className="size-4 text-muted-foreground" />
-                    </Button>
+                    {group.items.map((plugin) => {
+                      const Icon = pluginIconFor(plugin.id)
+                      const status = pluginNormalizedStatus(
+                        plugin,
+                        tasks[plugin.id]
+                      )
+                      const hasIssue = status.tone === "destructive"
+                      const showInlineStatus =
+                        status.tone !== "active" && status.tone !== "muted"
+                      return (
+                        <div
+                          key={plugin.id}
+                          role="listitem"
+                          className="group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-accent/35"
+                        >
+                          <button
+                            type="button"
+                            className="flex min-w-0 flex-1 items-center gap-3 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            onClick={() => setSelectedId(plugin.id)}
+                          >
+                            <span
+                              className={
+                                hasIssue
+                                  ? "flex size-8 shrink-0 items-center justify-center rounded-lg border border-destructive/30 bg-destructive/5 text-destructive"
+                                  : "flex size-8 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-muted/40 text-muted-foreground transition-colors group-hover:text-foreground"
+                              }
+                              aria-hidden="true"
+                            >
+                              <Icon className="size-4" />
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="flex items-center gap-2">
+                                <span className="truncate text-sm font-medium text-foreground">
+                                  {plugin.name}
+                                </span>
+                                {showInlineStatus && (
+                                  <span
+                                    className={
+                                      hasIssue
+                                        ? "inline-flex shrink-0 items-center gap-1.5 text-xs text-destructive"
+                                        : "inline-flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground"
+                                    }
+                                  >
+                                    <span
+                                      className="plugin-status-dot"
+                                      data-tone={status.tone}
+                                      aria-hidden="true"
+                                    />
+                                    {status.label}
+                                  </span>
+                                )}
+                                {draftChanged(drafts[plugin.id]) && (
+                                  <Badge
+                                    variant="outline"
+                                    className="h-5 px-1.5 text-xs font-normal"
+                                  >
+                                    未保存
+                                  </Badge>
+                                )}
+                                {plugin.integrityChanged && !hasIssue && (
+                                  <Badge
+                                    variant="outline"
+                                    className="h-5 px-1.5 text-xs font-normal text-amber-600"
+                                  >
+                                    来源变更
+                                  </Badge>
+                                )}
+                              </span>
+                              {plugin.description && (
+                                <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                                  {plugin.description}
+                                </span>
+                              )}
+                            </span>
+                          </button>
+                          <div className="flex shrink-0 items-center gap-2.5">
+                            <Switch
+                              aria-label={`启用${plugin.name}`}
+                              checked={plugin.enabled}
+                              disabled={
+                                busy ||
+                                taskLabel(tasks[plugin.id]) !== "" ||
+                                (!plugin.enabled &&
+                                  (!plugin.installed ||
+                                    !configurationReadable(plugin)))
+                              }
+                              onCheckedChange={(enabled) =>
+                                configure(plugin, enabled, plugin.configuration)
+                              }
+                            />
+                            <ChevronRight
+                              className="size-4 text-muted-foreground/60 transition-transform group-hover:translate-x-0.5 group-hover:text-muted-foreground"
+                              aria-hidden="true"
+                            />
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
-                </li>
-              ))}
-            </ul>
+                </section>
+              ))
+            })()}
           </nav>
         ) : (
           <Empty>

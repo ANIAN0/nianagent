@@ -10,14 +10,22 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 12px;
+  padding: 6px 8px;
 }
 .file-tree-level .file-tree-level {
-  padding-left: 16px;
+  margin-left: 9px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
 }
 .file-tree-entry {
   justify-content: start;
+  gap: 6px;
   width: 100%;
+  overflow: hidden;
+  padding-inline: 6px;
+}
+.file-tree-entry[aria-pressed="true"] {
+  background: var(--muted);
 }
 .file-tree-entry span {
   overflow: hidden;
@@ -69,6 +77,7 @@
   font-size: 12px;
   color: var(--muted-foreground);
   flex: 1;
+  min-width: 0;
 }
 .file-pdf-toolbar .file-page-number {
   flex: 0 0 auto;

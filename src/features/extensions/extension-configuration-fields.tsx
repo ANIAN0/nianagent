@@ -1,5 +1,6 @@
 import {
   Field,
+  FieldContent,
   FieldDescription,
   FieldGroup,
   FieldLabel,
@@ -123,75 +124,91 @@ export function ExtensionConfigurationFields({
     )
   return (
     <FieldGroup>
-      {properties.map(([name, field]) => (
-        <Field
-          key={name}
-          orientation={field.type === "boolean" ? "horizontal" : "vertical"}
-          data-disabled={disabled}
-        >
-          <FieldLabel htmlFor={`${id}-${name}`}>
-            {field.title ?? name}
-            {schema.required?.includes(name) ? " *" : ""}
-          </FieldLabel>
-          {field.type === "boolean" ? (
+      {properties.map(([name, field]) =>
+        field.type === "boolean" ? (
+          <Field
+            key={name}
+            orientation="horizontal"
+            data-disabled={disabled}
+            className="items-center justify-between gap-4"
+          >
+            <FieldContent>
+              <FieldLabel htmlFor={`${id}-${name}`}>
+                {field.title ?? name}
+                {schema.required?.includes(name) ? " *" : ""}
+              </FieldLabel>
+              {field.description && (
+                <FieldDescription>{field.description}</FieldDescription>
+              )}
+            </FieldContent>
             <Switch
               id={`${id}-${name}`}
               checked={values[name] === true}
               disabled={disabled}
               onCheckedChange={(value) => edit(name, value)}
             />
-          ) : field.enum ? (
-            <Select
-              value={String(values[name] ?? "")}
-              disabled={disabled}
-              onValueChange={(value) => edit(name, value)}
-            >
-              <SelectTrigger id={`${id}-${name}`}>
-                <SelectValue placeholder="请选择" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {field.enum.map((option) => (
-                    <SelectItem key={String(option)} value={String(option)}>
-                      {String(option)}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          ) : (
-            <Input
-              id={`${id}-${name}`}
-              type={field.type === "string" ? "text" : "number"}
-              min={field.minimum}
-              max={field.maximum}
-              step={field.type === "integer" ? 1 : "any"}
-              maxLength={field.maxLength}
-              placeholder={
-                field.default === undefined ? undefined : String(field.default)
-              }
-              disabled={disabled}
-              value={
-                typeof values[name] === "number" &&
-                !Number.isFinite(values[name])
-                  ? ""
-                  : String(values[name] ?? "")
-              }
-              onChange={(event) => {
-                if (field.type === "string") edit(name, event.target.value)
-                else if (event.target.value === "") {
-                  const next = { ...values }
-                  delete next[name]
-                  onChange(next)
-                } else edit(name, Number(event.target.value))
-              }}
-            />
-          )}
-          {field.description && (
-            <FieldDescription>{field.description}</FieldDescription>
-          )}
-        </Field>
-      ))}
+          </Field>
+        ) : (
+          <Field key={name} orientation="vertical" data-disabled={disabled}>
+            <FieldLabel htmlFor={`${id}-${name}`}>
+              {field.title ?? name}
+              {schema.required?.includes(name) ? " *" : ""}
+            </FieldLabel>
+            {field.enum ? (
+              <Select
+                value={String(values[name] ?? "")}
+                disabled={disabled}
+                onValueChange={(value) => edit(name, value)}
+              >
+                <SelectTrigger id={`${id}-${name}`}>
+                  <SelectValue placeholder="请选择" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {field.enum.map((option) => (
+                      <SelectItem key={String(option)} value={String(option)}>
+                        {String(option)}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input
+                id={`${id}-${name}`}
+                type={field.type === "string" ? "text" : "number"}
+                min={field.minimum}
+                max={field.maximum}
+                step={field.type === "integer" ? 1 : "any"}
+                maxLength={field.maxLength}
+                placeholder={
+                  field.default === undefined
+                    ? undefined
+                    : String(field.default)
+                }
+                disabled={disabled}
+                value={
+                  typeof values[name] === "number" &&
+                  !Number.isFinite(values[name])
+                    ? ""
+                    : String(values[name] ?? "")
+                }
+                onChange={(event) => {
+                  if (field.type === "string") edit(name, event.target.value)
+                  else if (event.target.value === "") {
+                    const next = { ...values }
+                    delete next[name]
+                    onChange(next)
+                  } else edit(name, Number(event.target.value))
+                }}
+              />
+            )}
+            {field.description && (
+              <FieldDescription>{field.description}</FieldDescription>
+            )}
+          </Field>
+        )
+      )}
     </FieldGroup>
   )
 }

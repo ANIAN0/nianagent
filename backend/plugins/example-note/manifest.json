@@ -4,6 +4,7 @@
   "description": "通过Pi工具生成短记录，并在轮次末尾交付。",
   "version": "1.0.0",
   "apiVersion": 1,
+  "bundled": false,
   "defaultEnabled": false,
   "migrateFrom": {
     "legacyModule": "example-note"

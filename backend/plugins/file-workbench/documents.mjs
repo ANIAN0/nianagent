@@ -241,15 +241,12 @@ export class Documents {
   }
   async reference({ path }, context, signal) {
     const target = await targetPath(context, path)
-    const [material] = await this.host
-      .services()
-      .materials.prepare(
-        context.sessionId,
-        context.cwd,
-        [target.requested],
-        "selected",
-        signal
-      )
+    const [material] = await this.host.materials.prepare(
+      context.sessionId,
+      context.cwd,
+      [target.requested],
+      signal
+    )
     return { material }
   }
 }

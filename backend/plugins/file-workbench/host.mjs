@@ -86,6 +86,7 @@ export async function activate(host) {
           token: view.token,
         })
         events.set(context.clientId, queue.slice(-8))
+        host.emit?.("open-requested", { sessionId: context.sessionId })
       }
       return {
         path: target.path,

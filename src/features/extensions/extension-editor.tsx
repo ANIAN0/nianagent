@@ -160,7 +160,7 @@ export function ExtensionEditor({
     )
     errors = extensionConfigurationErrors(fields.schema, fields.configuration)
   } catch {
-    errors = ["配置格式无法识别，请检查扩展安装后重启 Moon。"]
+    errors = ["配置格式无法识别，请检查扩展安装后重启 moon。"]
   }
   function recoverStorage() {
     const restored = readConfigurationDraft(

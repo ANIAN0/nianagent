@@ -28,6 +28,7 @@ export type PluginContext = {
     input: object,
     signal?: AbortSignal
   ) => Promise<T>
+  onEvent?: (event: string, listener: (payload: unknown) => void) => () => void
 }
 export type PluginPageProps = { pluginId: string }
 export type PluginDeliveryProps = {
@@ -38,6 +39,8 @@ export type PluginDeliveryProps = {
 export type PluginWebModule = {
   id: string
   apiVersion: 1
+  /** When true, the plugin's custom page manages all configuration fields. */
+  ownsConfiguration?: boolean
   pages?: { id: string; component: ComponentType<PluginPageProps> }[]
   tabs?: {
     id: string
@@ -75,6 +78,7 @@ export type PluginWebSDK = {
     signal?: AbortSignal
   ) => Promise<T>
   resource: (path: string, signal?: AbortSignal) => Promise<string>
+  onEvent?: (event: string, listener: (payload: unknown) => void) => () => void
 }
 export type PluginWebFactory = (
   sdk: PluginWebSDK

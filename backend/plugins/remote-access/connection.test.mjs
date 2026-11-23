@@ -153,6 +153,14 @@ test("真实本机WebSocket/Noise连接、RPC授权、取消、断线重连与�
     const { value } = await app.operations.clients.execute()
     return value.items.find((item) => item.state === "pending")?.id
   })
+  const secondTab = await open()
+  secondTab.socket.close()
+  await until(
+    async () => (await app.operations.connection.execute()).value.clients === 1
+  )
+  assert.deepEqual((await app.operations.clients.execute()).value.items, [
+    { id: pendingId, state: "pending", online: true },
+  ])
   peer.send({
     type: "rpc",
     id: randomUUID(),

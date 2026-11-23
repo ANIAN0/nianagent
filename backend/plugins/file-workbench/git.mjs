@@ -4,7 +4,7 @@ const git = (cwd, args, signal, different = false) =>
   new Promise((accept, reject) => {
     execFile(
       "git",
-      ["--no-pager", "--no-optional-locks", ...args],
+      ["--no-pager", "--no-optional-locks", "--literal-pathspecs", ...args],
       {
         cwd,
         signal,
@@ -92,7 +92,7 @@ export async function gitDiff({ path, stage }, context, signal) {
     stage === "untracked"
       ? await git(
           status.root,
-          ["diff", "--no-index", ...options, "--", "/dev/null", item.path],
+          ["diff", "--no-index", ...options, "--", "/dev/null", item.name],
           signal,
           true
         )

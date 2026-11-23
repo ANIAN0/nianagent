@@ -3,12 +3,7 @@
 // 身份由可信适配（mcp-service 认证）传入，只进日志与执行上下文；工具入参不能提供。
 import { currentTraceId } from "./request-context.mjs"
 import { randomUUID } from "node:crypto"
-import {
-  base64Image,
-  check,
-  jsonValue,
-  validatePluginValue,
-} from "./plugin-helpers.mjs"
+import { base64Image, check, jsonValue } from "./plugin-primitives.mjs"
 import { safeSummary, valueSummary } from "./activity-log.mjs"
 import { publicFailure } from "./operation-issue.mjs"
 
@@ -145,6 +140,8 @@ export function createSharedToolGateway({ entries, logs, lease }) {
         generation === undefined || generation === descriptor.generation,
         "共享工具代次已变化，请刷新目录。"
       )
+      controller.signal.throwIfAborted()
+      const { validatePluginValue } = await import("./plugin-helpers.mjs")
       controller.signal.throwIfAborted()
       validatePluginValue(definition.inputSchema, input)
       inputSummary = safeSummary(definition, { phase: "input", input }, input)

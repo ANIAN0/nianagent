@@ -22,7 +22,7 @@ import {
   usePluginRegistry,
   reportPluginLifecycleFailure,
 } from "./plugin-web"
-import { callPlugin } from "./plugin-service"
+import { callPlugin, subscribePluginEvent } from "./plugin-service"
 import { isRemoteWeb } from "@/lib/rpc/remote-transport"
 import { rpcCall } from "@/lib/rpc/client"
 import { PageErrorBoundary } from "@/components/feedback/page-error-boundary"
@@ -181,6 +181,15 @@ function PluginSessionTab({
           input,
           requestedSignal ? AbortSignal.any([signal, requestedSignal]) : signal
         ),
+      onEvent: (event, listener) => {
+        if (signal.aborted) return () => {}
+        const off = subscribePluginEvent(context.pluginId, event, listener)
+        signal.addEventListener("abort", off, { once: true })
+        return () => {
+          signal.removeEventListener("abort", off)
+          off()
+        }
+      },
     }),
     [context, signal]
   )
@@ -390,6 +399,15 @@ export function PluginSessionWorkspace({
                   descriptor.generation
                 )
               : Promise.reject(new Error("插件身份尚未确认，请重新加载。")),
+          onEvent: (event, listener) => {
+            if (!enabled()) return () => {}
+            const off = subscribePluginEvent(pluginId, event, listener)
+            lifetimeSignal.addEventListener("abort", off, { once: true })
+            return () => {
+              lifetimeSignal.removeEventListener("abort", off)
+              off()
+            }
+          },
         }
       },
     [sessionId, cwd, active, lifetime, registry.entries, update, call]
@@ -654,7 +672,7 @@ export function PluginSessionWorkspace({
             const doors = entries.filter(
               (entry) => !entry.resource && !entry.unavailable
             )
-            if (doors.length === 1 && !unavailablePlugins.length)
+            if (doors.length > 0)
               return openSidebarTab(previous, {
                 pluginId: doors[0].pluginId,
                 id: doors[0].id,

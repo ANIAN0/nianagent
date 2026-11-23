@@ -2,9 +2,9 @@
   container: plugin-settings / inline-size;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 18px;
   width: 100%;
-  max-width: 960px;
+  max-width: 780px;
   margin: 0 auto;
   padding: 24px;
 }
@@ -15,8 +15,7 @@
   justify-content: space-between;
   gap: 12px;
 }
-.plugin-settings h1,
-.plugin-settings h2 {
+.plugin-settings-header h1 {
   font-size: 16px;
   font-weight: 600;
 }
@@ -88,9 +87,9 @@
   flex-wrap: wrap;
   gap: 8px;
 }
-@container plugin-settings (max-width: 760px) {
+@media (max-width: 760px) {
   .plugin-settings {
-    padding: 20px 16px;
+    padding: 56px 16px 20px;
   }
 }
 
@@ -117,40 +116,60 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 10px;
 }
-.plugin-toolbar > input {
-  max-width: 260px;
+.plugin-search {
+  position: relative;
+  flex: 1 1 220px;
+}
+.plugin-search-icon {
+  position: absolute;
+  top: 50%;
+  left: 10px;
+  width: 14px;
+  height: 14px;
+  transform: translateY(-50%);
+  color: var(--muted-foreground);
+  pointer-events: none;
+}
+.plugin-search > input {
+  padding-left: 30px;
 }
 .plugin-filter {
-  display: flex;
+  display: inline-flex;
+  align-items: center;
   gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--muted) 70%, transparent);
 }
 .plugin-filter > button[data-active="true"] {
-  background: var(--accent);
-  color: var(--accent-foreground);
+  background: var(--background);
+  color: var(--foreground);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.06);
 }
 .plugin-status-dot {
-  display: inline-flex;
-  width: 8px;
-  height: 8px;
-  flex: none;
+  display: inline-block;
+  width: 6px;
+  height: 6px;
   border-radius: 9999px;
-  background: var(--muted-foreground);
+  flex-shrink: 0;
 }
-.plugin-status-dot[data-state="active"] {
-  background: var(--status-success);
+.plugin-status-dot[data-tone="active"] {
+  background: #16a34a;
 }
-.plugin-status-dot[data-state="loading"],
-.plugin-status-dot[data-state="stopping"] {
-  background: var(--status-warning);
+.plugin-status-dot[data-tone="muted"] {
+  background: color-mix(in oklab, var(--muted-foreground) 50%, transparent);
 }
-.plugin-status-dot[data-state="failed"] {
+.plugin-status-dot[data-tone="destructive"] {
   background: var(--destructive);
 }
-.plugin-status-dot[data-state="uninstalled"] {
-  background: transparent;
-  box-shadow: inset 0 0 0 1.5px var(--muted-foreground);
+.plugin-status-dot[data-tone="warning"] {
+  background: #d97706;
+}
+.plugin-status-dot[data-tone="pending"] {
+  background: var(--primary);
 }
 .plugin-tool-issue {
   color: var(--muted-foreground);

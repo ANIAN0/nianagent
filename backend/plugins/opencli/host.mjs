@@ -481,6 +481,7 @@ export async function activate(host) {
             action === "uninstall"
               ? "卸载官方包，保留用户配置"
               : "安装官方发布版本"
+          host.emit?.("status-changed", { operation: { ...current } })
           const installed = await software.mutate(
             action,
             info,
@@ -500,12 +501,14 @@ export async function activate(host) {
               : "已核对安装版本；后台保持当前停止状态"
         } else if (action === "start") {
           current.phase = "启动或复用官方后台"
+          host.emit?.("status-changed", { operation: { ...current } })
           const live = await ensure(info, true)
           current.phase = live.extensionConnected
             ? "后台运行，Browser Bridge已连接"
             : "后台运行，等待Browser Bridge连接"
         } else if (action === "stop") {
           current.phase = "释放本插件会话并等待实际后台退出"
+          host.emit?.("status-changed", { operation: { ...current } })
           await stop(
             info,
             input.expectedDaemonPid || 0,
@@ -540,6 +543,7 @@ export async function activate(host) {
         software.invalidate()
         management = undefined
         control = undefined
+        host.emit?.("status-changed", { operation: { ...current } })
       })
     return { operation: { ...current } }
   }

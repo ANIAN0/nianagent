@@ -1,3 +1,4 @@
+import { loadPiSdk } from "./pi-sdk.mjs"
 import { existsSync } from "node:fs"
 import {
   mkdir,
@@ -18,20 +19,11 @@ import {
 } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { createHash, randomUUID } from "node:crypto"
-import {
-  DefaultPackageManager,
-  SettingsManager,
-} from "@earendil-works/pi-coding-agent"
 import { replaceJson, withAcquiredLock } from "./atomic-file.mjs"
 import lockfile from "proper-lockfile"
 import { ActivityLog } from "./activity-log.mjs"
-import {
-  check,
-  identifier,
-  safeError,
-  samePath,
-  validatePluginValue,
-} from "./plugin-helpers.mjs"
+import { operationError } from "./operation-issue.mjs"
+import { check, identifier, safeError, samePath } from "./plugin-primitives.mjs"
 import { createSharedToolGateway } from "./plugin-shared-tools.mjs"
 import {
   requestContext,
@@ -131,6 +123,7 @@ export class PluginHost {
       error: "",
       configuration: "{}",
       leases: new Set(),
+      operationCalls: new Set(),
       sharedCalls: new Set(),
       sharedPending: new Set(),
       tools: new Map(),
@@ -158,11 +151,11 @@ export class PluginHost {
       // 没有 manifest 的目录不是插件（如未完成的占位目录），不产生失败条目。
       if (!existsSync(join(source, "manifest.json"))) continue
       const entry = this.entry(directory.name, source, "bundled")
-      this.entries.set(entry.id, entry)
       try {
         const manifest = JSON.parse(
           await readFile(join(entry.source, "manifest.json"), "utf8")
         )
+        if (manifest?.bundled === false) continue
         check(
           manifest.id === entry.id &&
             manifest.apiVersion === 1 &&
@@ -225,6 +218,7 @@ export class PluginHost {
         entry.configuration =
           saved?.configuration ??
           JSON.stringify(manifest.defaultConfiguration ?? {})
+        const { validatePluginValue } = await import("./plugin-helpers.mjs")
         validatePluginValue(
           manifest.configurationSchema,
           JSON.parse(entry.configuration)
@@ -242,6 +236,7 @@ export class PluginHost {
         entry.state = "failed"
         entry.error = safeError(error)
       }
+      this.entries.set(entry.id, entry)
     }
     for (const imported of configuration.imports) {
       const entry = this.entry(
@@ -270,7 +265,8 @@ export class PluginHost {
       })
     }
   }
-  manager(sources = []) {
+  async manager(sources = []) {
+    const { DefaultPackageManager, SettingsManager } = await loadPiSdk()
     return new DefaultPackageManager({
       cwd: this.directory,
       agentDir: join(this.directory, "pi"),
@@ -278,7 +274,7 @@ export class PluginHost {
     })
   }
   async resolveImport(entry) {
-    const manager = this.manager()
+    const manager = await this.manager()
     const path =
       entry.sourceKind === "local"
         ? entry.source
@@ -520,6 +516,7 @@ export class PluginHost {
             dataRoot: this.ports.dataRoot,
             materials: this.ports.materials,
             sessions: this.ports.sessions,
+            workspaces: this.ports.workspaces,
             registerRemoteContextResolver,
             isActive: () =>
               entry.generation === generation &&
@@ -537,6 +534,26 @@ export class PluginHost {
               call: (...args) => this.sharedToolGateway.call(...args),
               subscribe: (listener) =>
                 this.sharedToolGateway.subscribe(listener),
+            },
+            emit: (event, payload) => {
+              if (
+                typeof event !== "string" ||
+                !event ||
+                entry.generation !== generation ||
+                !entry.enabled ||
+                this.closed ||
+                this.frozen
+              )
+                return
+              this.ports.notify?.({
+                operation: "$notify",
+                event: {
+                  type: "plugin-event",
+                  pluginId: entry.id,
+                  event,
+                  payload,
+                },
+              })
             },
           })
           // 有界激活：单个插件挂死不得拖住全部插件 RPC；超时上限供清单覆盖。
@@ -770,17 +787,21 @@ export class PluginHost {
     )
     // A failed plugin can be disabled without rewriting its damaged saved
     // configuration. New configuration and every enable still validate fully.
-    if (enabled || configuration !== entry.configuration)
+    if (enabled || configuration !== entry.configuration) {
+      const { validatePluginValue } = await import("./plugin-helpers.mjs")
       validatePluginValue(
         entry.manifest.configurationSchema,
         JSON.parse(configuration)
       )
+    }
     await this.mutate(
       async (document) => {
-        check(
-          (document.entries[id]?.revision || 0) === revision,
-          "插件配置已变化，请重新读取。"
-        )
+        if ((document.entries[id]?.revision || 0) !== revision)
+          throw operationError(
+            "plugin_revision_conflict",
+            "插件配置已变化，请重新读取。",
+            "reload"
+          )
         if (enabled && entry.sourceKind !== "bundled") {
           await this.resolveImport(entry)
           // 内容指纹随启用落库：下次加载据此核对来源是否变化。
@@ -810,7 +831,7 @@ export class PluginHost {
   async add(source, signal) {
     await this.discover()
     source = source.trim()
-    const sourceKind = this.manager().parseSource(source).type
+    const sourceKind = (await this.manager()).parseSource(source).type
     if (sourceKind === "local") {
       check(isAbsolute(source), "本地导入须使用实际绝对路径。")
       await stat(source)
@@ -878,7 +899,7 @@ export class PluginHost {
       await this.mutate(async (document) => {
         await this.stop(entry)
         if (entry.sourceKind !== "local" && entry.installed)
-          await this.manager().remove(entry.source)
+          await (await this.manager()).remove(entry.source)
         document.imports = document.imports.filter((item) => item.id !== id)
         delete document.entries[id]
       }, signal)
@@ -917,7 +938,7 @@ export class PluginHost {
     task.promise = (async () => {
       let stage = "install"
       try {
-        const manager = this.manager([entry.source])
+        const manager = await this.manager([entry.source])
         manager.setProgressCallback?.((event) => {
           if (!task.cancelled && event?.type === "start") task.phase = "running"
         })
@@ -986,10 +1007,7 @@ export class PluginHost {
       "forbidden：插件管理仅本机可用。"
     )
     const task = this.packageTasks.get(id)
-    check(
-      task && !task.terminal && !task.cancelled,
-      "该插件没有可取消的包任务。"
-    )
+    check(task?.phase === "running", "该插件没有可取消的包任务。")
     // Pi 包管理器不支持中断子进程：尽力取消=标记放弃，任务结束后不应用结果。
     task.cancelled = true
     task.phase = "cancelling"
@@ -1076,6 +1094,7 @@ export class PluginHost {
     if (entry.stopping) return entry.stopping
     entry.state = "stopping"
     entry.generation++
+    for (const controller of entry.operationCalls) controller.abort()
     for (const controller of entry.sharedCalls) controller.abort()
     this.sharedChanged()
     const stopping = (async () => {
@@ -1177,18 +1196,39 @@ export class PluginHost {
       definition.scope !== "session" || context.sessionId,
       "此操作需要真实会话。"
     )
+    const { validatePluginValue } = await import("./plugin-helpers.mjs")
+    signal?.throwIfAborted()
     const input = validatePluginValue(definition.input, JSON.parse(payload))
     const current = () =>
       this.entries.get(id) === entry &&
       entry.state === "active" &&
       entry.application === application &&
       entry.generation === admittedGeneration
-    const result = await this.lease(entry, () => {
-      check(current(), "插件实例已变化，请重新读取后操作。")
-      signal?.throwIfAborted()
-      return definition.execute(input, context, signal)
-    })
-    check(current(), "插件执行期间已停止；请核对操作实际结果。")
+    const controller = new AbortController()
+    const operationSignal = signal
+      ? AbortSignal.any([signal, controller.signal])
+      : controller.signal
+    entry.operationCalls.add(controller)
+    const stopped = () =>
+      operationError(
+        "result_unknown",
+        "插件执行期间已停止；请核对操作实际结果。",
+        "none"
+      )
+    let result
+    try {
+      result = await this.lease(entry, () => {
+        check(current(), "插件实例已变化，请重新读取后操作。")
+        operationSignal.throwIfAborted()
+        return definition.execute(input, context, operationSignal)
+      })
+    } catch (error) {
+      if (controller.signal.aborted) throw stopped()
+      throw error
+    } finally {
+      entry.operationCalls.delete(controller)
+    }
+    if (!current()) throw stopped()
     validatePluginValue(definition.output, result)
     // A 2MiB UTF-8 page can expand to 12MiB in JSON (control characters).
     // This bound includes that encoding; source-page limits remain unchanged.

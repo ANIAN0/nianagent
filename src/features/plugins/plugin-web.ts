@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { rpcCall } from "@/lib/rpc/client"
 import { feedbackFromError } from "@/lib/operation-issue"
 import type { PluginDescriptor } from "@/contracts/rpc.generated"
-import { callPlugin } from "./plugin-service"
+import { callPlugin, subscribePluginEvent } from "./plugin-service"
 import type { PluginWebModule, PluginWebFactory } from "./plugin-api"
 export type { PluginWebModule } from "./plugin-api"
 
@@ -86,6 +86,15 @@ async function load(descriptor: PluginDescriptor): Promise<Entry> {
             descriptor.generation
           ),
         resource,
+        onEvent: (event, listener) => {
+          if (lifetime.signal.aborted) return () => {}
+          const off = subscribePluginEvent(descriptor.id, event, listener)
+          lifetime.signal.addEventListener("abort", off, { once: true })
+          return () => {
+            lifetime.signal.removeEventListener("abort", off)
+            off()
+          }
+        },
       })
     }
     if (module) {
@@ -146,7 +155,7 @@ async function load(descriptor: PluginDescriptor): Promise<Entry> {
       descriptor,
       error:
         feedbackFromError(error, "插件前端未能加载。").message +
-        (cleanupFailed ? " 插件资源释放也未完成，请重新启动 Moon。" : ""),
+        (cleanupFailed ? " 插件资源释放也未完成，请重新启动 moon。" : ""),
     }
   }
 }
@@ -182,7 +191,7 @@ export function refreshPluginRegistry() {
       })
       entries = next
       registryError = cleanupFailures.length
-        ? `插件卸载未完成：${cleanupFailures.join("、")}。请重新启动 Moon。`
+        ? `插件卸载未完成：${cleanupFailures.join("、")}。请重新启动 moon。`
         : ""
       notify()
     } catch (error) {
@@ -214,7 +223,7 @@ if (import.meta.hot)
       try {
         entry.dispose?.()
       } catch {
-        console.error("Moon 开发页面热重载：插件资源释放失败，请刷新页面。")
+        console.error("moon 开发页面热重载：插件资源释放失败，请刷新页面。")
       }
     })
     listeners.clear()
@@ -238,6 +247,7 @@ export function usePluginRegistry(enabled = true) {
     error: registryError,
   }
 }
-export function getPluginModule(id: string) {
-  return entries.find((e) => e.descriptor.id === id)?.module
+export function getPluginModule(plugin: PluginDescriptor) {
+  const identity = key(plugin)
+  return entries.find((entry) => key(entry.descriptor) === identity)?.module
 }

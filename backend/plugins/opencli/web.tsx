@@ -1,14 +1,88 @@
 import { useEffect, useRef, useState } from "react"
-import { ExternalLink, RefreshCw } from "lucide-react"
+import { isTauri } from "@tauri-apps/api/core"
+import { Check, ExternalLink, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import { Switch } from "@/components/ui/switch"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Skeleton } from "@/components/ui/skeleton"
-import { callPlugin } from "@/features/plugins/plugin-service"
+import { notifyToast } from "@/components/ui/notification-toast"
+import {
+  callPlugin,
+  pluginsChanged,
+  subscribePluginEvent,
+} from "@/features/plugins/plugin-service"
 import type { PluginWebModule } from "@/features/plugins/plugin-api"
+import { rpcCall } from "@/lib/rpc/client"
 import type { OpenCliAction, OpenCliService, OpenCliStatus } from "./types"
 export type { OpenCliStatus } from "./types"
 export const id = "opencli"
+
+type OpenCliConfig = {
+  profile: string
+  background: boolean
+}
+
+type OpenCliConfigState = {
+  revision: number
+  enabled: boolean
+  config: OpenCliConfig
+}
+
+const defaultConfig: OpenCliConfig = {
+  profile: "",
+  background: false,
+}
+
+const normalizeConfig = (raw: unknown): OpenCliConfig => {
+  let parsed = raw
+  if (typeof raw === "string") {
+    try {
+      parsed = JSON.parse(raw)
+    } catch {
+      return defaultConfig
+    }
+  }
+  if (!parsed || typeof parsed !== "object") return defaultConfig
+  const record = parsed as Record<string, unknown>
+  return {
+    profile: typeof record.profile === "string" ? record.profile : "",
+    background: Boolean(record.background),
+  }
+}
+
+const readConfig = async (
+  signal?: AbortSignal
+): Promise<OpenCliConfigState> => {
+  const plugins = await rpcCall("pluginList", {}, signal)
+  const item = plugins.find((entry) => entry.id === id)
+  if (!item) throw new Error("OpenCLI 插件当前不可用，请刷新后重试。")
+  return {
+    revision: item.revision,
+    enabled: item.enabled,
+    config: normalizeConfig(item.configuration),
+  }
+}
+
+const saveConfig = async (
+  current: OpenCliConfigState,
+  next: OpenCliConfig
+): Promise<OpenCliConfigState> => {
+  const plugin = await rpcCall("pluginConfigure", {
+    id,
+    revision: current.revision,
+    enabled: current.enabled,
+    configuration: JSON.stringify(next),
+  })
+  pluginsChanged()
+  return {
+    revision: plugin.revision,
+    enabled: plugin.enabled,
+    config: normalizeConfig(plugin.configuration),
+  }
+}
+
 const service: OpenCliService = {
   read: async (signal) =>
     (
@@ -27,6 +101,7 @@ const service: OpenCliService = {
       }>(id, action, input)
     ).value,
 }
+
 const names: Record<OpenCliAction, string> = {
   install: "安装",
   uninstall: "卸载",
@@ -34,8 +109,28 @@ const names: Record<OpenCliAction, string> = {
   start: "启动",
   stop: "停止",
 }
+
 const errorText = (error: unknown) =>
-  error instanceof Error ? error.message : "OpenCLI操作未确认，请重新读取。"
+  error instanceof Error
+    ? error.message
+    : typeof error === "string" && error.trim()
+      ? error
+      : "OpenCLI 操作未确认，请重新读取。"
+
+function StatusDot({ tone }: { tone: "ok" | "idle" | "error" }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={
+        tone === "ok"
+          ? "size-2 shrink-0 rounded-full bg-emerald-500"
+          : tone === "error"
+            ? "size-2 shrink-0 rounded-full bg-destructive"
+            : "size-2 shrink-0 rounded-full bg-muted-foreground/40"
+      }
+    />
+  )
+}
 
 export function Page({
   service: source = service,
@@ -43,36 +138,70 @@ export function Page({
   service?: OpenCliService
 }) {
   const [value, setValue] = useState<OpenCliStatus>()
+  const [configState, setConfigState] = useState<OpenCliConfigState>()
+  const [savingConfig, setSavingConfig] = useState(false)
   const [error, setError] = useState("")
   const [pending, setPending] = useState<OpenCliAction | "status" | "">("")
   const mounted = useRef(false)
   const accepting = useRef(false)
+
   useEffect(() => {
     mounted.current = true
     const controller = new AbortController()
-    void source
-      .read(controller.signal)
-      .then((result) => {
+    const syncStatus = () => {
+      if (controller.signal.aborted) return
+      void source
+        .read(controller.signal)
+        .then((result) => {
+          if (!controller.signal.aborted) {
+            setValue(result)
+            setError("")
+          }
+        })
+        .catch((reason) => {
+          if (!controller.signal.aborted) setError(errorText(reason))
+        })
+    }
+    const syncConfig = () => {
+      if (controller.signal.aborted) return
+      void readConfig(controller.signal)
+        .then((cfg) => {
+          if (!controller.signal.aborted) setConfigState(cfg)
+        })
+        .catch(() => {})
+    }
+    void Promise.all([
+      source.read(controller.signal),
+      readConfig(controller.signal).catch(() => undefined),
+    ])
+      .then(([result, cfg]) => {
         if (!controller.signal.aborted) {
           setValue(result)
+          setConfigState(cfg)
           setError("")
         }
       })
-      .catch((error) => {
-        if (!controller.signal.aborted) setError(errorText(error))
+      .catch((reason) => {
+        if (!controller.signal.aborted) setError(errorText(reason))
       })
+    // 常驻订阅宿主事件，避免运行态切换瞬间错过完成通知
+    const unsubscribe = subscribePluginEvent(id, "status-changed", syncStatus)
+    window.addEventListener("moon:plugins-changed", syncConfig)
     return () => {
       mounted.current = false
       controller.abort()
+      unsubscribe()
+      window.removeEventListener("moon:plugins-changed", syncConfig)
     }
   }, [source])
+
   const running = value?.operation?.state === "running"
   useEffect(() => {
-    if (!running) return
+    if (!running || isTauri()) return
     const controller = new AbortController()
     let reading = false
-    const timer = setInterval(() => {
-      if (reading) return
+    const sync = () => {
+      if (reading || controller.signal.aborted) return
       reading = true
       void source
         .read(controller.signal)
@@ -82,34 +211,72 @@ export function Page({
             setError("")
           }
         })
-        .catch((error) => {
-          if (!controller.signal.aborted) setError(errorText(error))
+        .catch((reason) => {
+          if (!controller.signal.aborted) setError(errorText(reason))
         })
         .finally(() => {
           reading = false
         })
-    }, 1000)
+    }
+    const timer = setInterval(sync, 1000)
     return () => {
       controller.abort()
       clearInterval(timer)
     }
   }, [source, running])
+
   const read = async () => {
     setPending("status")
     try {
-      const result = await source.read()
+      const [result, cfg] = await Promise.all([
+        source.read(),
+        readConfig().catch(() => configState),
+      ])
       if (mounted.current) {
         setValue(result)
+        setConfigState(cfg)
         setError("")
+        notifyToast("状态已刷新", { tone: "success" })
       }
-    } catch (error) {
-      if (mounted.current) setError(errorText(error))
+    } catch (reason) {
+      if (mounted.current) setError(errorText(reason))
     } finally {
       if (mounted.current) setPending("")
     }
   }
+
+  const updateConfig = async (patch: Partial<OpenCliConfig>) => {
+    if (!configState || savingConfig || accepting.current || running || pending)
+      return
+    const next = { ...configState.config, ...patch }
+    const restartingNeeded = value?.daemon.owned
+    setSavingConfig(true)
+    setError("")
+    try {
+      const saved = await saveConfig(configState, next)
+      if (mounted.current) {
+        setConfigState(saved)
+        const message =
+          "profile" in patch
+            ? patch.profile
+              ? "默认连接已更新"
+              : "已清除默认连接"
+            : "后台窗口模式已更新"
+        notifyToast(
+          restartingNeeded ? message + "，请重新启动 OpenCLI 后台。" : message,
+          { tone: "success" }
+        )
+      }
+    } catch (reason) {
+      if (mounted.current) setError(errorText(reason))
+    } finally {
+      if (mounted.current) setSavingConfig(false)
+    }
+  }
+
   const manage = async (action: OpenCliAction) => {
-    if (accepting.current || running || !value) return
+    if (accepting.current || running || pending || savingConfig || !value)
+      return
     accepting.current = true
     setPending(action)
     setError("")
@@ -129,60 +296,131 @@ export function Page({
       )
       const current = await source.read()
       if (mounted.current) setValue(current)
-    } catch (error) {
-      if (mounted.current) setError(errorText(error))
+    } catch (reason) {
+      if (mounted.current) setError(errorText(reason))
     } finally {
       accepting.current = false
       if (mounted.current) setPending("")
     }
   }
+
   return (
     <OpenCliConnectionView
       value={value}
+      config={configState?.config}
+      configurationReady={!!configState}
+      savingConfig={savingConfig}
       error={error}
       pending={pending}
       onRead={() => void read()}
       onAction={(action) => void manage(action)}
+      onConfigure={(patch) => void updateConfig(patch)}
     />
+  )
+}
+
+function ManualProfileForm({
+  currentProfile,
+  savingConfig,
+  onSave,
+}: {
+  currentProfile: string
+  savingConfig: boolean
+  onSave: (profile: string) => void
+}) {
+  const [draft, setDraft] = useState(currentProfile)
+  const dirty = draft.trim() !== currentProfile
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-t pt-3">
+      <Input
+        aria-label="默认连接 ID 或别名"
+        className="min-w-[180px] flex-1 font-mono text-xs"
+        placeholder="手动输入连接 ID 或别名（可选）"
+        value={draft}
+        disabled={savingConfig}
+        onChange={(event) => setDraft(event.target.value)}
+      />
+      <Button
+        variant="outline"
+        className="text-xs"
+        disabled={savingConfig || !dirty}
+        onClick={() => onSave(draft.trim())}
+      >
+        保存
+      </Button>
+      {currentProfile && (
+        <Button
+          variant="outline"
+          className="text-xs"
+          disabled={savingConfig}
+          onClick={() => onSave("")}
+        >
+          清除默认
+        </Button>
+      )}
+    </div>
   )
 }
 
 export function OpenCliConnectionView({
   value,
+  config = defaultConfig,
+  configurationReady = true,
+  savingConfig = false,
   error,
   pending = "",
   onRead,
   onAction,
+  onConfigure,
 }: {
   value?: OpenCliStatus
+  config?: OpenCliConfig
+  configurationReady?: boolean
+  savingConfig?: boolean
   error: string
   pending?: OpenCliAction | "status" | ""
   onRead: () => void
   onAction: (action: OpenCliAction) => void
+  onConfigure?: (patch: Partial<OpenCliConfig>) => void
 }) {
   const installation = value?.installation
   const running = value?.operation?.state === "running"
-  const disabled = !!pending || running || !value
+  const disabled = !!pending || running || savingConfig || !value
+  const configurationDisabled = disabled || !configurationReady
   const installed = installation?.state === "installed"
   const operation = value?.operation
   const version = operation?.targetVersion || installation?.latestVersion
+
   return (
-    <div className="flex min-w-0 flex-col gap-5 text-sm">
+    <div className="flex min-w-0 flex-col gap-4 text-sm">
       {error && (
         <Alert>
-          <AlertTitle>读取或提交未确认</AlertTitle>
-          <AlertDescription>
-            {error}{" "}
-            当前显示保留上次读取的状态，请刷新核对；已提交的动作不会自动重做。
-          </AlertDescription>
+          <AlertTitle>操作未完成</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+          {!value && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="col-start-1 mt-2 justify-self-start"
+              disabled={pending === "status"}
+              onClick={onRead}
+            >
+              {pending === "status" ? "刷新中…" : "重试"}
+            </Button>
+          )}
         </Alert>
       )}
       {!value ? (
-        <div className="flex flex-col gap-4" aria-label="正在读取 OpenCLI 状态">
-          <Skeleton className="h-32 w-full rounded-xl" />
-          <Skeleton className="h-28 w-full rounded-xl" />
-          <Skeleton className="h-36 w-full rounded-xl" />
-        </div>
+        !error && (
+          <div
+            className="flex flex-col gap-4"
+            aria-label="正在读取 OpenCLI 状态"
+          >
+            <Skeleton className="h-32 w-full rounded-xl" />
+            <Skeleton className="h-28 w-full rounded-xl" />
+            <Skeleton className="h-32 w-full rounded-xl" />
+          </div>
+        )
       ) : (
         <>
           {value.browserSupport?.supported === false && (
@@ -197,104 +435,145 @@ export function OpenCliConnectionView({
           )}
 
           <section
-            className="flex flex-col gap-3 rounded-xl border bg-card p-5"
-            aria-label="Browser Bridge连接"
+            className="flex flex-col gap-3 rounded-xl border bg-card p-4"
+            aria-label="Browser Bridge 连接"
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex flex-wrap items-center gap-2.5">
-                <h3 className="font-semibold">Browser Bridge 连接</h3>
-                <Badge
-                  variant={value.bridge.connected ? "secondary" : "outline"}
-                >
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusDot tone={value.bridge.connected ? "ok" : "idle"} />
+                <h3 className="text-sm font-medium">Browser Bridge</h3>
+                <span className="text-xs text-muted-foreground">
                   {value.bridge.connected ? "已连接" : "未连接"}
-                </Badge>
+                </span>
               </div>
-              <a
-                className="inline-flex items-center gap-1 text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
-                href="https://github.com/jackwener/OpenCLI/releases"
-                target="_blank"
-                rel="noreferrer"
-              >
-                下载官方扩展
-                <ExternalLink className="size-3" />
-              </a>
+              <Button variant="outline" className="text-xs" asChild>
+                <a
+                  href="https://github.com/jackwener/OpenCLI/releases"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  官方扩展
+                  <ExternalLink className="size-3.5" />
+                </a>
+              </Button>
             </div>
-            {value.bridge.profileRequired && (
+            {value.bridge.profileRequired && !config.profile && (
               <Alert>
                 <AlertDescription>
-                  存在多个浏览器连接，请在下方“插件配置”中选择实际连接 ID
-                  或别名。
+                  存在多个浏览器连接，请在下方选择一个设为默认。
                 </AlertDescription>
               </Alert>
             )}
             {value.bridge.profiles.length > 0 ? (
               <div className="flex flex-col gap-2">
-                {value.bridge.profiles.map((profile) => (
-                  <div
-                    key={profile.contextId}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs"
-                  >
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono font-medium">
-                        {profile.contextId}
-                      </span>
-                      {profile.aliases?.length ? (
-                        <Badge variant="outline">
-                          {profile.aliases.join(" / ")}
+                {value.bridge.profiles.map((profile) => {
+                  const isDefault =
+                    config.profile === profile.contextId ||
+                    Boolean(
+                      config.profile &&
+                      profile.aliases?.includes(config.profile)
+                    )
+                  return (
+                    <div
+                      key={profile.contextId}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs"
+                    >
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <span className="font-mono font-medium break-all">
+                          {profile.contextId}
+                        </span>
+                        {profile.aliases?.length ? (
+                          <Badge variant="outline" className="font-normal">
+                            {profile.aliases.join(" / ")}
+                          </Badge>
+                        ) : null}
+                        <span className="text-muted-foreground">
+                          v{profile.extensionVersion || "未知"}
+                        </span>
+                      </div>
+                      {isDefault ? (
+                        <Badge
+                          variant="secondary"
+                          className="gap-1 font-normal"
+                        >
+                          <Check className="size-3" />
+                          默认
                         </Badge>
-                      ) : null}
+                      ) : (
+                        onConfigure && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={configurationDisabled}
+                            onClick={() =>
+                              onConfigure({ profile: profile.contextId })
+                            }
+                          >
+                            设为默认
+                          </Button>
+                        )
+                      )}
                     </div>
-                    <span className="text-muted-foreground">
-                      扩展 {profile.extensionVersion || "版本未提供"}
-                    </span>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             ) : (
               <p className="text-xs text-muted-foreground">
-                在 Chrome / Edge 中启用 Browser Bridge
-                扩展后即可自动连接；网页在浏览器中运行，结果和截图回到原会话。
+                在 Chrome / Edge 中启用 Browser Bridge 扩展后自动连接。
               </p>
+            )}
+            {onConfigure && (
+              <ManualProfileForm
+                key={config.profile}
+                currentProfile={config.profile}
+                savingConfig={configurationDisabled}
+                onSave={(profile) => onConfigure({ profile })}
+              />
             )}
           </section>
 
           <section
-            className="flex flex-col gap-3 rounded-xl border bg-card p-5"
-            aria-label="OpenCLI后台"
+            className="flex flex-col gap-3 rounded-xl border bg-card p-4"
+            aria-label="OpenCLI 后台"
           >
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-2.5">
-                <h3 className="font-semibold">OpenCLI 后台</h3>
-                <Badge
-                  variant={
-                    value.daemon.state === "running" ? "secondary" : "outline"
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusDot
+                  tone={
+                    value.daemon.state === "running"
+                      ? "ok"
+                      : value.daemon.state === "unknown"
+                        ? "error"
+                        : "idle"
                   }
-                >
+                />
+                <h3 className="text-sm font-medium">OpenCLI 后台</h3>
+                <span className="text-xs text-muted-foreground">
                   {value.daemon.state === "running"
                     ? "运行中"
                     : value.daemon.state === "stopped"
                       ? "已停止"
-                      : "占用程序未确认"}
-                </Badge>
+                      : "占用未确认"}
+                </span>
                 {value.daemon.pid && (
-                  <span className="font-mono text-xs text-muted-foreground">
-                    PID {value.daemon.pid} · v{value.daemon.version || "未提供"}
+                  <span className="font-mono text-xs text-muted-foreground tabular-nums">
+                    PID {value.daemon.pid} · v{value.daemon.version || "—"}
                   </span>
                 )}
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={!!pending}
+                  variant="outline"
+                  className="text-xs"
+                  disabled={!!pending || savingConfig}
                   onClick={onRead}
                 >
                   <RefreshCw className="size-3.5" />
-                  {pending === "status" ? "读取中…" : "刷新状态"}
+                  {pending === "status" ? "刷新中…" : "刷新"}
                 </Button>
                 <Button
                   variant="outline"
-                  size="sm"
+                  className="text-xs"
                   disabled={
                     disabled ||
                     !installation?.usable ||
@@ -306,7 +585,7 @@ export function OpenCliConnectionView({
                 </Button>
                 <Button
                   variant="outline"
-                  size="sm"
+                  className="text-xs"
                   disabled={
                     disabled ||
                     !installation?.usable ||
@@ -323,23 +602,45 @@ export function OpenCliConnectionView({
               installation.version !== value.daemon.version && (
                 <Alert>
                   <AlertDescription>
-                    后台版本与当前安装不同，请停止后重新启动；浏览器工具不会自动替换后台。
+                    后台版本与当前安装不同，请停止后重新启动。
                   </AlertDescription>
                 </Alert>
               )}
             {value.issue && (
               <p className="text-xs text-muted-foreground">{value.issue}</p>
             )}
+            {onConfigure && (
+              <div className="flex items-center justify-between gap-3 border-t pt-3">
+                <label
+                  htmlFor="opencli-background-mode"
+                  className="cursor-pointer text-xs text-muted-foreground select-none"
+                >
+                  使用上游后台窗口模式
+                </label>
+                <Switch
+                  id="opencli-background-mode"
+                  checked={config.background}
+                  disabled={configurationDisabled}
+                  onCheckedChange={(checked) =>
+                    onConfigure({ background: checked })
+                  }
+                />
+              </div>
+            )}
           </section>
 
           <section
-            className="flex flex-col gap-3 rounded-xl border bg-card p-5"
+            className="flex flex-col gap-3 rounded-xl border bg-card p-4"
             aria-label="官方全局安装"
           >
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-2.5">
-                <h3 className="font-semibold">官方全局安装</h3>
-                <Badge variant={installed ? "secondary" : "outline"}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusDot tone={installed ? "ok" : "idle"} />
+                <h3 className="text-sm font-medium">官方全局安装</h3>
+                <Badge
+                  variant={installed ? "secondary" : "outline"}
+                  className="font-mono font-normal"
+                >
                   {installation?.version
                     ? `v${installation.version}`
                     : installation?.state === "not-installed"
@@ -355,7 +656,7 @@ export function OpenCliConnectionView({
               <div className="flex flex-wrap items-center gap-2">
                 <Button
                   variant="outline"
-                  size="sm"
+                  className="text-xs"
                   disabled={
                     disabled ||
                     installed ||
@@ -367,16 +668,15 @@ export function OpenCliConnectionView({
                 </Button>
                 <Button
                   variant="outline"
-                  size="sm"
+                  className="text-xs"
                   disabled={disabled || !installed}
                   onClick={() => onAction("upgrade")}
                 >
                   升级
                 </Button>
                 <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  variant="destructive"
+                  className="text-xs"
                   disabled={disabled || !installed}
                   onClick={() => onAction("uninstall")}
                 >
@@ -384,9 +684,9 @@ export function OpenCliConnectionView({
                 </Button>
               </div>
             </div>
-            <div className="grid gap-x-6 gap-y-1.5 text-xs sm:grid-cols-[72px_minmax(0,1fr)]">
+            <div className="grid gap-x-6 gap-y-1.5 border-t pt-3 text-xs sm:grid-cols-[72px_minmax(0,1fr)]">
               <span className="text-muted-foreground">目标版本</span>
-              <span>{version || "安装或升级时查询官方版本"}</span>
+              <span className="font-mono">{version || "安装或升级时查询"}</span>
               {installation?.path && (
                 <>
                   <span className="text-muted-foreground">安装目录</span>
@@ -404,10 +704,6 @@ export function OpenCliConnectionView({
                 </>
               )}
             </div>
-            <p className="text-xs text-muted-foreground">
-              升级、卸载和停止会影响全局后台及其他 OpenCLI
-              使用者；卸载保留用户配置。
-            </p>
           </section>
 
           {(operation || (pending && pending !== "status")) && (
@@ -421,14 +717,23 @@ export function OpenCliConnectionView({
                 <>
                   <div className="flex items-center gap-2 font-medium">
                     <span>{names[operation.action]}</span>
-                    <Badge variant="outline">
+                    <Badge
+                      variant={
+                        operation.state === "failed"
+                          ? "destructive"
+                          : operation.state === "succeeded"
+                            ? "secondary"
+                            : "outline"
+                      }
+                      className="font-normal"
+                    >
                       {operation.state === "running"
                         ? "进行中"
                         : operation.state === "succeeded"
                           ? "已完成"
                           : operation.state === "failed"
                             ? "失败"
-                            : "结果待核对"}
+                            : "待核对"}
                     </Badge>
                   </div>
                   <p className="text-muted-foreground">{operation.phase}</p>
@@ -463,6 +768,7 @@ export function OpenCliConnectionView({
 const plugin: PluginWebModule = {
   id,
   apiVersion: 1,
+  ownsConfiguration: true,
   pages: [{ id: "browser", component: () => <Page /> }],
 }
 export default plugin

@@ -6,7 +6,6 @@ import { join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { createHash } from "node:crypto"
 import lockfile from "proper-lockfile"
-import { validateToolArguments } from "@earendil-works/pi-ai"
 import { operationError } from "./operation-issue.mjs"
 import { recordedWrite, validateWriteReceipts } from "./write-receipts.mjs"
 
@@ -27,11 +26,13 @@ const issue = (code, summary, recovery = "settings") => ({
   recovery,
   severity: "error",
 })
-function validateValue(schema, value, label) {
+async function validateValue(schema, value, label) {
   check(
     schema?.type === "object" && schema.additionalProperties === false,
     `${label}须声明严格对象schema。`
   )
+  const { validateToolArguments } =
+    await import("@earendil-works/pi-ai/utils/validation")
   const validated = validateToolArguments(
     { name: label, parameters: schema },
     { id: "validation", name: label, arguments: value }
@@ -69,7 +70,7 @@ function awaitWithSignal(promise, signal) {
     if (signal.aborted) abort()
   })
 }
-function validateManifest(manifest, directoryId) {
+async function validateManifest(manifest, directoryId) {
   check(
     manifest?.apiVersion === 1 &&
       validId(manifest.id) &&
@@ -93,7 +94,7 @@ function validateManifest(manifest, directoryId) {
         manifest.configurationVersion > 0),
     "配置协议版本无效。"
   )
-  validateValue(
+  await validateValue(
     manifest.configurationSchema,
     manifest.defaultConfiguration,
     "模块默认配置"
@@ -226,7 +227,7 @@ export class ExtensionService {
         )
         const { default: manifest } = await import(pathToFileURL(file).href)
         if (manifest?.migratedTo) continue
-        validateManifest(manifest, entry.name)
+        await validateManifest(manifest, entry.name)
         const namespace = manifest.id.replaceAll("-", "_")
         check(!normalized.has(namespace), "模块工具命名空间重复。")
         for (const kind of manifest.resultKinds)
@@ -314,7 +315,7 @@ export class ExtensionService {
       update: (change, signal) => this.mutate(change, signal),
     }
   }
-  descriptor(id, entry, document) {
+  async descriptor(id, entry, document) {
     const manifest = entry.manifest
     const saved = document.modules[id]
     const configuration =
@@ -327,7 +328,11 @@ export class ExtensionService {
             saved.configurationVersion === (manifest.configurationVersion || 1),
           "配置协议需要升级。"
         )
-        validateValue(manifest.configurationSchema, configuration, "模块配置")
+        await validateValue(
+          manifest.configurationSchema,
+          configuration,
+          "模块配置"
+        )
       } catch {
         problem = issue(
           "extension_configuration",
@@ -391,13 +396,17 @@ export class ExtensionService {
       )
     }
     signal?.throwIfAborted()
-    return [...modules].map(([id, entry]) =>
-      this.descriptor(
-        id,
-        storageIssue ? { ...entry, issue: storageIssue } : entry,
-        document
+    const descriptors = await Promise.all(
+      [...modules].map(([id, entry]) =>
+        this.descriptor(
+          id,
+          storageIssue ? { ...entry, issue: storageIssue } : entry,
+          document
+        )
       )
     )
+    signal?.throwIfAborted()
+    return descriptors
   }
   async configure(
     id,
@@ -422,7 +431,11 @@ export class ExtensionService {
         let value
         try {
           value = JSON.parse(configuration)
-          validateValue(entry.manifest.configurationSchema, value, "扩展配置")
+          await validateValue(
+            entry.manifest.configurationSchema,
+            value,
+            "扩展配置"
+          )
         } catch {
           throw operationError(
             "extension_configuration",
@@ -684,7 +697,7 @@ export class ExtensionService {
                       onUpdate,
                     })
                     ownedSignal.throwIfAborted()
-                    return this.result(manifest, tool, result)
+                    return await this.result(manifest, tool, result)
                   } catch {
                     if (ownedSignal.aborted) throw ownedSignal.reason
                     throw operationError(
@@ -700,7 +713,7 @@ export class ExtensionService {
       }
     )
   }
-  result(manifest, tool, result) {
+  async result(manifest, tool, result) {
     check(
       result &&
         Array.isArray(result.content) &&
@@ -720,7 +733,7 @@ export class ExtensionService {
       "扩展结果正文无效。"
     )
     if (tool.outputSchema)
-      validateValue(
+      await validateValue(
         tool.outputSchema,
         result.structuredContent,
         "扩展工具结构结果"
@@ -755,7 +768,7 @@ export class ExtensionService {
           entry.version === presentation.version
       )
       check(kind, "扩展未声明此结果类型。")
-      validateValue(kind.schema, presentation.data, "扩展展示结果")
+      await validateValue(kind.schema, presentation.data, "扩展展示结果")
       const payload = json(presentation.data)
       check(Buffer.byteLength(payload) <= 65536, "扩展展示结果过大。")
       piResult.details = {

@@ -122,7 +122,7 @@ export async function activate(host) {
     trustedClients = ids
   }
   // 待确认设备仅在内存中：完成握手但未获信任的客户端，供本机页面确认。
-  const pendingClients = new Map()
+  const pendingClients = new Set()
   const profile = JSON.parse(
     await readFile(join(host.dataRoot(), "moon-data.json"), "utf8")
   )
@@ -368,11 +368,7 @@ export async function activate(host) {
               "base64url"
             )
             if (!trustedClients.has(clientId))
-              pendingClients.set(clientId, {
-                id: clientId,
-                online: true,
-                firstSeen: Date.now(),
-              })
+              pendingClients.add(clientId)
             context = Object.freeze({
               source: "remote",
               clientId,
@@ -382,6 +378,7 @@ export async function activate(host) {
             })
             peer.clientId = clientId
             peer.ready = true
+            host.emit?.("state-changed", {})
             clearTimeout(handshakeTimer)
             void send({
               type: "ready",
@@ -421,8 +418,7 @@ export async function activate(host) {
       if (peers.get(connectionId) === peer) peers.delete(connectionId)
       if (context) {
         selected.delete(context.clientId)
-        const pending = pendingClients.get(context.clientId)
-        if (pending) pending.online = false
+        host.emit?.("state-changed", {})
       }
       for (const controller of controllers.values())
         if (controller.readOnly) controller.abort()
@@ -444,6 +440,7 @@ export async function activate(host) {
       online = true
       issue = "已连接evework"
       attempt = 0
+      host.emit?.("state-changed", {})
       heartbeat = setInterval(() => {
         if (closed || control !== socket) return
         try {
@@ -489,6 +486,7 @@ export async function activate(host) {
       recordClose(controlReason || "control-offline")
       online = false
       issue = "连接已中断；正在重新连接，主机已接受的任务继续。"
+      host.emit?.("state-changed", {})
       retry = setTimeout(
         connect,
         Math.min(30000, 500 * 2 ** Math.min(attempt++, 6))
@@ -496,22 +494,26 @@ export async function activate(host) {
     })
   }
   connect()
-  const devicesSnapshot = () => ({
-    items: [
-      ...[...pendingClients.values()].map((info) => ({
-        id: info.id,
-        state: "pending",
-        online: info.online,
-      })),
-      ...[...trustedClients].map((id) => ({
-        id,
-        state: "trusted",
-        online: [...peers.values()].some(
-          (peer) => peer.ready && peer.clientId === id
-        ),
-      })),
-    ],
-  })
+  const devicesSnapshot = () => {
+    const onlineClients = new Set()
+    for (const peer of peers.values()) {
+      if (peer.ready) onlineClients.add(peer.clientId)
+    }
+    return {
+      items: [
+        ...[...pendingClients].map((id) => ({
+          id,
+          state: "pending",
+          online: onlineClients.has(id),
+        })),
+        ...[...trustedClients].map((id) => ({
+          id,
+          state: "trusted",
+          online: onlineClients.has(id),
+        })),
+      ],
+    }
+  }
   return {
     operations: {
       ...uploadOperations(host),
@@ -534,6 +536,7 @@ export async function activate(host) {
           next.add(id)
           await saveClients(next)
           pendingClients.delete(id)
+          host.emit?.("state-changed", {})
           return { value: devicesSnapshot() }
         },
       },
@@ -551,6 +554,7 @@ export async function activate(host) {
           // 未信任即断开；再次连接需重新本机确认。
           for (const peer of peers.values())
             if (peer.ready && peer.clientId === id) peer.close()
+          host.emit?.("state-changed", {})
           return { value: devicesSnapshot() }
         },
       },
@@ -584,6 +588,7 @@ export async function activate(host) {
           selected.clear()
           online = false
           issue = "原连接已重置，正在建立新连接。"
+          host.emit?.("state-changed", {})
           connect()
           return { value: status() }
         },

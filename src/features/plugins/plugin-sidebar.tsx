@@ -15,8 +15,7 @@ import {
   Compass,
   Maximize2,
   Minimize2,
-  PanelRightClose,
-  PanelRightOpen,
+  PanelRight,
   Plus,
   X,
 } from "lucide-react"
@@ -81,7 +80,7 @@ export function PluginSidebarToggle() {
       aria-expanded={false}
       onClick={controls.open}
     >
-      <PanelRightOpen />
+      <PanelRight />
       {!!controls.pending && (
         <span className="plugin-sidebar-attention" aria-hidden />
       )}
@@ -416,7 +415,7 @@ export function PluginSidebar({
                   title={overlay ? "返回会话" : "收起右侧栏"}
                   onClick={onCollapse}
                 >
-                  <PanelRightClose />
+                  <PanelRight />
                 </Button>
               </div>
             </header>

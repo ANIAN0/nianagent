@@ -25,26 +25,19 @@ export type GitReadService = {
 function observeVisible(read: (signal: AbortSignal) => Promise<void>) {
   let active = true
   let request: AbortController | undefined
-  let timer: ReturnType<typeof setTimeout> | undefined
   const update = async () => {
     if (!active || document.hidden || request) return
-    clearTimeout(timer)
     const current = new AbortController()
     request = current
     try {
       await read(current.signal)
     } finally {
       if (request === current) request = undefined
-      if (active && !document.hidden)
-        timer = setTimeout(() => {
-          void update()
-        }, 2000)
     }
   }
   const visibility = () => {
     if (document.hidden) {
       request?.abort()
-      clearTimeout(timer)
     } else void update()
   }
   void update()
@@ -53,7 +46,6 @@ function observeVisible(read: (signal: AbortSignal) => Promise<void>) {
   return () => {
     active = false
     request?.abort()
-    clearTimeout(timer)
     document.removeEventListener("visibilitychange", visibility)
     window.removeEventListener("focus", visibility)
   }
@@ -157,7 +149,7 @@ export function GitViewer({
       <p className="file-page-caption">
         {status?.root ||
           status?.error ||
-          (error ? "仓库读取失败" : "正在读取仓库…")}{" "}
+          (statusError ? "仓库读取失败" : "正在读取仓库…")}{" "}
         · 外部修改也会列入，不代表本会话的操作记录。
       </p>
       {error && (
@@ -191,15 +183,26 @@ export function GitViewer({
                     size="sm"
                     className="file-tree-entry"
                     title={entry.path}
+                    aria-pressed={
+                      selected?.path === entry.path &&
+                      selected.stage === entry.stage
+                    }
                     onClick={() => {
-                      if (selected === entry && !error) return
+                      if (
+                        selected?.path === entry.path &&
+                        selected.stage === entry.stage &&
+                        !patchError
+                      )
+                        return
                       setPatchError("")
                       setActionError("")
                       setPatch(undefined)
                       setSelected({ ...entry })
                     }}
                   >
-                    {entry.status} · {entry.name}
+                    <span>
+                      {entry.status} · {entry.name}
+                    </span>
                   </Button>
                 ))}
               </div>
@@ -210,23 +213,28 @@ export function GitViewer({
       {selected && (
         <>
           <div className="file-body-toolbar">
-            <span role="tab" aria-selected="true">
+            <span className="truncate" title={selected.path}>
               差异 · {selected.name}
             </span>
             <Button
               variant="outline"
               size="sm"
-              onClick={() =>
+              onClick={() => {
+                setActionError("")
                 void onOpen(selected.path).catch((error) =>
-                  setActionError(error.message)
+                  setActionError(
+                    error instanceof Error
+                      ? error.message
+                      : "当前文件未能打开。"
+                  )
                 )
-              }
+              }}
             >
               打开当前文件
             </Button>
           </div>
           <div className="file-git-patch">
-            {error ? (
+            {patchError ? (
               <p>当前差异读取失败，请重新选择或刷新现状。</p>
             ) : patch === undefined ? (
               <p role="status">正在读取当前差异…</p>
