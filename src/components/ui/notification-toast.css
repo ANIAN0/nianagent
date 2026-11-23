@@ -1,3 +1,13 @@
+.moon-notification-toaster[data-sonner-toaster][data-x-position="center"] {
+  left: var(--moon-toast-center, 50%);
+}
+@media (max-width: 600px) {
+  .moon-notification-toaster[data-sonner-toaster][data-x-position="center"] {
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+  }
+}
 .moon-notification-toast {
   display: flex;
   align-items: center;

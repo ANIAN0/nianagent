@@ -84,15 +84,18 @@ export function ThemeProvider({
   disableTransitionOnChange = true,
   ...props
 }: ThemeProviderProps) {
-  const [theme, setThemeState] = React.useState<Theme>(() => {
+  const readTheme = () => {
     const storedTheme =
       storageKey === null ? null : localStorage.getItem(storageKey)
-    if (isTheme(storedTheme)) {
-      return storedTheme
-    }
-
-    return defaultTheme
-  })
+    return isTheme(storedTheme) ? storedTheme : defaultTheme
+  }
+  const [theme, setThemeState] = React.useState(readTheme)
+  const [activeStorageKey, setActiveStorageKey] = React.useState(storageKey)
+  // 原生 profile 核验后才启用持久主题，保留已挂载的启动画布。
+  if (activeStorageKey !== storageKey) {
+    setActiveStorageKey(storageKey)
+    setThemeState(readTheme())
+  }
 
   const setTheme = React.useCallback(
     (nextTheme: Theme) => {
@@ -121,7 +124,7 @@ export function ThemeProvider({
     [disableTransitionOnChange]
   )
 
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     applyTheme(theme)
 
     if (theme !== "system") {

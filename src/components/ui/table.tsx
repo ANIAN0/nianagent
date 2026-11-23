@@ -1,6 +1,7 @@
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "cn"
+import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip"
 
 const tableVariants = cva("w-full caption-bottom", {
   variants: {
@@ -141,6 +142,31 @@ function TableCaption({
   )
 }
 
+function TableCellText({
+  text,
+  className,
+}: {
+  text: string
+  className?: string
+}) {
+  const content = (
+    <span className={cn("block truncate whitespace-nowrap", className)}>
+      {text}
+    </span>
+  )
+
+  if (!text || text === "—") return content
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{content}</TooltipTrigger>
+      <TooltipContent className="max-w-[min(480px,calc(100vw-24px))] break-all">
+        {text}
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
 export {
   Table,
   TableHeader,
@@ -149,6 +175,7 @@ export {
   TableHead,
   TableRow,
   TableCell,
+  TableCellText,
   TableCellDescription,
   TableCaption,
 }

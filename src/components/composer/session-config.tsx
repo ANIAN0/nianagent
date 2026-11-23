@@ -239,7 +239,7 @@ function SessionConfigPanel({
                         {toolsChanged && (
                           <span
                             aria-label="已修改"
-                            className="size-[5px] rounded-full bg-primary"
+                            className="size-1.5 rounded-full bg-primary"
                           />
                         )}
                       </TabsTrigger>

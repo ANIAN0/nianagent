@@ -129,7 +129,7 @@ export function ConfigurationRecoveryPanel<
             throw {
               issue: {
                 code: "host_version",
-                summary: "当前服务不支持原授权核对，请更新并重启 Moon。",
+                summary: "当前服务不支持原授权核对，请更新并重启 moon。",
                 recovery: "restart",
                 severity: "error",
               },

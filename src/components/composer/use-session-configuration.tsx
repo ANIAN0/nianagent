@@ -351,7 +351,7 @@ export function useSessionConfiguration({
     setPhase(retainView ? "refreshing" : "loading")
     try {
       const [nextCatalog, snapshot] = await Promise.all([
-        service.catalog(workspacePath, controller.signal),
+        service.catalog(workspacePath, controller.signal, sessionId),
         service.read(sessionId, controller.signal),
       ])
       if (controller.signal.aborted || request.current !== controller) return

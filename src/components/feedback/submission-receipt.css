@@ -16,8 +16,8 @@
   gap: 6px;
 }
 .submission-receipt-dot {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
   flex: none;
   border-radius: 50%;
   background: var(--status-warning);

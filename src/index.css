@@ -1,6 +1,9 @@
-@import "tailwindcss";
+@import "tailwindcss" source("./");
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+/* The app and plugin views supply utilities for the shared stylesheet. */
+@source "../backend/plugins";
+@source "../index.html";
 @font-face {
   font-family: "Source Han Sans SC";
   src: url("/fonts/source-han-sans/SourceHanSansSC-VF.woff2") format("woff2");
@@ -181,6 +184,32 @@
   }
   html {
     @apply font-sans;
+  }
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--muted-foreground) 28%, transparent);
+    border: 2px solid transparent;
+    border-radius: 8px;
+    background-clip: padding-box;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--muted-foreground) 55%, transparent);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  *::-webkit-scrollbar-button {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+  *::-webkit-scrollbar-corner {
+    background: transparent;
   }
 }
 .moon-scrollbar::-webkit-scrollbar {

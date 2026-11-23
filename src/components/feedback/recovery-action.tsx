@@ -34,7 +34,7 @@ export function RecoveryAction({
   if (recovery === "restart")
     return (
       <span className="text-xs leading-5 text-muted-foreground">
-        请退出并重新启动 Moon 桌面应用。
+        请退出并重新启动 moon 桌面应用。
       </span>
     )
   if (recovery === "none") return null

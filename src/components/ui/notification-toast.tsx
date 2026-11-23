@@ -83,12 +83,12 @@ export function NotificationToaster() {
   }, [])
   return (
     <Toaster
+      className="moon-notification-toaster"
       position="top-center"
       offset={40}
       mobileOffset={40}
       visibleToasts={1}
       style={{
-        left: "var(--moon-toast-center, 50%)",
         width: "min(640px, calc(100vw - 48px))",
         fontFamily: "inherit",
       }}

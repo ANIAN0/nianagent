@@ -63,7 +63,7 @@ export function composerDraftEligibility(
     draft.command?.name
   )
   const block: DraftBlock | undefined = maintenanceWritesFrozen()
-    ? { kind: "maintenance", message: "Moon 正在维护，暂不能提交新的输入。" }
+    ? { kind: "maintenance", message: "moon 正在维护，暂不能提交新的输入。" }
     : choosing
       ? { kind: "choosing", message: "正在选择附件，选择完成后可发送。" }
       : !modelAvailable
