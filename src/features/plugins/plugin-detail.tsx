@@ -1,5 +1,7 @@
 import { useState, type ReactNode } from "react"
-import { ArrowLeft, ChevronRight } from "lucide-react"
+import { invoke, isTauri } from "@tauri-apps/api/core"
+import { notifyToast } from "@/components/ui/notification-toast"
+import { ArrowLeft, ChevronRight, ExternalLink } from "lucide-react"
 import type {
   PluginDescriptor,
   PluginPackageTask,
@@ -29,6 +31,14 @@ import {
   TASK_ACTIVE_PHASES,
   type ConfigurationDraft,
 } from "./plugin-settings-state"
+
+const upstreamRepositories: Partial<Record<string, string>> = {
+  "android-control": "https://github.com/Genymobile/scrcpy",
+  "desktop-control": "https://github.com/vercel-labs/agent-desktop",
+  filebrowser: "https://github.com/filebrowser/filebrowser",
+  memos: "https://github.com/usememos/memos",
+  opencli: "https://github.com/jackwener/opencli",
+}
 
 type PluginDetailProps = {
   plugin: PluginDescriptor
@@ -213,6 +223,10 @@ export function PluginDetail(props: PluginDetailProps) {
     renderPage,
   } = props
   const module = getPluginModule(plugin)
+  const repository =
+    plugin.sourceKind === "bundled"
+      ? upstreamRepositories[plugin.id]
+      : undefined
   const pages = plugin.contributions.filter((item) => item.kind === "page")
   const [activePage, setActivePage] = useState(pages[0]?.id ?? "")
   const currentPageId = pages.some((p) => p.id === activePage)
@@ -239,6 +253,35 @@ export function PluginDetail(props: PluginDetailProps) {
           <ArrowLeft className="size-4" />
           返回插件列表
         </Button>
+        {repository && (
+          <Button
+            asChild
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground"
+          >
+            <a
+              href={repository}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={`在 GitHub 查看 ${repository.split("/").pop()} 仓库`}
+              onClick={(event) => {
+                if (!isTauri()) return
+                event.preventDefault()
+                void invoke("open_authorization_url", {
+                  url: repository,
+                }).catch(() =>
+                  notifyToast("未能打开仓库，请复制链接后在浏览器打开。", {
+                    tone: "error",
+                  })
+                )
+              }}
+            >
+              GitHub
+              <ExternalLink aria-hidden="true" />
+            </a>
+          </Button>
+        )}
       </div>
       <header className="plugin-detail-header">
         <div className="flex min-w-0 flex-1 flex-col gap-1.5">

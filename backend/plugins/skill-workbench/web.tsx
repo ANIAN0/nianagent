@@ -134,7 +134,7 @@ export function Page() {
                 {value.running ? "本机监听中" : "未监听"}
               </span>
               <span className="text-xs text-muted-foreground">
-                仅本机 127.0.0.1 · 票据鉴权
+                仅本机 127.0.0.1
               </span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -187,14 +187,10 @@ export function Page() {
                 onClick={() =>
                   void run(async (signal) => {
                     if (signal.aborted) return
-                    const opened = await invoke<{
-                      ticket: string
-                      url: string
-                    }>("ticket", {}, signal)
                     if (isTauri())
-                      await tauriInvoke("open_local_url", { url: opened.url })
+                      await tauriInvoke("open_local_url", { url: value.url })
                     else
-                      window.open(opened.url, "_blank", "noopener,noreferrer")
+                      window.open(value.url, "_blank", "noopener,noreferrer")
                   })
                 }
               >

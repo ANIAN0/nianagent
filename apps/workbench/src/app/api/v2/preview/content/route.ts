@@ -18,8 +18,7 @@ export async function GET(request: Request) {
   const missing = () => new Response(null, { status: 404, headers })
   const sid = preview.isPreviewHost(
     request.headers.get(previewHostHeader),
-    port,
-    32
+    port
   )
   const path = request.headers.get(previewPathHeader)
   if (!sid || !path || process.env.MOON_WORKBENCH_APP === "skills")

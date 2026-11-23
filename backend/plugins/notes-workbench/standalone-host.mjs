@@ -35,7 +35,6 @@ export async function activate(host) {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        authorization: `Bearer ${supervisor.identity.token}`,
         ...(context?.source ? { "x-moon-source": String(context.source) } : {}),
         ...(context?.actorId
           ? { "x-moon-actor": String(context.actorId) }

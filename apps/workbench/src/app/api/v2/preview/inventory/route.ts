@@ -10,9 +10,6 @@ export const dynamic = "force-dynamic"
 
 export async function POST(request: Request) {
   const runtime = await getWorkbenchRuntime()
-  if (!runtime.authorize(request)) {
-    return previewError(401, "unauthorized", "未授权访问。")
-  }
   const body = (await request.json().catch(() => null)) as {
     versionId?: unknown
     sid?: unknown

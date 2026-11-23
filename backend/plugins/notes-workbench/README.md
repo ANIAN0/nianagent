@@ -7,15 +7,14 @@
 
 - 仅 Windows 本机 dev 运行（Moon 桌面宿主激活本插件后自动启动）；本机使用不代表
   宿主之外自动后台运行。
-- 管理端 `http://127.0.0.1:<port>/`（默认 19830），仅本机可访问；打开需一次性票据
-  （Moon 插件页「打开工作台」签发），长期 token 只注入页面内存与本标签页会话存储，不进入地址与历史。
+- 管理端 `http://127.0.0.1:<port>/`（默认 19830），允许本机程序直接访问。
 - MCP 服务（mcp-service 插件，默认 19826）需在 Moon 插件页启用，并在「Agent 专属
   凭据」区为每个 Agent 登记专属凭据；工具选择需包含 notes-workbench 的共享工具。
 - 数据根为插件数据目录：`v2/`（SQLite + 封存产物）。
 
 ## 入口
 
-- **工作台界面**：插件页签发票据打开；左侧项目 → 目录 → 草稿导航，支持搜索与类型
+- **工作台界面**：插件页直接打开；左侧项目 → 目录 → 草稿导航，支持搜索与类型
   筛选（文档/白板/界面），草稿可改名、移动、归档恢复。
 - **MCP 工具面**：list_projects/create_project/update_project；
   list_directories/create_directory/update_directory；list_drafts/create_draft/update_draft；

@@ -8,9 +8,6 @@ export async function POST(
   context: { params: Promise<{ toolName: string }> }
 ) {
   const runtime = await getSkillsRuntime()
-  if (!runtime.authorize(request)) {
-    return NextResponse.json({ error: "未授权访问 Skill 工作台工具。" }, { status: 401 })
-  }
   const { toolName } = await context.params
   const tool = runtime.toolsByName.get(decodeURIComponent(toolName))
   if (!tool) {

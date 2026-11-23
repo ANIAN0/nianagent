@@ -42,11 +42,9 @@ export type SkillSharedTool = {
 
 export type SkillsRuntime = {
   port: number
-  token: string | null
   service: SkillService
   toolsByName: Map<string, SkillSharedTool>
   getRevision: () => number
-  authorize: (request: Request) => boolean
   toErrorResponse: (error: unknown) => NextResponse
 }
 
@@ -115,11 +113,9 @@ async function createSkillsRuntime(): Promise<SkillsRuntime> {
 
   return {
     port: core.port,
-    token: core.token,
     service,
     toolsByName,
     getRevision: () => revision,
-    authorize: core.authorize,
     toErrorResponse,
   }
 }

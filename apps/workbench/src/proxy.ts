@@ -15,6 +15,15 @@ export function proxy(request: NextRequest) {
     if (request.nextUrl.pathname === previewContentRoute) {
       return new NextResponse(null, { status: 404 })
     }
+    const origin = request.headers.get("origin")
+    if (
+      request.nextUrl.pathname.startsWith("/api/") &&
+      origin !== null &&
+      origin !== `http://127.0.0.1:${port}` &&
+      origin !== `http://localhost:${port}`
+    ) {
+      return NextResponse.json({ error: "仅允许工作台同源访问。" }, { status: 403 })
+    }
     const headers = new Headers(request.headers)
     headers.delete(previewHostHeader)
     headers.delete(previewPathHeader)
@@ -26,7 +35,7 @@ export function proxy(request: NextRequest) {
   if (
     !host ||
     process.env.MOON_WORKBENCH_APP === "skills" ||
-    !isPreviewHost(host, port, 32)
+    !isPreviewHost(host, port)
   ) {
     return new NextResponse(null, { status: 404 })
   }

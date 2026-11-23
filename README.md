@@ -57,6 +57,6 @@ Windows 安装时请选择用户目录之外、当前用户可写的位置，例
 
 插件前端公开类型位于 `src/features/plugins/plugin-api.ts`；`backend/plugins/example-note` 同时提供可从插件页导入的本地示例包。正式定义与示例源码见 [docs/plugin-spec.md](docs/plugin-spec.md) 的“接口与实现状态”。
 
-从主导航“插件”启用“MCP 服务”后，进入详情页设置固定端口、选择共享工具并复制 Codex/DSH 配置；为每个 Agent 分配独立凭据，按需显示、轮换或撤销；会话绑定凭据身份。工作台 publish_version/open_version 返回不含访问凭据的固定版本深链（`#v2?draft=&version=&compare=`），本机从 Moon 聊天交付卡片或插件详情打开时通过短时一次性票据换取页面会话 token。OpenCLI 共享工具接收原生 argv，session 与标签页按实际安装版本的 OpenCLI 语法使用，profile 沿用插件配置。
+从主导航“插件”启用“MCP 服务”后，进入详情页设置固定端口、选择共享工具并复制 Codex/DSH 配置；为每个 Agent 分配独立凭据，按需显示、轮换或撤销；会话绑定凭据身份。工作台 publish_version/open_version 返回不含访问凭据的固定版本深链（`#v2?draft=&version=&compare=`），本机程序可以直接调用笔记和 Skill 工作台 HTTP 接口，聊天交付卡片和插件详情直接打开页面。OpenCLI 共享工具接收原生 argv，session 与标签页按实际安装版本的 OpenCLI 语法使用，profile 沿用插件配置。
 
 独立“日志”插件提供诊断查询、导出与工具活动记录，停用查看插件仍由宿主记录。诊断可按界面错误编号、traceId、模块和时间定位；Node 与桌面日志字段一致，读取操作默认不记录 INFO。日志位于当前数据目录，保留14天；Node 和 Rust 常规诊断各限两个8MiB文件，工具活动记录按10000条、8MiB先到限制保留。写入失败、丢弃计数和损坏记录明确呈现，不改变已经接受的业务结果。插件共享契约以正式插件规范为准。

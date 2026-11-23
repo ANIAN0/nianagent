@@ -43,7 +43,6 @@ type NotesInventory = {
 export type WorkbenchRuntime = {
   dataDir: string
   port: number
-  token: string | null
   store: NotesStore
   v2: {
     operations: Record<string, V2Operation>
@@ -58,7 +57,6 @@ export type WorkbenchRuntime = {
     since: number,
     signal?: AbortSignal
   ) => Promise<{ version: number; timeout?: boolean }>
-  authorize: (request: Request) => boolean
 }
 
 const globalForRuntime = globalThis as unknown as {
@@ -163,7 +161,6 @@ async function createRuntime(): Promise<WorkbenchRuntime> {
   return {
     dataDir: core.dataDir,
     port: core.port,
-    token: core.token,
     store,
     v2,
     validatePluginValue,
@@ -172,7 +169,6 @@ async function createRuntime(): Promise<WorkbenchRuntime> {
     preview,
     getDataVersion: () => dataVersion,
     waitForSync,
-    authorize: core.authorize,
   }
 }
 

@@ -43,7 +43,6 @@ test(
     await new Promise((resolve) => reservation.listen(0, "127.0.0.1", resolve))
     const { port } = reservation.address()
     await new Promise((resolve) => reservation.close(resolve))
-    const token = "notes-http-regression"
     const dataDir = join(directory, "data")
     // Simulate the schema from before draft consensus was added.
     const oldStore = new WorkbenchStore(join(dataDir, "v2"))
@@ -96,7 +95,6 @@ test(
           PORT: String(port),
           MOON_WORKBENCH_APP: "notes",
           MOON_WORKBENCH_DATA_DIR: dataDir,
-          MOON_WORKBENCH_TOKEN: token,
         },
         stdio: ["ignore", "pipe", "pipe"],
       }
@@ -110,8 +108,7 @@ test(
     const base = `http://127.0.0.1:${port}`
     const request = (path, options) =>
       fetch(base + path, { signal: AbortSignal.timeout(30_000), ...options })
-    const auth = { authorization: `Bearer ${token}` }
-    const post = (name, input, headers = auth) =>
+    const post = (name, input, headers = {}) =>
       request(`/api/v2/${name}`, {
         method: "POST",
         headers: { "content-type": "application/json", ...headers },
@@ -145,24 +142,10 @@ test(
     const html = await page.text()
     assert.match(html, /moon 工作台/)
     assert.ok(!html.includes("window.__moonNotesWorkbenchToken"))
-    assert.ok(!html.includes(token))
-    assert.equal((await post("list_projects", {}, {})).status, 401)
+    assert.equal((await post("list_projects", {}, {})).status, 200)
 
-    const issued = await request("/api/ticket", {
-      method: "POST",
-      headers: { ...auth, "content-type": "application/json" },
-      body: JSON.stringify({ app: "notes" }),
-    })
-    assert.equal(issued.status, 200)
-    const { url } = await issued.json()
-    const exchanged = await fetch(url, { redirect: "manual" })
-    assert.equal(exchanged.status, 307)
-    assert.equal(new URL(exchanged.headers.get("location")).pathname, "/notes")
-    const cookie = exchanged.headers.get("set-cookie")
-    assert.match(cookie, /HttpOnly/i)
-    const browser = { cookie: cookie.split(";")[0], origin: base }
-    assert.equal((await fetch(url, { redirect: "manual" })).status, 401)
-    assert.equal((await post("list_projects", {}, browser)).status, 200)
+    assert.equal(page.headers.get("set-cookie"), null)
+    const browser = { origin: base }
     const migratedDraft = (
       await execute("list_drafts", {}, browser)
     ).items.find(({ id }) => id === oldDraft.id)
@@ -173,7 +156,7 @@ test(
         await post(
           "list_projects",
           {},
-          { ...auth, origin: "https://example.invalid" }
+          { origin: "https://example.invalid" }
         )
       ).status,
       403
@@ -208,7 +191,6 @@ test(
           {
             method: "POST",
             headers: {
-              ...auth,
               ...(chunked ? {} : { "content-length": Buffer.byteLength(body) }),
             },
           },
@@ -403,7 +385,7 @@ test(
         body: "已更新",
         requestKey: "edit-reply",
       },
-      { ...auth, "x-moon-source": "mcp", "x-moon-actor": "test-agent" }
+      { "x-moon-source": "mcp", "x-moon-actor": "test-agent" }
     )
     await execute(
       "set_thread_status",

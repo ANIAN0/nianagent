@@ -24,9 +24,6 @@ function contentTypeFor(path: string) {
 
 export async function GET(request: Request) {
   const runtime = await getWorkbenchRuntime()
-  if (!runtime.authorize(request)) {
-    return NextResponse.json({ error: "未授权访问。" }, { status: 401 })
-  }
   const url = new URL(request.url)
   const versionId = url.searchParams.get("versionId") || ""
   const assetPath = url.searchParams.get("path") || ""

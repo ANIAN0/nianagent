@@ -127,7 +127,7 @@ export function Page() {
                 {value.running ? "本机监听中" : "未监听"}
               </span>
               <span className="text-xs text-muted-foreground">
-                仅本机 127.0.0.1 · 票据鉴权
+                仅本机 127.0.0.1
               </span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -180,16 +180,11 @@ export function Page() {
                 onClick={() =>
                   void run(async (signal) => {
                     if (signal.aborted) return
-                    // 先换一次性票据再打开；长期 token 由页面资源注入内存，不进入 URL。
-                    const opened = await invoke<{
-                      ticket: string
-                      url: string
-                    }>("ticket", {}, signal)
                     // 桌面 WebView 不处理 window.open，走系统浏览器（与模型授权同模式）。
                     if (isTauri())
-                      await tauriInvoke("open_local_url", { url: opened.url })
+                      await tauriInvoke("open_local_url", { url: value.url })
                     else
-                      window.open(opened.url, "_blank", "noopener,noreferrer")
+                      window.open(value.url, "_blank", "noopener,noreferrer")
                   })
                 }
               >
@@ -283,7 +278,7 @@ type NotesPagePayload = {
   summary?: string
 }
 
-/** 聊天内交付卡：列出本轮发布或更新的笔记版本，换票后在浏览器工作台打开对应 v2 视图。 */
+/** 聊天内交付卡：列出本轮发布或更新的笔记版本，在浏览器工作台打开对应 v2 视图。 */
 export function NotesPageDelivery({
   delivery,
   deliveries = [delivery],
@@ -307,11 +302,9 @@ export function NotesPageDelivery({
       const status = await invoke<WorkbenchStatus>("status", {})
       if (!status.running || !status.url)
         throw new Error("笔记工作台未运行；请在插件详情页启用后重试。")
-      // 先换一次性票据；深链与票据分离——hash 进地址，token 只进内存。
-      const opened = await invoke<{ ticket: string; url: string }>("ticket", {})
       const params = new URLSearchParams({ draft: item.draftId })
       if (item.versionId) params.set("version", item.versionId)
-      const url = `${opened.url}#v2?${params}`
+      const url = `${status.url}#v2?${params}`
       // 桌面 WebView 不处理 window.open，走系统浏览器（与插件详情页同模式）。
       if (isTauri()) await tauriInvoke("open_local_url", { url })
       else window.open(url, "_blank", "noopener,noreferrer")

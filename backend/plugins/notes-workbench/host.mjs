@@ -15,9 +15,6 @@ import {
   previewHeaders as uiPreviewHeaders,
 } from "./v2/preview.mjs"
 import {
-  bearerAuthorized,
-  createTickets,
-  loadTokenIdentity,
   pageHeaders,
   readSavedJson,
   sendJson,
@@ -76,13 +73,6 @@ export async function activate(host) {
     settings.port > 65535
   )
     throw new Error("笔记工作台配置无效，原文件保留。")
-  // 打开地址只携带一次性票据：长期 token 由页面资源注入内存，不进入浏览器历史。
-  const identity = await loadTokenIdentity(
-    join(host.directory, "token.json"),
-    "笔记工作台"
-  )
-  const tickets = createTickets()
-
   // S2a v2 核心域：独立数据根 <host.directory>/v2/
   const v2Store = new WorkbenchStore(join(host.directory, "v2"))
   await v2Store.open()
@@ -374,26 +364,9 @@ export async function activate(host) {
         })
         return
       }
-      // 外壳不含数据，始终可载；票据（或已持 token）换取 token 注入。
-      // 无 token 的会话由页面自身提示从插件详情打开，刷新不依赖票据。
-      const ticket = url.searchParams.get("ticket")
-      const admitted =
-        tickets.verify(ticket) ||
-        bearerAuthorized(req.headers.authorization, identity.token)
       const html = devResources ? await devResources.html() : workbenchHtml
-      let opening = html
-      if (admitted) {
-        opening = html.replace(
-          "<head>",
-          `<head><script>window.__moonNotesWorkbenchToken=${JSON.stringify(identity.token)}</script>`
-        )
-        if (!opening.includes("__moonNotesWorkbenchToken")) {
-          sendJson(res, 500, { error: "工作台页面资源无效，请重载页面资源。" })
-          return
-        }
-      }
       res.writeHead(200, shellHeaders())
-      res.end(opening)
+      res.end(html)
       return
     }
     if (devResources && !url.pathname.startsWith("/api/")) {
@@ -409,15 +382,6 @@ export async function activate(host) {
     ) {
       void event("rejected", "Origin 不允许。")
       sendJson(res, 403, { error: "仅允许工作台同源访问。" })
-      return
-    }
-    // 开发托管开放本机访问；正式态要求 Bearer token，禁止仅凭缺失 Origin 放行。
-    if (
-      !devMode &&
-      !bearerAuthorized(req.headers.authorization, identity.token)
-    ) {
-      void event("rejected", "缺少或无效的访问 token。")
-      sendJson(res, 401, { error: "token 无效。" })
       return
     }
     if (!gate()) {
@@ -712,13 +676,6 @@ export async function activate(host) {
         const version = await loadBundle()
         await event("reloaded")
         return { version }
-      }),
-      ticket: operation("ticket", () => {
-        const ticket = tickets.issue()
-        return {
-          ticket,
-          url: `http://127.0.0.1:${settings.port}/?ticket=${encodeURIComponent(ticket)}`,
-        }
       }),
       save: operation("save", (input, signal) =>
         change(async () => {

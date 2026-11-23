@@ -63,14 +63,4 @@ export const notesWorkbenchOperations = {
     object({ version: int("重载后的资源文件版本", 0) }),
     "按文件版本重新读取页面构建产物；监听、配置与笔记数据不受影响，已打开的工作台自动刷新。"
   ),
-  ticket: operation(
-    "签发一次性打开票据",
-    object(),
-    object({
-      ticket: str("一次性票据；30 秒内单次有效"),
-      url: str("携带票据的工作台打开地址"),
-    }),
-    "宿主与交付卡打开工作台前先换票：浏览器用票据换取注入 token 的页面，票据不进入长期存储。",
-    { ticket: "bXm…", url: "http://127.0.0.1:19830/?ticket=bXm…" }
-  ),
 }

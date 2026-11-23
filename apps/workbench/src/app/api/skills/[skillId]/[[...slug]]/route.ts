@@ -10,12 +10,6 @@ async function handle(
   context: { params: Promise<{ skillId: string; slug?: string[] }> }
 ) {
   const runtime = await getSkillsRuntime()
-  if (!runtime.authorize(request)) {
-    return NextResponse.json(
-      { error: "未授权访问 Skill 工作台接口。" },
-      { status: 401 }
-    )
-  }
 
   const { skillId, slug = [] } = await context.params
   const [resource, child, action] = slug

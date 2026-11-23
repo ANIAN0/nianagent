@@ -46,17 +46,6 @@ export async function POST(
   context: { params: Promise<{ op: string }> }
 ) {
   const runtime = await getWorkbenchRuntime()
-  const origin = request.headers.get("origin")
-  if (
-    origin !== null &&
-    origin !== `http://127.0.0.1:${runtime.port}` &&
-    origin !== `http://localhost:${runtime.port}`
-  ) {
-    return NextResponse.json({ error: "Origin 不允许。" }, { status: 403 })
-  }
-  if (!runtime.authorize(request)) {
-    return NextResponse.json({ error: "未授权访问。" }, { status: 401 })
-  }
   const { op } = await context.params
   const definition = runtime.v2.operations[`v2_${op}`]
   if (!definition) {

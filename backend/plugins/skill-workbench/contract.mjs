@@ -63,14 +63,4 @@ export const skillWorkbenchOperations = {
     object({ version: int("重启后的实例版本", 0) }),
     "重启独立 Skill 工作台子进程；配置与 Skill 数据不受影响。"
   ),
-  ticket: operation(
-    "签发一次性打开票据",
-    object(),
-    object({
-      ticket: str("一次性票据；30 秒内单次有效"),
-      url: str("携带票据的工作台打开地址"),
-    }),
-    "打开独立工作台窗口前先换票：浏览器用票据换取注入 token 的页面，票据不进入长期存储。",
-    { ticket: "bXm…", url: "http://127.0.0.1:19832/?ticket=bXm…" }
-  ),
 }

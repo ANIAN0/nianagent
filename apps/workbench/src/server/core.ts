@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { mkdir, readFile } from "node:fs/promises"
+import { mkdir } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { workbenchPort } from "./workbench-port"
@@ -11,11 +11,7 @@ export type SharedCore = {
   appKind: WorkbenchAppKind
   dataDir: string
   port: number
-  token: string | null
   importMjs: (filePath: string) => Promise<Record<string, unknown>>
-  issueTicket: (app?: WorkbenchAppKind) => string
-  consumeTicket: (ticket: string) => { valid: boolean; app: WorkbenchAppKind }
-  authorize: (request: Request) => boolean
 }
 
 const globalForCore = globalThis as unknown as {
@@ -55,59 +51,6 @@ async function createSharedCore(): Promise<SharedCore> {
 
   await mkdir(dataDir, { recursive: true })
 
-  let token: string | null =
-    process.env.MOON_WORKBENCH_TOKEN?.trim() ||
-    process.env.MOON_NOTES_TOKEN?.trim() ||
-    null
-
-  if (!token) {
-    try {
-      const saved = JSON.parse(
-        await readFile(join(dataDir, "token.json"), "utf8")
-      ) as { token?: string }
-      if (typeof saved.token === "string" && saved.token.trim()) {
-        token = saved.token.trim()
-      }
-    } catch {
-      // 独立本地开发模式下无 token.json 时允许免鉴权本机直连
-    }
-  }
-
-  const tickets = new Map<string, { expires: number; app: WorkbenchAppKind }>()
-
-  const issueTicket = (targetApp: WorkbenchAppKind = appKind) => {
-    const now = Date.now()
-    for (const [key, entry] of tickets) {
-      if (entry.expires <= now) tickets.delete(key)
-    }
-    const ticket = randomUUID()
-    tickets.set(ticket, { expires: now + 60_000, app: targetApp })
-    return ticket
-  }
-
-  const consumeTicket = (ticket: string) => {
-    const entry = tickets.get(ticket)
-    if (!entry) return { valid: false, app: appKind }
-    tickets.delete(ticket)
-    return { valid: entry.expires > Date.now(), app: entry.app }
-  }
-
-  const authorize = (request: Request) => {
-    if (!token) return true
-    const header = request.headers.get("authorization") || ""
-    if (header === `Bearer ${token}`) return true
-    const cookieHeader = request.headers.get("cookie") || ""
-    for (const part of cookieHeader.split(";")) {
-      const [key, ...rest] = part.trim().split("=")
-      if (key === "moon_workbench_token" || key === "moon_notes_token") {
-        if (decodeURIComponent(rest.join("=")) === token) {
-          return true
-        }
-      }
-    }
-    return false
-  }
-
   const importMjs = (filePath: string) =>
     import(
       /* webpackIgnore: true */ /* turbopackIgnore: true */ pathToFileURL(
@@ -123,11 +66,7 @@ async function createSharedCore(): Promise<SharedCore> {
     appKind,
     dataDir,
     port,
-    token,
     importMjs,
-    issueTicket,
-    consumeTicket,
-    authorize,
   }
 }
 

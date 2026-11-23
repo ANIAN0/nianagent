@@ -1,69 +1,13 @@
 // @ts-check
-// 内置插件本机回环托管的公共构件：token 身份、bearer 校验、一次性票据与 JSON 响应。
+// 内置插件本机回环托管的公共构件：子进程监管与 JSON 响应。
 // Host/Origin 校验由各插件执行（MCP 使用官方 SDK 校验器），此处只沉淀双方重复的实现。
 import { spawn } from "node:child_process"
 import { access, readFile } from "node:fs/promises"
-import { randomBytes, timingSafeEqual } from "node:crypto"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { replaceJson } from "./atomic-file.mjs"
 import { redactSensitive } from "./redact.mjs"
 import { packagedWorkbenchEntry, workbenchAppPath } from "./workbench-paths.mjs"
-
-/** 读取并校验 43 字符 base64url token；缺失则生成并持久化。 */
-export async function loadTokenIdentity(tokenFile, label) {
-  let identity = null
-  try {
-    identity = JSON.parse(await readFile(tokenFile, "utf8"))
-  } catch (error) {
-    if (error.code !== "ENOENT")
-      throw new Error(`${label}配置无法读取，原文件已保留。`, { cause: error })
-  }
-  if (!identity) {
-    identity = { token: randomBytes(32).toString("base64url") }
-    await replaceJson(tokenFile, identity)
-  }
-  if (!/^[A-Za-z0-9_-]{43}$/.test(identity.token))
-    throw new Error(`${label}token 文件无效，请保留原文件并修复。`)
-  return identity
-}
-
-const sameBuffer = (supplied, expected) => {
-  const left = Buffer.from(typeof supplied === "string" ? supplied : "")
-  const right = Buffer.from(typeof expected === "string" ? expected : "")
-  return (
-    left.length > 0 &&
-    left.length === right.length &&
-    timingSafeEqual(left, right)
-  )
-}
-
-/** 校验 `Bearer <token>` 请求头（恒定时间比较）。 */
-export const bearerAuthorized = (header, token) => {
-  const match = /^Bearer (.+)$/.exec(header || "")
-  return sameBuffer(match?.[1], token)
-}
-
-/** 一次性票据签发与校验：默认 30 秒单次有效，签名时顺带清理过期票据。 */
-export function createTickets(ttlMs = 30_000) {
-  const tickets = new Map()
-  return {
-    issue() {
-      const now = Date.now()
-      for (const [value, expires] of tickets)
-        if (expires < now) tickets.delete(value)
-      const value = randomBytes(32).toString("base64url")
-      tickets.set(value, now + ttlMs)
-      return value
-    },
-    /** 返回票据是否有效；无论有效与否都立刻消费。 */
-    verify(value) {
-      const expires = value ? tickets.get(value) : undefined
-      tickets.delete(value)
-      return Boolean(expires && expires >= Date.now())
-    },
-  }
-}
 
 /** 读取带兜底的 JSON 配置文件：缺失返回 fallback，损坏抛出保留原文的中文错误。 */
 export async function readSavedJson(file, fallback, label) {
@@ -202,11 +146,6 @@ export async function createWorkbenchSupervisor({
     throw new Error(`${label}配置无效，原文件保留。`)
   }
 
-  const identity = await loadTokenIdentity(
-    join(host.directory, "token.json"),
-    label
-  )
-
   let child = null
   let running = false
   let issue = ""
@@ -272,7 +211,6 @@ export async function createWorkbenchSupervisor({
       MOON_WORKBENCH_BACKEND_DIR: sharedDir,
       MOON_WORKBENCH_APP: appKind,
       MOON_WORKBENCH_DATA_DIR: host.directory,
-      MOON_WORKBENCH_TOKEN: identity.token,
       MOON_WORKBENCH_PORT: String(port),
       ...extraEnv,
     }
@@ -378,7 +316,7 @@ export async function createWorkbenchSupervisor({
     running = healthy
     return {
       running: healthy && !frozen,
-      url: `${baseUrl()}/`,
+      url: `${baseUrl()}/${appKind}`,
       port: settings.port,
       revision: settings.revision,
       issue,
@@ -414,22 +352,6 @@ export async function createWorkbenchSupervisor({
         return { version: Date.now() }
       })
     ),
-    ticket: operation("ticket", async (_input, signal) => {
-      const response = await fetch(`${baseUrl()}/api/ticket`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${identity.token}`,
-        },
-        body: JSON.stringify({ app: appKind }),
-        signal,
-      })
-      const body = await response.json().catch(() => ({}))
-      if (!response.ok || typeof body.url !== "string") {
-        throw new Error(body?.error || "签发打开票据失败，请确认工作台已运行。")
-      }
-      return { ticket: body.ticket, url: body.url }
-    }),
     save: operation("save", (input, signal) =>
       change(async () => {
         signal = AbortSignal.any([
@@ -450,7 +372,6 @@ export async function createWorkbenchSupervisor({
   }
 
   return {
-    identity,
     get port() {
       return settings.port
     },

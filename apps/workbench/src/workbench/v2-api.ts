@@ -34,7 +34,7 @@ const request = async <T>(
 /** 客户端请求键：每次待提交操作生成一次并随输入保存，响应丢失后原样重试不重复提交。 */
 export const newRequestKey = () => globalThis.crypto.randomUUID()
 
-/** 版本内资源：带 token 的 fetch → blob URL；长期 token 不进入 URL（Q02）。 */
+/** 版本内资源：读取后转换为 blob URL。 */
 export const loadAssetUrl = async (
   versionId: string,
   path: string,
@@ -195,7 +195,7 @@ export type V2Compare = {
 
 export const v2Api = {
   syncVersion: async (signal?: AbortSignal): Promise<{ version: number }> => {
-    const response = await notesFetch("/api/sync", {
+    const response = await fetch("/api/sync", {
       signal,
     })
     if (!response.ok)
@@ -214,7 +214,7 @@ export const v2Api = {
     version: number,
     signal: AbortSignal
   ): Promise<{ version: number }> => {
-    const response = await notesFetch(`/api/sync?version=${version}`, {
+    const response = await fetch(`/api/sync?version=${version}`, {
       signal,
     })
     if (!response.ok)
