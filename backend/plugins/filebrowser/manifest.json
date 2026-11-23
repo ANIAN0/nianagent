@@ -1,0 +1,82 @@
+{
+  "id": "filebrowser",
+  "name": "FileBrowser",
+  "description": "连接已有的 filebrowser/filebrowser 实例，用于浏览、搜索、传输和分享文件。上游已归档并停止缺陷与安全修复，仅供既有实例兼容使用。",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "defaultEnabled": false,
+  "entries": {
+    "app": "host.mjs",
+    "pi": "pi.mjs",
+    "web": "web.tsx"
+  },
+  "defaultConfiguration": {
+    "instanceUrl": "",
+    "rootPrefix": "/",
+    "defaultShareExpires": 24,
+    "defaultShareUnit": "hours",
+    "timeoutSeconds": 60,
+    "readOnly": false
+  },
+  "configurationSchema": {
+    "type": "object",
+    "properties": {
+      "instanceUrl": {
+        "type": "string",
+        "title": "FileBrowser 服务地址",
+        "description": "填写已有实例的完整 HTTP(S) 地址，包含部署时配置的子路径。"
+      },
+      "rootPrefix": {
+        "type": "string",
+        "title": "允许访问的远程根路径",
+        "description": "默认 /；填写如 /agent 可将 Agent 限制在该目录内。"
+      },
+      "defaultShareExpires": {
+        "type": "integer",
+        "title": "默认分享有效期数值",
+        "minimum": 1,
+        "maximum": 3650
+      },
+      "defaultShareUnit": {
+        "type": "string",
+        "title": "默认分享有效期单位",
+        "enum": ["seconds", "minutes", "hours", "days"]
+      },
+      "timeoutSeconds": {
+        "type": "integer",
+        "title": "请求超时（秒）",
+        "minimum": 5,
+        "maximum": 300
+      },
+      "readOnly": {
+        "type": "boolean",
+        "title": "只读模式",
+        "description": "开启后拒绝所有创建、修改、删除、上传、下载和分享写入操作。"
+      }
+    },
+    "required": [
+      "instanceUrl",
+      "rootPrefix",
+      "defaultShareExpires",
+      "defaultShareUnit",
+      "timeoutSeconds",
+      "readOnly"
+    ],
+    "additionalProperties": false
+  },
+  "contributions": [
+    {
+      "id": "service",
+      "kind": "page",
+      "title": "FileBrowser 服务",
+      "version": 1,
+      "remote": false
+    }
+  ],
+  "effects": [
+    "通过 HTTP 访问用户配置的 FileBrowser 服务实例，浏览、搜索、读写和分享远程文件",
+    "将登录账号与密码单独保存在插件私有数据目录，运行时自动登录并在内存缓存 JWT，不回显明文",
+    "按传入的本机文件路径上传文件或将远程文件下载到指定本机路径",
+    "通过 Moon 对外 MCP 网关按用户授权共享语义工具"
+  ]
+}

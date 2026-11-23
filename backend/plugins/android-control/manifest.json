@@ -1,0 +1,115 @@
+{
+  "id": "android-control",
+  "name": "安卓控制",
+  "description": "基于 scrcpy 与 ADB 控制安卓设备，支持原生低延迟投屏、scrcpy-server 轻量控制通道、UI 控件树观察与安全策略守卫。",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "defaultEnabled": false,
+  "entries": {
+    "app": "host.mjs",
+    "pi": "pi.mjs",
+    "web": "web.tsx"
+  },
+  "defaultConfiguration": {
+    "scrcpyPath": "",
+    "defaultSerial": "",
+    "readOnly": false,
+    "allowClipboard": false,
+    "allowAppLifecycle": true,
+    "allowApkInstall": false,
+    "allowFileTransfer": false,
+    "mirrorMaxSize": 1080,
+    "mirrorScreenOff": false,
+    "mirrorStayAwake": true,
+    "mirrorReadOnly": false
+  },
+  "configurationSchema": {
+    "type": "object",
+    "properties": {
+      "scrcpyPath": {
+        "type": "string",
+        "title": "自定义 scrcpy 路径",
+        "description": "可选的 scrcpy 目录或可执行文件路径；留空时自动从系统 PATH 与常见包管理器目录检测。"
+      },
+      "defaultSerial": {
+        "type": "string",
+        "title": "默认设备序列号",
+        "description": "多台设备同时在线时使用的默认设备；仅有一台在线设备时自动选中。"
+      },
+      "readOnly": {
+        "type": "boolean",
+        "title": "只读模式",
+        "description": "仅允许观察与截图，禁止所有触控、输入、按键、应用启停、剪贴板写入与文件传输。"
+      },
+      "allowClipboard": {
+        "type": "boolean",
+        "title": "允许访问剪贴板",
+        "description": "开启后允许读取与写入手机剪贴板。"
+      },
+      "allowAppLifecycle": {
+        "type": "boolean",
+        "title": "允许启动与停止应用",
+        "description": "开启后允许调用 launch-app 与 stop-app。"
+      },
+      "allowApkInstall": {
+        "type": "boolean",
+        "title": "允许安装与卸载 APK",
+        "description": "开启后允许向设备安装或卸载应用包。"
+      },
+      "allowFileTransfer": {
+        "type": "boolean",
+        "title": "允许文件传输",
+        "description": "开启后允许向设备推送或从设备拉取文件。"
+      },
+      "mirrorMaxSize": {
+        "type": "integer",
+        "title": "投屏最大边长",
+        "description": "原生 scrcpy 窗口的最大分辨率边长（0 表示原始分辨率）。"
+      },
+      "mirrorScreenOff": {
+        "type": "boolean",
+        "title": "投屏时关闭手机屏幕",
+        "description": "启动投屏时自动熄灭设备物理屏幕（--turn-screen-off）。"
+      },
+      "mirrorStayAwake": {
+        "type": "boolean",
+        "title": "投屏期间保持唤醒",
+        "description": "投屏期间阻止设备自动休眠（--stay-awake）。"
+      },
+      "mirrorReadOnly": {
+        "type": "boolean",
+        "title": "投屏窗口默认只读",
+        "description": "拉起原生 scrcpy 窗口时禁用键鼠控制（--no-control）。"
+      }
+    },
+    "required": [
+      "scrcpyPath",
+      "defaultSerial",
+      "readOnly",
+      "allowClipboard",
+      "allowAppLifecycle",
+      "allowApkInstall",
+      "allowFileTransfer",
+      "mirrorMaxSize",
+      "mirrorScreenOff",
+      "mirrorStayAwake",
+      "mirrorReadOnly"
+    ],
+    "additionalProperties": false
+  },
+  "contributions": [
+    {
+      "id": "android",
+      "kind": "page",
+      "title": "安卓控制",
+      "version": 1,
+      "remote": false
+    }
+  ],
+  "effects": [
+    "通过 ADB 读取安卓设备屏幕截图、UI 无障碍控件树、设备信息与已安装应用列表",
+    "通过 scrcpy-server 轻量控制通道向设备注入触控、滑动、按键与文本输入",
+    "按用户或代理请求拉起并托管官方原生 scrcpy 投屏窗口",
+    "按用户主动操作通过系统包管理器安装、升级或卸载 scrcpy"
+  ]
+}

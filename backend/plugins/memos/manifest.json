@@ -1,0 +1,75 @@
+{
+  "id": "memos",
+  "name": "Memos",
+  "description": "直连自托管 Memos 服务，为 Agent 提供读写分离的备忘录、评论与附件能力，并支持经 MCP 网关对外共享。",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "defaultEnabled": false,
+  "entries": {
+    "app": "host.mjs",
+    "pi": "pi.mjs",
+    "web": "web.tsx"
+  },
+  "defaultConfiguration": {
+    "instanceUrl": "",
+    "defaultVisibility": "PRIVATE",
+    "defaultPageSize": 20,
+    "timeoutSeconds": 30,
+    "readOnly": false
+  },
+  "configurationSchema": {
+    "type": "object",
+    "properties": {
+      "instanceUrl": {
+        "type": "string",
+        "title": "Memos 服务地址",
+        "description": "例如 http://localhost:5230"
+      },
+      "defaultVisibility": {
+        "type": "string",
+        "title": "默认可见性",
+        "enum": ["PRIVATE", "PROTECTED", "PUBLIC"]
+      },
+      "defaultPageSize": {
+        "type": "integer",
+        "title": "默认每页条数",
+        "minimum": 1,
+        "maximum": 100
+      },
+      "timeoutSeconds": {
+        "type": "integer",
+        "title": "请求超时（秒）",
+        "minimum": 5,
+        "maximum": 120
+      },
+      "readOnly": {
+        "type": "boolean",
+        "title": "只读模式",
+        "description": "开启后拒绝所有创建、修改、删除及上传下载写入操作。"
+      }
+    },
+    "required": [
+      "instanceUrl",
+      "defaultVisibility",
+      "defaultPageSize",
+      "timeoutSeconds",
+      "readOnly"
+    ],
+    "additionalProperties": false
+  },
+  "contributions": [
+    {
+      "id": "service",
+      "kind": "page",
+      "title": "Memos 服务",
+      "version": 1,
+      "remote": false
+    }
+  ],
+  "effects": [
+    "通过 HTTP 访问用户配置的 Memos 服务实例，读写备忘录、评论和附件",
+    "将 Access Token 与实例地址绑定后保存在插件私有数据目录，仅本机管理页可查看",
+    "按传入的本机文件路径上传附件或将附件下载到指定本机路径",
+    "通过 Moon 对外 MCP 网关按用户授权共享语义工具"
+  ]
+}

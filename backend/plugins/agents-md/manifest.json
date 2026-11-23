@@ -1,0 +1,33 @@
+{
+  "id": "agents-md",
+  "name": "AGENTS.md 管理",
+  "description": "统一维护 AGENTS.md 正文与开关式附加说明，查看并全量替换已登记项目的 AGENTS.md。",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "defaultEnabled": true,
+  "entries": {
+    "app": "host.mjs",
+    "web": "web.tsx"
+  },
+  "defaultConfiguration": {},
+  "configurationSchema": {
+    "type": "object",
+    "properties": {},
+    "required": [],
+    "additionalProperties": false
+  },
+  "contributions": [
+    {
+      "id": "manager",
+      "kind": "page",
+      "title": "管理 AGENTS.md",
+      "version": 1,
+      "remote": false
+    }
+  ],
+  "effects": [
+    "读取 Moon 已登记工作目录及手动添加的本地目录中的 AGENTS.md 内容与状态",
+    "仅在用户显式触发替换时，将合成后的统一 AGENTS.md 全量写入目标项目目录",
+    "统一正文、附加说明、手动登记目录和批量发布回执保存在插件自有数据目录中"
+  ]
+}

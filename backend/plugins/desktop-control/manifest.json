@@ -1,0 +1,87 @@
+{
+  "id": "desktop-control",
+  "name": "桌面控制",
+  "description": "基于 agent-desktop 通过 OS 无障碍树读取与操作桌面应用，支持读写分离、策略守卫与隔离会话追踪。",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "defaultEnabled": false,
+  "entries": {
+    "app": "host.mjs",
+    "pi": "pi.mjs",
+    "web": "web.tsx"
+  },
+  "defaultConfiguration": {
+    "readOnly": false,
+    "allowHeaded": false,
+    "allowClipboard": false,
+    "allowAppLifecycle": true,
+    "cursorOverlay": true,
+    "recordTrace": true,
+    "recordScreenshots": false
+  },
+  "configurationSchema": {
+    "type": "object",
+    "properties": {
+      "readOnly": {
+        "type": "boolean",
+        "title": "只读模式",
+        "description": "仅允许观察与查询，禁止所有点击、输入、窗口控制与剪贴板写入。"
+      },
+      "allowHeaded": {
+        "type": "boolean",
+        "title": "允许物理键鼠输入",
+        "description": "默认仅允许无障碍语义操作（headless）；开启后才允许 --headed 物理键鼠操作。"
+      },
+      "allowClipboard": {
+        "type": "boolean",
+        "title": "允许访问剪贴板",
+        "description": "开启后允许读取、写入和清空系统剪贴板。"
+      },
+      "allowAppLifecycle": {
+        "type": "boolean",
+        "title": "允许启动与关闭应用",
+        "description": "允许调用 launch 和 close-app（始终禁止 --force 强杀）。"
+      },
+      "cursorOverlay": {
+        "type": "boolean",
+        "title": "操作光标提示",
+        "description": "在 headless 语义操作时绘制虚拟光标与点击波纹。"
+      },
+      "recordTrace": {
+        "type": "boolean",
+        "title": "记录操作追踪",
+        "description": "为托管会话开启自动脱敏的操作追踪记录。"
+      },
+      "recordScreenshots": {
+        "type": "boolean",
+        "title": "追踪附带操作前后截图",
+        "description": "开启追踪时保存操作前后未脱敏 PNG 截图，仅在排查复杂问题时按需开启。"
+      }
+    },
+    "required": [
+      "readOnly",
+      "allowHeaded",
+      "allowClipboard",
+      "allowAppLifecycle",
+      "cursorOverlay",
+      "recordTrace",
+      "recordScreenshots"
+    ],
+    "additionalProperties": false
+  },
+  "contributions": [
+    {
+      "id": "desktop",
+      "kind": "page",
+      "title": "桌面控制",
+      "version": 1,
+      "remote": false
+    }
+  ],
+  "effects": [
+    "通过 agent-desktop CLI 读取桌面窗口无障碍树并执行受控的桌面交互操作",
+    "按聊天会话在插件私有数据目录（AGENT_DESKTOP_HOME）中隔离快照、光标配置与脱敏追踪",
+    "经用户在 MCP 服务授权后，向已认证的客户端共享所选观察或交互工具",
+    "按用户主动操作安装、升级或卸载全局 agent-desktop CLI"
+  ]
+}
