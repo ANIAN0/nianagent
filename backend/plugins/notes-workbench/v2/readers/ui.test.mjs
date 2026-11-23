@@ -1,11 +1,15 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 import { parseManifest, validPreviewRoute } from "./ui.mjs"
+import { classifyPreviewPath } from "../preview-path.mjs"
 
 test("预览路由必须与浏览器路径一致且不能切换来源或携带查询片段", () => {
   for (const route of [
     "/",
     "/details",
+    "/api-guide",
+    "/_next-guide",
+    "/nested/api",
     "/nested/page",
     "/%E8%AF%A6%E6%83%85",
     "/with%20space",
@@ -13,6 +17,14 @@ test("预览路由必须与浏览器路径一致且不能切换来源或携带�
     assert.equal(validPreviewRoute(route), true, route)
   for (const route of [
     "//outside.test/",
+    "/api",
+    "/api/help",
+    "/%61pi/help",
+    "/_next",
+    "/_next/static",
+    "/%5Fnext/static",
+    "/__moon-bridge.js",
+    "/%5F_moon-bridge.js",
     "/a?x=1",
     "/a#target",
     "/a/../b",
@@ -36,6 +48,7 @@ test("预览路由必须与浏览器路径一致且不能切换来源或携带�
       (error) => error.code === "unsupported_artifact",
       route
     )
+  assert.equal(classifyPreviewPath("/__moon-bridge.js"), "bridge")
   for (const file of [
     "/index.html",
     "../index.html",

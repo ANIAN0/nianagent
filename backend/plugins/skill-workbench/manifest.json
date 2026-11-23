@@ -1,0 +1,34 @@
+{
+  "id": "skill-workbench",
+  "name": "Skill 工作台",
+  "description": "将 Skill 主文档按自包含段落解耦，支持增删改、调序、修改原因日志、版本与段落溯源视图，并可导出标准 Skill 目录。",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "defaultEnabled": true,
+  "entries": {
+    "app": "host.mjs",
+    "pi": "pi.mjs",
+    "web": "web.tsx"
+  },
+  "defaultConfiguration": {},
+  "configurationSchema": {
+    "type": "object",
+    "properties": {},
+    "required": [],
+    "additionalProperties": false
+  },
+  "effects": [
+    "仅监听 127.0.0.1 的固定可配置端口（默认 19832），使用独立本机 token 托管独立 Skill 工作台窗口",
+    "在插件数据目录保存 Skill 段落、附属脚本/文件、版本快照和变更原因日志",
+    "按用户请求导出标准 Skill 目录"
+  ],
+  "contributions": [
+    {
+      "id": "workbench",
+      "kind": "page",
+      "title": "管理 Skill 工作台",
+      "version": 1,
+      "remote": false
+    }
+  ]
+}

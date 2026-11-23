@@ -5,8 +5,6 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import tailwindcss from "@tailwindcss/vite"
-import react from "@vitejs/plugin-react"
 import { build } from "vite"
 
 const root = dirname(fileURLToPath(import.meta.url))
@@ -34,10 +32,9 @@ const buildDocument = async () => {
   await rm(target, { recursive: true, force: true })
   await build({
     // 独立构建：不加载 Moon 的 vite.config，应用管线只包含 react 与构建期 Tailwind。
-    configFile: false,
+    configFile: resolve(root, "vite.config.ts"),
     root,
     logLevel: "info",
-    plugins: [react(), tailwindcss()],
     build: {
       outDir: target,
       emptyOutDir: true,

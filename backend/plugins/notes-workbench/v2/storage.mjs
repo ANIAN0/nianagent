@@ -290,6 +290,7 @@ export class WorkbenchStore {
       CREATE TABLE IF NOT EXISTS drafts (
         id TEXT PRIMARY KEY, directory_id TEXT NOT NULL REFERENCES directories(id),
         kind TEXT NOT NULL CHECK(kind IN ('markdown','board','ui')), title TEXT NOT NULL,
+        consensus_status TEXT NOT NULL DEFAULT 'discussing',
         review_revision INTEGER NOT NULL DEFAULT 0, metadata_revision INTEGER NOT NULL DEFAULT 0,
         actor_id TEXT NOT NULL, request_key TEXT NOT NULL UNIQUE,
         created_at TEXT NOT NULL, updated_at TEXT NOT NULL, archived_at TEXT
@@ -573,23 +574,8 @@ export class WorkbenchStore {
     // AC06-二轮：replayed 标志来自事务内分支本身（重放=true、新执行=false），
     // 不得在末尾覆盖——此前恒写 false，重放语义错误。
     return this.tx(() => {
-      const existing = this.db
-        .prepare(
-          "SELECT actor_id, operation, input_sig, result FROM write_receipts WHERE request_key = ?"
-        )
-        .get(requestKey)
-      if (existing) {
-        if (
-          existing.actor_id !== actorId ||
-          existing.operation !== operation ||
-          existing.input_sig !== sig
-        )
-          throw new WorkbenchError(
-            "request_key_conflict",
-            "同 requestKey 但输入或作者不同。"
-          )
-        return { ...JSON.parse(existing.result), replayed: true }
-      }
+      const previous = this.readReceipt(operation, actorId, input, sig)
+      if (previous) return previous
       const value = mutate()
       this.db
         .prepare(
@@ -606,6 +592,25 @@ export class WorkbenchStore {
         )
       return { ...value, replayed: false }
     })
+  }
+
+  readReceipt(operation, actorId, input, signature = canonical(input)) {
+    const existing = this.db
+      .prepare(
+        "SELECT actor_id, operation, input_sig, result FROM write_receipts WHERE request_key = ?"
+      )
+      .get(input.requestKey)
+    if (!existing) return null
+    if (
+      existing.actor_id !== actorId ||
+      existing.operation !== operation ||
+      existing.input_sig !== signature
+    )
+      throw new WorkbenchError(
+        "request_key_conflict",
+        "同 requestKey 但输入或作者不同。"
+      )
+    return { ...JSON.parse(existing.result), replayed: true }
   }
 
   close() {
@@ -1134,7 +1139,7 @@ export class WorkbenchStore {
     const keysetParams = key ? [key.createdAt, key.createdAt, key.id] : []
     const rows = this.db
       .prepare(
-        `SELECT d.id, d.directory_id AS directoryId, d.kind, d.title, d.review_revision AS reviewRevision,
+        `SELECT d.id, d.directory_id AS directoryId, d.kind, d.title, d.consensus_status AS consensusStatus, d.review_revision AS reviewRevision,
                 d.metadata_revision AS metadataRevision, d.created_at AS createdAt, d.updated_at AS updatedAt,
                 d.archived_at AS archivedAt, p.id AS projectId
          FROM drafts d JOIN directories dir ON dir.id = d.directory_id
@@ -1177,7 +1182,7 @@ export class WorkbenchStore {
 
   updateDraft(
     draftId,
-    { title, directoryId, archived },
+    { title, directoryId, archived, consensusStatus },
     actorId,
     requestKey,
     expectedMetadataRevision
@@ -1187,6 +1192,11 @@ export class WorkbenchStore {
     assertText(requestKey, "requestKey", 128)
     if (title !== undefined) assertText(title, "草稿标题", 120)
     if (directoryId !== undefined) assertId(directoryId, "目录标识")
+    if (
+      consensusStatus !== undefined &&
+      !["discussing", "pending_confirm", "agreed"].includes(consensusStatus)
+    )
+      throw new WorkbenchError("validation_failed", "共识状态无效。")
     return this.writeReceipt(
       "update_draft",
       actorId,
@@ -1196,6 +1206,7 @@ export class WorkbenchStore {
         title: title ?? null,
         directoryId: directoryId ?? null,
         archived: archived ?? null,
+        ...(consensusStatus !== undefined ? { consensusStatus } : {}),
         expectedMetadataRevision: Number.isSafeInteger(expectedMetadataRevision)
           ? expectedMetadataRevision
           : null,
@@ -1204,12 +1215,13 @@ export class WorkbenchStore {
       () => {
         const current = this.db
           .prepare(
-            "SELECT id, directory_id, kind, title, metadata_revision, archived_at FROM drafts WHERE id = ?"
+            "SELECT id, directory_id, kind, title, consensus_status, metadata_revision, archived_at FROM drafts WHERE id = ?"
           )
           .get(draftId)
         if (!current) throw new WorkbenchError("not_found", "草稿不存在。")
         const nextTitle = title ?? current.title
         const nextDirectoryId = directoryId ?? current.directory_id
+        const nextConsensusStatus = consensusStatus ?? current.consensus_status
         const nextArchived =
           archived === undefined
             ? current.archived_at !== null
@@ -1235,24 +1247,26 @@ export class WorkbenchStore {
           )
         this.db
           .prepare(
-            "UPDATE drafts SET title = ?, directory_id = ?, archived_at = ?, metadata_revision = metadata_revision + 1, updated_at = ? WHERE id = ?"
+            "UPDATE drafts SET title = ?, directory_id = ?, consensus_status = ?, archived_at = ?, metadata_revision = metadata_revision + 1, updated_at = ? WHERE id = ?"
           )
           .run(
             nextTitle,
             nextDirectoryId,
+            nextConsensusStatus,
             nextArchived ? (current.archived_at ?? now()) : null,
             now(),
             draftId
           )
         const after = this.db
           .prepare(
-            "SELECT id, title, directory_id AS directoryId, metadata_revision AS metadataRevision, archived_at FROM drafts WHERE id = ?"
+            "SELECT id, title, directory_id AS directoryId, consensus_status AS consensusStatus, metadata_revision AS metadataRevision, archived_at FROM drafts WHERE id = ?"
           )
           .get(draftId)
         return {
           id: draftId,
           title: after.title,
           directoryId: after.directoryId,
+          consensusStatus: after.consensusStatus,
           archived: after.archived_at !== null,
           metadataRevision: after.metadataRevision,
         }
@@ -1264,7 +1278,7 @@ export class WorkbenchStore {
     assertId(id, "草稿标识")
     const row = this.db
       .prepare(
-        "SELECT id, directory_id AS directoryId, kind, title, review_revision AS reviewRevision, metadata_revision AS metadataRevision, created_at AS createdAt, updated_at AS updatedAt, archived_at AS archivedAt FROM drafts WHERE id = ?"
+        "SELECT id, directory_id AS directoryId, kind, title, consensus_status AS consensusStatus, review_revision AS reviewRevision, metadata_revision AS metadataRevision, created_at AS createdAt, updated_at AS updatedAt, archived_at AS archivedAt FROM drafts WHERE id = ?"
       )
       .get(id)
     if (!row) throw new WorkbenchError("not_found", "草稿不存在。")
@@ -1403,7 +1417,8 @@ export class WorkbenchStore {
   /** publish_version：重放核对（完整输入签名含 actor 与 artifactId）先于 base CAS；唯一事务建版本。 */
   publishVersion(
     { draftId, baseSequence, artifactId, requestKey, summary },
-    actorId
+    actorId,
+    inlineInput = undefined
   ) {
     assertId(draftId, "草稿标识")
     assertText(actorId, "actor", 64)
@@ -1426,10 +1441,10 @@ export class WorkbenchStore {
     // AC06-三轮：请求身份先于可变产物绑定与 CAS 判断——重放路径必须可达；
     // 产物存在/封存/绑定/草稿归档/类型匹配等可变检查全部位于回执 mutate 内。
     const receipt = this.writeReceipt(
-      "publish_version",
+      inlineInput ? "publish_inline" : "publish_version",
       actorId,
       draftId,
-      {
+      inlineInput ?? {
         draftId,
         baseSequence,
         artifactId,
@@ -1501,6 +1516,17 @@ export class WorkbenchStore {
       }
     )
     return receipt
+  }
+
+  async discardUnpublishedArtifact(artifactId) {
+    const artifact = this.db
+      .prepare(
+        `DELETE FROM artifacts WHERE id = ?
+         AND NOT EXISTS (SELECT 1 FROM versions WHERE artifact_id = ?)
+         RETURNING path`
+      )
+      .get(artifactId, artifactId)
+    if (artifact) await rm(artifact.path, { recursive: true, force: true })
   }
 
   // ---- 版本读取 / 比较 ----

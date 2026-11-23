@@ -6,6 +6,7 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { WorkbenchError } from "../errors.mjs"
+import { classifyPreviewPath } from "../preview-path.mjs"
 
 export const UI_PIPELINE_VERSION = 1
 const MAX_MANIFEST_ROUTES = 64
@@ -35,15 +36,7 @@ export const validPreviewRoute = (route) => {
       url.hash
     )
       return false
-    return route.split("/").every((segment) => {
-      const decoded = decodeURIComponent(segment)
-      return (
-        decoded !== "." &&
-        decoded !== ".." &&
-        !/[\\/]/.test(decoded) &&
-        !hasControl(decoded)
-      )
-    })
+    return classifyPreviewPath(route) === "artifact"
   } catch {
     return false
   }

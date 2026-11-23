@@ -22,7 +22,7 @@ test("闲置过期在读取时拒绝，不因读取复活", (t) => {
 test("随机sid碰撞不能覆盖其他版本的活跃会话", (t) => {
   const values = ["aabbcc00", "aabbcc00", "ddeeff00"]
   t.mock.method(crypto, "randomBytes", () =>
-    Buffer.from(values.shift() ?? "aabbcc00", "hex")
+    Buffer.from((values.shift() ?? "aabbcc00").repeat(4), "hex")
   )
   syncBuiltinESMExports()
   t.after(() => {
@@ -57,11 +57,13 @@ test("会话容量、释放归属及过期回收", (t) => {
 })
 
 test("预览Host只接受当前端口单层sid子域，CSP隔离危险能力", () => {
-  assert.equal(isPreviewHost("aabbcc.localhost:29830", 29830), "aabbcc")
+  const sid = "aabbcc00".repeat(4)
+  assert.equal(isPreviewHost(`${sid}.localhost:29830`, 29830), sid)
   for (const host of [
     "127.0.0.1:29830",
     "localhost:29830",
-    "aabbcc.localhost:29831",
+    `${sid}.localhost:29831`,
+    "aabbcc.localhost:29830",
     "aabbcc.evil.localhost:29830",
     "aabbcc.localhost.evil:29830",
     "aabbcc.localhost:29830,evil",

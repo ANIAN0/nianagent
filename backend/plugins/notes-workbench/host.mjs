@@ -37,6 +37,14 @@ const shellCsp = htmlHeaders["content-security-policy"].replace(
   "frame-ancestors 'self' http://tauri.localhost https://tauri.localhost http://localhost:5173 http://127.0.0.1:5173"
 )
 export async function activate(host) {
+  if (
+    process.env.MOON_DESKTOP_PACKAGED === "1" ||
+    process.env.MOON_NOTES_DEV !== "1" ||
+    process.env.MOON_WORKBENCH_DEV?.trim()
+  ) {
+    const { activate } = await import("./standalone-host.mjs")
+    return activate(host)
+  }
   const devMode = process.env.MOON_NOTES_DEV === "1"
   let devResources
   const shellHeaders = () =>

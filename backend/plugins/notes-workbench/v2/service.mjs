@@ -4,6 +4,9 @@
 // 写操作必须有可判定的 actor 与请求身份；set_thread_status 按 isUser 区分权限（用户可解决任何线程）。
 // 每个 operation 携带 owner: "workbench"（G05）；宿主激活时校验，缺失即启动失败。
 import { randomUUID } from "node:crypto"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { readOnlyTools, toolOperations } from "./tool-catalog.mjs"
 import { diagnosticFrames } from "../../../logger.mjs"
 import { currentTraceId } from "../../../request-context.mjs"
@@ -452,22 +455,38 @@ export function createV2Service(
             title: str("新标题；可空", { maxLength: 120 }),
             directoryId: str("目标目录（移动）；可空", { maxLength: 64 }),
             archived: bool("归档(true)/恢复(false)；可空"),
+            consensusStatus: str(
+              "共识状态：discussing / pending_confirm / agreed；可空",
+              { maxLength: 32 }
+            ),
             metadataRevision: int("并发覆盖保护；可空"),
             requestKey: str("请求键（幂等）", { minLength: 1, maxLength: 128 }),
           },
           ["draftId", "requestKey"]
         ),
         output: obj({
-          value: obj({
-            id: str("草稿标识"),
-            title: str("标题"),
-            directoryId: str("目录"),
-            archived: bool("是否归档"),
-            metadataRevision: int("修订号"),
-            replayed: bool("是否为重放结果"),
-          }),
+          value: obj(
+            {
+              id: str("草稿标识"),
+              title: str("标题"),
+              directoryId: str("目录"),
+              consensusStatus: str("共识状态"),
+              archived: bool("是否归档"),
+              metadataRevision: int("修订号"),
+              replayed: bool("是否为重放结果"),
+            },
+            [
+              "id",
+              "title",
+              "directoryId",
+              "archived",
+              "metadataRevision",
+              "replayed",
+            ]
+          ),
         }),
-        effect: "写入：改名/移动/归档/恢复；metadataRevision 过期明确冲突。",
+        effect:
+          "写入：改名/移动/归档/恢复/共识状态；metadataRevision 过期明确冲突。",
       },
       (input, context) => {
         const { actorId } = actor(context)
@@ -477,6 +496,7 @@ export function createV2Service(
             title: input.title,
             directoryId: input.directoryId,
             archived: input.archived,
+            consensusStatus: input.consensusStatus,
           },
           actorId,
           input.requestKey,
@@ -597,6 +617,124 @@ export function createV2Service(
         }
       }
     ),
+    v2_publish_inline: wrap(
+      {
+        title: "直接编辑并发布版本",
+        owner: "workbench",
+        input: obj(
+          {
+            draftId: str("草稿标识", { minLength: 1 }),
+            baseSequence: int("基础版本序号", { minimum: 0 }),
+            kind: str("内容类型：markdown/board", { maxLength: 8 }),
+            markdown: str("markdown 正文；kind=markdown 时必填", {
+              maxLength: 2000000,
+            }),
+            canvas: {
+              type: "object",
+              description: "board 画布 JSON；kind=board 时必填",
+            },
+            requestKey: str("请求键（幂等）", { minLength: 1, maxLength: 128 }),
+            summary: str("发布说明；可空", { maxLength: 2000 }),
+          },
+          ["draftId", "baseSequence", "kind", "requestKey"]
+        ),
+        output: obj({
+          value: obj({
+            versionId: str("版本标识"),
+            artifactId: str("封存产物标识"),
+            sequence: int("版本序号"),
+            replayed: bool("是否为重放结果"),
+            draftId: str("草稿标识"),
+            reviewRevision: int("审阅修订号"),
+            projectId: str("项目标识"),
+            title: str("草稿标题"),
+            openUrl: str("可打开的固定版本入口（无长期凭据）"),
+          }),
+        }),
+        effect:
+          "写入：将工作台内编辑的文档/白板封装为不可变产物并发布新版本；base 过期明确冲突。",
+      },
+      async (input, context, signal) => {
+        const { actorId } = actor(context)
+        const {
+          draftId,
+          kind,
+          markdown,
+          canvas,
+          baseSequence,
+          requestKey,
+          summary,
+        } = input
+        const finish = (result) => ({
+          ...result,
+          ...store.draftReference(draftId),
+          reviewRevision: store.reviewRevision(draftId),
+          openUrl: openUrl(draftId, result.versionId),
+        })
+        const previous = store.readReceipt("publish_inline", actorId, input)
+        if (previous) return finish(previous)
+
+        const draft = store.draft(draftId)
+        if (draft.kind !== kind)
+          throw new WorkbenchError(
+            "validation_failed",
+            "提交的内容类型与草稿不符。"
+          )
+        if (kind !== "markdown" && kind !== "board")
+          throw new WorkbenchError(
+            "unsupported_artifact",
+            "仅文档与白板支持工作台内直接编辑发布。"
+          )
+        if (
+          kind === "markdown"
+            ? typeof markdown !== "string" || canvas !== undefined
+            : !canvas ||
+              typeof canvas !== "object" ||
+              Array.isArray(canvas) ||
+              markdown !== undefined
+        )
+          throw new WorkbenchError(
+            "validation_failed",
+            "提交内容与编辑类型不符。"
+          )
+
+        const staging = await mkdtemp(join(tmpdir(), "moon-notes-inline-"))
+        let unusedArtifactId
+        try {
+          await writeFile(
+            join(staging, kind === "markdown" ? "index.md" : "board.canvas"),
+            kind === "markdown" ? markdown : JSON.stringify(canvas, null, 2),
+            "utf8"
+          )
+          const { artifactId } = await store.stagePackage(
+            staging,
+            kind,
+            actorId,
+            { signal }
+          )
+          unusedArtifactId = artifactId
+          signal.throwIfAborted()
+          const result = store.publishVersion(
+            { draftId, baseSequence, artifactId, requestKey, summary },
+            actorId,
+            input
+          )
+          if (!result.replayed) unusedArtifactId = undefined
+          log(
+            "publish_inline",
+            `actor=${actorId} seq=${result.sequence} replay=${result.replayed}`
+          )
+          return finish(result)
+        } finally {
+          try {
+            if (unusedArtifactId)
+              await store.discardUnpublishedArtifact(unusedArtifactId)
+          } finally {
+            await rm(staging, { recursive: true, force: true })
+          }
+        }
+      }
+    ),
     v2_list_versions: wrap(
       {
         title: "列出草稿版本",
@@ -634,23 +772,30 @@ export function createV2Service(
           ["draftId"]
         ),
         output: obj({
-          value: obj({
-            versionId: str("实际版本标识"),
-            sequence: int("版本序号"),
-            kind: str("内容类型"),
-            blocks: {
-              type: "array",
-              items: { type: "object" },
-              description: "markdown：冻结块投影",
+          value: obj(
+            {
+              versionId: str("实际版本标识"),
+              sequence: int("版本序号"),
+              kind: str("内容类型"),
+              rawMarkdown: str("markdown：原文"),
+              blocks: {
+                type: "array",
+                items: { type: "object" },
+                description: "markdown：冻结块投影",
+              },
+              canvas: {
+                type: "object",
+                description: "board：规范化画布（nodes/edges）",
+              },
+              manifest: {
+                type: "object",
+                description: "ui：路由清单（routes）",
+              },
+              files: { type: "array", items: str("包内文件路径") },
+              reviewRevision: int("审阅修订号"),
             },
-            canvas: {
-              type: "object",
-              description: "board：规范化画布（nodes/edges）",
-            },
-            manifest: { type: "object", description: "ui：路由清单（routes）" },
-            files: { type: "array", items: str("包内文件路径") },
-            reviewRevision: int("审阅修订号"),
-          }),
+            ["versionId", "sequence", "kind", "files", "reviewRevision"]
+          ),
         }),
         effect:
           "读取：按类型返回封存的冻结表示（markdown 块投影 / board 画布）与文件清单。",
@@ -675,8 +820,12 @@ export function createV2Service(
               "storage_failure",
               "版本冻结阅读表示无效。"
             )
+          const rawMarkdown = (
+            await store.readAsset(version.id, data.reading.entry)
+          ).toString("utf8")
           return {
             ...base,
+            rawMarkdown,
             blocks: data.reading.blocks.map(({ index, type, text, html }) => ({
               index,
               type,
@@ -716,6 +865,7 @@ export function createV2Service(
             {
               versionId: str("实际版本标识"),
               draftId: str("草稿标识"),
+              kind: str("版本产物类型", { enum: ["markdown", "board", "ui"] }),
               items: listOf(
                 "定位目标（markdown 块引用；board 对象；ui 路由+运行时元素清单）"
               ),
@@ -728,7 +878,7 @@ export function createV2Service(
               dynamicCaptured: int("ui：已采集页数"),
               note: str("采集说明"),
             },
-            ["versionId", "draftId", "items", "complete", "nextCursor"]
+            ["versionId", "draftId", "kind", "items", "complete", "nextCursor"]
           ),
         }),
         effect:

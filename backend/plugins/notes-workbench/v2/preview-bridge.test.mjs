@@ -74,6 +74,7 @@ test("桥只消费父窗口消息，DOM就绪后处理最新请求并返回对�
     requestId: "r1",
     target: { page: "/", id: "missing", tag: "button", text: "same" },
   }
+  b.send({ type: "moon-preview-connect" })
   b.send(request, { source: {} })
   b.send(request, { origin: "http://evil" })
   assert.equal(b.messages.length, 0)
@@ -84,6 +85,12 @@ test("桥只消费父窗口消息，DOM就绪后处理最新请求并返回对�
   assert.equal(b.messages[0].type, "moon-preview-focus-miss")
   assert.equal(b.messages[0].requestId, "r2")
   assert.equal(b.messages[1].type, "moon-preview-ready")
+  assert.equal(b.messages[1].page, "/")
+  b.send({ type: "moon-preview-connect" }, { origin: "http://evil" })
+  assert.equal(b.messages.length, 2)
+  b.send({ type: "moon-preview-connect" })
+  assert.equal(b.messages[2].type, "moon-preview-ready")
+  assert.equal(b.messages[2].page, "/")
 })
 
 test("指定ID缺失不能误指同文案元素；无ID歧义拒绝；采集每请求仅一回执", () => {

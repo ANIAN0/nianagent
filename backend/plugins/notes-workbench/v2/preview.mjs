@@ -6,7 +6,11 @@
 // - 桥以同源外部脚本注入（head 内、产物脚本之前），参数走 data 属性；无 head/body 结构明确拒绝
 import { randomBytes } from "node:crypto"
 
-const SESSION_PATTERN = /^[a-z0-9]{6}$/
+const SESSION_PATTERN = /^[a-f0-9]{32}$/
+
+/** @param {unknown} sid */
+export const isPreviewSid = (sid) =>
+  typeof sid === "string" && SESSION_PATTERN.test(sid)
 export const MAX_SESSIONS = 32
 // AC09：闲置过期——open 时清扫超时未用会话，反复打开/关闭与比较切换不耗尽上限
 const SESSION_TTL_MS = 30 * 60000
@@ -26,6 +30,7 @@ export const previewCsp = [
   "frame-ancestors 'self' http://127.0.0.1:httpPort http://localhost:httpPort",
 ]
 
+/** @param {number} httpPort */
 export const previewHeaders = (httpPort) => ({
   "content-security-policy": previewCsp
     .join("; ")
@@ -40,31 +45,35 @@ export const previewHeaders = (httpPort) => ({
  * 上限仅在泄漏场景兜底，超限明确拒绝（不自动挤掉在用会话）。 */
 export class PreviewSessions {
   constructor() {
+    /** @type {Map<string, {versionId: string, createdAt: number, lastUsed: number}>} */
     this.map = new Map()
   }
 
+  /** @param {string} versionId */
   open(versionId) {
     const now = Date.now()
     for (const [sid, session] of this.map)
       if (now - session.lastUsed > SESSION_TTL_MS) this.map.delete(sid)
     if (this.map.size >= MAX_SESSIONS) {
-      const error = new Error("预览会话已达上限，请关闭闲置预览后重试。")
-      error.code = "limit_exceeded"
-      throw error
+      throw Object.assign(
+        new Error("预览会话已达上限，请关闭闲置预览后重试。"),
+        { code: "limit_exceeded" }
+      )
     }
     for (let attempt = 0; attempt < 8; attempt++) {
-      const sid = randomBytes(4).toString("hex").slice(0, 6)
+      const sid = randomBytes(16).toString("hex")
       if (this.map.has(sid)) continue
       this.map.set(sid, { versionId, createdAt: now, lastUsed: now })
       return sid
     }
-    const error = new Error("无法分配独立预览会话，请重试。")
-    error.code = "internal_error"
-    throw error
+    throw Object.assign(new Error("无法分配独立预览会话，请重试。"), {
+      code: "internal_error",
+    })
   }
 
+  /** @param {string} sid */
   resolve(sid) {
-    if (!SESSION_PATTERN.test(sid)) return null
+    if (!isPreviewSid(sid)) return null
     const session = this.map.get(sid)
     if (!session) return null
     const now = Date.now()
@@ -77,19 +86,22 @@ export class PreviewSessions {
   }
 
   /** AC09：归属校验的释放——sid 存在且（提供 versionId 时）版本匹配才释放；未知 sid 幂等。 */
+  /** @param {string} sid @param {string} [versionId] */
   release(sid, versionId) {
-    if (!SESSION_PATTERN.test(sid)) return false
+    if (!isPreviewSid(sid)) return false
     const session = this.map.get(sid)
     if (!session) return false
     if (versionId !== undefined && session.versionId !== versionId) return false
     return this.map.delete(sid)
   }
 
+  /** @param {string} sid */
   close(sid) {
     return this.map.delete(sid)
   }
 }
 
+/** @param {string | null} hostHeader @param {number} httpPort */
 export const isPreviewHost = (hostHeader, httpPort) => {
   if (typeof hostHeader !== "string") return null
   const match = hostHeader.match(/^([a-z0-9.]+):(\d+)$/)
@@ -99,12 +111,13 @@ export const isPreviewHost = (hostHeader, httpPort) => {
   if (hostname === "127.0.0.1" || hostname === "localhost") return null // 管理端
   if (hostname.endsWith(".localhost")) {
     const sid = hostname.slice(0, -".localhost".length)
-    if (SESSION_PATTERN.test(sid)) return sid
+    if (isPreviewSid(sid)) return sid
   }
   return null
 }
 
 /** 桥脚本：体验/评论模式分离；评论模式捕获点击、描述目标并发回父页（工作台外壳）。 */
+/** @param {string[]} parentOrigins */
 export const bridgeScript = (parentOrigins) => `(() => {
   const parentOrigins = ${JSON.stringify(parentOrigins)};
   let mode = "experience";
@@ -204,7 +217,9 @@ export const bridgeScript = (parentOrigins) => `(() => {
     parentOrigin = event.origin;
     const message = event.data;
     if (!message || typeof message !== "object") return;
-    if (message.type === "moon-preview-mode") {
+    if (message.type === "moon-preview-connect") {
+      if (domReady) reply({ type: "moon-preview-ready", page: location.pathname });
+    } else if (message.type === "moon-preview-mode") {
       if (message.mode !== "comment" && message.mode !== "experience") return;
       const changed = mode !== message.mode;
       mode = message.mode;
@@ -247,13 +262,14 @@ export const bridgeScript = (parentOrigins) => `(() => {
     pendingFocus = null;
     if (request) applyFocus(request);
     observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, characterData: true });
-    reply({ type: "moon-preview-ready" });
+    reply({ type: "moon-preview-ready", page: location.pathname });
   };
   if (domReady) ready();
   else document.addEventListener("DOMContentLoaded", ready, { once: true });
 
 })();`
 
+/** @param {number} httpPort */
 const ORIGINS_JSON = (httpPort) =>
   JSON.stringify([
     `http://127.0.0.1:${httpPort}`,
@@ -261,6 +277,7 @@ const ORIGINS_JSON = (httpPort) =>
   ])
 
 /** 在合法 HTML 的 head 内、产物脚本之前注入桥引用；结构不合法明确拒绝。 */
+/** @param {string} html @param {string} bridgePath @param {number} httpPort */
 export const injectBridge = (html, bridgePath, httpPort) => {
   const tag = `<script src="${bridgePath}" data-moon-bridge="1" data-parent-origin='${ORIGINS_JSON(httpPort)}'></script>`
   if (/<head[^>]*>/i.test(html)) {
@@ -272,11 +289,12 @@ export const injectBridge = (html, bridgePath, httpPort) => {
       (match) => `${match}\n<head>${tag}</head>`
     )
   }
-  const error = new Error("预览入口缺少 head/html 结构，桥注入失败。")
-  error.code = "unsupported_artifact"
-  throw error
+  throw Object.assign(new Error("预览入口缺少 head/html 结构，桥注入失败。"), {
+    code: "unsupported_artifact",
+  })
 }
 
+/** @type {Record<string, string>} */
 const TYPES = {
   ".html": "text/html; charset=utf-8",
   ".htm": "text/html; charset=utf-8",
@@ -298,6 +316,7 @@ const TYPES = {
   ".webm": "video/webm",
 }
 
+/** @param {string} path */
 export const assetContentType = (path) => {
   const dot = path.lastIndexOf(".")
   return TYPES[path.slice(dot).toLowerCase()] ?? "application/octet-stream"
