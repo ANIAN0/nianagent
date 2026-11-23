@@ -1,4 +1,4 @@
-import { Ellipsis, Settings, Sun, Moon, Monitor } from "lucide-react"
+import { ChevronUp, Settings, Sun, Moon, Monitor } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useTheme } from "@/components/theme-provider"
 import {
@@ -28,22 +28,17 @@ export function UserMenu({
           className={
             compact
               ? "size-9 rounded-xl p-0"
-              : "h-12 w-full justify-start gap-3 rounded-xl"
+              : "h-10 w-full justify-start gap-2.5 rounded-xl px-2.5"
           }
-          aria-label="本地用户"
+          aria-label="设置与外观"
         >
-          <span
-            aria-hidden="true"
-            className="flex size-8 items-center justify-center rounded-full bg-secondary text-xs font-medium"
-          >
-            M
-          </span>
+          <Settings className="size-4 shrink-0 text-muted-foreground" />
           {!compact && (
             <>
-              <span className="flex-1 text-left text-[13px] leading-5">
-                本地用户
+              <span className="flex-1 text-left text-[13px] font-medium">
+                设置与外观
               </span>
-              <Ellipsis />
+              <ChevronUp className="size-3.5 text-muted-foreground" />
             </>
           )}
         </Button>

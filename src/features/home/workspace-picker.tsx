@@ -60,7 +60,6 @@ export function WorkspacePicker({
   const triggerRef = useRef<HTMLButtonElement>(null)
   const restoreDirectFocus = useRef(false)
   const [retrySelection, setRetrySelection] = useState<string | null>(null)
-  const [pendingSelection, setPendingSelection] = useState<string | null>(null)
   const errorId = useId()
   const workspace = workspaces.find((item) => item.id === value)
   const unavailable: FeedbackDescription | undefined =
@@ -197,8 +196,7 @@ export function WorkspacePicker({
         {loading || (busy && busyAction === "read")
           ? "读取工作目录…"
           : busy
-            ? (workspaces.find((item) => item.id === pendingSelection)?.name ??
-              "正在选择工作目录…")
+            ? "正在选择工作目录…"
             : (workspace?.name ?? "选择工作目录")}
       </span>
       <ChevronDown className="size-3 text-caption" data-icon="inline-end" />
@@ -209,7 +207,7 @@ export function WorkspacePicker({
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <DropdownMenu>
           <HoverHint
-            content={workspace?.path ?? "选择工作目录后开始工作"}
+            content={workspace?.path ?? "发送前选择工作目录"}
             disabled={pending || disabled}
             label="选择工作目录"
           >
@@ -240,7 +238,6 @@ export function WorkspacePicker({
                     key={item.id}
                     disabled={item.available === false || pending}
                     onSelect={() => {
-                      setPendingSelection(item.id)
                       setRetrySelection(item.id)
                       void run((signal) => onChange(item.id, signal))
                     }}

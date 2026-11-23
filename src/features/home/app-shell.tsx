@@ -1,25 +1,48 @@
 import type { FeedbackDescription } from "@/lib/operation-issue"
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react"
 import { PanelLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet"
+import { notifyToast } from "@/components/ui/notification-toast"
 import { HomeSidebar } from "./home-sidebar"
 import type { PrimaryNavigationActive } from "./primary-navigation"
 import { ConversationSearch } from "./conversation-search"
 import type { ConversationRowActions } from "./conversation-row-menu"
-import type { ComposerData, Conversation } from "@/lib/composer/types"
+import type {
+  ComposerData,
+  Conversation,
+  Workspace,
+} from "@/lib/composer/types"
 import type { HistoryState } from "@/lib/submission/conversation-handoff"
 import { useNavigationBoundary } from "@/lib/navigation/navigation-boundary"
 
 const sidebarLayoutKey = "moon.navigation.layout.v1"
 const wideNavigationQuery = "(min-width: 1024px)"
 const desktopNavigationQuery = "(min-width: 768px)"
+
+const clampSidebarWidth = (width: number) => Math.max(240, Math.min(360, width))
+
+type SidebarDrag = {
+  pointerId: number
+  startX: number
+  startWidth: number
+  width: number
+  frame: number | null
+}
 
 function readSidebarLayout() {
   try {
@@ -34,7 +57,7 @@ function readSidebarLayout() {
       throw new Error("Invalid navigation preferences")
     return {
       open: saved.open as boolean,
-      width: Math.max(240, Math.min(360, saved.width)),
+      width: clampSidebarWidth(saved.width),
       storageError: "",
     }
   } catch {
@@ -55,13 +78,12 @@ export function AppShell({
   onSettings,
   onPlugins,
   rowActions,
-  archivedView,
-  onLeaveArchivedView,
   activeNav,
   historyState,
   historyError,
   historyIssue,
   onHistoryRetry,
+  hideNavigation = false,
   children,
 }: {
   data: ComposerData
@@ -71,13 +93,12 @@ export function AppShell({
   onSettings?: () => void
   onPlugins?: () => void
   rowActions?: ConversationRowActions
-  archivedView?: boolean
-  onLeaveArchivedView?: () => void
   activeNav?: PrimaryNavigationActive
   historyState?: HistoryState
   historyError?: string
   historyIssue?: FeedbackDescription
   onHistoryRetry?: () => void
+  hideNavigation?: boolean
   children: ReactNode
 }) {
   const { run: runNavigation, blocked: navigationBlocked } =
@@ -88,10 +109,18 @@ export function AppShell({
   )
   const [compactSidebarOpen, setCompactSidebarOpen] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [searchOpen, setSearchOpen] = useState(false)
-  const [notice, setNotice] = useState(sidebarLayout.storageError)
+  const [searchTarget, setSearchTarget] = useState<Workspace | "all" | null>(
+    null
+  )
+  const sidebar = useRef<HTMLElement>(null)
+  const drag = useRef<SidebarDrag | null>(null)
   const main = useRef<HTMLElement>(null)
   const focusNewHomeAfterClose = useRef(false)
+  useEffect(() => {
+    if (sidebarLayout.storageError) {
+      notifyToast(sidebarLayout.storageError, { tone: "warning" })
+    }
+  }, [sidebarLayout.storageError])
   const sidebarOpen = wideNavigation ? sidebarLayout.open : compactSidebarOpen
   const sidebarWidth = sidebarLayout.width
   const toggleSidebar = useCallback(() => {
@@ -114,7 +143,10 @@ export function AppShell({
         )
       })
       .catch(() => {
-        if (!cancelled) setNotice("导航布局调整未保存，请检查本机存储。")
+        if (!cancelled)
+          notifyToast("导航布局调整未保存，请检查本机存储。", {
+            tone: "warning",
+          })
       })
     return () => {
       cancelled = true
@@ -135,20 +167,41 @@ export function AppShell({
       desktop.removeEventListener("change", updateNavigation)
     }
   }, [])
+  const startNewConversation = useCallback(
+    (workspaceId?: string) =>
+      runNavigation(() => {
+        focusNewHomeAfterClose.current = mobileOpen
+        onNew(workspaceId)
+        setMobileOpen(false)
+      }),
+    [runNavigation, onNew, mobileOpen]
+  )
   useEffect(() => {
     function handleKey(event: KeyboardEvent) {
       if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.altKey &&
+        !event.shiftKey &&
+        event.key.toLowerCase() === "n"
+      ) {
+        event.preventDefault()
+        startNewConversation()
+        return
+      }
+      if (
+        !hideNavigation &&
         (event.ctrlKey || event.metaKey) &&
         !event.altKey &&
         event.key.toLowerCase() === "k"
       ) {
         event.preventDefault()
         runNavigation(() => {
-          setSearchOpen((open) => !open)
+          setSearchTarget((target) => (target ? null : "all"))
           setMobileOpen(false)
         })
       }
       if (
+        !hideNavigation &&
         (event.ctrlKey || event.metaKey) &&
         !event.altKey &&
         event.key.toLowerCase() === "b"
@@ -162,7 +215,13 @@ export function AppShell({
     }
     window.addEventListener("keydown", handleKey)
     return () => window.removeEventListener("keydown", handleKey)
-  }, [runNavigation, toggleSidebar])
+  }, [hideNavigation, runNavigation, startNewConversation, toggleSidebar])
+  function openSearch(workspace?: Workspace) {
+    runNavigation(() => {
+      setMobileOpen(false)
+      setSearchTarget(workspace ?? "all")
+    })
+  }
   const sidebarProps = {
     data,
     activeConversationId,
@@ -177,20 +236,9 @@ export function AppShell({
       })
     },
     onClose: () => runNavigation(toggleSidebar),
-    onNew: (id?: string) => {
-      runNavigation(() => {
-        focusNewHomeAfterClose.current = mobileOpen
-        onNew(id)
-        setMobileOpen(false)
-        setNotice("")
-      })
-    },
-    onSearch: () => {
-      runNavigation(() => {
-        setMobileOpen(false)
-        setSearchOpen(true)
-      })
-    },
+    onNew: startNewConversation,
+    onSearch: () => openSearch(),
+    onSearchWorkspace: openSearch,
     onSettings: onSettings
       ? () => {
           runNavigation(() => {
@@ -209,19 +257,45 @@ export function AppShell({
     onNotice: (message: string) => {
       runNavigation(() => {
         setMobileOpen(false)
-        setNotice(message)
+        notifyToast(message, { tone: "info" })
       })
     },
     actions: rowActions,
-    archivedView,
-    onLeaveArchivedView: () => runNavigation(() => onLeaveArchivedView?.()),
     activeNav,
   }
+  useLayoutEffect(
+    () => () => {
+      const frame = drag.current?.frame
+      if (frame != null) cancelAnimationFrame(frame)
+      drag.current = null
+    },
+    [sidebarOpen]
+  )
   function resize(width: number) {
-    setSidebarLayout((layout) => ({
-      ...layout,
-      width: Math.max(240, Math.min(360, width)),
-    }))
+    const next = clampSidebarWidth(width)
+    setSidebarLayout((layout) =>
+      next === layout.width ? layout : { ...layout, width: next }
+    )
+  }
+  function previewWidth(separator: HTMLElement, width: number) {
+    if (sidebar.current) sidebar.current.style.width = `${width}px`
+    separator.setAttribute("aria-valuenow", String(width))
+  }
+  function finishResize(
+    separator: HTMLElement,
+    pointerId: number,
+    clientX?: number
+  ) {
+    const current = drag.current
+    if (!current || current.pointerId !== pointerId) return
+    drag.current = null
+    if (current.frame != null) cancelAnimationFrame(current.frame)
+    const width =
+      clientX === undefined
+        ? current.startWidth
+        : clampSidebarWidth(current.startWidth + clientX - current.startX)
+    previewWidth(separator, width)
+    if (clientX !== undefined) resize(width)
   }
   return (
     <div
@@ -229,7 +303,12 @@ export function AppShell({
       className="flex h-dvh overflow-hidden bg-background text-foreground"
     >
       <aside
-        className="relative hidden shrink-0 border-r border-sidebar-border md:block"
+        ref={sidebar}
+        className={
+          hideNavigation
+            ? "hidden"
+            : "relative hidden shrink-0 border-r border-sidebar-border md:block"
+        }
         style={{ width: sidebarOpen ? sidebarWidth : 56 }}
       >
         <HomeSidebar {...sidebarProps} collapsed={!sidebarOpen} />
@@ -259,39 +338,66 @@ export function AppShell({
               }
             }}
             onPointerDown={(event) => {
+              if (event.button !== 0 || drag.current) return
               event.currentTarget.setPointerCapture(event.pointerId)
+              drag.current = {
+                pointerId: event.pointerId,
+                startX: event.clientX,
+                startWidth: sidebarWidth,
+                width: sidebarWidth,
+                frame: null,
+              }
             }}
             onPointerMove={(event) => {
-              if (event.currentTarget.hasPointerCapture(event.pointerId))
-                resize(event.clientX)
+              const current = drag.current
+              if (!current || current.pointerId !== event.pointerId) return
+              current.width = clampSidebarWidth(
+                current.startWidth + event.clientX - current.startX
+              )
+              if (current.frame != null) return
+              const separator = event.currentTarget
+              current.frame = requestAnimationFrame(() => {
+                current.frame = null
+                previewWidth(separator, current.width)
+              })
             }}
             onPointerUp={(event) =>
-              event.currentTarget.releasePointerCapture(event.pointerId)
+              finishResize(event.currentTarget, event.pointerId, event.clientX)
+            }
+            onPointerCancel={(event) =>
+              finishResize(event.currentTarget, event.pointerId)
+            }
+            onLostPointerCapture={(event) =>
+              finishResize(event.currentTarget, event.pointerId)
             }
           />
         )}
       </aside>
-      <main
-        ref={main}
-        className="relative flex min-h-0 min-w-0 flex-1 flex-col"
-      >
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="打开导航"
-          className="absolute top-3 left-3 z-10 md:hidden"
-          disabled={navigationBlocked}
-          onClick={() => runNavigation(() => setMobileOpen(true))}
-        >
-          <PanelLeft />
-        </Button>
-        {children}
-      </main>
-      <Dialog
-        open={mobileOpen && !navigationBlocked}
+      <Sheet
+        open={mobileOpen && !navigationBlocked && !hideNavigation}
         onOpenChange={(open) => runNavigation(() => setMobileOpen(open))}
       >
-        <DialogContent
+        <main
+          ref={main}
+          className="relative flex min-h-0 min-w-0 flex-1 flex-col"
+        >
+          {!hideNavigation && (
+            <SheetTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="打开导航"
+                className="absolute top-3 left-3 z-10 md:hidden"
+                disabled={navigationBlocked}
+              >
+                <PanelLeft />
+              </Button>
+            </SheetTrigger>
+          )}
+          {children}
+        </main>
+        <SheetContent
+          side="left"
           onCloseAutoFocus={(event) => {
             if (!focusNewHomeAfterClose.current) return
             focusNewHomeAfterClose.current = false
@@ -302,43 +408,37 @@ export function AppShell({
                 ?.focus({ preventScroll: true })
             )
           }}
-          className="inset-y-0 left-0 flex h-dvh min-h-0 w-80 max-w-[calc(100vw-48px)] min-w-0 translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none p-0"
+          className="h-dvh min-h-0 max-w-[calc(100vw-48px)] min-w-0 gap-0 overflow-hidden p-0 data-[side=left]:w-80"
           showCloseButton={false}
         >
-          <DialogHeader className="sr-only">
-            <DialogTitle>Moon 导航</DialogTitle>
-            <DialogDescription>导航与本地历史会话</DialogDescription>
-          </DialogHeader>
+          <SheetHeader className="sr-only">
+            <SheetTitle>moon 导航</SheetTitle>
+            <SheetDescription>导航与本地历史会话</SheetDescription>
+          </SheetHeader>
           <HomeSidebar
             {...sidebarProps}
+            shortcuts={false}
             onClose={() => runNavigation(() => setMobileOpen(false))}
           />
-        </DialogContent>
-      </Dialog>
+        </SheetContent>
+      </Sheet>
       <ConversationSearch
         data={data}
         historyState={historyState}
         historyError={historyError}
         historyIssue={historyIssue}
         onHistoryRetry={onHistoryRetry}
-        archived={archivedView ? "only" : "hide"}
-        open={searchOpen && !navigationBlocked}
-        onOpenChange={(open) => runNavigation(() => setSearchOpen(open))}
+        workspace={
+          searchTarget && searchTarget !== "all" ? searchTarget : undefined
+        }
+        open={!!searchTarget && !navigationBlocked && !hideNavigation}
+        onOpenChange={(open) =>
+          runNavigation(() =>
+            setSearchTarget((target) => (open ? (target ?? "all") : null))
+          )
+        }
         onSelect={(item) => runNavigation(() => onSelectConversation(item))}
       />
-      <Dialog
-        open={!!notice}
-        onOpenChange={(open) => {
-          if (!open) setNotice("")
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Moon</DialogTitle>
-            <DialogDescription>{notice}</DialogDescription>
-          </DialogHeader>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

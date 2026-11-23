@@ -8,6 +8,8 @@ import {
   HISTORY_MAX_ROWS,
   HISTORY_STEP_ROWS,
   attentionRowCount,
+  conversationHasPending,
+  conversationIsRunning,
 } from "./conversation-history-layout"
 import type { ConversationRowActions } from "./conversation-row-menu"
 import type { Workspace, Conversation } from "@/lib/composer/types"
@@ -24,6 +26,7 @@ export type ConversationGroupProps = {
   /** value 已按上限钳制，父级原样持久化。 */
   onShowMore: (value: number) => void
   onShowLess: () => void
+  onBrowse?: () => void
   onSelect: (conversation: Conversation) => void
   actions?: ConversationRowActions
 }
@@ -36,21 +39,31 @@ export function ConversationGroup({
   onNew,
   onShowMore,
   onShowLess,
+  onBrowse,
   onSelect,
   actions,
   activeConversationId,
 }: ConversationGroupProps) {
-  // 水位 = 默认行数、注意力行覆盖、用户抬升三者取大，上限封顶。
-  const visible = Math.min(
+  const defaultVisible = Math.min(
     HISTORY_MAX_ROWS,
     Math.max(
       HISTORY_BASE_ROWS,
-      attentionRowCount(conversations, activeConversationId),
-      watermark
+      attentionRowCount(conversations, activeConversationId)
     )
+  )
+  const visible = Math.max(
+    defaultVisible,
+    Math.min(HISTORY_MAX_ROWS, watermark)
   )
   const visibleItems = conversations.slice(0, visible)
   const hidden = conversations.length - visibleItems.length
+  const groupStatus = expanded
+    ? ""
+    : conversations.some(conversationHasPending)
+      ? "有待处理会话"
+      : conversations.some(conversationIsRunning)
+        ? "有运行中会话"
+        : ""
   return (
     <section className="mb-2">
       <div className="group/directory flex items-center">
@@ -77,6 +90,18 @@ export function ConversationGroup({
               {workspace.name}
             </span>
           </HoverHint>
+          {groupStatus && (
+            <span
+              role="img"
+              aria-label={groupStatus}
+              className={cn(
+                "size-2 shrink-0 rounded-full",
+                groupStatus === "有待处理会话"
+                  ? "bg-status-warning"
+                  : "bg-primary"
+              )}
+            />
+          )}
         </Button>
         {onNew && (
           <Button
@@ -104,26 +129,65 @@ export function ConversationGroup({
               </li>
             ))}
           </ul>
-          {hidden > 0 && (
-            <Button
-              variant="ghost"
-              className="h-7 w-full justify-start rounded-lg pl-8 text-xs font-normal text-muted-foreground"
-              onClick={() => onShowMore(visible + HISTORY_STEP_ROWS)}
-            >
-              <ChevronDown className="size-3.5" />
-              显示更多（还有 {hidden} 个）
-            </Button>
+          {!visibleItems.length && (
+            <p className="px-8 py-1 text-xs text-muted-foreground">暂无会话</p>
           )}
-          {visible > HISTORY_BASE_ROWS && (
-            <Button
-              variant="ghost"
-              className="h-7 w-full justify-start rounded-lg pl-8 text-xs font-normal text-muted-foreground"
-              onClick={onShowLess}
-            >
-              <ChevronUp className="size-3.5" />
-              收起
-            </Button>
-          )}
+          {(() => {
+            const hasMore = hidden > 0 && visible < HISTORY_MAX_ROWS
+            const hasBrowse =
+              hidden > 0 && visible === HISTORY_MAX_ROWS && !!onBrowse
+            const canCollapse = visibleItems.length > defaultVisible
+            if (!hasMore && !hasBrowse && !canCollapse) return null
+            if (!hasMore && !hasBrowse) {
+              return (
+                <Button
+                  variant="ghost"
+                  className="relative h-7 w-full justify-start rounded-lg pr-2 pl-8 text-xs font-normal text-muted-foreground"
+                  onClick={onShowLess}
+                >
+                  <ChevronUp className="absolute left-2.5 size-3.5" />
+                  收起
+                </Button>
+              )
+            }
+            return (
+              <div className="flex items-center gap-1">
+                {hasMore ? (
+                  <Button
+                    variant="ghost"
+                    className="relative h-7 min-w-0 flex-1 justify-start rounded-lg pr-2 pl-8 text-xs font-normal text-muted-foreground"
+                    onClick={() =>
+                      onShowMore(
+                        Math.min(HISTORY_MAX_ROWS, visible + HISTORY_STEP_ROWS)
+                      )
+                    }
+                  >
+                    <ChevronDown className="absolute left-2.5 size-3.5" />
+                    <span className="truncate">
+                      显示更多（还有 {hidden} 个）
+                    </span>
+                  </Button>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    className="h-7 min-w-0 flex-1 justify-start rounded-lg pr-2 pl-8 text-xs font-normal text-muted-foreground"
+                    onClick={onBrowse}
+                  >
+                    <span className="truncate">查看全部会话</span>
+                  </Button>
+                )}
+                {canCollapse && (
+                  <Button
+                    variant="ghost"
+                    className="h-7 shrink-0 rounded-lg px-2 text-xs font-normal text-muted-foreground"
+                    onClick={onShowLess}
+                  >
+                    收起
+                  </Button>
+                )}
+              </div>
+            )
+          })()}
         </>
       )}
     </section>

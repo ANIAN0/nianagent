@@ -98,10 +98,12 @@ export function useHomeDraftOwner({
     }
   }, [])
   const [rawDraft, setDraft] = useState<ComposerDraft>(() => {
-    const workspaceId =
-      workspaces.find((item) => item.id === initialDraft.workspaceId)?.id ??
-      workspaces[0]?.id ??
-      ""
+    const unassigned = draftStore?.read("")
+    const keepUnassigned = !initialDraft.sessionId && !!unassigned?.text
+    const workspaceId = keepUnassigned
+      ? ""
+      : (workspaces.find((item) => item.id === initialDraft.workspaceId)?.id ??
+        "")
     const provided = Object.fromEntries(
       Object.entries(initialDraft).filter(([, value]) => value !== undefined)
     )
@@ -150,6 +152,7 @@ export function useHomeDraftOwner({
   }, [rawDraft.workspaceId, inactive])
   const [saveError, setSaveError] = useState("")
   const latestDraft = useRef(rawDraft)
+  const readDraft = useCallback(() => latestDraft.current, [])
   const draftRetired = useRef(false)
   const retireDraft = useCallback(() => {
     draftRetired.current = true
@@ -157,7 +160,7 @@ export function useHomeDraftOwner({
   useMaintenanceSave(() => {
     if (draftRetired.current) return []
     const current = latestDraft.current
-    if (current.workspaceId && draftStore) draftStore.write(current)
+    if (draftStore) draftStore.write(current)
     return materialsBlockMaintenance(
       materialService,
       current.sessionId ?? "",
@@ -198,7 +201,7 @@ export function useHomeDraftOwner({
       latestDraft.current = next
       setDraft(next)
       onDraftChange?.(next)
-      if (!next.workspaceId || !persist) return true
+      if (!persist) return true
       try {
         draftStore?.write(next)
         setSaveError("")
@@ -226,14 +229,13 @@ export function useHomeDraftOwner({
     initializedDraft.current = true
     updateDraft((current) => current)
   }, [initialDraft.sessionId, updateDraft])
+  const firstModel = models[0]
+  useLayoutEffect(() => {
+    if (inactive || !firstModel || latestDraft.current.model) return
+    updateDraft((current) => ({ ...current, model: firstModel }))
+  }, [firstModel, inactive, rawDraft.workspaceId, updateDraft])
   const draft = {
     ...rawDraft,
-    workspaceId:
-      rawDraft.workspaceId ||
-      data.workspaces.find((item) => item.id === initialDraft.workspaceId)
-        ?.id ||
-      data.workspaces[0]?.id ||
-      "",
     thinking: effectiveThinking(
       rawDraft.thinking,
       data.modelThinking?.[rawDraft.model]
@@ -253,6 +255,7 @@ export function useHomeDraftOwner({
     updateDraft,
     retireDraft,
     latestDraft,
+    readDraft,
     mounted,
     inputRef,
     inactiveRef,

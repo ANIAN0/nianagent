@@ -310,5 +310,6 @@ export function finishHomeSubmission(
 export const persistentHomeDraftStore = {
   read: restoreHomeDraft,
   write: saveHomeDraft,
+  clear: clearHomeDraft,
 }
 export type HomeDraftStore = typeof persistentHomeDraftStore

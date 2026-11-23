@@ -7,6 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { conversationIsRunning } from "./conversation-history-layout"
 import type { Conversation } from "@/lib/composer/types"
 
 /**
@@ -25,7 +26,7 @@ export function ConversationArchiveDialog({
   onConfirm: (conversation: Conversation) => void
   onClose: () => void
 }) {
-  const running = conversation?.status === "running"
+  const running = !!conversation && conversationIsRunning(conversation)
   return (
     <Dialog
       open={!!conversation}
@@ -44,7 +45,7 @@ export function ConversationArchiveDialog({
                 ? `「${conversation.title}」正在运行。停止当前运行后归档；已写入的消息和真实工具结果会保留。`
                 : ""
               : conversation
-                ? `「${conversation.title}」将从侧栏隐藏，可随时恢复。`
+                ? `「${conversation.title}」尚有待处理请求。处理请求后才可归档。`
                 : ""}
           </DialogDescription>
         </DialogHeader>

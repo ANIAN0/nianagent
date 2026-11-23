@@ -15,46 +15,58 @@ export function MarqueeTitle({
   className?: string
 }) {
   const viewport = useRef<HTMLSpanElement>(null)
+  const track = useRef<HTMLSpanElement>(null)
+  const animationRef = useRef<Animation | null>(null)
   const [overflow, setOverflow] = useState(0)
-  const [offset, setOffset] = useState(0)
   const [hovering, setHovering] = useState(false)
+  const [atEnd, setAtEnd] = useState(false)
   const reduceMotion = useRef(
     typeof window !== "undefined" &&
       window.matchMedia("(prefers-reduced-motion: reduce)").matches
   )
   useEffect(() => {
-    const element = viewport.current
-    if (!element) return
-    const measure = () =>
-      setOverflow(Math.max(0, element.scrollWidth - element.clientWidth))
-    measure()
-    const observer = new ResizeObserver(measure)
-    observer.observe(element)
-    return () => observer.disconnect()
-  }, [text])
-  useEffect(() => {
-    if (!hovering || overflow < OVERFLOW_THRESHOLD_PX) return
-    let frame = 0
-    let last = performance.now()
-    const step = (now: number) => {
-      const elapsed = now - last
-      last = now
-      setOffset((current) => {
-        const next = current + CRAWL_SPEED_PX_PER_MS * elapsed
-        if (next >= overflow) return overflow
-        frame = requestAnimationFrame(step)
-        return next
-      })
+    animationRef.current?.cancel()
+    animationRef.current = null
+    const target = track.current
+    if (!target) return
+
+    if (!hovering || overflow < OVERFLOW_THRESHOLD_PX) {
+      target.style.transform = ""
+      return
     }
-    frame = requestAnimationFrame(step)
-    return () => cancelAnimationFrame(frame)
+
+    if (reduceMotion.current) {
+      target.style.transform = `translateX(${-overflow}px)`
+      return
+    }
+
+    const duration = overflow / CRAWL_SPEED_PX_PER_MS
+    const animation = target.animate(
+      [
+        { transform: "translateX(0px)" },
+        { transform: `translateX(${-overflow}px)` },
+      ],
+      {
+        duration,
+        easing: "linear",
+        fill: "forwards",
+      }
+    )
+    animationRef.current = animation
+    animation.onfinish = () => {
+      if (animationRef.current === animation) {
+        setAtEnd(true)
+      }
+    }
+    return () => {
+      animation.onfinish = null
+      animation.cancel()
+      if (animationRef.current === animation) {
+        animationRef.current = null
+      }
+    }
   }, [hovering, overflow])
-  const overflowLatest = useRef(0)
-  useEffect(() => {
-    overflowLatest.current = overflow
-  }, [overflow])
   const crawling = hovering && overflow >= OVERFLOW_THRESHOLD_PX
-  const atEnd = overflow > 0 && offset >= overflow
   const mask =
     crawling && !atEnd
       ? `linear-gradient(to right, transparent 0, black ${MASK_FADE_PX}px, black calc(100% - ${MASK_FADE_PX}px), transparent 100%)`
@@ -75,25 +87,25 @@ export function MarqueeTitle({
       }}
       onPointerEnter={(event) => {
         if (event.pointerType !== "mouse") return
-        setHovering(true)
+        const element = viewport.current
+        if (!element) return
+        const distance = Math.max(0, element.scrollWidth - element.clientWidth)
+        setOverflow(distance)
+        setHovering(distance >= OVERFLOW_THRESHOLD_PX)
         // reduced-motion：进入直接跳到最远端，不做爬行动画。
-        if (
-          reduceMotion.current &&
-          overflowLatest.current >= OVERFLOW_THRESHOLD_PX
-        )
-          setOffset(overflowLatest.current)
+        if (reduceMotion.current && distance >= OVERFLOW_THRESHOLD_PX) {
+          setAtEnd(true)
+        }
       }}
       onPointerLeave={() => {
         // 离开一步回零：不反向爬行。
         setHovering(false)
-        setOffset(0)
+        setAtEnd(false)
       }}
     >
       <span
-        className="inline-block will-change-transform"
-        style={{
-          transform: offset > 0 ? `translateX(${-offset}px)` : undefined,
-        }}
+        ref={track}
+        className={cn("inline-block", crawling && "will-change-transform")}
       >
         {text}
       </span>

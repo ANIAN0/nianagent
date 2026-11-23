@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from "react"
 import { profileLocalStorage as localStorage } from "@/lib/rpc/profile-storage"
 import type { LeaveGuard } from "@/lib/navigation/leave-guard"
 import type { useNavigationBoundaryState } from "@/lib/navigation/navigation-boundary"
+import type { SettingsSection } from "@/features/settings/settings-shell"
 
 const selectedKey = "moon.conversation.selected.v1"
 
@@ -26,9 +27,8 @@ export function useAppNavigation(
   hooksRef?: React.MutableRefObject<AppNavigationHooks>
 ) {
   const [view, setView] = useState<AppView>("conversation")
-  const [settingsSection, setSettingsSection] = useState<
-    "models" | "mcp" | "storage" | "updates"
-  >("models")
+  const [settingsSection, setSettingsSection] =
+    useState<SettingsSection>("general")
   const [selected, setSelected] = useState<string | undefined>(restoreSelection)
   const settingsGuard = useRef<LeaveGuard | null>(null)
 
@@ -38,7 +38,7 @@ export function useAppNavigation(
 
   // 进入新视图须先过设置页的未保存修改守卫；从会话进入互不拦截。
   const enterView = useCallback(
-    (next: AppView, section?: "models" | "mcp" | "storage" | "updates") => {
+    (next: AppView, section?: SettingsSection) => {
       const enter = () => {
         hooksRef?.current.onBeforeNavigate?.()
         setView(next)
@@ -55,9 +55,17 @@ export function useAppNavigation(
     enterView("settings", "models")
   }, [enterView])
 
-  const openPlugins = useCallback(() => {
-    enterView("plugins")
+  const openGeneralSettings = useCallback(() => {
+    enterView("settings", "general")
   }, [enterView])
+
+  const openArchivedSettings = useCallback(() => {
+    enterView("settings", "archived")
+  }, [enterView])
+
+  const openPlugins = useCallback(() => {
+    enterView(view === "plugins" ? "conversation" : "plugins")
+  }, [enterView, view])
 
   const leaveSettings = useCallback(
     (action: () => void) => {
@@ -99,6 +107,8 @@ export function useAppNavigation(
     setSettingsSection,
     registerSettingsLeave,
     openSettings,
+    openGeneralSettings,
+    openArchivedSettings,
     openPlugins,
     leaveSettings,
     selectConversation,

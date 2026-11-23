@@ -260,7 +260,7 @@ export function useHomeSubmissionController({
       if (!started || receipt?.state === "rejected") {
         const recovered = recoverRejectedHomeSubmission(
           submission,
-          currentHomeEditing(submission) ?? chat.drafts[id],
+          currentHomeEditing(submission) ?? chat.currentDraft(id),
           chat
         )
         const rejected = rejectHomeSubmission(
@@ -411,7 +411,6 @@ export function useHomeSubmissionController({
     (!selected ||
       (activeHomeSubmission &&
         ["prepared", "sending"].includes(activeHomeSubmission.stage ?? ""))) &&
-    !workspaces.initialLoading &&
     !homeViews.some((view) => view.key === homeDraft.key)
   )
     homeViews.push({

@@ -34,6 +34,7 @@ function OwnedHomeComposer({
   const draftStore = useMemo(
     () => ({
       read: persistentHomeDraftStore.read,
+      clear: persistentHomeDraftStore.clear,
       write: (draft: ComposerDraft) => persistOwnedDraft(draft, viewKey),
     }),
     [persistOwnedDraft, viewKey]
@@ -50,6 +51,7 @@ function OwnedHomeComposer({
 /** 隐藏只改变展示，未完成的首页 owner 仍挂载并完成原稿交接。 */
 export function HomeSubmissionHost({
   home,
+  preloadConversation,
   data,
   unconfirmed,
   settingsOpen,
@@ -74,6 +76,7 @@ export function HomeSubmissionHost({
     | "retryCleanup"
     | "registerHomeDraftOwner"
   >
+  preloadConversation: () => Promise<unknown>
   data: ComposerData
   unconfirmed: Record<string, boolean>
   settingsOpen: boolean
@@ -153,7 +156,11 @@ export function HomeSubmissionHost({
               submissionIssue={
                 view.key === homeDraft.key ? homeDraft.issue : undefined
               }
-              onSubmissionPrepare={prepareHomeSubmission}
+              onSubmissionPrepare={(copy, following) => {
+                prepareHomeSubmission(copy, following)
+                // Only start loading the conversation UI once the user sends.
+                void preloadConversation().catch(() => {})
+              }}
               recoverySubmissionIds={Object.entries(homeCleanupErrors)
                 .filter(([, cleanup]) => !cleanup.accepted)
                 .map(([id]) => id)}

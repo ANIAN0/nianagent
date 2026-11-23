@@ -5,6 +5,7 @@ import "./home.css"
 import {
   useCallback,
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useRef,
   useState,
@@ -69,6 +70,7 @@ export function useHomeComposer({
     updateDraft,
     retireDraft,
     latestDraft,
+    readDraft,
     mounted,
     inputRef,
     inactiveRef,
@@ -173,8 +175,11 @@ export function useHomeComposer({
     key: string
     feedback: FeedbackDescription
   }>()
+  const hasSelectedModel = models.includes(draft.model)
   const configFailure =
-    configFeedback?.key === configKey ? configFeedback.feedback : undefined
+    hasSelectedModel && configFeedback?.key === configKey
+      ? configFeedback.feedback
+      : undefined
   const pendingCopy =
     localSubmission?.sessionId === sessionId
       ? localSubmission
@@ -198,7 +203,7 @@ export function useHomeComposer({
   }, [pendingCopy])
   const applyHomeRecovery = useCallback(
     (submission: HomeSubmission) => {
-      const current = latestDraft.current
+      const current = readDraft()
       const original = submission.originalDraft ?? submission.draft
       const currentCopy = copyRef.current
       if (
@@ -241,7 +246,7 @@ export function useHomeComposer({
       updateDraft(() => recovery.draft)
       return recovery
     },
-    [updateDraft, inactiveRef, inputRef, latestDraft, mounted]
+    [updateDraft, inactiveRef, inputRef, readDraft, mounted]
   )
   // A page-level recovery must reach the same live material owner. Changing
   // initialDraft cannot update that editor, and remounting would cancel Files.
@@ -373,6 +378,7 @@ export function useHomeComposer({
   }, [automaticReady, automaticKey, updateDraft, applyHomeRecovery, mounted])
   const unsupportedCompact = /^\/compact(?:\s|$)/.test(draft.text.trim())
   const configLoading =
+    hasSelectedModel &&
     !!sessionService &&
     !!workspacePath &&
     readySession !== configKey &&
@@ -381,7 +387,8 @@ export function useHomeComposer({
     const controller = new AbortController()
     configRequest.current = controller
     const owner = `${sessionId}:${workspacePath}`
-    if (sessionService && workspacePath) {
+    // Without a model the user can draft or open configuration explicitly.
+    if (hasSelectedModel && sessionService && workspacePath) {
       Promise.all([
         sessionService.catalog(workspacePath, controller.signal),
         sessionService.read(sessionId, controller.signal),
@@ -433,6 +440,7 @@ export function useHomeComposer({
       controller.abort()
     }
   }, [
+    hasSelectedModel,
     sessionService,
     sessionId,
     workspacePath,
@@ -468,7 +476,7 @@ export function useHomeComposer({
     workspaces.some(
       (item) => item.id === draft.workspaceId && item.available !== false
     ) &&
-    models.includes(draft.model)
+    hasSelectedModel
   function change(patch: Partial<ComposerDraft>) {
     if (inactive || acceptedSubmission) return
     if (patch.session !== undefined)
@@ -492,7 +500,9 @@ export function useHomeComposer({
       configRequest.current?.abort()
       submitRequest.current?.abort()
     }
-    updateDraft((current) => {
+    const assigningWorkspace =
+      !latestDraft.current.workspaceId && !!patch.workspaceId
+    const saved = updateDraft((current) => {
       if (
         patch.workspaceId === undefined ||
         patch.workspaceId === current.workspaceId
@@ -501,12 +511,16 @@ export function useHomeComposer({
       const cached = draftStore?.read(patch.workspaceId)
       const originalPending =
         !!cached?.sessionId && unconfirmedSessionIds.includes(cached.sessionId)
+      const workspaceText = originalPending ? "" : (cached?.text ?? "")
+      const unassignedText = assigningWorkspace ? current.text : ""
       const next = {
         ...current,
-        text: "",
         materials: [],
         ...cached,
-        ...(originalPending ? { text: "", materials: [] } : {}),
+        ...(originalPending ? { materials: [] } : {}),
+        text: [workspaceText, unassignedText]
+          .filter((text, index, texts) => text && texts.indexOf(text) === index)
+          .join("\n\n"),
         ...patch,
         sessionId: crypto.randomUUID(),
       }
@@ -518,6 +532,13 @@ export function useHomeComposer({
       }
       return next
     })
+    if (saved && assigningWorkspace) {
+      try {
+        draftStore?.clear("")
+      } catch {
+        // The new draft is already durable; keep the old copy on cleanup failure.
+      }
+    }
     setResult("")
     if (submissionFailure && !unknownSubmission) setSubmitFeedback(undefined)
     if (patch.session) {
@@ -526,6 +547,18 @@ export function useHomeComposer({
       setConfigFeedback(undefined)
     }
   }
+  const restorePreferredWorkspace = useEffectEvent((id: string) => {
+    if (!latestDraft.current.workspaceId && !latestDraft.current.text)
+      change({ workspaceId: id })
+  })
+  const preferredWorkspaceId = initialDraft.workspaceId
+  useEffect(() => {
+    if (!preferredWorkspaceId || inactive) return
+    const frame = requestAnimationFrame(() =>
+      restorePreferredWorkspace(preferredWorkspaceId)
+    )
+    return () => cancelAnimationFrame(frame)
+  }, [preferredWorkspaceId, inactive])
   async function submit() {
     if (!canSubmit || submitRequest.current) return
     const original = structuredClone(latestDraft.current)

@@ -1,3 +1,4 @@
+import { useMemo, useRef } from "react"
 import { HoverHint } from "@/components/feedback/hover-hint"
 import type { FeedbackDescription } from "@/lib/operation-issue"
 import { PanelLeft, Search } from "lucide-react"
@@ -9,10 +10,17 @@ import {
   type PrimaryNavigationActive,
 } from "./primary-navigation"
 import { isRemoteWeb } from "@/lib/rpc/remote-transport"
-import { ConversationHistory } from "./conversation-history"
+import {
+  ConversationHistory,
+  type ConversationHistoryPosition,
+} from "./conversation-history"
 import { UserMenu } from "./user-menu"
 import type { ConversationRowActions } from "./conversation-row-menu"
-import type { ComposerData, Conversation } from "@/lib/composer/types"
+import type {
+  ComposerData,
+  Conversation,
+  Workspace,
+} from "@/lib/composer/types"
 import type { HistoryState } from "@/lib/submission/conversation-handoff"
 
 export type HomeSidebarProps = {
@@ -23,6 +31,7 @@ export type HomeSidebarProps = {
   onClose: () => void
   onNew: (workspaceId?: string) => void
   onSearch: () => void
+  onSearchWorkspace?: (workspace: Workspace) => void
   onSettings?: () => void
   onPlugins?: () => void
   onNotice: (message: string) => void
@@ -31,8 +40,6 @@ export type HomeSidebarProps = {
   /** 是否在提示文案中展示快捷键；移动抽屉不展示。 */
   shortcuts?: boolean
   actions?: ConversationRowActions
-  archivedView?: boolean
-  onLeaveArchivedView?: () => void
   historyState?: HistoryState
   historyError?: string
   historyIssue?: FeedbackDescription
@@ -46,95 +53,80 @@ export function HomeSidebar({
   onClose,
   onNew,
   onSearch,
+  onSearchWorkspace,
   onNotice,
   onSettings,
   onPlugins,
   activeNav,
   shortcuts = true,
   actions,
-  archivedView,
-  onLeaveArchivedView,
   historyState,
   historyError,
   historyIssue,
   onHistoryRetry,
 }: HomeSidebarProps) {
+  const historyPosition = useRef<ConversationHistoryPosition>({ scrollTop: 0 })
+  const historyPositionAccess = useMemo(
+    () => ({
+      read: () => historyPosition.current,
+      update: (patch: Partial<ConversationHistoryPosition>) => {
+        historyPosition.current = { ...historyPosition.current, ...patch }
+      },
+    }),
+    []
+  )
+
   const searchHint = shortcuts ? `搜索会话 (${shortcutLabel("K")})` : "搜索会话"
-  const toggleHint = shortcuts
-    ? `${collapsed ? "展开侧栏" : "收起侧栏"} (${shortcutLabel("B")})`
-    : collapsed
-      ? "展开侧栏"
-      : "收起侧栏"
+  const toggleLabel = collapsed ? "展开侧栏" : "收起侧栏"
+  const searchButton = (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="size-9 rounded-xl"
+      aria-label="搜索会话"
+      aria-keyshortcuts={shortcuts ? ariaKeyShortcuts("K") : undefined}
+      onClick={onSearch}
+    >
+      <Search className="size-4" />
+    </Button>
+  )
   return (
     <div
       className={cn(
         "flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-sidebar text-sidebar-foreground",
-        collapsed ? "px-2.5 pt-[18px] pb-1.5" : "px-3 py-1.5"
+        collapsed ? "items-center px-2 py-1.5" : "px-3 py-1.5"
       )}
     >
-      <div
-        className={cn(
-          "mb-2 flex shrink-0 items-center justify-between",
-          collapsed ? "h-auto flex-col gap-1" : "h-[60px]"
-        )}
-      >
-        {collapsed ? (
-          <>
-            <HoverHint content={toggleHint} label="展开侧栏">
-              <Button
-                variant="ghost"
-                size="icon-lg"
-                className="group rounded-xl"
-                aria-label="展开侧栏"
-                aria-keyshortcuts={ariaKeyShortcuts("B")}
-                onClick={onClose}
-              >
-                <PanelLeft className="size-[18px]" />
-              </Button>
-            </HoverHint>
-            <HoverHint content={searchHint} label="搜索会话">
-              <Button
-                variant="ghost"
-                size="icon-lg"
-                className="rounded-xl"
-                aria-label="搜索会话"
-                aria-keyshortcuts={ariaKeyShortcuts("K")}
-                onClick={onSearch}
-              >
-                <Search className="size-[18px]" />
-              </Button>
-            </HoverHint>
-          </>
-        ) : (
-          <>
-            <div className="flex items-center gap-2 px-2">
-              <span className="text-lg font-semibold">moon</span>
-            </div>
-            <div className="flex items-center gap-0.5">
-              <HoverHint content={searchHint} label="搜索会话">
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="搜索会话"
-                  aria-keyshortcuts={ariaKeyShortcuts("K")}
-                  onClick={onSearch}
-                >
-                  <Search className="size-4" />
-                </Button>
-              </HoverHint>
-              <HoverHint content={toggleHint} label="收起侧栏">
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="收起侧栏"
-                  aria-keyshortcuts={ariaKeyShortcuts("B")}
-                  onClick={onClose}
-                >
-                  <PanelLeft className="size-4" />
-                </Button>
-              </HoverHint>
-            </div>
-          </>
+      <div className="mb-1 flex w-full shrink-0 flex-col">
+        <div
+          className={cn(
+            "flex h-[52px] items-center gap-2",
+            !collapsed && "-ml-1"
+          )}
+        >
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-9 rounded-xl"
+            aria-label={toggleLabel}
+            aria-keyshortcuts={shortcuts ? ariaKeyShortcuts("B") : undefined}
+            onClick={onClose}
+          >
+            <PanelLeft className="size-4" />
+          </Button>
+          {!collapsed && (
+            <>
+              <span className="flex-1 -translate-y-px text-lg leading-none font-semibold">
+                moon
+              </span>
+              {searchButton}
+            </>
+          )}
+        </div>
+        {collapsed && (
+          <HoverHint content={searchHint} label="搜索会话">
+            {searchButton}
+          </HoverHint>
         )}
       </div>
       <PrimaryNavigation
@@ -148,6 +140,7 @@ export function HomeSidebar({
         <>
           <ConversationHistory
             data={data}
+            position={historyPositionAccess}
             historyState={historyState}
             historyError={historyError}
             historyIssue={historyIssue}
@@ -155,8 +148,7 @@ export function HomeSidebar({
             activeConversationId={activeConversationId}
             onNew={onNew}
             actions={actions}
-            archivedView={archivedView}
-            onLeaveArchivedView={onLeaveArchivedView}
+            onSearchWorkspace={onSearchWorkspace}
             onSelect={(item) =>
               onSelectConversation
                 ? onSelectConversation(item)

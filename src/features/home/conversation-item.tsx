@@ -37,7 +37,18 @@ function ConversationItemBase({
   useEffect(() => {
     select.current = onSelect
   })
-  const waiting = conversation.status === "waiting"
+  const approvals = conversation.pending?.approvals ?? 0
+  const answers = conversation.pending?.answers ?? 0
+  const pendingLabel =
+    approvals && answers
+      ? "待处理"
+      : approvals
+        ? "待审批"
+        : answers
+          ? "待回答"
+          : conversation.status === "waiting"
+            ? "待回答"
+            : ""
   return (
     <div className="group/item relative">
       <ContextMenu>
@@ -45,7 +56,9 @@ function ConversationItemBase({
           <Button
             variant="ghost"
             className={cn(
-              "relative h-8 w-full justify-start rounded-lg pr-8 pl-8 text-sm font-normal data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground",
+              "relative h-8 w-full justify-start rounded-lg pr-2 pl-8 text-sm font-normal data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground",
+              actions &&
+                "group-focus-within/item:pr-8 group-hover/item:pr-8 [@media(pointer:coarse)]:pr-8",
               conversation.archived && "opacity-60"
             )}
             aria-current={active ? "page" : undefined}
@@ -72,12 +85,9 @@ function ConversationItemBase({
                 className="size-3 shrink-0 text-muted-foreground"
               />
             )}
-            {waiting ? (
-              <span
-                aria-hidden
-                className="shrink-0 text-xs text-muted-foreground"
-              >
-                待回答
+            {pendingLabel ? (
+              <span className="shrink-0 text-xs text-muted-foreground">
+                {pendingLabel}
               </span>
             ) : (
               conversation.updatedLabel && (
@@ -125,7 +135,7 @@ function ConversationItemBase({
   )
 }
 
-// 会话对象引用仅在 revision 变化时更换；条目重渲染因此收敛到真正变化的行。
+// 持久化版本或待处理数量变化时，只重绘对应条目。
 export const ConversationItem = memo(
   ConversationItemBase,
   (previous, next) =>

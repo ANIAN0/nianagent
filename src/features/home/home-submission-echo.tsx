@@ -46,8 +46,8 @@ export function HomeSubmissionEcho({
     }
   }
   const message = checking
-    ? "正在核对原消息的接收状态。"
-    : (issue?.message ?? "原消息的接收结果暂未确认，下一稿已保留。")
+    ? "正在确认上一条消息的发送状态…"
+    : (issue?.message ?? "上一条消息仍在确认中，当前草稿已保留。")
   return (
     <>
       {!inactive && issue && !checking && (

@@ -1,4 +1,4 @@
-import type { Conversation, ConversationStatus } from "@/lib/composer/types"
+import type { Conversation } from "@/lib/composer/types"
 
 // 侧栏历史区的持久化布局：分组折叠与水位线。
 // 折叠侧栏会卸载列表组件，状态必须经 localStorage 存活。
@@ -58,17 +58,24 @@ export function saveHistoryLayout(layout: HistoryLayout) {
   }
 }
 
-const ATTENTION_STATUSES: ConversationStatus[] = [
-  "running",
-  "stopping",
-  "waiting",
-]
+export function conversationHasPending(conversation: Conversation) {
+  return !!(
+    conversation.pending?.approvals ||
+    conversation.pending?.answers ||
+    conversation.status === "waiting"
+  )
+}
+
+export function conversationIsRunning(conversation: Conversation) {
+  return conversation.status === "running" || conversation.status === "stopping"
+}
 
 /** 运行中/待交互/未读完成/当前打开的行需要抬升水位保持可见。 */
 export function isAttentionRow(conversation: Conversation, activeId?: string) {
   if (conversation.id === activeId) return true
+  if (conversationHasPending(conversation)) return true
   const status = conversation.status
-  if (status && ATTENTION_STATUSES.includes(status)) return true
+  if (conversationIsRunning(conversation)) return true
   return (
     (status === "completed" || status === "failed") &&
     conversation.unread !== false

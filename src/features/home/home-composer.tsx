@@ -1,3 +1,4 @@
+import { useEffect } from "react"
 import { useMaterialRuntime } from "@/lib/composer/material-runtime-port"
 import { PageErrorBoundary } from "@/components/feedback/page-error-boundary"
 import { useHomeComposer } from "./use-home-composer"
@@ -84,6 +85,20 @@ function HomeComposerView({
     acknowledgeRestoration,
     result,
   } = controller
+  useEffect(() => {
+    if (!import.meta.env.DEV || inactive || acceptedSubmission) return
+    const editable = inputRef.current?.isContentEditable
+    if (
+      editable &&
+      !performance.getEntriesByName("moon.startup.inputReady").length
+    )
+      performance.mark("moon.startup.inputReady")
+    if (
+      canSubmit &&
+      !performance.getEntriesByName("moon.startup.submitReady").length
+    )
+      performance.mark("moon.startup.submitReady")
+  }, [inactive, acceptedSubmission, workspacePath, inputRef, canSubmit])
   const { MaterialSourcesBridge } = useMaterialRuntime()
   return (
     <section className="home-launch" aria-label="新建工作">
@@ -204,7 +219,6 @@ function HomeComposerView({
                   }
                 >
                   <PromptInput
-                    key={`${sessionId}:${workspacePath}`}
                     inputRef={inputRef}
                     value={draft.text}
                     materials={draft.materials}
@@ -220,9 +234,11 @@ function HomeComposerView({
                       change(removeComposerMaterial(draft, id, workspacePath))
                     }
                     cwd={workspacePath}
-                    disabled={acceptedSubmission || inactive || !workspacePath}
+                    disabled={acceptedSubmission || inactive}
                     placeholder={
-                      !workspacePath ? "选择工作目录后开始工作" : undefined
+                      !workspacePath
+                        ? "先写下你想做的事，发送前选择工作目录"
+                        : undefined
                     }
                     onReferencesChanged={(text, ids, restored) =>
                       change({
@@ -332,8 +348,22 @@ function HomeComposerView({
           </ComposerPanelProvider>
         </fieldset>
       </form>
+      {!inactive &&
+        !acceptedSubmission &&
+        !models.length &&
+        data.modelCatalog?.status === "ready" && (
+          <Button
+            type="button"
+            variant="link"
+            className="self-start px-2"
+            onClick={data.modelCatalog.onOpenSettings}
+          >
+            配置模型
+          </Button>
+        )}
       {eligibility.hasDraft &&
         eligibility.reasonKind === "model" &&
+        models.length > 0 &&
         !inactive &&
         !acceptedSubmission &&
         !submitting &&
