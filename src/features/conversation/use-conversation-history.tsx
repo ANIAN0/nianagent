@@ -8,7 +8,10 @@ import type {
 import type { ComposerData, ComposerDraft } from "@/lib/composer/types"
 import type { ConversationSnapshot } from "@/contracts/rpc.generated"
 
-import { ConversationTurnView } from "./messages/conversation-turn-view"
+import {
+  ConversationTurnView,
+  type ConversationTurnRecord,
+} from "./messages/conversation-turn-view"
 import { ExecutionInlineStatus } from "./execution-inline-status"
 import { ConversationTurnFeedback } from "./conversation-turn-feedback"
 import { createConversationTurnProjector } from "./conversation-turns"
@@ -17,11 +20,13 @@ import { ConversationSubmissionEcho } from "./conversation-submission-echo"
 
 import type { ConversationSubmissionEchoValue } from "./conversation-submission"
 
-import { useMemo, useState } from "react"
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { CompactionStatus } from "./controls/compaction-status"
 import { ConversationCompactionRecord } from "./controls/conversation-compaction-record"
 import { useConversationControls } from "./controls/use-conversation-controls"
 import { ForkFeedback } from "./controls/fork-feedback"
+
+const noTurnRecords: readonly ConversationTurnRecord[] = []
 
 /** 只维护这一组状态的所有权，迟到结果仍按原身份核对。 */
 export function useConversationHistory({
@@ -76,120 +81,150 @@ export function useConversationHistory({
     () => projectTurns(snapshot?.messages ?? []),
     [snapshot?.messages, projectTurns]
   )
-  let turnNumber = 0
-  const unownedCompactions = [...(snapshot?.compactions ?? [])]
-  const items = turns.map((turn, index) => {
-    const tail = turn.tail
-    const nextIndex = turns[index + 1]?.historyIndex ?? Infinity
-    const records = unownedCompactions.filter(
-      (record) =>
-        record.historyIndex >= turn.historyIndex &&
-        record.historyIndex < nextIndex
-    )
-    records.forEach((record) =>
-      unownedCompactions.splice(unownedCompactions.indexOf(record), 1)
-    )
-    const forkableBoundary =
-      tail?.entryId &&
-      tail.status === "settled" &&
-      tail.stopReason !== "toolUse"
-    return {
-      id: turn.id,
-      historyIndex: turn.historyIndex,
-      revision: JSON.stringify([
-        turn.revision,
-        records.map((record) => record.id),
-        index === turns.length - 1 ? snapshot?.version : undefined,
-        forkOperation?.anchorId === tail?.entryId ? forkOperation : undefined,
-        currentIssueMessage,
-      ]),
-      content: (
-        <ConversationTurnView
-          turn={turn}
-          renderTurnDeliveries={renderTurnDeliveries}
-          stopFeedbackProvided={
-            (stopping || (runFailed && snapshot?.phase === "interrupted")) &&
-            index === turns.length - 1 &&
-            !!snapshot?.runId &&
-            tail?.runId === snapshot.runId &&
-            tail?.userTurnId === turn.id
-          }
-          latest={index === turns.length - 1}
-          statistics={
-            index === turns.length - 1 ? snapshot?.statistics : undefined
-          }
-          records={records.map((record) => ({
-            id: `compaction-${record.id}`,
-            historyIndex: record.historyIndex,
-            content: <ConversationCompactionRecord record={record} />,
-          }))}
-          onFork={
-            forkableBoundary && tail
-              ? () => {
-                  void fork(tail.entryId!)
-                }
-              : undefined
-          }
-          forkPending={forkBusy && forkOperation?.anchorId === tail?.entryId}
-          forkDisabledReason={
-            !tail?.forkable
-              ? snapshot?.historyNotice || "请选择工具执行后的已完成回复。"
-              : mutationBlockedReason
-                ? mutationBlockedReason
-                : !data.models.includes(snapshot?.modelId ?? "")
-                  ? "当前模型不可用，请检查模型设置。"
-                  : snapshot?.control?.forkDisabledReason
-          }
-          forkFeedback={
-            tail && forkOperation && forkOperation.anchorId === tail.entryId ? (
-              <ForkFeedback
-                operation={forkOperation}
-                issue={controls.forkIssue}
-                pending={controls.pending}
-                pendingAction={controls.pendingAction}
-                onCheck={() => {
-                  void controls.read()
-                }}
-                onRetry={() => {
-                  if (tail.entryId) void fork(tail.entryId)
-                }}
-                onOpen={onOpenConversation}
-              />
-            ) : undefined
-          }
-          issueFeedback={(message, recovered) =>
-            message.issue &&
-            message.issue.code !== "cancelled" &&
-            message.id !== currentIssueMessage &&
-            !(
-              currentIssueMessage &&
-              !recovered &&
-              turn.messages.some(
-                (current) =>
-                  current.id === currentIssueMessage &&
-                  current.issue?.code === message.issue?.code &&
-                  current.issue?.summary === message.issue?.summary
-              )
-            ) ? (
-              <ConversationTurnFeedback
-                title={recovered ? "先前失败，已恢复" : "本轮运行失败"}
-                message={message.issue.summary}
-                code={message.issue.code}
-                severity={recovered ? "info" : message.issue.severity}
-              />
-            ) : undefined
-          }
-        />
-      ),
-      ...(turn.user
-        ? {
-            turn: ++turnNumber,
-            prompt: turn.user.text,
-            response: turn.response,
-          }
-        : {}),
+  const { forkIssue, pending: controlPending, pendingAction, read } = controls
+  const forkActions = useRef({ fork, read })
+  useLayoutEffect(() => {
+    forkActions.current = { fork, read }
+  }, [fork, read])
+  const forkTurn = useCallback((entryId: string) => {
+    void forkActions.current.fork(entryId)
+  }, [])
+  const readFork = useCallback(() => {
+    void forkActions.current.read()
+  }, [])
+  const { byTurn, unownedCompactions } = useMemo(() => {
+    const byTurn = new Map<string, ConversationTurnRecord[]>()
+    const unownedCompactions = []
+    let index = 0
+    for (const record of [...(snapshot?.compactions ?? [])].sort(
+      (left, right) => left.historyIndex - right.historyIndex
+    )) {
+      while (
+        index + 1 < turns.length &&
+        turns[index + 1].historyIndex <= record.historyIndex
+      )
+        index++
+      const turn = turns[index]
+      if (!turn || record.historyIndex < turn.historyIndex) {
+        unownedCompactions.push(record)
+        continue
+      }
+      const records = byTurn.get(turn.id) ?? []
+      records.push({
+        id: `compaction-${record.id}`,
+        historyIndex: record.historyIndex,
+        content: <ConversationCompactionRecord record={record} />,
+      })
+      byTurn.set(turn.id, records)
     }
-  })
+    return { byTurn, unownedCompactions }
+  }, [snapshot?.compactions, turns])
+  const modelAvailable = data.models.includes(snapshot?.modelId ?? "")
+  const { version, phase, runId, statistics, historyNotice } = snapshot ?? {}
+  const forkDisabledReason = snapshot?.control?.forkDisabledReason
+  const items = useMemo(() => {
+    let turnNumber = 0
+    return turns.map((turn, index) => {
+      const tail = turn.tail
+      const records = byTurn.get(turn.id) ?? noTurnRecords
+      const currentTurnIssue = turn.messages.some(
+        (message) => message.id === currentIssueMessage
+      )
+        ? currentIssueMessage
+        : undefined
+      const forkableBoundary =
+        tail?.entryId &&
+        tail.status === "settled" &&
+        tail.stopReason !== "toolUse"
+      return {
+        id: turn.id,
+        historyIndex: turn.historyIndex,
+        revision: JSON.stringify([
+          turn.revision,
+          records.map((record) => record.id),
+          index === turns.length - 1 ? version : undefined,
+          forkOperation?.anchorId === tail?.entryId ? forkOperation : undefined,
+          currentTurnIssue,
+        ]),
+        content: (
+          <ConversationTurnView
+            turn={turn}
+            renderTurnDeliveries={renderTurnDeliveries}
+            stopFeedbackProvided={
+              (stopping || (runFailed && phase === "interrupted")) &&
+              index === turns.length - 1 &&
+              !!runId &&
+              tail?.runId === runId &&
+              tail?.userTurnId === turn.id
+            }
+            latest={index === turns.length - 1}
+            statistics={index === turns.length - 1 ? statistics : undefined}
+            records={records}
+            onFork={forkTurn}
+            forkEntryId={forkableBoundary ? tail.entryId : undefined}
+            forkPending={forkBusy && forkOperation?.anchorId === tail?.entryId}
+            forkDisabledReason={
+              !tail?.forkable
+                ? historyNotice || "请选择工具执行后的已完成回复。"
+                : mutationBlockedReason
+                  ? mutationBlockedReason
+                  : !modelAvailable
+                    ? "当前模型不可用，请检查模型设置。"
+                    : forkDisabledReason
+            }
+            forkFeedback={
+              tail &&
+              forkOperation &&
+              forkOperation.anchorId === tail.entryId ? (
+                <ForkFeedback
+                  operation={forkOperation}
+                  issue={forkIssue}
+                  pending={controlPending}
+                  pendingAction={pendingAction}
+                  onCheck={readFork}
+                  onRetry={() => {
+                    if (tail.entryId) forkTurn(tail.entryId)
+                  }}
+                  onOpen={onOpenConversation}
+                />
+              ) : undefined
+            }
+            currentIssueMessage={currentTurnIssue}
+          />
+        ),
+        ...(turn.user
+          ? {
+              turn: ++turnNumber,
+              prompt: turn.user.text,
+              response: turn.response,
+            }
+          : {}),
+      }
+    })
+  }, [
+    turns,
+    byTurn,
+    currentIssueMessage,
+    version,
+    phase,
+    runId,
+    statistics,
+    historyNotice,
+    forkDisabledReason,
+    stopping,
+    runFailed,
+    renderTurnDeliveries,
+    forkTurn,
+    forkOperation,
+    forkBusy,
+    forkIssue,
+    controlPending,
+    pendingAction,
+    readFork,
+    modelAvailable,
+    mutationBlockedReason,
+    onOpenConversation,
+  ])
   const historyItems = [
     ...items,
     ...(runtime?.phase === "retrying"

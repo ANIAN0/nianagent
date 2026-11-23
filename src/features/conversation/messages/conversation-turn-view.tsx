@@ -1,3 +1,4 @@
+import { memo } from "react"
 import type { ReactNode } from "react"
 import { Marker, MarkerContent } from "@/components/ui/marker"
 import { ConversationTurnFeedback } from "../conversation-turn-feedback"
@@ -12,7 +13,7 @@ import {
   type ProjectedConversationTurn,
 } from "../conversation-turns"
 import { UserMessage } from "./user-message"
-import { MarkdownContent } from "./markdown-content"
+import { MarkdownContent, MarkdownReferencesProvider } from "./markdown-content"
 import { ThinkingBlock } from "./thinking-block"
 import { ToolCall } from "./tool-call"
 import { ExecutionProcess } from "./execution-process"
@@ -29,14 +30,15 @@ export interface ConversationTurnRecord {
   historyIndex: number
   content: ReactNode
 }
-export function ConversationTurnView({
+export const ConversationTurnView = memo(function ConversationTurnView({
   turn,
   records = [],
   onFork,
+  forkEntryId,
   forkDisabledReason,
   forkPending,
   forkFeedback,
-  issueFeedback,
+  currentIssueMessage,
   stopFeedbackProvided = false,
   latest = true,
   statistics,
@@ -48,14 +50,12 @@ export function ConversationTurnView({
 }: {
   turn: ProjectedConversationTurn
   records?: readonly ConversationTurnRecord[]
-  onFork?: () => void
+  onFork?: (entryId: string) => void
+  forkEntryId?: string
   forkDisabledReason?: string
   forkPending?: boolean
   forkFeedback?: ReactNode
-  issueFeedback?: (
-    message: ConversationMessage,
-    recovered: boolean
-  ) => ReactNode
+  currentIssueMessage?: string
   /** An authoritative feedback for this exact current run owns its stop reason. */
   stopFeedbackProvided?: boolean
   latest?: boolean
@@ -92,10 +92,25 @@ export function ConversationTurnView({
       if (final) answer.push(block)
       return !final
     })
-    const issue = issueFeedback?.(
-      message,
-      turn.recoveredAttemptIds?.has(message.id) ?? false
-    )
+    const recovered = turn.recoveredAttemptIds?.has(message.id) ?? false
+    const issue =
+      message.issue &&
+      message.issue.code !== "cancelled" &&
+      message.id !== currentIssueMessage &&
+      (recovered ||
+        !turn.messages.some(
+          (current) =>
+            current.id === currentIssueMessage &&
+            current.issue?.code === message.issue?.code &&
+            current.issue?.summary === message.issue?.summary
+        )) ? (
+        <ConversationTurnFeedback
+          title={recovered ? "先前失败，已恢复" : "本轮运行失败"}
+          message={message.issue.summary}
+          code={message.issue.code}
+          severity={recovered ? "info" : message.issue.severity}
+        />
+      ) : undefined
     // Historical failures belong to this turn and remain readable even while
     // its execution details are collapsed. The authoritative current failure
     // is already deduplicated by the Live view's exact issueEntryId.
@@ -161,112 +176,119 @@ export function ConversationTurnView({
     tail?.stopReason === "length" ||
     showStoppedNotice
   return (
-    <article
-      className="conversation-turn"
-      data-turn-id={turn.id}
-      data-actions-reveal={latest && answer.length ? "always" : "hover"}
-    >
-      {turn.user && (
-        <UserMessage
-          message={turn.user}
-          onOpenAttachment={onOpenAttachment}
-          workspacePath={workspacePath}
-        />
-      )}
-      {hasResponse && (
-        <section className="conversation-turn-response" aria-label="Agent 回复">
-          {!!process.length && (
-            <ExecutionProcess
-              occurrenceId={turn.id}
-              running={!closed}
-              stopped={showStoppedNotice}
-              toolCount={tools.length}
-              failureCount={failures}
-            >
-              <div className="conversation-process-members">
-                {process.map((node) => (
-                  <div key={node.id} data-process-occurrence={node.id}>
-                    {node.content}
-                  </div>
+    <MarkdownReferencesProvider tools={tools}>
+      <article
+        className="conversation-turn"
+        data-turn-id={turn.id}
+        data-actions-reveal={latest && answer.length ? "always" : "hover"}
+      >
+        {turn.user && (
+          <UserMessage
+            message={turn.user}
+            onOpenAttachment={onOpenAttachment}
+            workspacePath={workspacePath}
+          />
+        )}
+        {hasResponse && (
+          <section
+            className="conversation-turn-response"
+            aria-label="Agent 回复"
+          >
+            {!!process.length && (
+              <ExecutionProcess
+                occurrenceId={turn.id}
+                running={!closed}
+                stopped={showStoppedNotice}
+                toolCount={tools.length}
+                failureCount={failures}
+              >
+                <div className="conversation-process-members">
+                  {process.map((node) => (
+                    <div key={node.id} data-process-occurrence={node.id}>
+                      {node.content}
+                    </div>
+                  ))}
+                </div>
+              </ExecutionProcess>
+            )}
+            {!!answer.length && (
+              <div className="conversation-assistant-body">
+                {answer.map((block) => (
+                  <MessageBlock
+                    key={block.id}
+                    block={block}
+                    message={tail!}
+                    onOpenAttachment={onOpenAttachment}
+                  />
                 ))}
               </div>
-            </ExecutionProcess>
-          )}
-          {!!answer.length && (
-            <div className="conversation-assistant-body">
-              {answer.map((block) => (
-                <MessageBlock
-                  key={block.id}
-                  block={block}
-                  message={tail!}
-                  onOpenAttachment={onOpenAttachment}
-                />
-              ))}
-            </div>
-          )}
-          {(closed || showStoppedNotice) &&
-            renderTurnDeliveries?.(
-              tools
-                .filter(
-                  (tool) =>
-                    tool.status === "success" && tool.presentation?.pluginId
-                )
-                .map((tool) => ({
-                  ...tool.presentation!,
-                  summary:
-                    tool.presentation!.summary || tool.result || "交付记录",
-                }))
             )}
-          {visibleIssues.map((issue) => (
-            <div key={issue.id} data-issue-entry={issue.id}>
-              {issue.content}
-            </div>
-          ))}
-          {running && !answer.length && !process.length && (
-            <Marker role="status">
-              <MarkerContent>
-                <span className="shimmer">正在处理</span>
-              </MarkerContent>
-            </Marker>
-          )}
-          {tail?.stopReason === "length" && (
-            <ConversationTurnFeedback
-              title="已达到输出 token 上限"
-              message="回答被截断，已有输出保留在对话中。发送“继续”可让模型接着输出。"
-              severity="warning"
-            />
-          )}
-          {showStoppedNotice && (
-            <span className="conversation-stopped" role="status">
-              已停止
-            </span>
-          )}
-          {turn.continued && (
-            <p className="conversation-message-feedback">
-              已从本轮继续回复，原执行状态保留。
-            </p>
-          )}
-          {showActions && tail && closed && (
-            <MessageActions
-              text={copyText}
-              time={tail.time}
-              model={tail.model}
-              statistics={statistics}
-              onRetry={onRetry}
-              onFork={onFork}
-              forkDisabledReason={forkDisabledReason}
-              forkPending={forkPending}
-            />
-          )}
-          {forkFeedback}
-        </section>
-      )}
-      {after.map((record) => (
-        <div key={record.id}>{record.content}</div>
-      ))}
-    </article>
+            {(closed || showStoppedNotice) &&
+              renderTurnDeliveries?.(
+                tools
+                  .filter(
+                    (tool) =>
+                      tool.status === "success" && tool.presentation?.pluginId
+                  )
+                  .map((tool) => ({
+                    ...tool.presentation!,
+                    summary:
+                      tool.presentation!.summary || tool.result || "交付记录",
+                  }))
+              )}
+            {visibleIssues.map((issue) => (
+              <div key={issue.id} data-issue-entry={issue.id}>
+                {issue.content}
+              </div>
+            ))}
+            {running && !answer.length && !process.length && (
+              <Marker role="status">
+                <MarkerContent>
+                  <span className="shimmer">正在处理</span>
+                </MarkerContent>
+              </Marker>
+            )}
+            {tail?.stopReason === "length" && (
+              <ConversationTurnFeedback
+                title="已达到输出 token 上限"
+                message="回答被截断，已有输出保留在对话中。发送“继续”可让模型接着输出。"
+                severity="warning"
+              />
+            )}
+            {showStoppedNotice && (
+              <span className="conversation-stopped" role="status">
+                已停止
+              </span>
+            )}
+            {turn.continued && (
+              <p className="conversation-message-feedback">
+                已从本轮继续回复，原执行状态保留。
+              </p>
+            )}
+            {showActions && tail && closed && (
+              <MessageActions
+                text={copyText}
+                time={tail.time}
+                model={tail.model}
+                statistics={statistics}
+                onRetry={onRetry}
+                onFork={
+                  onFork && forkEntryId ? () => onFork(forkEntryId) : undefined
+                }
+                forkDisabledReason={forkDisabledReason}
+                forkPending={forkPending}
+              />
+            )}
+            {forkFeedback}
+          </section>
+        )}
+        {after.map((record) => (
+          <div key={record.id}>{record.content}</div>
+        ))}
+      </article>
+    </MarkdownReferencesProvider>
   )
-}
+})
 
 function hasVisibleBlock(block: ConversationContentBlock) {
   if (block.type === "text" || block.type === "thinking")

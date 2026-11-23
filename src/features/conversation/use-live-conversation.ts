@@ -117,7 +117,6 @@ export function useLiveConversation(
     service,
     materialService,
     current: stream.current,
-    snapshots: stream.snapshots,
     accept: stream.accept,
     assertQueueRecovered: (id) => bridgesRef.current.assertQueueRecovered?.(id),
     resolveModel: resolveConversationModel,
@@ -126,7 +125,6 @@ export function useLiveConversation(
   const queue = useConversationQueue({
     selectedId,
     service,
-    snapshots: stream.snapshots,
     current: stream.current,
     locks: submission.locks,
     perform: submission.perform,
@@ -165,8 +163,8 @@ export function useLiveConversation(
   })
 
   return {
-    snapshots: stream.snapshots,
-    drafts: submission.drafts,
+    snapshotStore: stream.snapshotStore,
+    draftStore: submission.draftStore,
     actionIssues: submission.actionIssues,
     readIssues: stream.readIssues,
     readPending: stream.readPending,
@@ -210,7 +208,7 @@ export function useLiveConversation(
     beginHomeHandoff: (id: string, draft: ComposerDraft) => {
       stream.homeHandoffs.current.add(id)
       submission.setHandoffDraft(id, draft)
-      stream.setReadIssues((all) => ({ ...all, [id]: undefined }))
+      stream.clearReadIssue(id)
     },
     endHomeHandoff: (id: string) => {
       stream.homeHandoffs.current.delete(id)

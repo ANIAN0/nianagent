@@ -1,4 +1,3 @@
-import type { ComposerDraft } from "@/lib/composer/types"
 import type {
   MaterialReference,
   OperationIssue,
@@ -88,36 +87,3 @@ export type ConversationContentBlock =
   | { id: string; type: "image"; image: MaterialReference }
   | { id: string; type: "tool"; tool: ConversationToolCall }
   | { id: string; type: "attachments"; attachments: MessageAttachment[] }
-export type ConversationQuestion = {
-  id: string
-  question: string
-  header?: string
-  detail?: string
-  options?: { label: string; description?: string }[]
-  multiSelect?: boolean
-}
-export type QuestionAnswerDraft = {
-  selected: string[]
-  custom: string
-  skipped: boolean
-}
-export type QuestionDraft = {
-  index: number
-  answers: QuestionAnswerDraft[]
-  minimized: boolean
-}
-export type QuestionAnswer = { id: string; selected: string[]; custom?: string }
-export type ConversationSession = {
-  id: string
-  title: string
-  workspaceId: string
-  messages: ConversationMessage[]
-  draft: ComposerDraft
-  phase: "idle" | "running" | "stopping" | "waiting"
-  loadState: "ready" | "loading" | "error"
-  error?: string
-  connectionMessage?: string
-  queue: { id: string; draft: ComposerDraft }[]
-  questions?: ConversationQuestion[]
-  questionDraft?: QuestionDraft
-}

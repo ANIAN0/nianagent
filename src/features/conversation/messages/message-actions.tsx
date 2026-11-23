@@ -76,18 +76,16 @@ export function MessageActions({
                 <Button
                   type="button"
                   variant="ghost"
-                  size="sm"
-                  aria-label="本轮用量"
-                  className="conversation-usage-pill"
+                  size="icon-sm"
+                  aria-label={`本轮用量 · ${formatCompactTokens(statistics.totalTokens)} token`}
                 >
                   <Database className="size-4" />
-                  <span>
-                    用量 {formatCompactTokens(statistics.totalTokens)} token
-                  </span>
                 </Button>
               </PopoverTrigger>
             </TooltipTrigger>
-            <TooltipContent>本轮用量</TooltipContent>
+            <TooltipContent>
+              本轮用量 · {formatCompactTokens(statistics.totalTokens)} token
+            </TooltipContent>
           </Tooltip>
           <PopoverContent
             align={align === "end" ? "end" : "start"}

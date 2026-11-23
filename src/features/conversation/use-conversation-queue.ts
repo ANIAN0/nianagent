@@ -9,14 +9,12 @@ import { useQueueRecovery } from "./use-queue-recovery"
 export function useConversationQueue({
   selectedId,
   service,
-  snapshots,
   current,
   locks,
   perform,
 }: {
   selectedId: string | undefined
   service: ConversationService
-  snapshots: Record<string, ConversationSnapshot>
   current: MutableRefObject<Record<string, ConversationSnapshot>>
   locks: MutableRefObject<Set<string>>
   perform: (
@@ -53,9 +51,7 @@ export function useConversationQueue({
     [
       ...new Set([
         ...queueRecoveryRecords.map((record) => record.sessionId),
-        ...(queueRecoveryError
-          ? [...Object.keys(snapshots), ...(selectedId ? [selectedId] : [])]
-          : []),
+        ...(queueRecoveryError && selectedId ? [selectedId] : []),
       ]),
     ].map((id) => [
       id,

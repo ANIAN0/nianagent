@@ -7,6 +7,14 @@ import {
   useState,
 } from "react"
 import { Button } from "@/components/ui/button"
+import { ListOrdered } from "lucide-react"
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu"
 import "./conversation-layout.css"
 
 export interface ConversationTurn {
@@ -91,76 +99,114 @@ export function ConversationNavigator({
     })
   }
   return (
-    <nav
-      className="conversation-turn-rail"
-      style={{ height: Math.min(items.length * 10 + 12, 420) }}
-      aria-label="会话轮次"
-      onPointerEnter={() => {
-        pointerInside.current = true
-      }}
-      onPointerLeave={() => {
-        pointerInside.current = false
-        setPreview(undefined)
-        centerCurrent()
-      }}
-    >
-      <div
-        className="conversation-turn-marks"
-        ref={marks}
-        onScroll={() => setPreview(undefined)}
-      >
-        {items.map((item, index) => (
-          <Button
-            key={item.id}
-            variant="ghost"
-            size="icon-xs"
-            className="conversation-turn-mark"
-            data-turn-id={item.id}
-            tabIndex={
-              activeId === item.id || (activeIndex < 0 && index === 0) ? 0 : -1
-            }
-            aria-label={`跳转到第 ${item.turn} 轮：${item.prompt.slice(0, 80)}`}
-            aria-current={activeId === item.id ? "step" : undefined}
-            aria-describedby={preview?.id === item.id ? previewId : undefined}
-            onPointerEnter={(event) =>
-              showPreview(item.id, event.currentTarget)
-            }
-            onFocus={(event) => showPreview(item.id, event.currentTarget)}
-            onBlur={() => setPreview(undefined)}
-            onClick={() => onNavigate(item.id)}
-            onKeyDown={(event) => {
-              const offset =
-                event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0
-              if (!offset && event.key !== "Home" && event.key !== "End") return
-              event.preventDefault()
-              const next =
-                event.key === "Home"
-                  ? 0
-                  : event.key === "End"
-                    ? items.length - 1
-                    : Math.max(0, Math.min(items.length - 1, index + offset))
-              const buttons =
-                event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>(
-                  "button"
-                )
-              buttons?.[next]?.focus()
-            }}
-          />
-        ))}
+    <>
+      <div className="conversation-turn-menu">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button size="sm" variant="ghost" aria-label="跳转会话轮次">
+              <ListOrdered data-icon="inline-start" />
+              {activeIndex < 0 ? "轮次" : `第 ${items[activeIndex].turn} 轮`}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="end"
+            className="max-h-[min(24rem,60vh)] w-64 overflow-y-auto"
+          >
+            <DropdownMenuGroup>
+              {items.map((item) => (
+                <DropdownMenuItem
+                  key={item.id}
+                  aria-current={activeId === item.id ? "step" : undefined}
+                  onSelect={() => onNavigate(item.id)}
+                >
+                  <span className="shrink-0">第 {item.turn} 轮</span>
+                  <span className="truncate text-muted-foreground">
+                    {item.prompt}
+                  </span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
-      {current && (
+      <nav
+        className="conversation-turn-rail"
+        style={{ height: Math.min(items.length * 10 + 12, 420) }}
+        aria-label="会话轮次"
+        onPointerEnter={() => {
+          pointerInside.current = true
+        }}
+        onPointerLeave={() => {
+          pointerInside.current = false
+          setPreview(undefined)
+          centerCurrent()
+        }}
+      >
         <div
-          id={previewId}
-          role="tooltip"
-          className="conversation-turn-preview"
-          style={{ top: preview?.top }}
+          className="conversation-turn-marks"
+          ref={marks}
+          onScroll={() => setPreview(undefined)}
         >
-          <strong>
-            {current.prompt.slice(0, 80) || `第 ${current.turn} 轮`}
-          </strong>
-          {current.response && <p>{summaries.get(current.id)}</p>}
+          {items.map((item, index) => (
+            <Button
+              key={item.id}
+              variant="ghost"
+              size="icon-xs"
+              className="conversation-turn-mark"
+              data-turn-id={item.id}
+              tabIndex={
+                activeId === item.id || (activeIndex < 0 && index === 0)
+                  ? 0
+                  : -1
+              }
+              aria-label={`跳转到第 ${item.turn} 轮：${item.prompt.slice(0, 80)}`}
+              aria-current={activeId === item.id ? "step" : undefined}
+              aria-describedby={preview?.id === item.id ? previewId : undefined}
+              onPointerEnter={(event) =>
+                showPreview(item.id, event.currentTarget)
+              }
+              onFocus={(event) => showPreview(item.id, event.currentTarget)}
+              onBlur={() => setPreview(undefined)}
+              onClick={() => onNavigate(item.id)}
+              onKeyDown={(event) => {
+                const offset =
+                  event.key === "ArrowDown"
+                    ? 1
+                    : event.key === "ArrowUp"
+                      ? -1
+                      : 0
+                if (!offset && event.key !== "Home" && event.key !== "End")
+                  return
+                event.preventDefault()
+                const next =
+                  event.key === "Home"
+                    ? 0
+                    : event.key === "End"
+                      ? items.length - 1
+                      : Math.max(0, Math.min(items.length - 1, index + offset))
+                const buttons =
+                  event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>(
+                    "button"
+                  )
+                buttons?.[next]?.focus()
+              }}
+            />
+          ))}
         </div>
-      )}
-    </nav>
+        {current && (
+          <div
+            id={previewId}
+            role="tooltip"
+            className="conversation-turn-preview"
+            style={{ top: preview?.top }}
+          >
+            <strong>
+              {current.prompt.slice(0, 80) || `第 ${current.turn} 轮`}
+            </strong>
+            {current.response && <p>{summaries.get(current.id)}</p>}
+          </div>
+        )}
+      </nav>
+    </>
   )
 }

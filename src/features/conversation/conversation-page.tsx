@@ -1,6 +1,9 @@
-import { useState, type ReactNode, type Ref } from "react"
-import { Empty, EmptyHeader, EmptyDescription } from "@/components/ui/empty"
-import { ConversationHeader } from "./conversation-header"
+import { useCallback, useState, type ReactNode, type Ref } from "react"
+import { ConversationLoading } from "./conversation-loading"
+import {
+  ConversationHeader,
+  type ConversationHeaderLineage,
+} from "./conversation-header"
 import {
   ConversationList,
   type ConversationListItem,
@@ -15,6 +18,7 @@ export interface ConversationPageProps {
   viewKey: string
   title: string
   workspacePath?: string
+  lineage?: ConversationHeaderLineage
   status?: string
   state?: "ready" | "loading" | "error"
   error?: string
@@ -43,6 +47,7 @@ export function ConversationPage({
   viewKey,
   title,
   workspacePath,
+  lineage,
   status,
   state = "ready",
   error,
@@ -65,6 +70,13 @@ export function ConversationPage({
     () => new Map<string, ConversationReadingPosition>()
   )
   const positions = readingPositions ?? localPositions
+  const savePosition = useCallback(
+    (position: ConversationReadingPosition) => {
+      positions.set(viewKey, position)
+      onReadingPositionChange?.(viewKey, position)
+    },
+    [positions, viewKey, onReadingPositionChange]
+  )
   const readFailure =
     issue ??
     (state === "error"
@@ -94,6 +106,7 @@ export function ConversationPage({
       <ConversationHeader
         title={title}
         workspacePath={workspacePath}
+        lineage={lineage}
         status={status}
         leading={headerLeading}
         actions={headerActions}
@@ -119,17 +132,10 @@ export function ConversationPage({
                 key={viewKey}
                 items={items}
                 initialPosition={positions.get(viewKey)}
-                onPositionChange={(position) => {
-                  positions.set(viewKey, position)
-                  onReadingPositionChange?.(viewKey, position)
-                }}
+                onPositionChange={savePosition}
               />
             ) : (
-              <Empty role="status">
-                <EmptyHeader>
-                  <EmptyDescription>正在读取会话…</EmptyDescription>
-                </EmptyHeader>
-              </Empty>
+              <ConversationLoading />
             )}
           </div>
         )}

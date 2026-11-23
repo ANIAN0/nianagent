@@ -6,7 +6,12 @@ export {
 } from "@/lib/composer/session-config-port"
 export function createSessionService(): SessionService {
   return {
-    catalog: (cwd, signal) => rpcCall("sessionCatalog", { cwd }, signal),
+    catalog: (cwd, signal, sessionId) =>
+      rpcCall(
+        "sessionCatalog",
+        { cwd, ...(sessionId && { sessionId }) },
+        signal
+      ),
     read: (sessionId, signal) => rpcCall("sessionRead", { sessionId }, signal),
     apply: (input, signal) => rpcCall("sessionApply", input, signal),
   }

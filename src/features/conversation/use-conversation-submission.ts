@@ -1,3 +1,4 @@
+import { SessionValueStore } from "./session-value-store"
 import { useCallback, useRef, useState, type MutableRefObject } from "react"
 import {
   frontendBlocker,
@@ -62,7 +63,6 @@ export function useConversationSubmission<TConnection>({
   service,
   materialService,
   current,
-  snapshots,
   accept,
   assertQueueRecovered,
   resolveModel,
@@ -70,7 +70,6 @@ export function useConversationSubmission<TConnection>({
   service: ConversationService
   materialService?: MaterialService
   current: MutableRefObject<Record<string, ConversationSnapshot>>
-  snapshots: Record<string, ConversationSnapshot>
   accept: (snapshot: ConversationSnapshot) => void
   assertQueueRecovered: (id: string) => void
   resolveModel: (
@@ -79,11 +78,8 @@ export function useConversationSubmission<TConnection>({
   ) => ResolvedConversationModel
 }) {
   const [restored] = useState(restoreConversationDrafts)
-  const [drafts, setDrafts] = useState<Record<string, ComposerDraft>>(
-    restored.drafts
-  )
-  const draftsRef = useRef(drafts)
-  const currentDraft = useCallback((id: string) => draftsRef.current[id], [])
+  const [draftStore] = useState(() => new SessionValueStore(restored.drafts))
+  const currentDraft = draftStore.read
   const [draftErrors, setDraftErrors] = useState<Record<string, string>>({})
   const [actionIssues, setActionIssues] = useState<
     Record<string, ConversationActionIssue | undefined>
@@ -92,7 +88,9 @@ export function useConversationSubmission<TConnection>({
     Record<string, FeedbackDescription | undefined>
   >({})
   const receiptCleanups = useRef(new Map<string, PendingSubmission>())
-  const [pending, setPending] = useState<Record<string, boolean>>({})
+  const [pending, setPending] = useState<
+    Record<string, ActionKind | undefined>
+  >({})
   const [stopRequests, setStopRequests] = useState<
     Record<string, string | undefined>
   >({})
@@ -127,13 +125,14 @@ export function useConversationSubmission<TConnection>({
   const mutations = useRef(new Map<string, number>())
 
   useMaintenanceSave(() => {
-    for (const [id, draft] of Object.entries(draftsRef.current))
+    for (const [id, draft] of draftStore.entries())
       saveConversationDraft(id, draft)
     for (const [id, submission] of requests.current)
       saveConversationRequest(id, submission)
     saveRetainedQueueEdits()
     const preparingConversations = new Set(
-      Object.entries(draftsRef.current)
+      draftStore
+        .entries()
         .filter(([id, draft]) =>
           materialsBlockMaintenance(materialService, id, draft.materials)
         )
@@ -180,21 +179,20 @@ export function useConversationSubmission<TConnection>({
         id,
         submission,
         resolvedOutcome,
-        draftsRef.current[id]
+        currentDraft(id)
       )
       const resolved = { ...submission, stage: resolvedOutcome }
       // Retain both copies in memory on any storage failure. A resolved receipt
       // cannot be resent, including after a window reload.
       requests.current.set(id, resolved)
       syncUnconfirmed()
-      draftsRef.current = { ...draftsRef.current, [id]: draft }
-      setDrafts(draftsRef.current)
+      draftStore.write(id, draft)
       try {
         persistConversationResolution(id, resolved, resolvedOutcome, draft)
         requests.current.delete(id)
         syncUnconfirmed()
         receiptCleanups.current.delete(id)
-        setDraftErrors((all) => ({ ...all, [id]: "" }))
+        setDraftErrors((all) => (all[id] ? { ...all, [id]: "" } : all))
         setReceiptIssues((all) => ({ ...all, [id]: undefined }))
         setActionIssues((all) => ({
           ...all,
@@ -224,22 +222,24 @@ export function useConversationSubmission<TConnection>({
         return false
       }
     },
-    [syncUnconfirmed]
+    [currentDraft, draftStore, syncUnconfirmed]
   )
 
-  const changeDraft = useCallback((id: string, draft: ComposerDraft) => {
-    draftsRef.current = { ...draftsRef.current, [id]: draft }
-    setDrafts(draftsRef.current)
-    try {
-      saveConversationDraft(id, draft)
-      setDraftErrors((all) => ({ ...all, [id]: "" }))
-    } catch {
-      setDraftErrors((all) => ({
-        ...all,
-        [id]: "草稿未保存，请释放本地存储空间后重试。",
-      }))
-    }
-  }, [])
+  const changeDraft = useCallback(
+    (id: string, draft: ComposerDraft) => {
+      draftStore.write(id, draft)
+      try {
+        saveConversationDraft(id, draft)
+        setDraftErrors((all) => (all[id] ? { ...all, [id]: "" } : all))
+      } catch {
+        setDraftErrors((all) => ({
+          ...all,
+          [id]: "草稿未保存，请释放本地存储空间后重试。",
+        }))
+      }
+    },
+    [draftStore]
+  )
 
   const adoptHomeDraft = useCallback(
     (submission: HomeSubmission, following: ComposerDraft) => {
@@ -247,16 +247,15 @@ export function useConversationSubmission<TConnection>({
       const next = adoptFollowingHomeDraft(
         submission,
         following,
-        draftsRef.current[id]
+        currentDraft(id)
       )
       // Handoff is durable before Home may remove its source. Unlike normal edits,
       // a persistence failure must propagate to the explicit Home cleanup state.
       saveConversationDraft(id, next)
-      draftsRef.current = { ...draftsRef.current, [id]: next }
-      setDrafts(draftsRef.current)
-      setDraftErrors((all) => ({ ...all, [id]: "" }))
+      draftStore.write(id, next)
+      setDraftErrors((all) => (all[id] ? { ...all, [id]: "" } : all))
     },
-    []
+    [currentDraft, draftStore]
   )
 
   const onAcceptSnapshot = useCallback(
@@ -303,11 +302,11 @@ export function useConversationSubmission<TConnection>({
             return next
           })
         }
-        setActionIssues((all) => ({
-          ...all,
-          [snapshot.id]:
-            all[snapshot.id]?.action === "stop" ? undefined : all[snapshot.id],
-        }))
+        setActionIssues((all) =>
+          all[snapshot.id]?.action === "stop"
+            ? { ...all, [snapshot.id]: undefined }
+            : all
+        )
       }
     },
     [clearReceipt]
@@ -438,7 +437,7 @@ export function useConversationSubmission<TConnection>({
     locks.current.add(id)
     mutations.current.set(id, (mutations.current.get(id) ?? 0) + 1)
     const mutation = mutations.current.get(id)
-    setPending((all) => ({ ...all, [id]: true }))
+    setPending((all) => ({ ...all, [id]: kind }))
     try {
       const snapshot = await action()
       accept(snapshot)
@@ -472,7 +471,7 @@ export function useConversationSubmission<TConnection>({
       throw error
     } finally {
       locks.current.delete(id)
-      setPending((all) => ({ ...all, [id]: false }))
+      setPending((all) => ({ ...all, [id]: undefined }))
     }
   }
 
@@ -520,7 +519,7 @@ export function useConversationSubmission<TConnection>({
         clientRequestId
       )
       try {
-        const editing = preserveFollowing ? draftsRef.current[id] : undefined
+        const editing = preserveFollowing ? currentDraft(id) : undefined
         const prepared = prepareConversationSubmission(id, submission)
         if (editing) {
           prepared.draft = editing
@@ -528,9 +527,8 @@ export function useConversationSubmission<TConnection>({
         }
         requests.current.set(id, prepared.submission)
         syncUnconfirmed()
-        draftsRef.current = { ...draftsRef.current, [id]: prepared.draft }
-        setDrafts(draftsRef.current)
-        setDraftErrors((all) => ({ ...all, [id]: "" }))
+        draftStore.write(id, prepared.draft)
+        setDraftErrors((all) => (all[id] ? { ...all, [id]: "" } : all))
         setActionIssues((all) => {
           const issue = all[id]
           if (
@@ -642,31 +640,22 @@ export function useConversationSubmission<TConnection>({
   }
 
   return {
-    drafts,
-    setDrafts,
-    draftsRef,
+    draftStore,
     currentDraft,
     draftErrors,
     actionIssues,
     receiptIssues,
     pending,
-    stopPending: Object.fromEntries(
-      Object.entries(stopRequests).map(([id, identity]) => [
-        id,
-        identity === `${id}:${snapshots[id]?.epoch}:${snapshots[id]?.runId}` &&
-          snapshots[id]?.phase === "running",
-      ])
-    ),
-    stopUnconfirmed: Object.fromEntries(
-      Object.values(snapshots).map((snapshot) => [
-        snapshot.id,
-        !!unknownStopIds[`${snapshot.id}:${snapshot.epoch}:${snapshot.runId}`],
-      ])
-    ),
+    stopPending: (snapshot: ConversationSnapshot | undefined) =>
+      snapshot?.phase === "running" &&
+      stopRequests[snapshot.id] ===
+        `${snapshot.id}:${snapshot.epoch}:${snapshot.runId}`,
+    stopUnconfirmed: (snapshot: ConversationSnapshot | undefined) =>
+      !!snapshot &&
+      !!unknownStopIds[`${snapshot.id}:${snapshot.epoch}:${snapshot.runId}`],
     unconfirmed,
     setHandoffDraft: (id: string, draft: ComposerDraft) => {
-      draftsRef.current = { ...draftsRef.current, [id]: draft }
-      setDrafts(draftsRef.current)
+      draftStore.write(id, draft)
     },
     requests,
     locks,
@@ -802,12 +791,12 @@ export function useConversationSubmission<TConnection>({
       fallback: ComposerDraft,
       update: (draft: ComposerDraft) => ComposerDraft
     ) => {
-      const next = update(draftsRef.current[id] ?? fallback)
+      const next = update(currentDraft(id) ?? fallback)
       changeDraft(id, next)
       return next
     },
     adoptRecoveredDraft: (id: string, draft: ComposerDraft) => {
-      const active = draftsRef.current[id]
+      const active = currentDraft(id)
       const next =
         draft.homeRecoveryKey &&
         active?.homeRecoveryKey === draft.homeRecoveryKey
@@ -815,13 +804,13 @@ export function useConversationSubmission<TConnection>({
           : draft
       // The source queue edit is removed only after this exact destination survives reload.
       saveConversationDraft(id, next)
-      draftsRef.current = { ...draftsRef.current, [id]: next }
-      setDrafts(draftsRef.current)
-      setDraftErrors((all) => ({ ...all, [id]: "" }))
+      draftStore.write(id, next)
+      setDraftErrors((all) => (all[id] ? { ...all, [id]: "" } : all))
     },
     adoptHomeDraft,
     saveDraft: (id: string) => {
-      if (draftsRef.current[id]) changeDraft(id, draftsRef.current[id])
+      const draft = currentDraft(id)
+      if (draft) changeDraft(id, draft)
     },
     readStoredDraft: (id: string) => restoreConversationDrafts().drafts[id],
     saveStoredDraft: saveConversationDraft,

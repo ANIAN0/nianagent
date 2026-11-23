@@ -1,3 +1,4 @@
+import { SessionValueStore } from "./session-value-store"
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { ConversationSnapshot } from "@/contracts/rpc.generated"
 import {
@@ -38,16 +39,16 @@ export function useConversationStream({
     callbacksRef.current = callbacks
   })
 
-  const [snapshots, setSnapshots] = useState<
-    Record<string, ConversationSnapshot>
-  >({})
+  const [snapshotStore] = useState(
+    () => new SessionValueStore<ConversationSnapshot>()
+  )
   const [readIssues, setReadIssues] = useState<
     Record<string, FeedbackDescription | undefined>
   >({})
   const [readPending, setReadPending] = useState<Record<string, boolean>>({})
   const [reloadTick, setReloadTick] = useState(0)
 
-  const current = useRef(snapshots)
+  const current = useRef<Record<string, ConversationSnapshot>>({})
   const snapshotCache = useRef(new ConversationSnapshotCache())
   const readOwners = useRef(new Map<string, AbortController>())
   const homeHandoffs = useRef(new Set<string>())
@@ -102,9 +103,16 @@ export function useConversationStream({
     []
   )
 
+  const clearReadIssue = useCallback((id: string) => {
+    setReadIssues((all) => (all[id] ? { ...all, [id]: undefined } : all))
+  }, [])
   const accept = useCallback(
     (snapshot: ConversationSnapshot) => {
       const previous = current.current[snapshot.id]
+      if (snapshot === previous) {
+        clearReadIssue(snapshot.id)
+        return
+      }
       callbacksRef.current.onAcceptSnapshot?.(snapshot, previous)
       // Acceptance belongs to the request, independently of display ordering.
       publishInputReceipt(snapshot)
@@ -123,10 +131,10 @@ export function useConversationStream({
           ...readOwners.current.keys(),
         ])
       )
-      setSnapshots(current.current)
-      setReadIssues((all) => ({ ...all, [snapshot.id]: undefined }))
+      snapshotStore.replace(current.current)
+      clearReadIssue(snapshot.id)
     },
-    [publishInputReceipt]
+    [clearReadIssue, publishInputReceipt, snapshotStore]
   )
 
   useEffect(() => {
@@ -152,16 +160,15 @@ export function useConversationStream({
         // infer a result from queue shape, or repeat an original operation.
         const refreshQueueStorage =
           callbacksRef.current.shouldRefreshQueueStorage?.() ?? false
-        await callbacksRef.current
+        void callbacksRef.current
           .inspectQueueReceipts?.(
             selectedId!,
             controller.signal,
             refreshQueueStorage
           )
-          .catch((error) => {
-            if (controller.signal.aborted) throw error
+          .catch(() => {
+            // Queue recovery publishes its own feedback and blocks unsafe writes.
           })
-        controller.signal.throwIfAborted()
         const snapshot = hasFollow
           ? await service.follow(
               selectedId!,
@@ -190,7 +197,9 @@ export function useConversationStream({
       } finally {
         if (ownedReads.get(selectedId!) === controller) {
           ownedReads.delete(selectedId!)
-          setReadPending((all) => ({ ...all, [selectedId!]: false }))
+          setReadPending((all) =>
+            all[selectedId!] ? { ...all, [selectedId!]: false } : all
+          )
         }
         if (!controller.signal.aborted) {
           const phase = current.current[selectedId!]?.phase
@@ -217,7 +226,9 @@ export function useConversationStream({
       clearTimeout(timer)
       if (ownedReads.get(selectedId) === controller) {
         ownedReads.delete(selectedId)
-        setReadPending((all) => ({ ...all, [selectedId]: false }))
+        setReadPending((all) =>
+          all[selectedId] ? { ...all, [selectedId]: false } : all
+        )
       }
     }
   }, [selectedId, service, reloadTick, accept])
@@ -231,10 +242,10 @@ export function useConversationStream({
   }, [selectedId])
 
   return {
-    snapshots,
+    snapshotStore,
     current,
     readIssues,
-    setReadIssues,
+    clearReadIssue,
     readPending,
     readOwners,
     homeHandoffs,

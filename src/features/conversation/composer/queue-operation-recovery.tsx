@@ -1,6 +1,13 @@
+import { useState, type ReactNode } from "react"
+import { ChevronDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { OperationFeedback } from "@/components/feedback/operation-feedback"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 import { RecoveryAction } from "@/components/feedback/recovery-action"
+import { StatusMessage } from "@/components/feedback/status-message"
 import type { FeedbackDescription } from "@/lib/operation-issue"
 import {
   queueOperationIssueKey,
@@ -20,7 +27,70 @@ export type QueueOperationRecoveryProps = {
   onRestore?: (record: QueueOperationRecord) => void
 }
 
-/** Original identities stay reachable after their queue rows have disappeared. */
+export function ComposerRecoveryCard({
+  title,
+  message,
+  code,
+  details,
+  severity = "warning",
+  actions,
+}: {
+  title: string
+  message: string
+  code?: string
+  details?: string
+  severity?: "error" | "warning" | "info"
+  actions?: ReactNode
+}) {
+  const [open, setOpen] = useState(false)
+  const fullDetails = [code ? `状态码：${code}` : undefined, details]
+    .filter(Boolean)
+    .join("\n")
+  return (
+    <Collapsible
+      open={open}
+      onOpenChange={setOpen}
+      className="composer-recovery-card"
+      data-severity={severity}
+    >
+      <div className="composer-recovery-card-row">
+        <div className="composer-recovery-card-copy">
+          <StatusMessage title={title} message={message} severity={severity} />
+        </div>
+        {(actions || fullDetails) && (
+          <div
+            className="composer-recovery-card-actions"
+            role="group"
+            aria-label={`${title}：${message}`}
+          >
+            {actions}
+            {fullDetails && (
+              <CollapsibleTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  className="composer-recovery-details-trigger"
+                  data-open={open || undefined}
+                >
+                  {open ? "收起详情" : "详情"}
+                  <ChevronDown data-icon="inline-end" />
+                </Button>
+              </CollapsibleTrigger>
+            )}
+          </div>
+        )}
+      </div>
+      {fullDetails && (
+        <CollapsibleContent>
+          <pre className="composer-recovery-card-details">{fullDetails}</pre>
+        </CollapsibleContent>
+      )}
+    </Collapsible>
+  )
+}
+
+/** Original identities stay reachable above the composer after their queue rows have disappeared. */
 export function QueueOperationRecovery({
   records,
   issues = {},
@@ -37,10 +107,12 @@ export function QueueOperationRecovery({
   return (
     <div className="composer-queue-recovery" aria-label="原队列操作恢复">
       {storageIssue && (
-        <OperationFeedback
-          notify={false}
+        <ComposerRecoveryCard
           title="本机队列恢复记录需要处理"
-          {...storageIssue}
+          message={storageIssue.message}
+          code={storageIssue.code}
+          details={storageIssue.details}
+          severity={storageIssue.severity ?? "warning"}
           actions={
             <Button
               type="button"
@@ -65,27 +137,28 @@ export function QueueOperationRecovery({
             : record.operation === "conversationQueueRemove"
               ? "移除消息"
               : "发送排队消息"
+        const details = [
+          issue?.details,
+          `原请求：${record.operationRequestId}`,
+          `原版本：${record.revision}`,
+          record.itemId
+            ? `原消息：${record.itemId}`
+            : `原设置：${record.mode === "all" ? "全部交付" : "逐条交付"}`,
+        ]
+          .filter(Boolean)
+          .join("\n")
         return (
-          <OperationFeedback
-            notify={false}
+          <ComposerRecoveryCard
             key={record.operationRequestId}
-            title={active ? `正在处理${label}` : `${label}的原操作待核对`}
+            title={active ? `正在处理${label}` : `${label}待核对`}
             message={
               active
                 ? "正在等待原操作结果，原请求身份已保留。"
                 : (issue?.message ??
                   "原操作结果尚未确认；读取原回执后才能开始新的修改。")
             }
-            details={[
-              issue?.details,
-              `原请求：${record.operationRequestId}`,
-              `原版本：${record.revision}`,
-              record.itemId
-                ? `原消息：${record.itemId}`
-                : `原设置：${record.mode === "all" ? "全部交付" : "逐条交付"}`,
-            ]
-              .filter(Boolean)
-              .join("\n")}
+            code={issue?.code}
+            details={details}
             severity={active ? "info" : (issue?.severity ?? "warning")}
             actions={
               <>

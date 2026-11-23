@@ -1,0 +1,243 @@
+.lineage-canvas-page {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.lineage-canvas-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  height: 56px;
+  padding: 0 16px;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+  min-width: 0;
+}
+
+.lineage-canvas-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.lineage-canvas-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.lineage-canvas-title h1 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.lineage-canvas-summary {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.lineage-canvas-header-right {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+}
+
+.lineage-canvas-zoom {
+  min-width: 44px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.lineage-canvas-viewport {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  cursor: grab;
+  user-select: none;
+  background-color: color-mix(in srgb, var(--muted) 26%, var(--background));
+  background-image: radial-gradient(
+    color-mix(in srgb, var(--border) 85%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 20px 20px;
+}
+
+.lineage-canvas-viewport[data-panning="true"] {
+  cursor: grabbing;
+}
+
+.lineage-canvas-stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+
+.lineage-canvas-edges {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.lineage-edge-path {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 1.75;
+  transition:
+    stroke 140ms ease,
+    stroke-width 140ms ease;
+}
+
+.lineage-edge-path[data-highlighted="true"] {
+  stroke: var(--primary);
+  stroke-width: 2.25;
+}
+
+.lineage-node-card {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--card);
+  color: var(--card-foreground);
+  box-shadow: var(--shadow-xs);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.lineage-node-card:hover {
+  border-color: color-mix(in srgb, var(--foreground) 25%, var(--border));
+  box-shadow: var(--shadow-sm);
+}
+
+.lineage-node-card[data-selected="true"] {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 18%, transparent);
+}
+
+.lineage-node-card[data-current="true"] {
+  border-color: var(--primary);
+}
+
+.lineage-node-card[data-missing="true"] {
+  border-style: dashed;
+  opacity: 0.72;
+  cursor: default;
+}
+
+.lineage-node-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.lineage-node-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+}
+
+.lineage-node-snippet {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin: 6px 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--muted-foreground);
+}
+
+.lineage-node-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--muted-foreground);
+}
+
+.lineage-node-model {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lineage-node-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  color: var(--primary);
+  font-weight: 500;
+}
+
+.lineage-canvas-hint {
+  position: absolute;
+  left: 16px;
+  bottom: 14px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--background) 90%, transparent);
+  backdrop-filter: blur(6px);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--muted-foreground);
+  pointer-events: none;
+}
+
+.lineage-canvas-state {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+@media (max-width: 767px) {
+  .lineage-canvas-header {
+    padding-left: 56px;
+  }
+  .lineage-canvas-summary {
+    display: none;
+  }
+}

@@ -1,4 +1,5 @@
 import {
+  AlertCircle,
   ChevronDown,
   FileCode2,
   FilePenLine,
@@ -11,6 +12,15 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
+import {
+  TraceCollapsible,
+  TraceCollapsibleTrigger,
+  TraceCollapsibleContent,
+  TraceDescription,
+  TraceIcon,
+  TraceLine,
+  TraceTitle,
+} from "@/components/ui/trace"
 import { Button } from "@/components/ui/button"
 import type { ConversationToolCall } from "../conversation-types"
 import { CopyButton } from "./copy-button"
@@ -49,11 +59,30 @@ function inputTarget(tool: ConversationToolCall) {
     const input: unknown = JSON.parse(tool.input || "{}")
     if (input && typeof input === "object") {
       const value = input as Record<string, unknown>
-      return typeof value.path === "string"
-        ? value.path
-        : typeof value.command === "string"
-          ? value.command
-          : ""
+      const keys = [
+        "path",
+        "command",
+        "action",
+        "operation",
+        "subcommand",
+        "cmd",
+        "url",
+        "query",
+        "selector",
+        "target",
+        "text",
+      ]
+      for (const key of keys) {
+        const candidate = value[key]
+        if (typeof candidate === "string" && candidate.trim()) {
+          return candidate.trim()
+        }
+      }
+      for (const candidate of Object.values(value)) {
+        if (typeof candidate === "string" && candidate.trim()) {
+          return candidate.trim()
+        }
+      }
     }
   } catch {
     /* Old history can contain plain text parameters. */
@@ -129,56 +158,83 @@ export function ToolCall({
       : undefined
   const lines = tool.result?.split("\n") ?? []
   const diff = status === "success" ? tool.details?.diff : undefined
+  const patch = status === "success" ? tool.details?.patch : undefined
+  const changes = (diff || patch)?.split("\n").reduce(
+    (counts, line) => {
+      if (line.startsWith("+") && !line.startsWith("+++ ")) counts.added++
+      if (line.startsWith("-") && !line.startsWith("--- ")) counts.removed++
+      return counts
+    },
+    { added: 0, removed: 0 }
+  )
   const file =
     tool.artifact?.path ??
     (tool.target?.kind === "file" ? tool.target.path : undefined)
   return (
-    <Collapsible
+    <TraceCollapsible
       open={open}
       onOpenChange={setOpen}
       className="conversation-tool"
       data-status={awaitingApproval ? "waiting" : status}
       data-tool-kind={tool.name}
     >
-      <CollapsibleTrigger
-        className="conversation-process-trigger"
+      <TraceCollapsibleTrigger
         aria-label={(known?.label ?? tool.name) + " " + object + "，" + label}
       >
-        <Icon aria-hidden />
-        <strong className="conversation-tool-name" title={tool.name}>
-          {known?.label ?? tool.name}
-        </strong>
-        {object && (
-          <span className="conversation-tool-target" title={object}>
-            {object}
-          </span>
-        )}
-        {!known && (
-          <span className="conversation-tool-source" title={tool.source}>
-            {tool.source}
-          </span>
-        )}
-        {tool.target?.line !== undefined && (
-          <span className="conversation-tool-range">
-            {tool.target.line}
-            {tool.target.lineCount
-              ? "–" + (tool.target.line + tool.target.lineCount - 1)
-              : ""}{" "}
-            行
-          </span>
-        )}
-        <span className="conversation-tool-status">
-          <span aria-hidden />
-          {label}
-        </span>
-        <ChevronDown className="conversation-disclosure-chevron" aria-hidden />
-      </CollapsibleTrigger>
+        <TraceLine
+          status={
+            awaitingApproval
+              ? "pending"
+              : status === "running"
+                ? "running"
+                : undefined
+          }
+        >
+          <TraceIcon className={status === "failed" ? "text-destructive" : undefined}>
+            {status === "failed" ? <AlertCircle /> : <Icon />}
+          </TraceIcon>
+          <span className="shrink-0">{known?.label ?? tool.name}</span>
+          {object && <TraceTitle title={object}>{object}</TraceTitle>}
+          {!known && !object && <TraceTitle>{tool.source}</TraceTitle>}
+          {tool.target?.line !== undefined && (
+            <TraceDescription>
+              {tool.target.line}
+              {tool.target.lineCount
+                ? "–" + (tool.target.line + tool.target.lineCount - 1)
+                : ""}{" "}
+              行
+            </TraceDescription>
+          )}
+          {changes && changes.added + changes.removed > 0 && (
+            <TraceDescription
+              aria-label={`新增 ${changes.added} 行，删除 ${changes.removed} 行`}
+            >
+              +{changes.added} / −{changes.removed}
+            </TraceDescription>
+          )}
+          {tool.exitCode !== undefined ? (
+            <TraceDescription
+              className={status === "failed" ? "text-destructive" : undefined}
+            >
+              退出码 {tool.exitCode}
+            </TraceDescription>
+          ) : (
+            status !== "success" && (
+              <TraceDescription
+                className={status === "failed" ? "text-destructive" : undefined}
+              >
+                {label}
+              </TraceDescription>
+            )
+          )}
+        </TraceLine>
+      </TraceCollapsibleTrigger>
       {!open && firstError && (
         <div className="conversation-tool-error-summary" title={firstError}>
           {firstError}
         </div>
       )}
-      <CollapsibleContent>
+      <TraceCollapsibleContent>
         <div className="conversation-tool-detail">
           {command && (
             <dl className="conversation-tool-context">
@@ -187,17 +243,19 @@ export function ToolCall({
             </dl>
           )}
           <div className="conversation-tool-result-header">
-            <strong>{diff ? "文件变更" : command ? "命令输出" : "结果"}</strong>
+            <strong>
+              {patch || diff ? "文件变更" : command ? "命令输出" : "结果"}
+            </strong>
             <CopyButton
-              text={diff || tool.result || ""}
-              label={diff ? "复制差异" : "复制工具结果"}
+              text={patch || diff || tool.result || ""}
+              label={patch || diff ? "复制差异" : "复制工具结果"}
             />
           </div>
-          {status === "success" && tool.details?.patch ? (
-            <ReadOnlyPatch patch={tool.details.patch} />
+          {patch ? (
+            <ReadOnlyPatch patch={patch} />
           ) : diff ? (
-            <ToolDiff
-              diff={diff}
+            <ReadOnlyPatch
+              legacyDiff={diff}
               firstChangedLine={tool.details?.firstChangedLine}
             />
           ) : (
@@ -216,7 +274,7 @@ export function ToolCall({
                 此写入结果未保存写入前内容，不能完整比较，也不能据此判断新建或覆盖。
               </p>
             )}
-          {!diff && lines.length > 20 && (
+          {!patch && !diff && lines.length > 20 && (
             <Button
               variant="link"
               size="xs"
@@ -297,47 +355,8 @@ export function ToolCall({
             </CollapsibleContent>
           </Collapsible>
         </div>
-      </CollapsibleContent>
-    </Collapsible>
-  )
-}
-
-function ToolDiff({
-  diff,
-  firstChangedLine,
-}: {
-  diff: string
-  firstChangedLine?: number
-}) {
-  return (
-    <div
-      className="conversation-tool-diff"
-      role="region"
-      aria-label="实际文件差异"
-      tabIndex={0}
-    >
-      {firstChangedLine !== undefined && (
-        <span className="conversation-result-note">
-          首处修改：第 {firstChangedLine} 行
-        </span>
-      )}
-      <pre>
-        {diff.split("\n").map((line, index) => (
-          <span
-            key={index}
-            data-diff={
-              /^\+(?!\+\+)/.test(line)
-                ? "added"
-                : /^-(?!--)/.test(line)
-                  ? "removed"
-                  : "context"
-            }
-          >
-            {line || "\u00a0"}
-          </span>
-        ))}
-      </pre>
-    </div>
+      </TraceCollapsibleContent>
+    </TraceCollapsible>
   )
 }
 

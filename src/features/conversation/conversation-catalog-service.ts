@@ -37,7 +37,8 @@ export type ConversationCatalogService = {
   setArchived: (
     id: string,
     archived: boolean,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    expectedRunId?: string
   ) => Promise<ConversationSummary>
 }
 export function createConversationCatalogService(): ConversationCatalogService {
@@ -51,11 +52,16 @@ export function createConversationCatalogService(): ConversationCatalogService {
       rpcCall("conversationRename", { id, title }, signal),
     setPinned: (id, pinned, signal) =>
       rpcCall("conversationSetPinned", { id, pinned }, signal),
-    setArchived: (id, archived, signal) =>
-      rpcCall("conversationSetArchived", { id, archived }, signal),
+    setArchived: (id, archived, signal, expectedRunId) =>
+      rpcCall(
+        "conversationSetArchived",
+        { id, archived, expectedRunId },
+        signal
+      ),
   }
 }
 const defaultService = createConversationCatalogService()
+const CATALOG_POLL_MS = 5_000
 import type { HistoryState } from "@/lib/submission/conversation-handoff"
 export type { HistoryState } from "@/lib/submission/conversation-handoff"
 
@@ -66,11 +72,17 @@ export function useConversationCatalog(
   archived: "hide" | "all" | "only" = "hide"
 ) {
   const [snapshot, setSnapshot] = useState<{
+    scope: typeof archived
     conversations: ConversationSummary[]
     historyState: HistoryState
     historyError: string
     historyIssue?: FeedbackDescription
-  }>({ conversations: [], historyState: "loading", historyError: "" })
+  }>({
+    scope: archived,
+    conversations: [],
+    historyState: "loading",
+    historyError: "",
+  })
   const readRequest = useRef<AbortController | null>(null)
   const sequence = useRef(0)
   const readWrites = useRef(new Set<AbortController>())
@@ -83,6 +95,9 @@ export function useConversationCatalog(
       if (!silent)
         setSnapshot((previous) => ({
           ...previous,
+          scope: archived,
+          conversations:
+            previous.scope === archived ? previous.conversations : [],
           historyState: "loading",
           historyError: "",
           historyIssue: undefined,
@@ -94,13 +109,20 @@ export function useConversationCatalog(
         )
         if (controller.signal.aborted || version !== sequence.current) return
         setSnapshot((previous) => {
+          const previousById = new Map(
+            previous.conversations.map((item) => [item.id, item])
+          )
           const merged = conversations.map((item) => {
-            const existing = previous.conversations.find(
-              (value) => value.id === item.id
+            const existing = previousById.get(item.id)
+            if (!existing) return item
+            if (existing.revision > item.revision) return existing
+            if (
+              existing.revision === item.revision &&
+              existing.pending?.approvals === item.pending?.approvals &&
+              existing.pending?.answers === item.pending?.answers
             )
-            return existing && existing.revision > item.revision
-              ? existing
-              : item
+              return existing
+            return item
           })
           // 内容无变化时保留数组引用，避免每轮轮询都触发下游整列重渲染。
           const unchanged =
@@ -108,7 +130,14 @@ export function useConversationCatalog(
             merged.every(
               (item, index) => item === previous.conversations[index]
             )
+          if (
+            unchanged &&
+            previous.scope === archived &&
+            previous.historyState === "ready"
+          )
+            return previous
           return {
+            scope: archived,
             conversations: unchanged ? previous.conversations : merged,
             historyState: "ready",
             historyError: "",
@@ -123,6 +152,9 @@ export function useConversationCatalog(
         )
         setSnapshot((previous) => ({
           ...previous,
+          scope: archived,
+          conversations:
+            previous.scope === archived ? previous.conversations : [],
           historyState: "error",
           historyError: feedback.message,
           historyIssue:
@@ -138,28 +170,36 @@ export function useConversationCatalog(
     let active = true
     let timer: ReturnType<typeof setTimeout>
     const writes = readWrites.current
-    async function poll() {
-      // 页面隐藏时跳过读取，回到前台立即补一轮。
-      if (!document.hidden) await refresh(true)
-      if (active) timer = setTimeout(poll, 2000)
+    const inForeground = () => !document.hidden && document.hasFocus()
+    const pause = () => clearTimeout(timer)
+    const schedule = () => {
+      pause()
+      if (active && inForeground())
+        timer = setTimeout(onResume, CATALOG_POLL_MS)
     }
-    void poll()
-    const onFocus = () => {
-      void refresh(true)
+    const onResume = () => {
+      pause()
+      if (active && inForeground()) void refresh(true).finally(schedule)
     }
     const onVisibilityChange = () => {
-      if (!document.hidden) void refresh(true)
+      if (inForeground()) onResume()
+      else pause()
     }
+    queueMicrotask(() => {
+      if (active) void refresh(false).finally(schedule)
+    })
     document.addEventListener("visibilitychange", onVisibilityChange)
-    window.addEventListener("focus", onFocus)
+    window.addEventListener("focus", onResume)
+    window.addEventListener("blur", pause)
     return () => {
       active = false
-      clearTimeout(timer)
+      pause()
       readRequest.current?.abort()
       writes.forEach((controller) => controller.abort())
       writes.clear()
       document.removeEventListener("visibilitychange", onVisibilityChange)
-      window.removeEventListener("focus", onFocus)
+      window.removeEventListener("focus", onResume)
+      window.removeEventListener("blur", pause)
     }
   }, [refresh])
   const markRead = useCallback(
@@ -219,11 +259,62 @@ export function useConversationCatalog(
     [mutate]
   )
   const setArchived = useCallback(
-    (id: string, archived: boolean) =>
-      mutate((service, signal) => service.setArchived(id, archived, signal)),
+    (id: string, archived: boolean, expectedRunId?: string) =>
+      mutate((service, signal) =>
+        service.setArchived(id, archived, signal, expectedRunId)
+      ),
     [mutate]
   )
-  return { ...snapshot, refresh, markRead, rename, setPinned, setArchived }
+  const visible =
+    snapshot.scope === archived
+      ? snapshot
+      : {
+          conversations: [],
+          historyState: "loading" as const,
+          historyError: "",
+          historyIssue: undefined,
+        }
+  return { ...visible, refresh, markRead, rename, setPinned, setArchived }
+}
+
+/** A stop acknowledgement can arrive before the Pi run publishes its terminal state. */
+export async function waitForArchiveReady(
+  sessionId: string,
+  expectedRunId: string
+) {
+  const signal = AbortSignal.timeout(20_000)
+  let stopRequested = false
+  try {
+    for (;;) {
+      const current = await rpcCall(
+        "conversationInfo",
+        { id: sessionId },
+        signal
+      )
+      if (!current || current.runId !== expectedRunId)
+        throw new Error("会话运行已变化，请重新确认归档。")
+      if (current.status !== "running" && current.status !== "stopping") {
+        if (current.pending?.approvals || current.pending?.answers)
+          throw new Error("会话仍有待处理请求，请处理后再归档。")
+        return
+      }
+      if (current.status === "running" && !stopRequested) {
+        stopRequested = true
+        await rpcCall(
+          "conversationStop",
+          { sessionId, runId: expectedRunId },
+          signal
+        )
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 300))
+    }
+  } catch (error) {
+    if (signal.aborted)
+      throw new Error("尚未确认执行停止，请核对会话状态后重试归档。", {
+        cause: error,
+      })
+    throw error
+  }
 }
 
 export function formatConversationAge(value: string, now = Date.now()) {
@@ -252,5 +343,7 @@ export function toHomeConversation(item: ConversationSummary): Conversation {
     message: item.lastMessage,
     pinned: item.pinned,
     archived: item.archived,
+    pending: item.pending,
+    runId: item.runId,
   }
 }

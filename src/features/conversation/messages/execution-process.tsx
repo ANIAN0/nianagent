@@ -1,18 +1,17 @@
-import { ChevronDown } from "lucide-react"
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible"
+  Trace,
+  TraceCollapsible,
+  TraceCollapsibleContent,
+  TraceCollapsibleTrigger,
+  TraceDescription,
+  TraceLine,
+  TraceTitle,
+} from "@/components/ui/trace"
+import type { ReactNode } from "react"
 import type { ConversationMessage } from "../conversation-types"
 import { ThinkingBlock } from "./thinking-block"
 import { ToolCall } from "./tool-call"
-import "./messages.css"
-import type { ReactNode, SyntheticEvent } from "react"
-import {
-  MessageDisclosureActivityProvider,
-  useMessageDisclosure,
-} from "./message-environment"
+import { useMessageDisclosure } from "./message-environment"
 
 export function ExecutionProcess({
   thinking,
@@ -38,7 +37,7 @@ export function ExecutionProcess({
   const [open, setOpen] = useMessageDisclosure(
     occurrenceId,
     "process",
-    defaultOpen
+    defaultOpen || running
   )
   if (!children && !thinking?.text.trim() && !tools.length) return null
   const count = toolCount ?? tools.length
@@ -64,51 +63,29 @@ export function ExecutionProcess({
       ))}
     </div>
   )
-  const preserveReading = () => {
-    if (running) setOpen(true)
-  }
-  const observeReading = (event: SyntheticEvent<HTMLElement>) => {
-    if (!running || !(event.target instanceof Element)) return
-    const opened = event.target.closest(
-      ".conversation-tool[data-state='open'], .conversation-thinking[data-state='open'], .conversation-tool-parameters[data-state='open']"
-    )
-    if (opened && event.currentTarget.contains(opened)) preserveReading()
-  }
   return (
-    <Collapsible
-      open={running || open}
-      onOpenChange={setOpen}
-      className="conversation-execution"
-    >
-      <CollapsibleTrigger
-        className="conversation-execution-summary"
-        hidden={running}
-        disabled={running}
-        style={running ? { display: "none" } : undefined}
-      >
-        {stopped
-          ? "已停止"
-          : count
-            ? `${count} 次工具调用`
-            : thinking?.duration
-              ? `已思考 ${thinking.duration}`
-              : "执行过程"}
-        {failures > 0 && (
-          <span className="conversation-execution-failures">
-            {failures} 次失败
-          </span>
-        )}
-        <ChevronDown className="conversation-disclosure-chevron" aria-hidden />
-      </CollapsibleTrigger>
-      <CollapsibleContent
-        style={running ? { paddingTop: 0 } : undefined}
-        onFocusCapture={observeReading}
-        onPointerDownCapture={observeReading}
-      >
-        <MessageDisclosureActivityProvider onRead={preserveReading}>
-          {content}
-        </MessageDisclosureActivityProvider>
-      </CollapsibleContent>
-    </Collapsible>
+    <Trace>
+      <TraceCollapsible open={open} onOpenChange={setOpen}>
+        <TraceCollapsibleTrigger>
+          <TraceLine status={running ? "running" : undefined}>
+            <TraceTitle>
+              {stopped ? "已停止" : running ? "执行中" : "执行过程"}
+            </TraceTitle>
+            {count > 0 && (
+              <TraceDescription>{count} 次工具调用</TraceDescription>
+            )}
+            {failures > 0 && (
+              <TraceDescription className="text-destructive">
+                {failures} 次失败
+              </TraceDescription>
+            )}
+            {thinking?.duration && !count && (
+              <TraceDescription>{thinking.duration}</TraceDescription>
+            )}
+          </TraceLine>
+        </TraceCollapsibleTrigger>
+        <TraceCollapsibleContent>{content}</TraceCollapsibleContent>
+      </TraceCollapsible>
+    </Trace>
   )
 }

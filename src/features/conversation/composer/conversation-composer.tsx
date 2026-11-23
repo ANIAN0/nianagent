@@ -30,12 +30,14 @@ import type { ComposerData, ComposerDraft } from "@/lib/composer/types"
 import { ConversationSendControl } from "./conversation-send-control"
 import type { ContextUsageProps } from "./context-usage"
 import { ComposerAuxiliaryBar } from "./composer-auxiliary-bar"
+import { ComposerRecoveryCard } from "./queue-operation-recovery"
+import { RecoveryAction } from "@/components/feedback/recovery-action"
 import { useMaterialRuntime } from "@/lib/composer/material-runtime-port"
 import { OperationFeedback } from "@/components/feedback/operation-feedback"
 import { NotificationToast } from "@/components/ui/notification-toast"
 import type { FeedbackDescription } from "@/lib/operation-issue"
 import type { ConversationStatistics } from "@/contracts/rpc.generated"
-import type { BusyInputMode } from "./run-input-control"
+import { RunInputControl, type BusyInputMode } from "./run-input-control"
 
 export type ConversationComposerProps = {
   inputRef?: Ref<ComposerEditorElement>
@@ -99,6 +101,7 @@ export function ConversationComposer({
   onSubmit,
   onStop,
 }: ConversationComposerProps) {
+  const [delivery, setDelivery] = useState<BusyInputMode>("followUp")
   const draft = useMemo(
     () =>
       editableComposerDraft({
@@ -220,6 +223,13 @@ export function ConversationComposer({
             : undefined)
       : undefined
   function submit(alternate = false) {
+    const selectedDelivery = !running
+      ? "followUp"
+      : !alternate
+        ? delivery
+        : delivery === "followUp"
+          ? "steer"
+          : "followUp"
     if (valid)
       onSubmit(
         {
@@ -228,7 +238,7 @@ export function ConversationComposer({
           modelLabel:
             data.modelLabels?.[draft.model] ?? draft.modelLabel ?? draft.model,
         },
-        running && alternate ? "steer" : "followUp"
+        selectedDelivery
       )
   }
   const configurationDisabledReason = stopping
@@ -254,8 +264,47 @@ export function ConversationComposer({
         {interaction && (
           <div className="conversation-composer-interaction">{interaction}</div>
         )}
-        {feedback && (
-          <div className="conversation-composer-feedback">{feedback}</div>
+        {(feedback || queueRecovery || modeIssue) && (
+          <div className="conversation-composer-feedback">
+            {feedback}
+            {queueRecovery}
+            {modeIssue && (
+              <ComposerRecoveryCard
+                title={
+                  modeIssue.code === "result_unknown" ||
+                  modeIssue.recovery === "check"
+                    ? "交付设置待确认"
+                    : "交付设置未保存"
+                }
+                message={modeIssue.message}
+                code={modeIssue.code}
+                details={modeIssue.details}
+                severity={
+                  modeIssue.code === "result_unknown" ||
+                  modeIssue.recovery === "check"
+                    ? "warning"
+                    : (modeIssue.severity ?? "error")
+                }
+                actions={
+                  <RecoveryAction
+                    issue={modeIssue}
+                    disabled={
+                      modeChecking &&
+                      ["check", "reload"].includes(
+                        modeIssue.recovery ?? "check"
+                      )
+                    }
+                    onCheck={onCheckMode}
+                    onReload={onCheckMode}
+                    labels={{
+                      check: "核对交付设置",
+                      reload: "重新读取交付设置",
+                    }}
+                  />
+                }
+              />
+            )}
+          </div>
         )}
         {dock && <div className="conversation-composer-dock">{dock}</div>}
         <form
@@ -373,7 +422,7 @@ export function ConversationComposer({
                             ? "extension"
                             : undefined
                       }
-                      delivery="followUp"
+                      delivery={delivery}
                       disabled={blocked || !valid}
                       disabledReason={sendDisabledReason}
                       onStop={onStop}
@@ -437,12 +486,13 @@ export function ConversationComposer({
           />
         )}
         <ComposerAuxiliaryBar
+          deliveryControl={
+            running && allowQueue && !stopping && !blocked && !interaction ? (
+              <RunInputControl mode={delivery} onChange={setDelivery} />
+            ) : undefined
+          }
           statistics={statistics}
-          recovery={queueRecovery}
           context={context}
-          modeIssue={modeIssue}
-          onCheckMode={onCheckMode}
-          modeChecking={modeChecking}
         />
       </div>
     </ComposerPanelProvider>

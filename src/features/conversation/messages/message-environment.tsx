@@ -11,23 +11,6 @@ export type MessageEnvironment = {
   onOpenSettings?: () => void
 }
 const Context = createContext<MessageEnvironment | null>(null)
-const DisclosureActivityContext = createContext<(() => void) | null>(null)
-
-/** Reports a user opening a descendant, without changing its occurrence identity. */
-export function MessageDisclosureActivityProvider({
-  onRead,
-  children,
-}: {
-  onRead: () => void
-  children: ReactNode
-}) {
-  return (
-    <DisclosureActivityContext.Provider value={onRead}>
-      {children}
-    </DisclosureActivityContext.Provider>
-  )
-}
-
 /** State belongs to a session and a real block occurrence, never a provider tool id. */
 export function MessageEnvironmentProvider({
   value,
@@ -47,7 +30,6 @@ export function useMessageDisclosure(
   defaultOpen = false
 ) {
   const environment = useMessageEnvironment()
-  const onRead = useContext(DisclosureActivityContext)
   const key = occurrence ? `${occurrence}:${kind}` : undefined
   const [open, setOpen] = useState(() =>
     key ? (environment?.disclosures.get(key) ?? defaultOpen) : defaultOpen
@@ -55,7 +37,6 @@ export function useMessageDisclosure(
   function update(next: boolean) {
     if (key) environment?.disclosures.set(key, next)
     setOpen(next)
-    if (next) onRead?.()
   }
   return [open, update] as const
 }

@@ -1,32 +1,30 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react"
 import { LoaderCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { MarkerIcon } from "@/components/ui/marker"
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import {
+  Questionnaire,
+  QuestionnaireActions,
+  QuestionnaireChoice,
+  QuestionnaireChoices,
+  QuestionnaireDescription,
+  QuestionnaireInput,
+  QuestionnaireItem,
+  QuestionnaireTitle,
+} from "@/components/ui/questionnaire"
 import { OperationFeedback } from "@/components/feedback/operation-feedback"
 import { RecoveryAction } from "@/components/feedback/recovery-action"
 import type { ConversationApproval } from "@/contracts/rpc.generated"
 import { useApprovalReply } from "@/lib/operations/use-approval-reply"
 import "./approval-card.css"
 
-function approvalTarget(input?: string) {
-  if (!input) return ""
-  try {
-    const value: unknown = JSON.parse(input)
-    if (value && typeof value === "object") {
-      const fields = value as Record<string, unknown>
-      if (typeof fields.command === "string") return fields.command
-      if (typeof fields.path === "string") return fields.path
-    }
-  } catch {
-    /* Raw parameters remain readable. */
-  }
-  return input
+const approvalSources = {
+  builtin: "Pi 内置工具",
+  plugin: "moon 插件",
+  extension: "Pi 扩展",
+  unknown: "来源未确认",
 }
-
 export function ApprovalCard({
   request,
   sessionId,
@@ -65,7 +63,10 @@ export function ApprovalCard({
   const unknown = decision.phase === "uncertain"
   const blocked = decision.phase !== "idle" || expired || !!disabledReason
   const isDecision = request.kind === "tool" || request.kind === "confirm"
-  const target = approvalTarget(request.input)
+  const Form = isDecision ? "form" : Questionnaire
+  const Actions = isDecision ? "div" : QuestionnaireActions
+  const details = request.details
+  const target = details?.target
   const cancel = isDecision ? "deny" : "cancel"
   const answer = (value: string) => {
     if (!blocked) void decision.reply(value)
@@ -146,7 +147,7 @@ export function ApprovalCard({
         )}
         <span role="status">
           {unknown
-            ? "确认结果待核对"
+            ? "正在确认操作结果"
             : submitted
               ? "决定已提交，等待当前状态"
               : busy
@@ -156,12 +157,14 @@ export function ApprovalCard({
                   : "等待审批"}
         </span>
       </AlertTitle>
-      <form
+      <Form
         className="moon-approval-form"
         onSubmit={(event) => {
           event.preventDefault()
           if (
             !isDecision &&
+            !composing.current &&
+            !compositionEnded.current &&
             (request.kind !== "select" || request.options?.includes(value))
           )
             answer(value)
@@ -173,41 +176,80 @@ export function ApprovalCard({
           role="group"
           aria-label="审批详情"
         >
-          <p className="moon-approval-title">
-            {request.kind === "tool"
-              ? request.message ||
-                request.title ||
-                "工具 " + (request.toolName ?? "") + " 请求越权执行"
-              : request.title}
-          </p>
-          {request.kind !== "tool" && request.message && (
+          {isDecision && (
+            <p className="moon-approval-title">
+              {request.kind === "tool"
+                ? details
+                  ? request.title
+                  : request.message || request.title
+                : request.title}
+            </p>
+          )}
+          {request.kind === "tool" && (
+            <>
+              <p className="text-muted-foreground">
+                {[
+                  details?.sourceName ??
+                    approvalSources[details?.sourceKind ?? "unknown"],
+                  request.toolName,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+              {target && (
+                <pre
+                  className="moon-approval-command"
+                  aria-label={
+                    target.kind === "path" ? "目标路径" : "待执行命令"
+                  }
+                >
+                  {target.value}
+                </pre>
+              )}
+              {details?.scopeNotice && <p>{details.scopeNotice}</p>}
+            </>
+          )}
+          {request.kind === "confirm" && request.message && (
             <p>{request.message}</p>
           )}
-          {request.kind === "tool" && target && (
-            <pre className="moon-approval-command" aria-label="待确认的操作">
-              {target}
-            </pre>
-          )}
-          {request.input && request.input !== target && (
+          {request.input && (
             <details>
               <summary>完整参数</summary>
               <pre className="moon-approval-parameters">{request.input}</pre>
             </details>
           )}
-          {request.kind === "input" && (
-            <FieldGroup>
-              <Field>
-                <FieldLabel
-                  htmlFor={"approval-" + request.id}
-                  className="sr-only"
-                >
-                  {request.title}
-                </FieldLabel>
-                <Input
-                  id={"approval-" + request.id}
+          {!isDecision && (
+            <QuestionnaireItem
+              name="answer"
+              disabled={blocked}
+              required={request.kind === "select"}
+            >
+              <QuestionnaireTitle className="wrap-anywhere">
+                {request.title}
+              </QuestionnaireTitle>
+              {request.message && (
+                <QuestionnaireDescription>
+                  {request.message}
+                </QuestionnaireDescription>
+              )}
+              {request.kind === "select" ? (
+                <QuestionnaireChoices>
+                  {request.options?.map((option, index) => (
+                    <QuestionnaireChoice
+                      key={index}
+                      value={option}
+                      checked={value === option}
+                      onChange={() => setValue(option)}
+                    >
+                      {option}
+                    </QuestionnaireChoice>
+                  ))}
+                </QuestionnaireChoices>
+              ) : (
+                <QuestionnaireInput
                   value={value}
+                  aria-label={request.title}
                   onChange={(event) => setValue(event.target.value)}
-                  disabled={blocked}
                   onKeyDown={(event) => {
                     if (
                       event.key === "Enter" &&
@@ -220,32 +262,8 @@ export function ApprovalCard({
                       event.preventDefault()
                   }}
                 />
-              </Field>
-            </FieldGroup>
-          )}
-          {request.kind === "select" && (
-            <RadioGroup
-              value={value}
-              onValueChange={setValue}
-              disabled={blocked}
-              aria-label={request.title}
-            >
-              <FieldGroup>
-                {request.options?.map((option, index) => (
-                  <Field key={index} orientation="horizontal">
-                    <RadioGroupItem
-                      id={"approval-" + request.id + "-" + index}
-                      value={option}
-                    />
-                    <FieldLabel
-                      htmlFor={"approval-" + request.id + "-" + index}
-                    >
-                      {option}
-                    </FieldLabel>
-                  </Field>
-                ))}
-              </FieldGroup>
-            </RadioGroup>
+              )}
+            </QuestionnaireItem>
           )}
           {issue && (
             <OperationFeedback
@@ -264,7 +282,7 @@ export function ApprovalCard({
             />
           )}
         </AlertDescription>
-        <div className="moon-approval-actions">
+        <Actions className="moon-approval-actions">
           <Button
             type="button"
             variant="approval-reject"
@@ -286,8 +304,8 @@ export function ApprovalCard({
           >
             {request.kind === "tool" ? "允许一次" : "确认"}
           </Button>
-        </div>
-      </form>
+        </Actions>
+      </Form>
     </Alert>
   )
 }

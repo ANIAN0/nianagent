@@ -65,6 +65,7 @@ export type LiveConversationStatusProps = {
   receiptIssue?: FeedbackDescription
   readReceiptIssue?: FeedbackDescription
   pending?: boolean
+  checkingReceipt?: boolean
   stopPending?: boolean
   stopUnconfirmed?: boolean
   unconfirmed?: boolean
@@ -109,7 +110,7 @@ export type LiveConversationActionProps = {
 
 export type LiveConversationViewProps = {
   id: string
-  title: string
+  title?: string
   workspacePath?: string
   snapshot?: ConversationSnapshot
   error?: string
@@ -150,6 +151,7 @@ export function LiveConversationView({
     receiptIssue,
     readReceiptIssue,
     pending,
+    checkingReceipt,
     stopPending,
     stopUnconfirmed: providedStopUnconfirmed,
     unconfirmed,
@@ -197,13 +199,14 @@ export function LiveConversationView({
   })
   useEffect(() => () => previewRequest.current?.abort(), [])
   const cwd = snapshot?.cwd ?? workspacePath ?? ""
+  const approvals = snapshot?.approvals?.length ? snapshot.approvals : undefined
   const messageEnvironment = useMemo(
     () => ({
       sessionId: id,
       cwd,
       disclosures,
       waitingTools: new Set(
-        (snapshot?.approvals ?? [])
+        (approvals ?? [])
           .filter((request) => request.kind === "tool" && request.toolCallId)
           .map((request) => JSON.stringify([request.runId, request.toolCallId]))
       ),
@@ -252,16 +255,20 @@ export function LiveConversationView({
       cwd,
       disclosures,
       materialService,
-      snapshot?.approvals,
+      approvals,
       onOpenSettings,
       data.modelCatalog?.onOpenSettings,
     ]
   )
   const running = snapshot?.phase === "running"
-  const approval = snapshot?.approvals?.find(
-    (request) => request.kind === "tool"
-  )
+  const approval =
+    approvals?.find((request) => request.kind === "tool") ?? approvals?.[0]
   const command = useConversationCommand(id, snapshot?.command)
+  const {
+    receipt: commandReceipt,
+    pending: pendingCommand,
+    acknowledge: acknowledgeCommand,
+  } = command
   const acknowledgedCommand = useRef<string | undefined>(undefined)
   const controls = useConversationControls(id, snapshot, controlService)
   const refreshedCompactOperation = useRef<string | undefined>(undefined)
@@ -272,14 +279,14 @@ export function LiveConversationView({
     latestDraft.current = draft
   }, [draft])
   useEffect(() => {
-    if (command.receipt?.status !== "completed" || !command.pending) return
-    if (acknowledgedCommand.current === command.pending.id) return
-    acknowledgedCommand.current = command.pending.id
+    if (commandReceipt?.status !== "completed" || !pendingCommand) return
+    if (acknowledgedCommand.current === pendingCommand.id) return
+    acknowledgedCommand.current = pendingCommand.id
     // 回执只清理原输入；提交后的下一稿不属于这次命令。
-    if (latestDraft.current.text === command.pending.text)
+    if (latestDraft.current.text === pendingCommand.text)
       onChange({ ...latestDraft.current, text: "", command: undefined })
-    command.acknowledge()
-  })
+    acknowledgeCommand()
+  }, [commandReceipt?.status, pendingCommand, acknowledgeCommand, onChange])
   const compactActive =
     controls.operation?.kind === "compact" &&
     ["running", "cancelling", "unknown"].includes(controls.operation.status)
@@ -292,42 +299,40 @@ export function LiveConversationView({
     controls.pending ||
     (!!forkOperation && ["running", "unknown"].includes(forkOperation.status))
   const submissionBlockedReason = receiptIssue
-    ? "请先完成原请求的本地回执处理，草稿仍保留。"
+    ? "请先处理上一条消息的发送状态，草稿已保留。"
     : pending
       ? "正在确认本次操作，草稿可继续编辑。"
       : unconfirmed
         ? pendingSubmission?.kind === "retry"
-          ? "继续请求的接收结果尚未核对；下一稿和材料可继续编辑，但尚未发送，请先核对原继续请求。"
-          : "原消息的接收结果尚未核对，草稿可继续编辑；请先核对原消息。"
+          ? "上一条继续请求仍在确认中，草稿已保留，可先检查发送状态。"
+          : "上一条消息仍在确认中，草稿已保留，可先检查发送状态。"
         : undefined
   const controlPendingReason = controls.pending
     ? controls.pendingAction === "fork"
-      ? "正在创建分支，请等待本次操作结果。"
+      ? "正在创建分支，请稍候。"
       : controls.pendingAction === "compact"
-        ? "正在提交上下文压缩，请等待本次操作结果。"
+        ? "正在压缩上下文，请稍候。"
         : controls.pendingAction === "cancel"
-          ? "正在核对取消结果，请等待本次操作结果。"
-          : "正在核对会话操作，草稿仍可编辑。"
+          ? "正在取消，请稍候。"
+          : "正在处理会话操作，草稿仍可编辑。"
     : undefined
   const mutationBlockedReason =
     (command.storageBlocked ||
     command.checking ||
     (command.pending &&
       !["completed", "failed"].includes(command.receipt?.status ?? ""))
-      ? "扩展命令正在执行或等待核对，草稿保留。"
+      ? "命令正在执行中，草稿已保留。"
       : undefined) ??
     submissionBlockedReason ??
     queueRecoveryReason ??
-    (!snapshot
-      ? "会话尚未读取完成，草稿保留；请先重新读取会话。"
-      : undefined) ??
+    (!snapshot ? "会话尚未加载完成，草稿已保留；请重试读取。" : undefined) ??
     controlPendingReason ??
     (forkBusy
       ? forkOperation?.status === "unknown"
-        ? "分支结果尚未确认，请先核对原操作。"
-        : "正在创建分支，请等待本次操作结果。"
+        ? "分支创建结果仍在确认中，请检查状态。"
+        : "正在创建分支，请稍候。"
       : controlBlocked
-        ? "上下文操作尚未完成，请先查看其状态。"
+        ? "上下文操作进行中，请稍候。"
         : undefined)
   const compactDisabledReason =
     mutationBlockedReason ??
@@ -455,13 +460,8 @@ export function LiveConversationView({
     !["check", "reload", "restart"].includes(actionIssue.recovery ?? "none")
       ? actionIssue
       : undefined
-  const receiptKey = `${id}:${pendingSubmission?.id ?? "unconfirmed"}`
-  const [receiptShown, setReceiptShown] = useState<string>()
-  const receiptReported = unconfirmed && (!pending || !!actionIssue)
-  if (receiptReported && receiptShown !== receiptKey)
-    setReceiptShown(receiptKey)
   const receiptUnknown =
-    unconfirmed && (receiptReported || receiptShown === receiptKey)
+    unconfirmed && (!pending || checkingReceipt || !!actionIssue)
   const receiptActionIssue =
     unconfirmed &&
     actionIssue &&
@@ -538,6 +538,36 @@ export function LiveConversationView({
           )?.id
       : undefined
   const runtime = running ? snapshot?.runtime : undefined
+  function headerStatus() {
+    if (approval) return "等待你的确认"
+    if (stopping) return stopUnconfirmed ? "停止结果待确认" : "正在停止"
+    if (snapshot?.command?.status === "started") return "正在执行命令"
+    if (compactActive) {
+      if (compactOperation?.status === "unknown" && !controls.pending)
+        return "压缩结果待确认"
+      if (
+        compactOperation?.status === "cancelling" ||
+        controls.pendingAction === "cancel"
+      )
+        return "正在取消压缩"
+      return "正在压缩上下文"
+    }
+    if (running) {
+      if (runtime?.phase === "retrying") return "等待重试"
+      if (runtime?.phase === "compacting") return "正在压缩上下文"
+      if (runtime?.phase === "tool") return "正在执行工具"
+      return "正在回复"
+    }
+    if (snapshot?.phase === "interrupted") return "已停止"
+    if (snapshot?.phase === "failed") return "回复失败"
+    if (snapshot?.phase === "completed") {
+      if (snapshot.queue?.paused && snapshot.queue.items.length)
+        return "待处理消息已暂停"
+      if (snapshot.messages.at(-1)?.stopReason === "length")
+        return "已达到输出上限"
+    }
+    if (pendingSubmission?.stage === "prepared") return "正在准备会话"
+  }
   const { historyItems } = useConversationHistory({
     snapshot,
     stopping,
@@ -585,8 +615,22 @@ export function LiveConversationView({
         rootRef={pageRef}
         keepComposer
         viewKey={id}
-        title={snapshot?.title ?? title}
+        title={
+          title ??
+          snapshot?.title ??
+          (pendingSubmission ? "新会话" : "正在读取会话")
+        }
         workspacePath={snapshot?.cwd ?? workspacePath}
+        lineage={
+          snapshot?.lineage
+            ? {
+                sourceTitle: snapshot.lineage.sourceTitle,
+                onOpenSource: onOpenConversation
+                  ? () => onOpenConversation(snapshot.lineage!.sourceSessionId)
+                  : undefined,
+              }
+            : undefined
+        }
         state={snapshot ? "ready" : readIssue ? "error" : "loading"}
         error={readIssue?.message}
         issue={readIssue}
@@ -594,27 +638,11 @@ export function LiveConversationView({
         retrying={readPending}
         onOpenSettings={onOpenSettings ?? data.modelCatalog?.onOpenSettings}
         readingPositions={positions}
-        connectionMessage={
-          snapshot?.lineage
-            ? `派生自 · ${snapshot.lineage.sourceTitle}`
-            : undefined
-        }
         headerActions={
           <>
             {receiptUnknown && !pendingSubmission && (
               <SubmissionReceipt checking={pending} onCheck={onReconcile} />
             )}
-            {snapshot?.lineage && onOpenConversation ? (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() =>
-                  onOpenConversation(snapshot.lineage!.sourceSessionId)
-                }
-              >
-                打开来源会话
-              </Button>
-            ) : undefined}
             {headerActions}
           </>
         }
@@ -641,45 +669,7 @@ export function LiveConversationView({
             />
           ) : undefined
         }
-        status={
-          snapshot?.approvals?.length
-            ? "等待你的确认"
-            : stopping
-              ? stopUnconfirmed
-                ? "停止结果待确认"
-                : "正在停止"
-              : snapshot?.command?.status === "started"
-                ? "正在执行命令"
-                : compactActive
-                  ? compactOperation?.status === "unknown" && !controls.pending
-                    ? "压缩结果待确认"
-                    : compactOperation?.status === "cancelling" ||
-                        controls.pendingAction === "cancel"
-                      ? "正在取消压缩"
-                      : "正在压缩上下文"
-                  : running
-                    ? runtime?.phase === "retrying"
-                      ? "等待重试"
-                      : runtime?.phase === "compacting"
-                        ? "正在压缩上下文"
-                        : runtime?.phase === "tool"
-                          ? "正在执行工具"
-                          : "正在回复"
-                    : snapshot?.phase === "interrupted"
-                      ? "已停止"
-                      : snapshot?.phase === "failed"
-                        ? "回复失败"
-                        : snapshot?.phase === "completed"
-                          ? snapshot.queue?.paused &&
-                            snapshot.queue.items.length
-                            ? "回复结束 · 待处理消息已暂停"
-                            : snapshot.messages.at(-1)?.stopReason === "length"
-                              ? "已达到输出上限"
-                              : "回复结束"
-                          : pendingSubmission?.stage === "prepared"
-                            ? "正在准备会话"
-                            : ""
-        }
+        status={headerStatus()}
         items={historyItems}
         composer={
           <ConversationComposer
@@ -726,15 +716,9 @@ export function LiveConversationView({
                       onReload()
                     }}
                   />
-                  {(snapshot?.approvals?.filter(
-                    (request) => request.kind === "tool"
-                  ).length ?? 0) > 1 && (
+                  {!!approvals && approvals.length > 1 && (
                     <p className="conversation-approval-count">
-                      还有{" "}
-                      {snapshot!.approvals!.filter(
-                        (request) => request.kind === "tool"
-                      ).length - 1}{" "}
-                      项等待确认
+                      还有 {approvals.length - 1} 项待处理
                     </p>
                   )}
                 </>

@@ -1,5 +1,11 @@
+import { ChevronDown } from "lucide-react"
 import { OperationFeedback } from "@/components/feedback/operation-feedback"
 import { Button } from "@/components/ui/button"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 import type {
   ConversationSnapshot,
   OperationIssue,
@@ -104,79 +110,88 @@ export function ConversationRecoveryBanner({
   onContinue: () => void
   mutationBlockedReason?: string
 }) {
-  const showBanner =
-    snapshot?.notice ||
-    snapshot?.historyNotice ||
-    needsResend ||
-    inlineActionIssue ||
-    draftError ||
-    receiptIssue
+  const showResend = needsResend && !pendingQueue && !unconfirmed
+  const hasRecovery =
+    showResend || inlineActionIssue || draftError || receiptIssue
+  const showBanner = snapshot?.notice || snapshot?.historyNotice || hasRecovery
 
   if (!showBanner) return null
 
   return (
-    <div className="flex flex-col gap-2">
-      {snapshot?.historyNotice && (
-        <OperationFeedback
-          notify={false}
-          density="compact"
-          title="历史记录提示"
-          message={`历史记录：${snapshot.historyNotice}`}
-          severity="info"
-        />
-      )}
-      {snapshot?.notice && (
-        <OperationFeedback
-          notify={false}
-          density="compact"
-          title={
-            snapshot.notice.kind === "input-handled"
-              ? "扩展已处理输入"
-              : "上下文压缩未完成"
-          }
-          message={`${
-            snapshot.notice.kind === "input-handled" ? "扩展输入" : "上下文压缩"
-          }：${snapshot.notice.message}`}
-          severity="warning"
-        />
-      )}
-      {needsResend && !pendingQueue && !unconfirmed && (
-        <OperationFeedback
-          notify={false}
-          density="compact"
-          title="消息尚未发送"
-          message={runIssue?.summary ?? "内容已保留，请修正后在输入框发送。"}
-          details={runIssue?.details}
-          severity={snapshot?.phase === "interrupted" ? "info" : "error"}
-          actions={
-            runIssue?.recovery === "settings" &&
-            hasModelCatalog && (
-              <Button variant="outline" size="sm" onClick={onOpenSettings}>
-                检查模型设置
-              </Button>
-            )
-          }
-        />
-      )}
-      <ConversationOperationFeedback
-        submissionKind={pendingSubmission?.kind}
-        actionIssue={inlineActionIssue}
-        draftError={draftError}
-        receiptIssue={receiptIssue}
-        onCleanReceipt={onCleanReceipt}
-        unconfirmed={false}
-        pending={
-          pending || (inlineActionIssue?.action === "stop" && stopPending)
-        }
-        readPending={readPending}
-        onReload={onReload}
-        onReconcile={onReconcile}
-        onSaveDraft={onSaveDraft}
-        onStop={onStop}
-        onContinue={onContinue}
-        continueDisabledReason={mutationBlockedReason}
-        onOpenSettings={onOpenSettings}
-      />
-    </div>
+    <Collapsible className="conversation-recovery">
+      <CollapsibleTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="conversation-recovery-trigger w-full justify-between"
+        >
+          {hasRecovery ? "查看会话恢复操作" : "查看会话提示"}
+          <ChevronDown data-icon="inline-end" />
+        </Button>
+      </CollapsibleTrigger>
+      <CollapsibleContent forceMount className="conversation-recovery-content">
+        {snapshot?.historyNotice && (
+          <OperationFeedback
+            notify={false}
+            density="compact"
+            title="历史记录提示"
+            message={snapshot.historyNotice}
+            severity="info"
+          />
+        )}
+        {snapshot?.notice && (
+          <OperationFeedback
+            notify={false}
+            density="compact"
+            title={
+              snapshot.notice.kind === "input-handled"
+                ? "扩展已处理输入"
+                : "上下文压缩未完成"
+            }
+            message={snapshot.notice.message}
+            severity="warning"
+          />
+        )}
+        {showResend && (
+          <OperationFeedback
+            notify={false}
+            density="compact"
+            title="消息尚未发送"
+            message={runIssue?.summary ?? "内容已保留，请修正后在输入框发送。"}
+            details={runIssue?.details}
+            severity={snapshot?.phase === "interrupted" ? "info" : "error"}
+            actions={
+              runIssue?.recovery === "settings" &&
+              hasModelCatalog && (
+                <Button variant="outline" size="sm" onClick={onOpenSettings}>
+                  检查模型设置
+                </Button>
+              )
+            }
+          />
+        )}
+        {(inlineActionIssue || draftError || receiptIssue) && (
+          <ConversationOperationFeedback
+            submissionKind={pendingSubmission?.kind}
+            actionIssue={inlineActionIssue}
+            draftError={draftError}
+            receiptIssue={receiptIssue}
+            onCleanReceipt={onCleanReceipt}
+            unconfirmed={false}
+            pending={
+              pending || (inlineActionIssue?.action === "stop" && stopPending)
+            }
+            readPending={readPending}
+            onReload={onReload}
+            onReconcile={onReconcile}
+            onSaveDraft={onSaveDraft}
+            onStop={onStop}
+            onContinue={onContinue}
+            continueDisabledReason={mutationBlockedReason}
+            onOpenSettings={onOpenSettings}
+          />
+        )}
+      </CollapsibleContent>
+    </Collapsible>
   )
 }
