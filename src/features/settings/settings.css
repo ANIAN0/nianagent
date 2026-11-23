@@ -54,8 +54,10 @@
 .settings-page-inner {
   display: flex;
   flex-direction: column;
-  gap: 24px;
-  max-width: 800px;
+  gap: 28px;
+  width: 100%;
+  max-width: 1120px;
+  margin-inline: auto;
 }
 .settings-page h2 {
   font-size: 20px;
@@ -143,11 +145,6 @@
 @container model-content (max-width:760px) {
   .settings-page {
     padding: 24px 16px;
-  }
-}
-@media (max-width: 767px) {
-  .settings-topbar {
-    padding-left: 56px;
   }
 }
 @container settings (max-width:430px) {

@@ -1,48 +1,55 @@
-/* 月息：月体是唯一主角；柔光与月体共享一次吸气、呼气，没有旋转或波纹。 */
-.breathing-startup,
-.startup-details-dialog {
-  --moon-copy-size: 14px;
-  --moon-copy-line: 24px;
-  --moon-control-size: 13px;
-  --moon-control-line: 24px;
-  --moon-status-weight: 500;
-}
-
-.breathing-startup {
+/* 静态入口与 React 使用相同的画布尺寸和阶段基线。 */
+.startup-surface {
+  --startup-background: var(--background, Canvas);
+  --startup-foreground: var(--foreground, CanvasText);
+  --startup-muted: var(--muted-foreground, GrayText);
+  --startup-primary: var(--primary-strong, LinkText);
   --breathing-cycle: 4.8s;
   --breathing-ease: cubic-bezier(0.45, 0, 0.55, 1);
-  min-width: 0;
-}
-
-.breathing-startup .startup-surface {
   display: grid;
   grid-template-columns: minmax(0, 480px);
-  grid-template-rows:
-    clamp(88px, calc(100svh - 480px), 160px) 44px
-    minmax(0, auto);
+  grid-template-rows: clamp(88px, calc(100svh - 480px), 160px) 44px minmax(
+      0,
+      auto
+    );
   justify-content: center;
   justify-items: center;
   align-content: start;
-  gap: 0;
+  box-sizing: border-box;
+  min-height: 100dvh;
   padding: max(28px, calc(50svh - 152px)) 24px 40px;
   isolation: isolate;
+  background: var(--startup-background);
+  color: var(--startup-foreground);
+  text-align: center;
 }
 
-/* 两层都只改变 transform / opacity；光场栅格化后不逐帧改变模糊半径。 */
-.breathing-startup .startup-surface::before,
-.breathing-startup .startup-surface::after {
-  content: "";
+:root:not(.light):not(.dark) .startup-surface {
+  color-scheme: light dark;
+  --startup-background: light-dark(#f8f9fb, #12151d);
+  --startup-foreground: light-dark(#17202f, #edf0f5);
+  --startup-muted: light-dark(#5b6574, #a0a9b7);
+  --startup-primary: light-dark(#3568d4, #6c9aef);
+}
+
+.startup-moon,
+.startup-moon-light {
   grid-area: 1 / 1;
   align-self: center;
-  border-radius: 50%;
   pointer-events: none;
 }
 
-.breathing-startup .startup-surface::before {
+.startup-moon {
+  display: contents;
+}
+
+.startup-moon::before {
+  content: "";
+  grid-area: 1 / 1;
+  align-self: center;
   z-index: 1;
   width: 76px;
   height: 80px;
-  border-radius: 0;
   background: linear-gradient(
     145deg,
     color-mix(in srgb, var(--startup-primary) 42%, var(--startup-background)),
@@ -52,14 +59,13 @@
   mask: url("./moon-phase.svg") center / contain no-repeat;
   animation: moon-body-breathe var(--breathing-cycle) var(--breathing-ease)
     infinite;
-  /* 与 index.html 静态页共享 --boot-phase：实例交接时月体相位不回卷。 */
   animation-delay: var(--boot-phase, 0ms);
 }
 
-.breathing-startup .startup-surface::after {
-  z-index: 0;
+.startup-moon-light {
   width: 240px;
   height: 240px;
+  border-radius: 50%;
   background: radial-gradient(
     circle,
     color-mix(in srgb, var(--startup-primary) 16%, transparent) 0%,
@@ -72,153 +78,63 @@
   animation-delay: var(--boot-phase, 0ms);
 }
 
-.breathing-startup .startup-surface > h1 {
-  position: static;
+.startup-surface > h1 {
   grid-area: 2 / 1;
   align-self: center;
-  width: auto;
-  height: auto;
   margin: 0;
-  padding: 0;
-  overflow: visible;
-  clip: auto;
-  clip-path: none;
-  white-space: normal;
   font-size: 28px;
   font-weight: 550;
   line-height: 40px;
   letter-spacing: -0.04em;
-  /* 入场动画只属于静态页首例；React 接管例重放即是跳变。 */
 }
 
-.breathing-startup .startup-wait,
-.breathing-startup .startup-failure {
+.startup-wait,
+.startup-failure {
   grid-area: 3 / 1;
   align-self: start;
   padding-top: 10px;
 }
 
-/* 阶段细节退到详情弹窗；画面只留月体、字标与详情入口，读屏仍能听见阶段。 */
-.breathing-startup .startup-stage {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-  border: 0;
+.startup-surface .startup-stage,
+.startup-exit-instruction,
+.startup-failure > p {
+  margin: 0;
+  color: var(--startup-muted);
+  font-size: 13px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
 }
 
-.breathing-startup .startup-wait > .startup-dot {
-  display: none;
+.startup-failure > h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 24px;
+  overflow-wrap: anywhere;
 }
 
-.breathing-startup .startup-stage {
-  font-size: var(--moon-copy-size);
-  line-height: var(--moon-copy-line);
-}
-
-.breathing-startup .startup-disclosure {
+.startup-details-trigger,
+.startup-exit-instruction,
+.startup-actions {
   grid-column: 1;
   margin-top: 8px;
-  animation: moon-enter 250ms ease-out;
 }
 
-.breathing-startup .startup-toggle {
-  min-height: 32px;
-  padding: 4px 14px;
-  border: none;
-  border-radius: 9999px;
-  background: color-mix(in srgb, var(--startup-foreground) 4%, transparent);
-  color: color-mix(in srgb, var(--startup-foreground) 72%, var(--startup-muted));
-  font-size: var(--moon-control-size);
-  line-height: var(--moon-control-line);
-  transition:
-    color 150ms ease,
-    background-color 150ms ease;
-}
-
-/* 次要动作是一枚浅底胶囊：有面无声，不与唯一实心的重试争抢。 */
-.breathing-startup .startup-toggle:hover:not(:disabled) {
-  color: var(--startup-foreground);
-  background: color-mix(in srgb, var(--startup-foreground) 8%, transparent);
-}
-
-.breathing-startup .startup-toggle:active:not(:disabled) {
-  background: color-mix(in srgb, var(--startup-foreground) 12%, transparent);
-}
-
-/* 描边胶囊自带分组，同行动作不再用“·”分隔。 */
-.breathing-startup .startup-secondary {
+.startup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: 8px;
 }
 
-.breathing-startup .startup-secondary-sep {
-  display: none;
-}
-
-.breathing-startup .startup-failure {
-  gap: 8px;
-}
-
-.breathing-startup .startup-failure h2 {
-  font-size: var(--moon-copy-size);
-  font-weight: var(--moon-status-weight);
-  line-height: var(--moon-copy-line);
-}
-
-.breathing-startup .startup-exit-instruction {
-  width: min(100%, 360px);
-  font-size: var(--moon-copy-size);
-  line-height: var(--moon-copy-line);
-}
-
-.breathing-startup .startup-surface .startup-actions {
-  grid-column: 1;
-  margin: 16px 0 8px;
-}
-
-.breathing-startup .startup-actions > [data-slot="button"] {
-  min-inline-size: 120px;
-  border-radius: 9999px;
-}
-
-/* 恢复动作静置不带图标；加载时图标回来充当指示器，原标签保持不变。 */
-.breathing-startup .startup-actions [data-icon="inline-start"] {
-  display: none;
-}
-
-.breathing-startup
-  .startup-surface[data-pending="retry"]
-  .startup-actions
-  [data-icon="inline-start"] {
-  display: block;
-}
-
-.breathing-startup .startup-secondary,
-.breathing-startup .startup-exit-instruction {
-  grid-column: 1;
-}
-
-.breathing-startup .startup-exit-instruction {
-  margin-top: 16px;
-}
-
-/* 阅读详情期间暂停背景，关闭后从原来的呼吸位置继续。 */
-.breathing-startup:has([aria-haspopup="dialog"][data-state="open"])
-  .startup-surface::before,
-.breathing-startup:has([aria-haspopup="dialog"][data-state="open"])
-  .startup-surface::after {
-  animation-play-state: paused;
-}
-
-/* 失败留在同一品牌锚点，暂停当前呼吸；真实重试继续呼吸，不改变布局。 */
-.breathing-startup
-  .startup-surface[data-status="failed"]:not([data-pending="retry"])::before,
-.breathing-startup
-  .startup-surface[data-status="failed"]:not([data-pending="retry"])::after {
+.startup-surface:has([aria-haspopup="dialog"][data-state="open"])
+  .startup-moon::before,
+.startup-surface:has([aria-haspopup="dialog"][data-state="open"])
+  .startup-moon-light,
+.startup-surface[data-status="failed"]:not([data-pending="retry"])
+  .startup-moon::before,
+.startup-surface[data-status="failed"]:not([data-pending="retry"])
+  .startup-moon-light {
   animation-play-state: paused;
 }
 
@@ -246,24 +162,9 @@
   }
 }
 
-@keyframes moon-enter {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .breathing-startup .startup-surface::before,
-  .breathing-startup .startup-surface::after,
-  .breathing-startup .startup-surface *,
-  .breathing-startup .startup-surface *::before,
-  .breathing-startup .startup-surface *::after {
+  .startup-moon::before,
+  .startup-moon-light {
     animation: none;
-    transition: none;
   }
 }

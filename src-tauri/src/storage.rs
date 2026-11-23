@@ -6,10 +6,13 @@ use std::{
     fs::{self, File, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
-    process::Command,
     sync::Arc,
+    time::Instant,
 };
 use uuid::Uuid;
+
+#[cfg(windows)]
+mod windows_acl;
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -36,7 +39,6 @@ pub struct StoragePaths {
     pub marker: DataMarker,
     pub source: StorageSource,
     pub _locks: Arc<Vec<File>>,
-    pub initial_used_bytes: u64,
 }
 pub fn text(path: &Path) -> String {
     dunce::simplified(path).to_string_lossy().into_owned()
@@ -116,6 +118,7 @@ pub fn reject_links(path: &Path) -> Result<(), String> {
 pub fn private_directory(path: &Path, create: bool) -> Result<(), String> {
     reject_links(path)?;
     let existed = path.exists();
+    #[cfg(windows)]
     let empty = !existed || fs::read_dir(path).is_ok_and(|mut entries| entries.next().is_none());
     if create {
         fs::create_dir_all(path)
@@ -123,19 +126,8 @@ pub fn private_directory(path: &Path, create: bool) -> Result<(), String> {
     }
     #[cfg(windows)]
     {
-        // Windows权限使用实际DACL，不把POSIX mode当作私密性证明。脚本固定，路径仅经环境参数传入。
-        let script = r#"$ErrorActionPreference='Stop'; $p=$env:MOON_ACL_PATH; $sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User; $prior=[IO.Directory]::GetAccessControl($p); if($env:MOON_ACL_NEW -ne '1' -and $prior.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -ne $sid.Value){throw 'unsafe owner'}; if($env:MOON_ACL_CREATE -eq '1'){ $a=[System.Security.AccessControl.DirectorySecurity]::new(); if($prior.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -ne $sid.Value){$a.SetOwner($sid)}; $a.SetAccessRuleProtection($true,$false); foreach($s in @($sid.Value,'S-1-5-18','S-1-5-32-544')) { $id=[System.Security.Principal.SecurityIdentifier]::new($s); $r=[System.Security.AccessControl.FileSystemAccessRule]::new($id,'FullControl','ContainerInherit,ObjectInherit','None','Allow'); $a.AddAccessRule($r) }; [IO.Directory]::SetAccessControl($p,$a) }; $a=[IO.Directory]::GetAccessControl($p); if($a.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -ne $sid.Value -or -not $a.AreAccessRulesProtected){throw 'unsafe owner or inheritance'}; $full=$false; foreach($r in $a.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier])){ if($r.AccessControlType -eq 'Allow'){ $s=$r.IdentityReference.Value; if($s -notin @($sid.Value,'S-1-5-18','S-1-5-32-544')){throw 'unsafe ACL'}; if($s -eq $sid.Value -and ($r.FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::FullControl) -eq [System.Security.AccessControl.FileSystemRights]::FullControl){$full=$true} } }; if(-not $full){throw 'current user full control required'}; $f=Join-Path $p ('.moon-permission-'+[guid]::NewGuid().ToString()); [IO.File]::WriteAllText($f,''); [IO.File]::Delete($f)"#;
-        let mut command = Command::new("powershell.exe");
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x08000000);
-        let status = command
-            .args(["-NoProfile", "-NonInteractive", "-Command", script])
-            .env("MOON_ACL_PATH", dunce::simplified(path))
-            .env("MOON_ACL_CREATE", if create && empty { "1" } else { "0" })
-            .env("MOON_ACL_NEW", if !existed { "1" } else { "0" })
-            .output()
-            .map_err(|_| "无法核验Windows数据目录权限。")?;
-        if !status.status.success() {
+        reject_links(path)?;
+        if windows_acl::verify(path, existed, create && empty).is_err() {
             return Err(format!(
                 "目录必须由当前用户独占读写：{}。请选择新的私有专用目录。",
                 text(path)
@@ -156,7 +148,13 @@ pub fn private_directory(path: &Path, create: bool) -> Result<(), String> {
     Ok(())
 }
 impl StoragePaths {
-    pub fn initialize() -> Result<Self, String> {
+    pub fn initialize(mut record_step: impl FnMut(&'static str, u128)) -> Result<Self, String> {
+        let mut check_private_directory = |name, path: &Path, create| {
+            let started = Instant::now();
+            let result = private_directory(path, create);
+            record_step(name, started.elapsed().as_millis());
+            result
+        };
         let install = dunce::canonicalize(
             std::env::current_exe()
                 .map_err(|_| "无法定位Moon程序。")?
@@ -171,9 +169,9 @@ impl StoragePaths {
         };
         // 安装根与引导控制目录同样必须私有，防止其他用户替换bootstrap。
         reject_links(&base)?;
-        private_directory(&base, true)?;
+        check_private_directory("startup.storage_private_base", &base, true)?;
         let control = base.join(".moon-control");
-        private_directory(&control, true)?;
+        check_private_directory("startup.storage_private_control", &control, true)?;
         let installation_lock = exclusive(&control.join("installation.lock"))?;
         let bootstrap_file = base.join(if cfg!(debug_assertions) {
             "bootstrap.json"
@@ -195,7 +193,11 @@ impl StoragePaths {
             let default_data = base.join("data");
             let orphan_marker = default_data.join("moon-data.json");
             let data_set_id = if override_root.is_none() && orphan_marker.exists() {
-                private_directory(&default_data, false)?;
+                check_private_directory(
+                    "startup.storage_private_recovered_data",
+                    &default_data,
+                    false,
+                )?;
                 let marker: DataMarker = serde_json::from_value(read_json(&orphan_marker)?)
                     .map_err(|_| "默认数据集标记损坏，原目录保留。")?;
                 if marker.schema_version != 1
@@ -250,7 +252,7 @@ impl StoragePaths {
             bootstrap.generation += 1;
             relocated = true;
         }
-        // 旧版首启由StartupGate在创建业务根/profile之前处理；这里仅初始化正常权威根。
+        // 直接初始化或加载当前权威数据根；旧版数据可通过设置页按需手动导入。
         let marker_file = data.join("moon-data.json");
         let marker: DataMarker = if marker_file.exists() {
             let value: DataMarker = serde_json::from_value(read_json(&marker_file)?)
@@ -270,7 +272,7 @@ impl StoragePaths {
                     "未标记的非空数据目录不能直接接管，请选择新的空目录或恢复原引导。".into(),
                 );
             }
-            private_directory(&data, true)?;
+            check_private_directory("startup.storage_private_create_data", &data, true)?;
             // The directory exists before its durable initialization intent;
             // a restart can therefore reuse this exact ID before marker write.
             if override_root.is_none() && !existing {
@@ -296,7 +298,7 @@ impl StoragePaths {
                 "当前Moon版本低于数据最低兼容版本，请使用更新的程序；不会降级或清空数据。".into(),
             );
         }
-        private_directory(&data, false)?;
+        check_private_directory("startup.storage_private_data", &data, false)?;
         let dataset_lock = exclusive(&data.join(".moon-data.lock"))?;
         for directory in ["tmp", "logs", "updates", "maintenance", "webview", "agent"] {
             fs::create_dir_all(data.join(directory)).map_err(|_| "无法创建Moon数据子目录。")?;
@@ -309,19 +311,27 @@ impl StoragePaths {
         }
         #[cfg(windows)]
         {
-            use std::os::windows::process::CommandExt;
-            for hive in ["HKCU", "HKLM"] {
-                if Command::new("reg.exe")
-                    .creation_flags(0x08000000)
-                    .args([
-                        "query",
-                        &format!(
-                            r"{hive}\Software\Policies\Microsoft\Edge\WebView2\UserDataFolder"
-                        ),
-                    ])
-                    .output()
-                    .is_ok_and(|result| result.status.success())
-                {
+            use windows_core::w;
+            use windows_sys::Win32::{
+                Foundation::ERROR_SUCCESS,
+                System::Registry::{
+                    HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, RegCloseKey, RegOpenKeyExW,
+                },
+            };
+            let policy = w!(r"Software\Policies\Microsoft\Edge\WebView2\UserDataFolder");
+            for (hive, event) in [
+                (HKEY_CURRENT_USER, "startup.storage_registry_user"),
+                (HKEY_LOCAL_MACHINE, "startup.storage_registry_machine"),
+            ] {
+                let started = Instant::now();
+                let mut key = std::ptr::null_mut();
+                let status = unsafe { RegOpenKeyExW(hive, policy.as_ptr(), 0, KEY_READ, &mut key) };
+                let policy_present = status == ERROR_SUCCESS;
+                if policy_present {
+                    unsafe { RegCloseKey(key) };
+                }
+                record_step(event, started.elapsed().as_millis());
+                if policy_present {
                     return Err(
                         "检测到Windows WebView2数据目录策略覆盖，请先由系统管理员移除冲突策略。"
                             .into(),
@@ -348,9 +358,14 @@ impl StoragePaths {
         } else {
             StorageSource::Custom
         };
-        let initial_used_bytes = directory_size(&data)?;
+        let check_started = Instant::now();
+        reject_links(&data)?;
+        walk_storage_files(&data, false, &mut |_| {})?;
+        record_step(
+            "startup.storage_validate_tree",
+            check_started.elapsed().as_millis(),
+        );
         Ok(Self {
-            initial_used_bytes,
             install,
             control,
             bootstrap_file,
@@ -403,7 +418,7 @@ impl StoragePaths {
             legacy_copy_retained: !retained.is_empty(),
             directory_mappings: mappings,
             retained_copy_directories: retained,
-            used_bytes: self.initial_used_bytes,
+            used_bytes: None,
             available_bytes: fs2::available_space(&self.data).ok(),
         }
     }
@@ -438,25 +453,63 @@ impl StoragePaths {
     }
 }
 
-fn directory_size(path: &Path) -> Result<u64, String> {
-    let mut bytes = 0u64;
-    for entry in fs::read_dir(path).map_err(|_| "无法统计数据目录，未继续启动。")? {
-        let path = entry.map_err(|_| "无法读取数据文件元数据。")?.path();
-        reject_links(&path)?;
-        let metadata = fs::metadata(&path).map_err(|_| "无法读取数据文件大小。")?;
-        bytes = bytes.saturating_add(if metadata.is_dir() {
-            directory_size(&path)?
-        } else {
-            metadata.len()
-        });
+fn reject_entry_link(meta: &fs::Metadata) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        if meta.file_attributes() & 0x400 != 0 {
+            return Err("数据路径包含链接或junction，请选择真实专用目录。".into());
+        }
     }
+    if meta.file_type().is_symlink() {
+        return Err("数据路径包含符号链接。".into());
+    }
+    Ok(())
+}
+
+fn walk_storage_files(
+    path: &Path,
+    refresh_file_metadata: bool,
+    visit_file: &mut impl FnMut(u64),
+) -> Result<(), String> {
+    for entry in fs::read_dir(path).map_err(|_| "无法读取数据目录。")? {
+        let metadata_error = |_| "无法读取数据文件元数据。";
+        let entry = entry.map_err(metadata_error)?;
+        #[cfg(windows)]
+        if !refresh_file_metadata {
+            // Windows 枚举已返回每个文件的大小和 reparse 属性，无需逐文件重新打开。
+            let metadata = entry.metadata().map_err(metadata_error)?;
+            reject_entry_link(&metadata)?;
+            if !metadata.is_dir() {
+                visit_file(metadata.len());
+                continue;
+            }
+        }
+        // 下降到子目录及维护复制前，按路径核对当前文件类型，不跟随链接。
+        let path = entry.path();
+        let metadata = fs::symlink_metadata(&path).map_err(metadata_error)?;
+        reject_entry_link(&metadata)?;
+        if metadata.is_dir() {
+            walk_storage_files(&path, refresh_file_metadata, visit_file)?;
+        } else {
+            visit_file(metadata.len());
+        }
+    }
+    Ok(())
+}
+
+pub fn measure_capacity(path: &Path) -> Result<u64, String> {
+    reject_links(path)?;
+    let mut bytes = 0u64;
+    walk_storage_files(path, false, &mut |size| bytes = bytes.saturating_add(size))?;
     Ok(bytes)
 }
 
 /// 离线复制前重新核验整个业务树，覆盖普通symlink之外的所有Windows reparse类型。
 pub fn validate_tree(path: &Path) -> Result<(), String> {
     if path.exists() {
-        directory_size(path)?;
+        reject_links(path)?;
+        walk_storage_files(path, true, &mut |_| {})?;
     }
     Ok(())
 }

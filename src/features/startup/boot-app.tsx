@@ -1,6 +1,7 @@
 import { isTauri } from "@tauri-apps/api/core"
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   useSyncExternalStore,
@@ -10,8 +11,8 @@ import type { BootStage } from "@/contracts/desktop.generated"
 import { ThemeProvider } from "@/components/theme-provider"
 import { recoverStartupProfile } from "@/features/settings/startup-recovery"
 import { createBootService } from "./boot-service"
-import type { StartupStep } from "./startup-surface"
-import { BreathingStartupSurface as StartupSurface } from "./breathing/startup-breathing"
+import { StartupSurface, type StartupStep } from "./startup-surface"
+import { markStartup } from "./boot-epoch"
 import { loadStartupModule } from "./startup-bootstrap"
 
 const stages: Exclude<BootStage, "ready">[] = [
@@ -58,6 +59,9 @@ export default function BootApp({
   const [exitInstruction, setExitInstruction] = useState<string | null>(null)
   const inFlight = useRef(false)
   const lifetime = useRef(0)
+  useLayoutEffect(() => {
+    markStartup("bootAppCommitted")
+  }, [])
   useEffect(() => {
     lifetime.current += 1
     const stop = service.start()
@@ -68,6 +72,14 @@ export default function BootApp({
   }, [service])
   const snapshot = view.snapshot
   const desktop = isTauri()
+  useEffect(() => {
+    if (!desktop) return
+    markStartup("prefetchAppEntry")
+    // 并行取得入口模块；profile 恢复和工作台安装仍由宿主阶段控制。
+    void loadWorkbench().catch(() => {
+      // 进入 workbench 阶段后，由正式加载处理错误及恢复。
+    })
+  }, [desktop, loadWorkbench])
   const attemptId = snapshot?.attemptId
   const phase = snapshot?.phase
   const stage = snapshot?.stage
@@ -113,12 +125,16 @@ export default function BootApp({
       try {
         if (currentStage === "frontendProfile") {
           setFrontendStage("frontendProfile")
+          markStartup("restoreProfile")
           recoverStartupProfile(currentStorage)
+          markStartup("profileRestored")
         }
         if (alreadyReady || currentStage === "workbench") {
           currentStage = "workbench"
           setFrontendStage("workbench")
+          markStartup("awaitWorkbench")
           const module = await loadStartupModule(loadWorkbench())
+          markStartup("workbenchModuleReady")
           if (disposed) return
           loadedIdentity.current = pageIdentity
           setLoadedPageIdentity(pageIdentity)
@@ -250,7 +266,7 @@ export default function BootApp({
   const diagnostics =
     issue?.diagnostics ??
     (failed
-      ? `Moon 启动诊断\n环境：${desktop ? "桌面" : "浏览器开发"}\n阶段：${steps.find((step) => step.status === "failed")?.label ?? "读取启动状态"}\n原因：${message ?? "启动结果待核对。"}`
+      ? `moon 启动诊断\n环境：${desktop ? "桌面" : "浏览器开发"}\n阶段：${steps.find((step) => step.status === "failed")?.label ?? "读取启动状态"}\n原因：${message ?? "启动结果待核对。"}`
       : "")
   const canRetry =
     failed && (view.issue !== null || !desktop || snapshot?.capabilities.retry)
@@ -266,7 +282,7 @@ export default function BootApp({
         else {
           // 浏览器无权结束桌面服务；关闭不被允许时留真实指引，不能伪装已退出。
           window.close()
-          setExitInstruction("请关闭此页面。浏览器页面不会结束 Moon 桌面服务。")
+          setExitInstruction("请关闭此页面。浏览器页面不会结束 moon 桌面服务。")
         }
       } else if (view.issue && desktop) await service.refresh()
       else if (desktop && snapshot?.capabilities.retry) {
@@ -340,7 +356,7 @@ export default function BootApp({
         exitInstruction={exitInstruction}
       />
     )
-  // 原生COM/profile核验前不读写localStorage；验证后首次挂载唯一持久主题Provider。
+  // 原生 COM 核验通过后，现有 Provider 才读取持久主题。
   const profileProven =
     !!storage &&
     (phase === "waitingFrontend" ||
@@ -349,14 +365,7 @@ export default function BootApp({
         (stage === "frontendProfile" || stage === "workbench")))
   const persistentTheme = !desktop || profileProven
   return (
-    <ThemeProvider
-      key={
-        persistentTheme
-          ? `profile:${dataSetId ?? "browser"}:${generation ?? 0}`
-          : "unverified"
-      }
-      storageKey={persistentTheme ? "theme" : null}
-    >
+    <ThemeProvider storageKey={persistentTheme ? "theme" : null}>
       {content}
     </ThemeProvider>
   )

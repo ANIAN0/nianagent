@@ -8,3 +8,10 @@ export function bootEpoch(): number {
 export function bootElapsed(): number {
   return performance.now() - bootEpoch()
 }
+
+/** 固定阶段名供本地 Performance 面板和验收读取，不包含用户数据。 */
+export function markStartup(stage: string) {
+  const name = `moon.startup.${stage}`
+  if (performance.getEntriesByName(name, "mark").length === 0)
+    performance.mark(name)
+}

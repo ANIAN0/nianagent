@@ -33,7 +33,7 @@ export const unavailableDesktopIssue: DesktopIssue = {
   recovery: "none",
   activities: [],
   message:
-    "当前为浏览器开发环境。请在 Moon 桌面开发窗口中查看数据目录、迁移数据及检查更新。",
+    "当前为浏览器开发环境。请在 moon 桌面开发窗口中查看数据目录、迁移数据及检查更新。",
 }
 function commandIssue(error: unknown): DesktopIssue {
   if (

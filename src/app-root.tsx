@@ -1,17 +1,21 @@
 import { Component, lazy, StrictMode, Suspense, type ReactNode } from "react"
 import { createRoot } from "react-dom/client"
 import { TooltipProvider } from "@/components/ui/tooltip"
-import { ThemeProvider } from "@/components/theme-provider"
-import { BreathingStartupSurface as StartupSurface } from "@/features/startup/breathing/startup-breathing"
+import { StartupSurface } from "@/features/startup/startup-surface"
 import {
   loadStartupModule,
   startupExitAction,
 } from "@/features/startup/startup-bootstrap"
+import { markStartup } from "@/features/startup/boot-epoch"
 import { isRemoteWeb } from "@/lib/rpc/remote-transport"
 
-const startup =
-  new URLSearchParams(window.location.search).get("moon-startup") === "1"
-const loadWorkbench = () => import("./app-entry")
+const loadWorkbench = () => {
+  markStartup("loadAppEntry")
+  return import("./app-entry").then((entry) => {
+    markStartup("appEntryLoaded")
+    return entry
+  })
+}
 const remotePortModules = import.meta.glob<{
   registerRemoteAccessPorts: () => void
 }>("../backend/plugins/remote-access/register-ports.ts")
@@ -29,11 +33,10 @@ async function loadRemoteEntry() {
 const Entry = lazy(() =>
   isRemoteWeb()
     ? loadRemoteEntry()
-    : loadStartupModule(
-        startup
-          ? import("@/features/startup/startup-migration-app")
-          : import("@/features/startup/boot-app")
-      )
+    : loadStartupModule(import("@/features/startup/boot-app")).then((entry) => {
+        markStartup("bootAppLoaded")
+        return entry
+      })
 )
 const loadingSteps = [
   { id: "interface", label: "加载启动界面", status: "active" as const },
@@ -86,7 +89,7 @@ class StartupEntryBoundary extends Component<
             },
           ]}
           diagnostics={
-            "Moon 启动诊断\n阶段：加载启动界面\n原因：界面资源未能加载或显示。"
+            "moon 启动诊断\n阶段：加载启动界面\n原因：界面资源未能加载或显示。"
           }
           retryLabel="重新加载"
           onRetry={() => window.location.reload()}
@@ -102,7 +105,7 @@ class StartupEntryBoundary extends Component<
                       if (!this.disposed)
                         this.setState({
                           exitMessage:
-                            "未能确认退出，请关闭此窗口后重新打开 Moon。",
+                            "未能确认退出，请关闭此窗口后重新打开 moon。",
                         })
                     })
                     .finally(() => {
@@ -114,7 +117,7 @@ class StartupEntryBoundary extends Component<
           exitInstruction={
             this.state.exitMessage ??
             (!this.state.exit
-              ? "若仍无法加载，请关闭此窗口后重新打开 Moon。"
+              ? "若仍无法加载，请关闭此窗口后重新打开 moon。"
               : null)
           }
         />
@@ -124,6 +127,7 @@ class StartupEntryBoundary extends Component<
 }
 
 export function mountApplication() {
+  markStartup("mountReact")
   const entry = (
     <TooltipProvider>
       <Suspense
@@ -135,13 +139,7 @@ export function mountApplication() {
   )
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
-      <StartupEntryBoundary>
-        {startup ? (
-          <ThemeProvider storageKey={null}>{entry}</ThemeProvider>
-        ) : (
-          entry
-        )}
-      </StartupEntryBoundary>
+      <StartupEntryBoundary>{entry}</StartupEntryBoundary>
     </StrictMode>
   )
 }

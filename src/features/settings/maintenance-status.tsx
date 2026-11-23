@@ -13,7 +13,7 @@ const labels: Record<MaintenancePhase, string> = {
   copying: "正在复制数据…",
   validating: "正在验证数据…",
   committing: "正在启用新目录…",
-  handedOff: "已交接维护，请等待 Moon 重启",
+  handedOff: "已交接维护，请等待 moon 重启",
   succeeded: "维护已完成",
   failed: "维护未完成",
   unknown: "维护结果待核对",

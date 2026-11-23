@@ -6,14 +6,21 @@ import {
 import { McpSettings } from "@/features/mcp/mcp-settings"
 import type { McpService } from "@/features/mcp/mcp-service"
 import type { LeaveGuard } from "@/lib/navigation/leave-guard"
+import type { Conversation } from "@/lib/composer/types"
 import { SettingsShell, type SettingsSection } from "./settings-shell"
+import { ArchivedConversationsSettings } from "./archived-conversations-settings"
 import { StorageSettings } from "./storage-settings"
+import { DesignGuidelinesSettings } from "./design-guidelines-settings"
 import { UpdateSettings } from "./update-settings"
-import "@/features/plugins/plugins.css"
+import { GeneralSettings, type WorkspaceSettingsPort } from "./general-settings"
 
 export type SettingsPageProps = Omit<ModelSettingsContentProps, "section"> & {
   mcpService?: McpService
   onReturn: () => void
+  workspaces: WorkspaceSettingsPort
+  pendingConversations: Conversation[]
+  onOpenConversation: (id: string) => void
+  onUnarchived?: () => void
   /** 受控分区：归属 App 持有，主导航与设置内导航由此保持同一事实。 */
   section: SettingsSection
   onSectionChange: (section: SettingsSection) => void
@@ -24,6 +31,10 @@ export function SettingsPage({
   section,
   onSectionChange,
   mcpService,
+  workspaces,
+  pendingConversations,
+  onOpenConversation,
+  onUnarchived,
   ...models
 }: SettingsPageProps) {
   const guard = useRef<LeaveGuard | null>(null)
@@ -41,7 +52,9 @@ export function SettingsPage({
   return (
     <SettingsShell
       section={section}
-      onReturn={() => leave(onReturn)}
+      onReturn={onReturn}
+      pendingConversations={pendingConversations}
+      onOpenConversation={onOpenConversation}
       onSelect={(next) => {
         if (next !== section)
           leave(() => {
@@ -50,16 +63,24 @@ export function SettingsPage({
           })
       }}
     >
+      {section === "general" && <GeneralSettings workspaces={workspaces} />}
+      {section === "archived" && (
+        <ArchivedConversationsSettings
+          onUnarchived={onUnarchived}
+          onOpenConversation={onOpenConversation}
+        />
+      )}
       {section === "models" && (
         <ModelSettingsContent {...models} registerLeave={register} />
       )}
       {section === "mcp" && (
-        <div className="h-full min-h-0" aria-label="MCP 设置">
+        <div className="h-full min-h-0" aria-label="入站 MCP 设置">
           <McpSettings service={mcpService} registerLeave={register} />
         </div>
       )}
-      {section === "storage" && <StorageSettings />}
-      {section === "updates" && <UpdateSettings />}
+      {section === "storage" && <StorageSettings registerLeave={register} />}
+      {section === "guidelines" && <DesignGuidelinesSettings />}
+      {section === "updates" && <UpdateSettings registerLeave={register} />}
     </SettingsShell>
   )
 }

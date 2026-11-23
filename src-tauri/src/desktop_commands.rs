@@ -3,9 +3,9 @@ use crate::{
     desktop_runtime::{self, DesktopResult, DesktopRuntime, issue},
     migration,
     models::ModelBackend,
-    startup, storage,
+    storage::{self, DataMarker},
 };
-use serde_json::json;
+use serde_json::{Value, json};
 use std::{path::PathBuf, process::Command, time::Duration};
 use tauri::{AppHandle, Manager, State};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
@@ -37,135 +37,51 @@ fn migration_issue(error: StartupIssue) -> DesktopIssue {
 }
 
 #[tauri::command]
-pub fn startup_get_state(app: AppHandle) -> StartupState {
-    app.try_state::<std::sync::Arc<startup::StartupGate>>()
-        .map(|service| service.snapshot())
-}
-#[tauri::command]
-pub async fn startup_choose_directory(app: AppHandle) -> DesktopResult<Option<String>> {
-    let service = startup::service(&app)?;
-    if !service.snapshot().capabilities.choose_directory {
-        return Err(issue(
-            IssueCode::Busy,
-            "迁移正在处理，暂时不能选择目录。",
-            RecoveryAction::Wait,
-        ));
-    }
-    tauri::async_runtime::spawn_blocking(move || {
-        let choice = rfd::FileDialog::new()
-            .set_title("选择Moon专用数据目录")
-            .pick_folder()
-            .map(|path| storage::text(&path));
-        if let Some(path) = &choice {
-            service.invalidate_choice(&app, path)?;
-        }
-        Ok(choice)
-    })
-    .await
-    .map_err(|_| {
-        issue(
-            IssueCode::Internal,
-            "目录选择失败，请重试。",
-            RecoveryAction::Retry,
-        )
-    })?
-}
-#[tauri::command]
-pub async fn startup_prepare_migration(
-    app: AppHandle,
-    input: MigrationPrepareInput,
-) -> DesktopResult<StartupSnapshot> {
-    let service = startup::service(&app)?;
-    tauri::async_runtime::spawn_blocking(move || service.prepare(&app, input))
-        .await
-        .map_err(|_| {
-            issue(
-                IssueCode::Internal,
-                "目录预检任务未能完成，请重新读取状态。",
-                RecoveryAction::Retry,
-            )
-        })?
-}
-#[tauri::command]
-pub fn startup_start_migration(
-    app: AppHandle,
-    input: StartupStartInput,
-) -> DesktopResult<StartupSnapshot> {
-    startup::service(&app)?.start(&app, input)
-}
-#[tauri::command]
-pub async fn startup_prepare_fresh(
-    app: AppHandle,
-    input: MigrationPrepareInput,
-) -> DesktopResult<StartupSnapshot> {
-    let service = startup::service(&app)?;
-    tauri::async_runtime::spawn_blocking(move || service.prepare_fresh(&app, input))
-        .await
-        .map_err(|_| {
-            issue(
-                IssueCode::Internal,
-                "新数据集目录预检未完成，请读取当前状态。",
-                RecoveryAction::Retry,
-            )
-        })?
-}
-#[tauri::command]
-pub fn startup_start_fresh(
-    app: AppHandle,
-    input: StartupStartInput,
-) -> DesktopResult<StartupSnapshot> {
-    startup::service(&app)?.start_fresh(&app, input)
-}
-#[tauri::command]
-pub async fn startup_retry_migration(
-    app: AppHandle,
-    input: StartupOperationInput,
-) -> DesktopResult<StartupSnapshot> {
-    let service = startup::service(&app)?;
-    tauri::async_runtime::spawn_blocking(move || service.retry(&app, input))
-        .await
-        .map_err(|_| {
-            issue(
-                IssueCode::Internal,
-                "迁移重试任务未能完成，请重新读取状态。",
-                RecoveryAction::Retry,
-            )
-        })?
-}
-#[tauri::command]
-pub fn startup_open_diagnostics(app: AppHandle) -> DesktopResult<()> {
-    open_directory(&storage::text(&startup::service(&app)?.control))
-}
-#[tauri::command]
-pub async fn startup_continue(app: AppHandle, input: StartupOperationInput) -> DesktopResult<()> {
-    let service = startup::service(&app)?;
-    tauri::async_runtime::spawn_blocking(move || service.continue_startup(&app, input))
-        .await
-        .map_err(|_| {
-            issue(
-                IssueCode::Internal,
-                "启动交接未能完成，请读取当前恢复说明。",
-                RecoveryAction::Retry,
-            )
-        })?
-}
-#[tauri::command]
-pub fn startup_exit(app: AppHandle) -> DesktopResult<()> {
-    if !startup::service(&app)?.snapshot().capabilities.exit {
-        return Err(issue(
-            IssueCode::Busy,
-            "迁移正在处理，请等待当前操作结束。",
-            RecoveryAction::Wait,
-        ));
-    }
-    app.exit(0);
-    Ok(())
-}
-
-#[tauri::command]
 pub fn desktop_get_state(service: State<'_, DesktopRuntime>) -> DesktopSnapshot {
     service.snapshot()
 }
+#[tauri::command]
+pub async fn storage_measure_capacity(
+    service: State<'_, DesktopRuntime>,
+    input: StorageCapacityInput,
+) -> DesktopResult<StorageCapacity> {
+    let current = || {
+        let snapshot = service.snapshot();
+        if snapshot.storage.data_set_id != input.data_set_id
+            || snapshot.storage.generation != input.generation
+        {
+            return Err(issue(
+                IssueCode::Validation,
+                "数据目录身份已变化，请刷新存储状态。",
+                RecoveryAction::Retry,
+            ));
+        }
+        if snapshot.maintenance.writes_frozen {
+            return Err(issue(
+                IssueCode::Busy,
+                "维护期间暂停统计容量。",
+                RecoveryAction::Wait,
+            ));
+        }
+        Ok(())
+    };
+    current()?;
+    let path = service.paths.data.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || storage::measure_capacity(&path))
+        .await
+        .map_err(|_| {
+            issue(
+                IssueCode::Internal,
+                "容量统计未完成，请重试。",
+                RecoveryAction::Retry,
+            )
+        })?;
+    current()?;
+    let used_bytes =
+        result.map_err(|message| issue(IssueCode::Unknown, message, RecoveryAction::Retry))?;
+    Ok(StorageCapacity { used_bytes })
+}
+
 pub(crate) fn open_directory(path: &str) -> DesktopResult<()> {
     let path = PathBuf::from(path);
     storage::reject_links(&path)
@@ -204,6 +120,62 @@ pub fn desktop_open_data_directory(service: State<'_, DesktopRuntime>) -> Deskto
     open_directory(&storage::text(&service.paths.data))
 }
 #[tauri::command]
+pub fn desktop_open_log_directory(service: State<'_, DesktopRuntime>) -> DesktopResult<()> {
+    open_directory(&storage::text(&service.paths.data.join("logs")))
+}
+#[tauri::command]
+pub async fn desktop_export_diagnostics(
+    service: State<'_, DesktopRuntime>,
+) -> DesktopResult<Option<String>> {
+    let snapshot = service.snapshot();
+    let report = json!({
+        "version": snapshot.version,
+        "platform": snapshot.platform,
+        "architecture": snapshot.architecture,
+        "development": snapshot.development,
+        "storageSource": snapshot.storage.source,
+        "storageSchemaVersion": snapshot.storage.schema_version,
+        "maintenanceKind": snapshot.maintenance.kind,
+        "maintenancePhase": snapshot.maintenance.phase,
+        "maintenanceIssueCode": snapshot.maintenance.issue.map(|issue| issue.code),
+        "updatePhase": snapshot.update.phase,
+        "updateIssueCode": snapshot.update.issue.map(|issue| issue.code),
+    });
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(path) = rfd::FileDialog::new()
+            .set_title("导出 Moon 脱敏诊断")
+            .add_filter("JSON", &["json"])
+            .set_file_name("moon-diagnostics.json")
+            .save_file()
+        else {
+            return Ok(None);
+        };
+        storage::reject_links(&path).map_err(|_| {
+            issue(
+                IssueCode::Validation,
+                "请选择普通保存目录和文件。",
+                RecoveryAction::Retry,
+            )
+        })?;
+        storage::atomic_json(&path, &report).map_err(|_| {
+            issue(
+                IssueCode::Permission,
+                "无法保存脱敏诊断文件。",
+                RecoveryAction::Retry,
+            )
+        })?;
+        Ok(Some(storage::text(&path)))
+    })
+    .await
+    .map_err(|_| {
+        issue(
+            IssueCode::Internal,
+            "导出诊断未完成。",
+            RecoveryAction::Retry,
+        )
+    })?
+}
+#[tauri::command]
 pub fn desktop_open_retained_copy(
     service: State<'_, DesktopRuntime>,
     input: RetainedCopyInput,
@@ -233,6 +205,127 @@ pub async fn desktop_choose_data_directory() -> DesktopResult<Option<String>> {
     .await
     .map_err(|_| issue(IssueCode::Internal, "目录选择失败。", RecoveryAction::Retry))
 }
+fn validate_migration_environment(snapshot: &DesktopSnapshot) -> DesktopResult<()> {
+    if !snapshot.capabilities.migrate_data {
+        return Err(issue(
+            IssueCode::Unavailable,
+            "当前开发环境指定了数据根，请修改开发启动环境后重启；此模式不能在设置变更数据目录。",
+            RecoveryAction::None,
+        ));
+    }
+    if snapshot.maintenance.writes_frozen
+        || matches!(
+            snapshot.update.phase,
+            UpdatePhase::Downloading | UpdatePhase::Verifying | UpdatePhase::Preparing
+        )
+    {
+        return Err(issue(
+            IssueCode::Busy,
+            "另一项维护正在进行。",
+            RecoveryAction::Wait,
+        ));
+    }
+    Ok(())
+}
+
+fn normalize_new_target_directory(target_directory: &str) -> DesktopResult<(PathBuf, String)> {
+    if target_directory.len() > 4096 || !PathBuf::from(target_directory).is_absolute() {
+        return Err(issue(
+            IssueCode::Validation,
+            "请选择绝对路径的新专用空目录。",
+            RecoveryAction::ChooseDirectory,
+        ));
+    }
+    let requested = PathBuf::from(target_directory);
+    storage::reject_links(&requested).map_err(|message| {
+        issue(
+            IssueCode::Validation,
+            message,
+            RecoveryAction::ChooseDirectory,
+        )
+    })?;
+    let normalized = if requested.exists() {
+        dunce::canonicalize(&requested)
+    } else {
+        requested
+            .parent()
+            .ok_or_else(|| {
+                issue(
+                    IssueCode::Validation,
+                    "目标目录无效。",
+                    RecoveryAction::ChooseDirectory,
+                )
+            })?
+            .canonicalize()
+            .map(|parent| parent.join(requested.file_name().unwrap_or_default()))
+    }
+    .map_err(|_| {
+        issue(
+            IssueCode::Validation,
+            "目标父目录不存在。",
+            RecoveryAction::ChooseDirectory,
+        )
+    })?;
+    let text = storage::text(&normalized);
+    Ok((normalized, text))
+}
+
+fn inspect_and_build_plan(
+    app: &AppHandle,
+    service: &DesktopRuntime,
+    id: String,
+    source_directory: String,
+    normalized_target: PathBuf,
+    target_directory: String,
+    data_set_id: String,
+    record: Value,
+) -> DesktopResult<MigrationPlan> {
+    let file = migration::record_file(&service.paths, &id);
+    storage::atomic_json(&file, &record)
+        .map_err(|message| issue(IssueCode::Permission, message, RecoveryAction::Retry))?;
+    let inspected =
+        migration::worker(&service.paths, "--inspect", &file).map_err(migration_issue)?;
+    storage::private_directory(&normalized_target, true).map_err(|message| {
+        issue(
+            IssueCode::Permission,
+            message,
+            RecoveryAction::ChooseDirectory,
+        )
+    })?;
+    let state = app
+        .state::<ModelBackend>()
+        .internal(
+            "$maintenance",
+            json!({"action":"inspect","operationId":id,"stopActive":false}),
+            Duration::from_secs(30),
+        )
+        .map_err(|message| issue(IssueCode::Unknown, message, RecoveryAction::Restart))?;
+    let plan = MigrationPlan {
+        plan_id: id,
+        source_directory,
+        target_directory,
+        data_set_id,
+        generation: service.paths.bootstrap.generation,
+        file_count: inspected["fileCount"].as_u64().unwrap_or(0),
+        total_bytes: inspected["totalBytes"].as_u64().unwrap_or(0),
+        expires_at: (OffsetDateTime::now_utc() + time::Duration::minutes(5))
+            .format(&Rfc3339)
+            .unwrap_or_default(),
+        activities: serde_json::from_value(state["activities"].clone()).map_err(|_| {
+            issue(
+                IssueCode::Unknown,
+                "后端活动报告损坏，未认定空闲。",
+                RecoveryAction::Restart,
+            )
+        })?,
+    };
+    *service
+        .plan
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner()) = Some(plan.clone());
+    Ok(plan)
+}
+
 #[tauri::command]
 pub async fn storage_prepare_migration(
     app: AppHandle,
@@ -245,65 +338,9 @@ pub async fn storage_prepare_migration(
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
         let snapshot = service.snapshot();
-        if !snapshot.capabilities.migrate_data {
-            return Err(issue(
-                IssueCode::Unavailable,
-                "当前开发环境指定了数据根，请修改启动环境后重启；此模式不能在设置迁移。",
-                RecoveryAction::None,
-            ));
-        }
-        if snapshot.maintenance.writes_frozen
-            || matches!(
-                snapshot.update.phase,
-                UpdatePhase::Downloading | UpdatePhase::Verifying | UpdatePhase::Preparing
-            )
-        {
-            return Err(issue(
-                IssueCode::Busy,
-                "另一项维护正在进行。",
-                RecoveryAction::Wait,
-            ));
-        }
-        if input.target_directory.len() > 4096
-            || !PathBuf::from(&input.target_directory).is_absolute()
-        {
-            return Err(issue(
-                IssueCode::Validation,
-                "请选择绝对路径的新专用空目录。",
-                RecoveryAction::ChooseDirectory,
-            ));
-        }
-        let requested = PathBuf::from(&input.target_directory);
-        storage::reject_links(&requested).map_err(|message| {
-            issue(
-                IssueCode::Validation,
-                message,
-                RecoveryAction::ChooseDirectory,
-            )
-        })?;
-        let normalized = if requested.exists() {
-            dunce::canonicalize(&requested)
-        } else {
-            requested
-                .parent()
-                .ok_or_else(|| {
-                    issue(
-                        IssueCode::Validation,
-                        "目标目录无效。",
-                        RecoveryAction::ChooseDirectory,
-                    )
-                })?
-                .canonicalize()
-                .map(|parent| parent.join(requested.file_name().unwrap_or_default()))
-        }
-        .map_err(|_| {
-            issue(
-                IssueCode::Validation,
-                "目标父目录不存在。",
-                RecoveryAction::ChooseDirectory,
-            )
-        })?;
-        let target_directory = storage::text(&normalized);
+        validate_migration_environment(&snapshot)?;
+        let (normalized, target_directory) =
+            normalize_new_target_directory(&input.target_directory)?;
         // 同一未提交迁移可由真实设置入口显式重试；重建当前冻结源，绝不重放unknown业务请求。
         let id = std::fs::read_dir(&service.paths.control)
             .ok()
@@ -329,56 +366,175 @@ pub async fn storage_prepare_migration(
             })
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let record = migration::migration_record(&service.paths, &id, &target_directory);
-        let file = migration::record_file(&service.paths, &id);
-        storage::atomic_json(&file, &record)
-            .map_err(|message| issue(IssueCode::Permission, message, RecoveryAction::Retry))?;
-        let inspected =
-            migration::worker(&service.paths, "--inspect", &file).map_err(migration_issue)?;
-        storage::private_directory(&normalized, true).map_err(|message| {
-            issue(
-                IssueCode::Permission,
-                message,
-                RecoveryAction::ChooseDirectory,
-            )
-        })?;
-        let state = app
-            .state::<ModelBackend>()
-            .internal(
-                "$maintenance",
-                json!({"action":"inspect","operationId":id,"stopActive":false}),
-                Duration::from_secs(30),
-            )
-            .map_err(|message| issue(IssueCode::Unknown, message, RecoveryAction::Restart))?;
-        let plan = MigrationPlan {
-            plan_id: id,
-            source_directory: storage::text(&service.paths.data),
+        inspect_and_build_plan(
+            &app,
+            &service,
+            id,
+            storage::text(&service.paths.data),
+            normalized,
             target_directory,
-            data_set_id: service.paths.marker.data_set_id.clone(),
-            generation: service.paths.bootstrap.generation,
-            file_count: inspected["fileCount"].as_u64().unwrap_or(0),
-            total_bytes: inspected["totalBytes"].as_u64().unwrap_or(0),
-            expires_at: (OffsetDateTime::now_utc() + time::Duration::minutes(5))
-                .format(&Rfc3339)
-                .unwrap_or_default(),
-            activities: serde_json::from_value(state["activities"].clone()).map_err(|_| {
-                issue(
-                    IssueCode::Unknown,
-                    "后端活动报告损坏，未认定空闲。",
-                    RecoveryAction::Restart,
-                )
-            })?,
-        };
-        *service
-            .plan
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner()) = Some(plan.clone());
-        Ok(plan)
+            service.paths.marker.data_set_id.clone(),
+            record,
+        )
     })
     .await
     .map_err(|_| {
         issue(
             IssueCode::Internal,
             "目录预检任务失败。",
+            RecoveryAction::Retry,
+        )
+    })?
+}
+
+fn detect_legacy_paths() -> DesktopResult<Option<(PathBuf, Option<PathBuf>)>> {
+    let Some(local) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) else {
+        return Ok(None);
+    };
+    let source = local.join("Moon/models");
+    let legacy_profile = local.join("local.moon.desktop");
+    let exists = |path: &std::path::Path| {
+        path.try_exists().map_err(|_| {
+            issue(
+                IssueCode::Permission,
+                "无法读取旧版 Moon 数据目录。",
+                RecoveryAction::Retry,
+            )
+        })
+    };
+    let has_profile = exists(&legacy_profile.join("EBWebView"))?;
+    if !exists(&source)? && !has_profile {
+        return Ok(None);
+    }
+    Ok(Some((source, has_profile.then_some(legacy_profile))))
+}
+
+#[tauri::command]
+pub fn storage_detect_legacy_sources() -> DesktopResult<OptionalLegacySource> {
+    Ok(
+        detect_legacy_paths()?.map(|(source, profile)| StorageLegacySource {
+            source_directory: storage::text(&source),
+            legacy_profile_directory: profile.as_deref().map(storage::text),
+        }),
+    )
+}
+
+#[tauri::command]
+pub async fn storage_prepare_import(
+    app: AppHandle,
+    input: ImportPrepareInput,
+) -> DesktopResult<MigrationPlan> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let service = app.state::<DesktopRuntime>();
+        let _request = service
+            .maintenance_requests
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let snapshot = service.snapshot();
+        validate_migration_environment(&snapshot)?;
+        let (normalized_target, target_directory) =
+            normalize_new_target_directory(&input.target_directory)?;
+        let id = uuid::Uuid::new_v4().to_string();
+        let (source_path, legacy_profile, data_set_id) = if input.legacy {
+            let (source, profile) = detect_legacy_paths()?.ok_or_else(|| {
+                issue(
+                    IssueCode::Validation,
+                    "未在本机找到旧版 Moon 数据目录。",
+                    RecoveryAction::None,
+                )
+            })?;
+            (source, profile, uuid::Uuid::new_v4().to_string())
+        } else {
+            if input.source_directory.len() > 4096
+                || !PathBuf::from(&input.source_directory).is_absolute()
+            {
+                return Err(issue(
+                    IssueCode::Validation,
+                    "请选择绝对路径的已有 Moon 数据目录。",
+                    RecoveryAction::ChooseDirectory,
+                ));
+            }
+            let requested_source = PathBuf::from(&input.source_directory);
+            storage::reject_links(&requested_source).map_err(|message| {
+                issue(
+                    IssueCode::Validation,
+                    message,
+                    RecoveryAction::ChooseDirectory,
+                )
+            })?;
+            if !requested_source.is_dir() {
+                return Err(issue(
+                    IssueCode::Validation,
+                    "所选源数据目录不存在。",
+                    RecoveryAction::ChooseDirectory,
+                ));
+            }
+            let canonical_source = dunce::canonicalize(&requested_source).map_err(|_| {
+                issue(
+                    IssueCode::Validation,
+                    "无法解析源数据目录。",
+                    RecoveryAction::ChooseDirectory,
+                )
+            })?;
+            if storage::text(&canonical_source)
+                .eq_ignore_ascii_case(&storage::text(&service.paths.data))
+            {
+                return Err(issue(
+                    IssueCode::Validation,
+                    "所选目录正是当前正在使用的数据目录，请直接迁移或选择其他目录。",
+                    RecoveryAction::ChooseDirectory,
+                ));
+            }
+            let marker: DataMarker = serde_json::from_value(
+                storage::read_json(&canonical_source.join("moon-data.json")).map_err(|_| {
+                    issue(
+                        IssueCode::Validation,
+                        "所选目录不包含有效的 Moon 数据标记（moon-data.json）。",
+                        RecoveryAction::ChooseDirectory,
+                    )
+                })?,
+            )
+            .map_err(|_| {
+                issue(
+                    IssueCode::Validation,
+                    "所选目录的数据标记损坏。",
+                    RecoveryAction::ChooseDirectory,
+                )
+            })?;
+            if marker.schema_version != 1 || uuid::Uuid::parse_str(&marker.data_set_id).is_err() {
+                return Err(issue(
+                    IssueCode::Compatibility,
+                    "所选目录的数据版本或身份不受支持。",
+                    RecoveryAction::ChooseDirectory,
+                ));
+            }
+            (canonical_source, None, marker.data_set_id)
+        };
+        let record = migration::import_record(
+            &service.paths,
+            &id,
+            &source_path,
+            &target_directory,
+            &data_set_id,
+            input.legacy,
+            legacy_profile.as_deref(),
+        );
+        inspect_and_build_plan(
+            &app,
+            &service,
+            id,
+            storage::text(&source_path),
+            normalized_target,
+            target_directory,
+            data_set_id,
+            record,
+        )
+    })
+    .await
+    .map_err(|_| {
+        issue(
+            IssueCode::Internal,
+            "导入预检任务失败。",
             RecoveryAction::Retry,
         )
     })?

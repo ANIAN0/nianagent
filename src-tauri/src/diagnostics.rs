@@ -147,6 +147,47 @@ pub fn write_early(directory: &Path, message: &str) -> io::Result<()> {
     Journal::new(&directory.join("early")).write_record(&line)
 }
 
+pub fn log_step(
+    event: &str,
+    trace_id: &str,
+    duration_ms: u128,
+    outcome: &str,
+    error_code: &str,
+    error_cause: &str,
+) {
+    let level = if outcome == "committed" {
+        "info"
+    } else if outcome == "unknown" {
+        "warn"
+    } else {
+        "error"
+    };
+    let line = json!({
+        "schemaVersion": 1,
+        "timestamp": now(),
+        "process": format!("moon-rust-{}", std::process::id()),
+        "module": "desktop",
+        "event": event,
+        "level": level,
+        "traceId": trace_id,
+        "operationId": "",
+        "durationMs": duration_ms.min(u64::MAX as u128) as u64,
+        "outcome": outcome,
+        "error": if error_code.is_empty() { Value::Null } else { json!({
+            "code": error_code,
+            "errorId": "",
+            "cause": error_cause.chars().take(400).collect::<String>()
+        }) }
+    });
+    if outcome == "committed" {
+        log::info!(target: "moon::terminal", "{line}");
+    } else if outcome == "unknown" {
+        log::warn!(target: "moon::terminal", "{line}");
+    } else {
+        log::error!(target: "moon::terminal", "{line}");
+    }
+}
+
 pub fn plugin(directory: PathBuf) -> tauri::plugin::TauriPlugin<tauri::Wry> {
     let journal = Mutex::new(Journal::new(&directory));
     tauri_plugin_log::Builder::default()

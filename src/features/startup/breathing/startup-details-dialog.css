@@ -1,13 +1,8 @@
 /* Portal 位于启动画布之外，直接沿用应用语义变量。 */
 .startup-details-dialog {
-  --startup-foreground: var(--popover-foreground);
-  --startup-muted: var(--muted-foreground);
-  --startup-primary: var(--primary-strong);
-  --startup-primary-ink: var(--primary-foreground, #ffffff);
-  /* 层叠投影：环境光 + 直接光两层，色调偏向前景色相而非纯黑。 */
-  box-shadow:
-    0 1px 2px color-mix(in srgb, #17202f 12%, transparent),
-    0 24px 64px -12px color-mix(in srgb, #17202f 30%, transparent);
+  --moon-copy-size: 14px;
+  --moon-copy-line: 24px;
+  --moon-status-weight: 500;
 }
 
 .startup-dialog-steps {
@@ -140,8 +135,14 @@
   padding-right: 16px;
 }
 
-.startup-details-locked .startup-dialog-steps [data-status="complete"] .startup-dialog-step-heading,
-.startup-details-locked .startup-dialog-steps [data-status="pending"] .startup-dialog-step-heading {
+.startup-details-locked
+  .startup-dialog-steps
+  [data-status="complete"]
+  .startup-dialog-step-heading,
+.startup-details-locked
+  .startup-dialog-steps
+  [data-status="pending"]
+  .startup-dialog-step-heading {
   color: var(--muted-foreground);
 }
 
@@ -167,93 +168,6 @@
   align-items: center;
   gap: 8px;
   margin-left: auto;
-}
-
-/* 决定组按钮：重试是唯一实心全圆胶囊，退出随行。 */
-.startup-dialog-footer [data-slot="button"] {
-  min-inline-size: 120px;
-  height: 32px;
-  padding: 0 14px;
-  border: none;
-  border-radius: 9999px;
-  font-size: var(--moon-control-size);
-  line-height: var(--moon-control-line);
-  /* 只列过渡属性，不用 transition: all。 */
-  transition:
-    color 150ms ease,
-    background-color 150ms ease;
-}
-
-/* 悬停比静置更重：向黑色混合而不是变浅。 */
-.startup-dialog-footer [data-slot="button"]:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--startup-primary) 92%, #000000);
-}
-
-/* 加载指示与原标签并存：静置隐藏图标，重试等待时显示并旋转。 */
-.startup-dialog-footer [data-icon="inline-start"] {
-  display: none;
-}
-
-.startup-dialog-footer
-  [data-slot="button"][data-pending="retry"]
-  [data-icon="inline-start"] {
-  display: block;
-}
-
-.startup-dialog-footer .startup-toggle {
-  min-height: 32px;
-  padding: 4px 14px;
-  border-radius: 9999px;
-  background: color-mix(in srgb, var(--startup-foreground) 4%, transparent);
-  color: color-mix(in srgb, var(--startup-foreground) 72%, var(--startup-muted));
-  font-size: var(--moon-control-size);
-  line-height: var(--moon-control-line);
-  transition:
-    color 150ms ease,
-    background-color 150ms ease;
-}
-
-.startup-dialog-footer .startup-toggle:hover:not(:disabled) {
-  color: var(--startup-foreground);
-  background: color-mix(in srgb, var(--startup-foreground) 8%, transparent);
-}
-
-.startup-dialog-decision[data-has-retry="false"] .startup-toggle {
-  min-inline-size: 120px;
-  background: var(--startup-primary);
-  color: var(--startup-primary-ink);
-  font-weight: 500;
-}
-
-.startup-dialog-decision[data-has-retry="false"]
-  .startup-toggle:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--startup-primary) 92%, #000000);
-  color: var(--startup-primary-ink);
-}
-
-/* 复制诊断与页面上的次要动作共用同一浅底胶囊语言。 */
-.startup-details-dialog .startup-details-action {
-  min-height: 32px;
-  margin: 0;
-  padding: 4px 14px;
-  border: none;
-  border-radius: 9999px;
-  background: color-mix(in srgb, var(--startup-foreground) 4%, transparent);
-  color: color-mix(in srgb, var(--startup-foreground) 72%, var(--startup-muted));
-  font-size: var(--moon-control-size);
-  line-height: var(--moon-control-line);
-  transition:
-    color 150ms ease,
-    background-color 150ms ease;
-}
-
-.startup-details-dialog .startup-details-action:hover:not(:disabled) {
-  color: var(--startup-foreground);
-  background: color-mix(in srgb, var(--startup-foreground) 8%, transparent);
-}
-
-.startup-details-dialog .startup-details-action:active:not(:disabled) {
-  background: color-mix(in srgb, var(--startup-foreground) 12%, transparent);
 }
 
 @media (prefers-reduced-motion: reduce) {

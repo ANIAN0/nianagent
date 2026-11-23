@@ -87,36 +87,6 @@ pub struct BootFrontendInput {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum StartupSelection {
-    #[serde(rename = "import")]
-    Import,
-    #[serde(rename = "fresh")]
-    Fresh,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum StartupPhase {
-    #[serde(rename = "awaitingConfirmation")]
-    AwaitingConfirmation,
-    #[serde(rename = "preparing")]
-    Preparing,
-    #[serde(rename = "ready")]
-    Ready,
-    #[serde(rename = "inspecting")]
-    Inspecting,
-    #[serde(rename = "copying")]
-    Copying,
-    #[serde(rename = "validating")]
-    Validating,
-    #[serde(rename = "committing")]
-    Committing,
-    #[serde(rename = "readyToOpen")]
-    ReadyToOpen,
-    #[serde(rename = "failed")]
-    Failed,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum StartupFailureStage {
     #[serde(rename = "runtime")]
     Runtime,
@@ -174,57 +144,6 @@ pub struct StartupIssue {
     pub message: String,
     pub path: Option<String>,
     pub retryable: bool,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct StartupCapabilities {
-    pub choose_directory: bool,
-    pub prepare: bool,
-    pub migrate: bool,
-    pub create_fresh: bool,
-    pub retry: bool,
-    pub open_diagnostics: bool,
-    pub exit: bool,
-    pub continue_startup: bool,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct StartupSnapshot {
-    pub revision: u64,
-    pub operation_id: Option<String>,
-    pub plan_id: Option<String>,
-    pub plan_expires_at: Option<String>,
-    pub phase: StartupPhase,
-    pub selection: Option<StartupSelection>,
-    pub source_directory: String,
-    pub legacy_profile_directory: Option<String>,
-    pub target_directory: String,
-    pub default_directory: String,
-    pub retained_copy_directories: Vec<String>,
-    pub file_count: Option<u64>,
-    pub total_bytes: Option<u64>,
-    pub available_bytes: Option<u64>,
-    pub completed_files: u64,
-    pub copied_bytes: Option<u64>,
-    pub issue: Option<StartupIssue>,
-    pub capabilities: StartupCapabilities,
-}
-
-pub type StartupState = Option<StartupSnapshot>;
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct StartupStartInput {
-    pub plan_id: String,
-    pub target_directory: String,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct StartupOperationInput {
-    pub operation_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -327,8 +246,21 @@ pub struct StorageInfo {
     pub legacy_copy_retained: bool,
     pub retained_copy_directories: Vec<String>,
     pub directory_mappings: Vec<StorageDirectoryMapping>,
-    pub used_bytes: u64,
+    pub used_bytes: Option<u64>,
     pub available_bytes: Option<u64>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StorageCapacityInput {
+    pub data_set_id: String,
+    pub generation: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StorageCapacity {
+    pub used_bytes: u64,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -339,6 +271,23 @@ pub struct DesktopCapabilities {
     pub check_updates: bool,
     pub install_updates: bool,
     pub unavailable_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StorageLegacySource {
+    pub source_directory: String,
+    pub legacy_profile_directory: Option<String>,
+}
+
+pub type OptionalLegacySource = Option<StorageLegacySource>;
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ImportPrepareInput {
+    pub source_directory: String,
+    pub target_directory: String,
+    pub legacy: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

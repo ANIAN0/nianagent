@@ -24,7 +24,11 @@ fn log_operation_terminal(
     error_cause: &str,
     error_id: &str,
 ) {
-    let level = if outcome == "committed" {
+    let record_as_info =
+        outcome == "committed" && (event.starts_with('$') || duration_ms >= 1000);
+    let level = if record_as_info {
+        "info"
+    } else if outcome == "committed" {
         "debug"
     } else if outcome == "unknown" {
         "warn"
@@ -43,7 +47,9 @@ fn log_operation_terminal(
             "cause": if error_cause.is_empty() { "" } else { "桌面操作未确认完成；按关联标识查看领域记录。" }
         }) }
     });
-    if outcome == "committed" || error_code == "cancelled" {
+    if record_as_info {
+        log::info!(target: "moon::terminal", "{line}");
+    } else if outcome == "committed" || error_code == "cancelled" {
         log::debug!(target: "moon::terminal", "{line}");
     } else if outcome == "unknown" {
         log::warn!(target: "moon::terminal", "{line}");
@@ -275,6 +281,10 @@ impl ModelBackend {
                 // cannot use its verbatim drive prefix as the entry script.
                 .arg(dunce::simplified(&self.script))
                 .env("MOON_DATA_DIR", &self.directory)
+                .env(
+                    "MOON_DESKTOP_PACKAGED",
+                    if cfg!(debug_assertions) { "0" } else { "1" },
+                )
                 .env(
                     "MOON_NOTES_DEV",
                     if cfg!(debug_assertions) { "1" } else { "0" },

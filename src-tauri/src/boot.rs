@@ -2,6 +2,7 @@
 use crate::{
     desktop_contract_generated::*,
     desktop_runtime::{self, DesktopResult, DesktopRuntime, issue},
+    diagnostics,
     models::ModelBackend,
     profile, storage,
 };
@@ -11,7 +12,7 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -19,6 +20,7 @@ struct Inner {
     snapshot: BootSnapshot,
     host_ready: bool,
     profile_ready: bool,
+    started_at: Instant,
 }
 pub struct BootRuntime {
     paths: storage::StoragePaths,
@@ -46,6 +48,7 @@ impl BootRuntime {
                 },
                 host_ready: false,
                 profile_ready: false,
+                started_at: Instant::now(),
             }),
             actions: Mutex::new(()),
             terminating: AtomicBool::new(false),
@@ -139,28 +142,56 @@ impl BootRuntime {
         if !self.current(attempt) {
             return;
         }
+        let host_started = Instant::now();
         let backend = app.state::<ModelBackend>();
         let result = (|| -> Result<(), BootStage> {
+            let step_started = Instant::now();
             profile::verify(app, &self.paths).map_err(|_| BootStage::Profile)?;
+            diagnostics::log_step(
+                "boot.profile_verify",
+                attempt,
+                step_started.elapsed().as_millis(),
+                "committed",
+                "",
+                "",
+            );
             if !self.current(attempt) {
                 return Err(BootStage::Profile);
             }
             self.change(app, attempt, |inner| {
                 inner.snapshot.stage = BootStage::Backend
             });
+            let step_started = Instant::now();
             backend.start().map_err(|_| BootStage::Backend)?;
+            diagnostics::log_step(
+                "boot.backend_start",
+                attempt,
+                step_started.elapsed().as_millis(),
+                "committed",
+                "",
+                "",
+            );
             if !self.current(attempt) {
                 return Err(BootStage::Backend);
             }
             self.change(app, attempt, |inner| {
                 inner.snapshot.stage = BootStage::Storage
             });
+            let step_started = Instant::now();
             let readable = backend
                 .internal("$validateStorage", json!({}), Duration::from_secs(60))
                 .is_ok_and(|value| value["readable"] == true);
             if !readable {
                 return Err(BootStage::Storage);
             }
+            diagnostics::log_step(
+                "boot.validate_storage",
+                attempt,
+                step_started.elapsed().as_millis(),
+                "committed",
+                "",
+                "",
+            );
             if !self.current(attempt) {
                 return Err(BootStage::Storage);
             }
@@ -173,6 +204,14 @@ impl BootRuntime {
             Ok(())
         })();
         if let Err(stage) = result {
+            diagnostics::log_step(
+                "boot.host_failed",
+                attempt,
+                host_started.elapsed().as_millis(),
+                "unknown",
+                &format!("boot_{stage:?}").to_lowercase(),
+                "宿主启动阶段未能完成。",
+            );
             let stopped = backend.shutdown_confirmed().is_ok();
             if !self.current(attempt) {
                 return;
@@ -205,6 +244,14 @@ impl BootRuntime {
         if app.try_state::<DesktopRuntime>().is_none() {
             app.manage(DesktopRuntime::new(self.paths.clone(), true));
         }
+        diagnostics::log_step(
+            "boot.host_ready",
+            attempt,
+            host_started.elapsed().as_millis(),
+            "committed",
+            "",
+            "",
+        );
         self.change(app, attempt, |inner| {
             inner.host_ready = true;
             inner.snapshot.storage = Some(self.paths.info());
@@ -263,6 +310,7 @@ impl BootRuntime {
                 inner.snapshot.issue = None;
                 inner.snapshot.capabilities.retry = false;
                 inner.profile_ready = false;
+                inner.started_at = Instant::now();
             })
             .ok_or_else(|| {
                 issue(
@@ -334,6 +382,21 @@ impl BootRuntime {
                         true,
                     );
                 } else {
+                    let elapsed = self
+                        .inner
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .started_at
+                        .elapsed()
+                        .as_millis();
+                    diagnostics::log_step(
+                        "boot.frontend_profile",
+                        &input.attempt_id,
+                        elapsed,
+                        "committed",
+                        "",
+                        "",
+                    );
                     self.change(app, &input.attempt_id, |inner| {
                         inner.profile_ready = true;
                         inner.snapshot.stage = BootStage::Workbench;
@@ -381,6 +444,21 @@ impl BootRuntime {
                             true,
                         );
                     } else {
+                        let elapsed = self
+                            .inner
+                            .lock()
+                            .unwrap_or_else(|p| p.into_inner())
+                            .started_at
+                            .elapsed()
+                            .as_millis();
+                        diagnostics::log_step(
+                            "boot.workbench_ready",
+                            &input.attempt_id,
+                            elapsed,
+                            "committed",
+                            "",
+                            "",
+                        );
                         self.change(app, &input.attempt_id, |inner| {
                             inner.snapshot.phase = BootPhase::Ready;
                             inner.snapshot.stage = BootStage::Ready;

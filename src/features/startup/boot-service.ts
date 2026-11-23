@@ -8,6 +8,10 @@ import type {
 } from "@/contracts/desktop.generated"
 import { rpcCall, RpcRequestRejected } from "@/lib/rpc/client"
 import { subscribeRemoteReady } from "@/lib/rpc/remote-transport"
+import { loadStartupModule } from "./startup-bootstrap"
+
+const HOST_POLL_INTERVAL_MS = 5_000
+const HOST_REQUEST_LIMIT_MS = 8_000
 
 type BootCommand = Extract<DesktopCommand, `boot_${string}`>
 export type BootView = {
@@ -57,7 +61,11 @@ export function createBootService() {
   }
   const accept = (snapshot: BootSnapshot) => {
     if (view.snapshot && snapshot.revision < view.snapshot.revision) return
+    clearWait()
     publish({ ...view, snapshot, loaded: true, issue: null })
+    if (snapshot.phase === "ready" || snapshot.phase === "failed") return
+    // 推送偶发遗漏时，从原生权威快照补读；正常推进后停止轮询。
+    waitTimer = setTimeout(() => void refresh(), HOST_POLL_INTERVAL_MS)
   }
   const subscribe = async () => {
     if (!active) return false
@@ -65,13 +73,25 @@ export function createBootService() {
     if (connection) return connection
     const current = generation
     const task = (async () => {
+      let expired = false
+      const registration = listen<BootSnapshot>(
+        "moon://boot-state",
+        ({ payload }) => {
+          if (!expired && active && generation === current) accept(payload)
+        }
+      ).then((stop) => {
+        if (expired || !active || generation !== current) {
+          stop()
+          return null
+        }
+        return stop
+      })
       try {
-        const stop = await listen<BootSnapshot>(
-          "moon://boot-state",
-          ({ payload }) => {
-            if (active && generation === current) accept(payload)
-          }
+        const stop = await loadStartupModule(
+          registration,
+          Date.now() + HOST_REQUEST_LIMIT_MS
         )
+        if (!stop) return false
         if (!active || generation !== current) {
           stop()
           return false
@@ -81,6 +101,11 @@ export function createBootService() {
         publish({ ...view, listening: true })
         return true
       } catch {
+        expired = true
+        void registration.then(
+          (stop) => stop?.(),
+          () => {}
+        )
         if (active && generation === current)
           publish({
             ...view,
@@ -126,7 +151,10 @@ export function createBootService() {
     if (isTauri()) {
       if (!(await subscribe())) return
       try {
-        const snapshot = await invoke<BootSnapshot>("boot_get_state")
+        const snapshot = await loadStartupModule(
+          invoke<BootSnapshot>("boot_get_state"),
+          Date.now() + HOST_REQUEST_LIMIT_MS
+        )
         if (active && generation === current) accept(snapshot)
       } catch {
         if (active && generation === current)
@@ -193,8 +221,8 @@ export function createBootService() {
           if (error.issue?.code === "host_unavailable" && !preserveReady) {
             scheduleWait(
               false,
-              "正在等待 Moon 本地服务就绪，自动重试中。",
-              "Moon 服务尚未就绪，请启动或重新启动桌面应用。（已自动重试 30 秒，仍未就绪。）"
+              "正在等待 moon 本地服务就绪，自动重试中。",
+              "moon 服务尚未就绪，请启动或重新启动桌面应用。（已自动重试 30 秒，仍未就绪。）"
             )
             return
           }
@@ -213,14 +241,14 @@ export function createBootService() {
             loaded: true,
             browserReady: true,
             waiting: null,
-            issue: "未能连接 Moon 本地服务，请重试连接。",
+            issue: "未能连接 moon 本地服务，请重试连接。",
           })
           return
         }
         scheduleWait(
           false,
-          "正在等待 Moon 本地服务就绪，自动重试中。",
-          "未能连接 Moon 本地服务，请启动桌面开发服务后重试连接。（已自动重试 30 秒，仍未就绪。）"
+          "正在等待 moon 本地服务就绪，自动重试中。",
+          "未能连接 moon 本地服务，请启动桌面开发服务后重试连接。（已自动重试 30 秒，仍未就绪。）"
         )
       }
     }

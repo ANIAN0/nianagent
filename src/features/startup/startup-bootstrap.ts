@@ -90,7 +90,7 @@ export function createStartupBootstrap() {
           void Promise.resolve()
             .then(() =>
               navigator.clipboard.writeText(
-                "Moon 启动诊断\n阶段：加载启动界面\n原因：界面资源未能加载或等待超时。"
+                "moon 启动诊断\n阶段：加载启动界面\n原因：界面资源未能加载或等待超时。"
               )
             )
             .then(() => {
@@ -103,38 +103,40 @@ export function createStartupBootstrap() {
               copy.removeAttribute("disabled")
             })
         })
-      // 次要动作全部是文字级：复制与退出同行，不与主按钮同级。
-      const secondary =
-        actions?.querySelector(".startup-initial-secondary") ?? actions
-      if (copy.id !== "moon-initial-copy" && secondary)
-        secondary.appendChild(copy)
+      // 底栏对齐启动异常弹窗：诊断复制靠左，退出与重新加载组成右侧决定组。
+      const footer =
+        actions?.querySelector(".startup-initial-footer") ?? actions
+      const decision =
+        actions?.querySelector(".startup-initial-decision") ?? footer
+      const retry = document.getElementById("moon-initial-retry")
+      if (copy.id !== "moon-initial-copy" && footer)
+        footer.insertBefore(copy, footer.firstChild)
       void startupExitAction()
         .then((exit) => {
-          if (!exit || !surface.isConnected || !secondary) return
-          const sep = document.createElement("span")
-          sep.className = "startup-initial-sep"
-          sep.textContent = "·"
-          sep.setAttribute("aria-hidden", "true")
+          if (!exit || !surface.isConnected || !decision) return
+          if (actions) actions.dataset.hasExit = "true"
           const button = document.createElement("button")
           button.type = "button"
-          button.className = "startup-initial-link"
-          button.textContent = "退出 Moon"
+          button.className = "startup-initial-outline"
+          button.textContent = "退出 moon"
           button.addEventListener("click", () => {
             button.disabled = true
             button.textContent = "正在退出…"
             void exit()
               .catch(() => {
+                if (actions) delete actions.dataset.hasExit
                 if (stage)
                   stage.textContent =
-                    "未能确认退出。若窗口仍留在托盘，请从托盘菜单退出 Moon 后重新打开。"
+                    "未能确认退出。若窗口仍留在托盘，请从托盘菜单退出 moon 后重新打开。"
               })
               .finally(() => {
                 button.disabled = false
-                button.textContent = "退出 Moon"
+                button.textContent = "退出 moon"
               })
           })
-          secondary.appendChild(sep)
-          secondary.appendChild(button)
+          if (retry && retry.parentElement === decision)
+            decision.insertBefore(button, retry)
+          else decision.appendChild(button)
         })
         .catch(() => {
           /* 无真实退出能力时保留关闭窗口指引。 */

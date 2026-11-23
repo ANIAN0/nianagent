@@ -1,5 +1,6 @@
 import { useRef } from "react"
 import { Check, CircleAlert } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogBody,
@@ -45,15 +46,11 @@ export function StartupDetailsDialog({
       }}
     >
       {locked ? null : (
-        <div className="startup-disclosure">
-          <div className="startup-secondary">
-            <DialogTrigger asChild>
-              <button type="button" className="startup-toggle">
-                查看详情
-              </button>
-            </DialogTrigger>
-          </div>
-        </div>
+        <DialogTrigger asChild>
+          <Button size="sm" variant="ghost" className="startup-details-trigger">
+            查看详情
+          </Button>
+        </DialogTrigger>
       )}
       <DialogContent
         variant="reader"
@@ -98,7 +95,7 @@ export function StartupDetailsDialog({
               ? "正在重试…"
               : locked && failedStep
                 ? `${failedStep.label}失败：${failedStep.detail ?? "原因待核对。"}`
-                : "Moon 的启动阶段与当前状态"}
+                : "moon 的启动阶段与当前状态"}
           </DialogDescription>
         </DialogHeader>
         <DialogBody
@@ -162,11 +159,7 @@ export function StartupDetailsDialog({
           >
             {copyAction}
             {decisionVisible && (
-              <div
-                ref={decisionRef}
-                className="startup-dialog-decision"
-                data-has-retry={!!retryAction}
-              >
+              <div ref={decisionRef} className="startup-dialog-decision">
                 {exitAction}
                 {retryAction}
               </div>

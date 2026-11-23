@@ -267,6 +267,45 @@ pub fn migration_record(paths: &StoragePaths, id: &str, target: &str) -> Value {
         .unwrap_or_default();
     json!({"operationId":id,"kind":"migration","sourceDirectory":storage::text(&paths.data),"targetDirectory":target,"installDirectory":storage::text(&paths.install),"controlDirectory":storage::text(&paths.control),"bootstrapFile":storage::text(&paths.bootstrap_file),"dataSetId":paths.marker.data_set_id,"generation":paths.bootstrap.generation,"shutdownStarted":false,"committed":false,"phase":"preparing","parentPid":std::process::id(),"legacy":false,"retainedCopies":retained})
 }
+pub fn import_record(
+    paths: &StoragePaths,
+    id: &str,
+    source: &Path,
+    target: &str,
+    data_set_id: &str,
+    legacy: bool,
+    legacy_profile: Option<&Path>,
+) -> Value {
+    let retained = if source != paths.data {
+        vec![json!(storage::text(&paths.data))]
+    } else {
+        vec![]
+    };
+    let mut record = json!({
+        "operationId": id,
+        "kind": "migration",
+        "sourceDirectory": storage::text(source),
+        "targetDirectory": target,
+        "installDirectory": storage::text(&paths.install),
+        "controlDirectory": storage::text(&paths.control),
+        "bootstrapFile": storage::text(&paths.bootstrap_file),
+        "dataSetId": data_set_id,
+        "generation": paths.bootstrap.generation,
+        "shutdownStarted": false,
+        "committed": false,
+        "phase": "preparing",
+        "parentPid": std::process::id(),
+        "legacy": legacy,
+        "retainedCopies": retained,
+    });
+    if let Some(profile) = legacy_profile {
+        record["legacyProfileDirectory"] = json!(storage::text(profile));
+    }
+    if legacy {
+        record["legacyTempDirectory"] = json!(storage::text(&std::env::temp_dir()));
+    }
+    record
+}
 
 pub(crate) fn ensure_profile_released(root: &Path) -> Result<(), String> {
     if !root.exists() {
@@ -375,10 +414,20 @@ pub fn maintenance_entry() -> Result<bool, String> {
         )?;
         let _install_lock = storage::exclusive(&control.join("installation.lock"))?;
         let source = PathBuf::from(record["sourceDirectory"].as_str().ok_or("源目录缺失。")?);
-        let _dataset_lock = storage::exclusive(&source.join(".moon-data.lock"))?;
-        windows_guard::require_single_user_session()?;
-        storage::validate_tree(&source)?;
+        let legacy = record["legacy"].as_bool().unwrap_or(false);
+        let _dataset_lock = if !legacy || source.exists() {
+            let lock = storage::exclusive(&source.join(".moon-data.lock"))?;
+            windows_guard::require_single_user_session()?;
+            storage::validate_tree(&source)?;
+            Some(lock)
+        } else {
+            windows_guard::require_single_user_session()?;
+            None
+        };
         ensure_profile_released(&source.join("webview"))?;
+        if let Some(profile) = record["legacyProfileDirectory"].as_str() {
+            ensure_profile_released(&Path::new(profile).join("EBWebView"))?;
+        }
         record["phase"] = json!("copying");
         storage::atomic_json(&file, &record)?;
         let copied = run_worker(&install, "--copy", &file)?;

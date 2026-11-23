@@ -59,10 +59,41 @@ fn write_early_host_error(message: &str) -> Result<(), String> {
         .map_err(|_| "早期诊断日志未能落盘。".into())
 }
 
+pub fn startup_background_color() -> tauri::window::Color {
+    #[cfg(not(windows))]
+    let dark = false;
+    #[cfg(windows)]
+    let dark = {
+        use windows_core::w;
+        use windows_sys::Win32::{
+            Foundation::ERROR_SUCCESS,
+            System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW},
+        };
+        let mut light_theme = 1u32;
+        let mut bytes = size_of::<u32>() as u32;
+        let status = unsafe {
+            RegGetValueW(
+                HKEY_CURRENT_USER,
+                w!(r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize").as_ptr(),
+                w!("AppsUseLightTheme").as_ptr(),
+                RRF_RT_REG_DWORD,
+                std::ptr::null_mut(),
+                (&mut light_theme as *mut u32).cast(),
+                &mut bytes,
+            )
+        };
+        status == ERROR_SUCCESS && light_theme == 0
+    };
+    if dark {
+        tauri::window::Color(0x12, 0x15, 0x1d, 0xff)
+    } else {
+        tauri::window::Color(0xf8, 0xf9, 0xfb, 0xff)
+    }
+}
+
 pub fn show_main(app: &AppHandle) -> Result<(), String> {
     let window = app
         .get_webview_window("main")
-        .or_else(|| app.get_webview_window("startup"))
         .ok_or("Moon 主窗口不存在。")?;
     window
         .unminimize()
