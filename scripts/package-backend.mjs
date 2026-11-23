@@ -3,15 +3,18 @@ import { fileURLToPath } from "node:url"
 import { resolve, relative } from "node:path"
 import { spawnSync } from "node:child_process"
 import { backendSourceFiles } from "../backend/extensions/source-files.mjs"
+import { packagedWorkbenchPath } from "../backend/workbench-paths.mjs"
 import { packageNodeRuntime } from "./package-node-runtime.mjs"
 import { packagingEnvironment } from "./release-settings.mjs"
 import {
   verifyRuntimeResources,
   writeRuntimeInventory,
 } from "./runtime-packaging.mjs"
+import { assembleWorkbench, buildWorkbench } from "./workbench-packaging.mjs"
 const root = fileURLToPath(new URL("../", import.meta.url))
 const output = resolve(root, "src-tauri/runtime")
 const sourceFiles = await backendSourceFiles(resolve(root, "backend"))
+buildWorkbench()
 if (relative(root, output).replaceAll("\\", "/") !== "src-tauri/runtime")
   throw new Error("Invalid backend output path")
 for (const directory of [resolve(root, "src-tauri"), output]) {
@@ -58,5 +61,6 @@ for (const file of sourceFiles) {
     throw new Error(`Backend deployment omitted or changed ${file}`)
 }
 await packageNodeRuntime(output)
+await assembleWorkbench(resolve(output, packagedWorkbenchPath))
 await writeRuntimeInventory(output)
 await verifyRuntimeResources(output)

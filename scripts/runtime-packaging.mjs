@@ -20,6 +20,11 @@ import {
 import { pathToFileURL } from "node:url"
 import { spawnSync } from "node:child_process"
 import {
+  packagedWorkbenchEntry,
+  packagedWorkbenchPath,
+  workbenchAppPath,
+} from "../backend/workbench-paths.mjs"
+import {
   nodeVersion,
   packagingEnvironment,
   projectRoot,
@@ -382,6 +387,7 @@ export async function verifyRuntimeResources(directory) {
   const { files, graph, packages, edges } =
     await verifyRuntimeDependencies(root)
   await verifyInventory(root, files)
+  const workbench = `${packagedWorkbenchPath}/${workbenchAppPath}`
   for (const name of [
     "NODE-LICENSE.txt",
     "rpc.mjs",
@@ -389,13 +395,29 @@ export async function verifyRuntimeResources(directory) {
     "runtime.mjs",
     "migration-worker.mjs",
     "migration-launcher.mjs",
+    packagedWorkbenchEntry,
+    `${workbench}/.next/BUILD_ID`,
+    `${workbench}/.next/server/app/notes/page.js`,
+    `${workbench}/.next/server/app/skills/page.js`,
+    `${workbench}/node_modules/next/package.json`,
     "plugins/file-workbench/manifest.json",
+    "plugins/memos/manifest.json",
+    "plugins/filebrowser/manifest.json",
     "plugins/opencli/manifest.json",
     "plugins/remote-access/manifest.json",
     "plugins/mcp-service/manifest.json",
+    "plugins/agents-md/manifest.json",
     "plugins/logs/manifest.json",
+    "plugins/notes-workbench/manifest.json",
+    "plugins/skill-workbench/manifest.json",
   ])
     if (!files.has(name)) throw new Error(`安装包缺少正式运行入口：${name}`)
+  if (
+    ![...files.keys()].some((name) =>
+      name.startsWith(`${workbench}/.next/static/`)
+    )
+  )
+    throw new Error("安装包缺少工作台静态资源")
   const pluginEntries = []
   for (const name of [...files.keys()].filter((name) =>
     /^plugins\/[a-z][a-z0-9-]{0,63}\/manifest\.json$/.test(name)

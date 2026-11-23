@@ -25,6 +25,10 @@ export const directoryRules = {
     "共享检查与发行流程",
     "自动化流程与运行源码分开，检查使用同一项目命令。",
   ],
+  apps: [
+    "独立工作台应用",
+    "工作台页面、同源 HTTP 入口与服务器适配集中在 apps/workbench。",
+  ],
   src: [
     "正式网页应用",
     "React 只持有界面状态，通过共享 RPC 调用本机或远程宿主。",
@@ -54,7 +58,6 @@ export const directoryRules = {
     "一个功能的页面、服务和草稿归在同一边界。",
   ],
   "src/lib": ["跨功能的协议和状态协调", "业务专属实现不放入通用工具。"],
-  "src/hooks": ["共享 React 行为", "只放多个使用方共同需要的界面行为。"],
   backend: [
     "Node 本机业务服务与契约",
     "Pi SDK、持久化和业务执行留在宿主，不进入正式网页包。",
@@ -93,6 +96,10 @@ export const directoryRules = {
   ],
   public: ["网页静态资源与最早启动表面", "静态入口不依赖 React 装载成功。"],
   "public/fonts": ["本地字体和许可证", "正式字体资源无需外部 CDN。"],
+  patches: [
+    "按版本维护第三方依赖补丁",
+    "由 pnpm-workspace.yaml 绑定并随依赖一起验证。",
+  ],
   devtools: [
     "文件职责与模块边界登记",
     "project-purposes.json 与 project-modules.ts 服务治理脚本，不承载产品页面。",
@@ -189,14 +196,6 @@ export const directoryRules = {
     "本机与远程共享RPC调用边界",
     "正式调用只选择传输，操作名和载荷沿同一业务契约。",
   ],
-  "src/extensions": [
-    "应用拥有的网页扩展入口",
-    "通过扩展登记连接正式组件，不在核心页面硬编码扩展业务。",
-  ],
-  "src/extensions/example-note": [
-    "内置便笺扩展的网页视图",
-    "作为实际可选扩展与其后端能力对应，保留正式使用入口。",
-  ],
   "backend/extensions/modules/example-note": [
     "内置便笺扩展的Pi入口",
     "在Pi扩展边界注册便笺能力，与网页贡献配合。",
@@ -208,6 +207,14 @@ export const directoryRules = {
   "backend/plugins/opencli": [
     "OpenCLI安装管理和显式浏览器绑定",
     "官方软件与后台由插件拥有，可信共享契约不激活连接。",
+  ],
+  "backend/plugins/memos": [
+    "Memos 直连插件的宿主、Pi 与网页贡献",
+    "直连自托管 Memos HTTP API，分离公开配置与实例凭据，提供读写分离工具。",
+  ],
+  "backend/plugins/filebrowser": [
+    "FileBrowser直连插件的宿主、Pi与网页贡献",
+    "兼容已归档的 FileBrowser 既有实例，通过 HTTP 提供读写分离工具并在文件完整下载后提交。",
   ],
   "backend/plugins/remote-access": [
     "evework连接、远程目录和文件上传",
@@ -468,7 +475,7 @@ export function collectProject() {
     if (/\/manifest\.json$/.test(file.path))
       file.entries.push("由应用插件 manifest 发现")
     if (
-      /^(?:index\.html|devtools\/(?:index|preview)\.html|src-tauri\/src\/(?:main|lib)\.rs|backend\/rpc\.mjs)$/.test(
+      /^(?:index\.html|src-tauri\/src\/(?:main|lib)\.rs|backend\/rpc\.mjs)$/.test(
         file.path
       )
     )

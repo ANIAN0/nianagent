@@ -6,6 +6,7 @@ const REPO_ROOT = path.resolve(import.meta.dirname, "..").replaceAll("\\", "/")
 
 const BOUNDARY_PORTS = new Set([
   "atomic-file.mjs",
+  "download-file.mjs",
   "loopback-host.mjs",
   "local-path.mjs",
   "request-context.mjs",
@@ -86,10 +87,7 @@ export function resolveImportTarget(fromFile, specifier, repoRoot = REPO_ROOT) {
   return rel
 }
 
-const SETTINGS_SHELL_FILES = new Set([
-  "src/features/settings/settings-page",
-  "src/features/settings/developer-tools-settings",
-])
+const SETTINGS_SHELL_FILES = new Set(["src/features/settings/settings-page"])
 
 const BACKEND_ASSEMBLY_EXEMPT = new Set([
   "backend/services",
@@ -107,15 +105,8 @@ export function checkDirectionalBoundary(
   fromRel,
   toRel,
   codeModuleFor,
-  specifier = ""
+  _specifier = ""
 ) {
-  // 开发文档使用 Vite ?raw 读取纯文本示例源码，不构成运行或类型依赖。
-  if (
-    /\?raw(?:&|$)/.test(specifier) &&
-    codeModuleFor(fromRel).id === "developer"
-  ) {
-    return null
-  }
   const fromKey = stripModuleExtension(fromRel)
   const toKey = stripModuleExtension(toRel)
   const edgeKey = `${fromKey} -> ${toKey}`
@@ -170,7 +161,7 @@ export function checkDirectionalBoundary(
     if (fromMod !== toMod) {
       if (
         SETTINGS_SHELL_FILES.has(fromKey) &&
-        ["models", "plugins", "developer", "session"].includes(toMod)
+        ["models", "plugins", "session"].includes(toMod)
       )
         return null
       return LEGACY_DIRECTIONAL_ALLOWLIST.has(edgeKey)

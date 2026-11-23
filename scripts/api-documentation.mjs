@@ -30,6 +30,18 @@ import {
   logsOperations,
   logsModule,
 } from "../backend/plugins/logs/contract.mjs"
+import {
+  filebrowserOperations,
+  filebrowserModule,
+} from "../backend/plugins/filebrowser/contract.mjs"
+import {
+  memosOperations,
+  memosModule,
+} from "../backend/plugins/memos/contract.mjs"
+import {
+  agentsMdOperations,
+  agentsMdModule,
+} from "../backend/plugins/agents-md/contract.mjs"
 
 const object = (properties = {}, required = Object.keys(properties)) => ({
   type: "object",
@@ -421,6 +433,15 @@ const pluginCallers = {
   "mcp-service": Object.fromEntries(
     Object.keys(mcpServiceOperations).map((name) => [name, ["web.tsx"]])
   ),
+  "agents-md": Object.fromEntries(
+    Object.keys(agentsMdOperations).map((name) => [name, ["web.tsx"]])
+  ),
+  memos: Object.fromEntries(
+    Object.keys(memosOperations).map((name) => [name, ["web.tsx"]])
+  ),
+  filebrowser: Object.fromEntries(
+    Object.keys(filebrowserOperations).map((name) => [name, ["web.tsx"]])
+  ),
   logs: { query: ["web.tsx"], detail: ["web.tsx"] },
   "file-workbench": {
     git: ["git-viewer.tsx"],
@@ -548,6 +569,9 @@ export function createApiDocumentation() {
   }
   const plugins = {
     "mcp-service": [mcpServiceOperations, mcpServiceModule],
+    "agents-md": [agentsMdOperations, agentsMdModule],
+    memos: [memosOperations, memosModule],
+    filebrowser: [filebrowserOperations, filebrowserModule],
     logs: [logsOperations, logsModule],
     "file-workbench": [fileOperations, fileModule],
     opencli: [openCliOperations, openCliModule],
