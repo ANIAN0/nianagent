@@ -367,8 +367,7 @@ export async function activate(host) {
             const clientId = Buffer.from(result.remoteStaticPublicKey).toString(
               "base64url"
             )
-            if (!trustedClients.has(clientId))
-              pendingClients.add(clientId)
+            if (!trustedClients.has(clientId)) pendingClients.add(clientId)
             context = Object.freeze({
               source: "remote",
               clientId,

@@ -26,10 +26,14 @@ function killProcessTree(child) {
   }
   if (process.platform === "win32" && child.pid) {
     try {
-      const killer = spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
-        windowsHide: true,
-        stdio: "ignore",
-      })
+      const killer = spawn(
+        "taskkill",
+        ["/pid", String(child.pid), "/t", "/f"],
+        {
+          windowsHide: true,
+          stdio: "ignore",
+        }
+      )
       killer.unref()
     } catch {
       /* ignore */
@@ -272,7 +276,7 @@ export async function activate(host) {
         ...d,
         isDefault: Boolean(effectiveDefault && d.serial === effectiveDefault),
         mirroring: Boolean(proc && !proc.killed),
-        mirrorPid: proc && !proc.killed ? proc.pid ?? null : null,
+        mirrorPid: proc && !proc.killed ? (proc.pid ?? null) : null,
       }
     })
   }
@@ -292,7 +296,10 @@ export async function activate(host) {
       const found = devices.find((d) => d.serial === requestedSerial)
       if (!found) throw new Error(`未找到设备：${requestedSerial}`)
       if (found.state !== "device") {
-        throw new Error(found.issue || `设备 ${requestedSerial} 当前不可用（${found.state}）。`)
+        throw new Error(
+          found.issue ||
+            `设备 ${requestedSerial} 当前不可用（${found.state}）。`
+        )
       }
       return found.serial
     }
@@ -304,7 +311,9 @@ export async function activate(host) {
     if (online.length === 0) {
       const unauth = devices.find((d) => d.state === "unauthorized")
       if (unauth) {
-        throw new Error(unauth.issue || "设备未授权 USB 调试，请在手机上确认授权。")
+        throw new Error(
+          unauth.issue || "设备未授权 USB 调试，请在手机上确认授权。"
+        )
       }
       throw new Error("当前没有可用的在线安卓设备，请连接设备或检查 USB 调试。")
     }
@@ -345,7 +354,9 @@ export async function activate(host) {
   const startManagement = async (action) => {
     ensureAvailable()
     if (management) return { operation: job }
-    const before = await getInstallation(lifecycle.signal, true).catch(() => null)
+    const before = await getInstallation(lifecycle.signal, true).catch(
+      () => null
+    )
     const controller = new AbortController()
     managementAbort = controller
     job = {
@@ -444,7 +455,10 @@ export async function activate(host) {
     job = {
       ...job,
       phase: "正在取消...",
-      logs: appendOperationLogs(job.logs || [], "用户请求取消，正在终止进程...") || job.logs || [],
+      logs:
+        appendOperationLogs(job.logs || [], "用户请求取消，正在终止进程...") ||
+        job.logs ||
+        [],
     }
     host.emit?.("operation-changed", { operation: job })
     managementAbort.abort(new Error("用户已取消操作。"))
@@ -492,7 +506,11 @@ export async function activate(host) {
     })
 
     mirrorProcesses.set(serial, child)
-    host.emit?.("mirror-changed", { serial, mirroring: true, pid: child.pid ?? null })
+    host.emit?.("mirror-changed", {
+      serial,
+      mirroring: true,
+      pid: child.pid ?? null,
+    })
 
     child.once("close", (code) => {
       if (mirrorProcesses.get(serial) === child) {
@@ -510,7 +528,9 @@ export async function activate(host) {
     // Brief wait to surface immediate startup error (e.g. device disconnected)
     await new Promise((r) => setTimeout(r, 350))
     if (child.exitCode !== null && child.exitCode !== 0) {
-      throw new Error(stderr.trim() || `scrcpy 启动失败（退出码 ${child.exitCode}）`)
+      throw new Error(
+        stderr.trim() || `scrcpy 启动失败（退出码 ${child.exitCode}）`
+      )
     }
 
     return {
@@ -530,7 +550,11 @@ export async function activate(host) {
     } catch {
       /* ignore */
     }
-    host.emit?.("mirror-changed", { serial: target, mirroring: false, pid: null })
+    host.emit?.("mirror-changed", {
+      serial: target,
+      mirroring: false,
+      pid: null,
+    })
     return { ok: true }
   }
 
@@ -648,7 +672,13 @@ export async function activate(host) {
         Promise.resolve(resolveCoords(serial, input)),
         adb.getScreenSize(serial, signal),
       ])
-      const res = await controlPool.tap(serial, coords.x, coords.y, screen, signal)
+      const res = await controlPool.tap(
+        serial,
+        coords.x,
+        coords.y,
+        screen,
+        signal
+      )
       return formatTextToolResult(
         { ok: true, action, serial, x: coords.x, y: coords.y, ...res },
         { action, serial, transport: res.transport }
@@ -702,13 +732,23 @@ export async function activate(host) {
 
     if (action === "scroll") {
       const screen = await adb.getScreenSize(serial, signal)
-      const cx = typeof input.x === "number" ? input.x : Math.round(screen.width / 2)
-      const cy = typeof input.y === "number" ? input.y : Math.round(screen.height / 2)
+      const cx =
+        typeof input.x === "number" ? input.x : Math.round(screen.width / 2)
+      const cy =
+        typeof input.y === "number" ? input.y : Math.round(screen.height / 2)
       const dir = input.direction || "down"
       const amt = Math.max(1, Math.min(16, Number(input.amount) || 4))
       const hScroll = dir === "left" ? amt : dir === "right" ? -amt : 0
       const vScroll = dir === "up" ? amt : dir === "down" ? -amt : 0
-      const res = await controlPool.scroll(serial, cx, cy, hScroll, vScroll, screen, signal)
+      const res = await controlPool.scroll(
+        serial,
+        cx,
+        cy,
+        hScroll,
+        vScroll,
+        screen,
+        signal
+      )
       return formatTextToolResult(
         { ok: true, action, serial, direction: dir, ...res },
         { action, serial, transport: res.transport }
@@ -739,7 +779,11 @@ export async function activate(host) {
     }
 
     if (action === "wake" || action === "sleep") {
-      const res = await controlPool.setDisplayPower(serial, action === "wake", signal)
+      const res = await controlPool.setDisplayPower(
+        serial,
+        action === "wake",
+        signal
+      )
       return formatTextToolResult(
         { ok: true, action, serial, ...res },
         { action, serial, transport: res.transport }
@@ -771,7 +815,8 @@ export async function activate(host) {
     }
 
     if (action === "launch-app") {
-      if (!input.packageName) throw new Error("launch-app 需要提供 packageName。")
+      if (!input.packageName)
+        throw new Error("launch-app 需要提供 packageName。")
       const res = await controlPool.startApp(serial, input.packageName, signal)
       return formatTextToolResult(
         { ok: true, action, serial, packageName: input.packageName, ...res },
@@ -783,7 +828,13 @@ export async function activate(host) {
       if (!input.packageName) throw new Error("stop-app 需要提供 packageName。")
       await adb.stopApp(serial, input.packageName, signal)
       return formatTextToolResult(
-        { ok: true, action, serial, packageName: input.packageName, transport: "adb" },
+        {
+          ok: true,
+          action,
+          serial,
+          packageName: input.packageName,
+          transport: "adb",
+        },
         { action, serial, transport: "adb" }
       )
     }
@@ -807,7 +858,13 @@ export async function activate(host) {
         signal
       )
       return formatTextToolResult(
-        { ok: true, action, serial, length: input.text.length, transport: res.transport },
+        {
+          ok: true,
+          action,
+          serial,
+          length: input.text.length,
+          transport: res.transport,
+        },
         { action, serial, transport: res.transport }
       )
     }
@@ -827,7 +884,13 @@ export async function activate(host) {
       }
       await adb.pushFile(serial, input.localPath, input.remotePath, signal)
       return formatTextToolResult(
-        { ok: true, action, serial, remotePath: input.remotePath, transport: "adb" },
+        {
+          ok: true,
+          action,
+          serial,
+          remotePath: input.remotePath,
+          transport: "adb",
+        },
         { action, serial, transport: "adb" }
       )
     }
@@ -838,7 +901,13 @@ export async function activate(host) {
       }
       await adb.pullFile(serial, input.remotePath, input.localPath, signal)
       return formatTextToolResult(
-        { ok: true, action, serial, localPath: input.localPath, transport: "adb" },
+        {
+          ok: true,
+          action,
+          serial,
+          localPath: input.localPath,
+          transport: "adb",
+        },
         { action, serial, transport: "adb" }
       )
     }
@@ -857,7 +926,11 @@ export async function activate(host) {
             if (name === "status") {
               return { value: await readStatus(signal) }
             }
-            if (name === "install" || name === "upgrade" || name === "uninstall") {
+            if (
+              name === "install" ||
+              name === "upgrade" ||
+              name === "uninstall"
+            ) {
               return { value: await startManagement(name) }
             }
             if (name === "cancel-manage") {

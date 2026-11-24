@@ -11,7 +11,11 @@ export function diagnoseAdbError(message) {
   if (/offline/i.test(text)) {
     return "设备处于离线状态（offline）：请重新插拔数据线或重连无线调试。"
   }
-  if (/device\s+['"]?[^'"]+['"]?\s+not found|no devices\/emulators found/i.test(text)) {
+  if (
+    /device\s+['"]?[^'"]+['"]?\s+not found|no devices\/emulators found/i.test(
+      text
+    )
+  ) {
     return "未找到目标设备：请确认设备已连接且在设备列表中处于在线状态。"
   }
   return text.trim() || "ADB 执行失败。"
@@ -80,10 +84,7 @@ export function createAdbClient({ run, runBinary, getAdbPath }) {
 
   const listDevices = async (signal) => {
     const res = await execAdb(["devices", "-l"], { signal, timeoutMs: 8000 })
-    const raw = res.stdout
-      .split(/\r?\n/)
-      .map(parseDevicesLine)
-      .filter(Boolean)
+    const raw = res.stdout.split(/\r?\n/).map(parseDevicesLine).filter(Boolean)
 
     const enriched = await Promise.all(
       raw.map(async (item) => {
@@ -177,7 +178,12 @@ export function createAdbClient({ run, runBinary, getAdbPath }) {
         allowFailure: true,
       }),
       execAdb(
-        ["-s", serial, "shell", "dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity'"],
+        [
+          "-s",
+          serial,
+          "shell",
+          "dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity'",
+        ],
         { signal, timeoutMs: 5000, allowFailure: true }
       ),
     ])
@@ -211,7 +217,9 @@ export function createAdbClient({ run, runBinary, getAdbPath }) {
       { signal, timeoutMs: 15000, label: "adb screencap" }
     )
     if (!buffer || buffer.length < 16) {
-      throw new Error("设备截图返回空数据，请检查设备是否处于锁屏或受保护界面。")
+      throw new Error(
+        "设备截图返回空数据，请检查设备是否处于锁屏或受保护界面。"
+      )
     }
     return buffer
   }
@@ -264,7 +272,9 @@ export function createAdbClient({ run, runBinary, getAdbPath }) {
 
   const listApps = async (serial, options = {}, signal) => {
     const includeSystem = Boolean(options.includeSystem)
-    const filter = String(options.query || "").trim().toLowerCase()
+    const filter = String(options.query || "")
+      .trim()
+      .toLowerCase()
     const args = ["-s", serial, "shell", "pm", "list", "packages"]
     if (!includeSystem) args.push("-3")
     const res = await execAdb(args, { signal, timeoutMs: 10000 })
@@ -329,7 +339,9 @@ export function createAdbClient({ run, runBinary, getAdbPath }) {
   const enableTcpip = async (serial, port = 5555, signal) => {
     const ip = await getDeviceIp(serial, signal)
     if (!ip) {
-      throw new Error("未获取到设备 Wi-Fi IP，请确认手机已连接同一局域网 Wi-Fi。")
+      throw new Error(
+        "未获取到设备 Wi-Fi IP，请确认手机已连接同一局域网 Wi-Fi。"
+      )
     }
     await execAdb(["-s", serial, "tcpip", String(port)], {
       signal,
@@ -400,10 +412,13 @@ export function createAdbClient({ run, runBinary, getAdbPath }) {
   }
 
   const fallbackTap = async (serial, x, y, signal) => {
-    await execAdb(["-s", serial, "shell", "input", "tap", String(x), String(y)], {
-      signal,
-      timeoutMs: 8000,
-    })
+    await execAdb(
+      ["-s", serial, "shell", "input", "tap", String(x), String(y)],
+      {
+        signal,
+        timeoutMs: 8000,
+      }
+    )
   }
 
   const fallbackSwipe = async (serial, x1, y1, x2, y2, durationMs, signal) => {

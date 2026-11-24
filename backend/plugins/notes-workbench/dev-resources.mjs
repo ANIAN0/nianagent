@@ -25,10 +25,21 @@ export async function createDevResources() {
         strict: true,
         allow: [
           fileURLToPath(new URL("./src", import.meta.url)),
-          fileURLToPath(new URL("../../../apps/workbench/src/workbench", import.meta.url)),
-          fileURLToPath(new URL("../../../apps/workbench/src/ui", import.meta.url)),
-          fileURLToPath(new URL("../../../apps/workbench/src/app/globals.css", import.meta.url)),
-          fileURLToPath(new URL("../../../apps/workbench/node_modules", import.meta.url)),
+          fileURLToPath(
+            new URL("../../../apps/workbench/src/workbench", import.meta.url)
+          ),
+          fileURLToPath(
+            new URL("../../../apps/workbench/src/ui", import.meta.url)
+          ),
+          fileURLToPath(
+            new URL(
+              "../../../apps/workbench/src/app/globals.css",
+              import.meta.url
+            )
+          ),
+          fileURLToPath(
+            new URL("../../../apps/workbench/node_modules", import.meta.url)
+          ),
           fileURLToPath(new URL("./node_modules", import.meta.url)),
           fileURLToPath(new URL("../../../node_modules", import.meta.url)),
         ],

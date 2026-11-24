@@ -14,11 +14,7 @@ import {
   isPreviewHost,
   previewHeaders as uiPreviewHeaders,
 } from "./v2/preview.mjs"
-import {
-  pageHeaders,
-  readSavedJson,
-  sendJson,
-} from "../../loopback-host.mjs"
+import { pageHeaders, readSavedJson, sendJson } from "../../loopback-host.mjs"
 import { notesWorkbenchOperations } from "./contract.mjs"
 import { validatePluginValue } from "../../plugin-helpers.mjs"
 import { redactSensitive } from "../../redact.mjs"

@@ -43,7 +43,8 @@ export const observeInputSchema = {
     },
     serial: {
       type: "string",
-      description: "可选目标设备序列号；未指定时自动使用默认设备或唯一在线设备。",
+      description:
+        "可选目标设备序列号；未指定时自动使用默认设备或唯一在线设备。",
     },
     includeNonInteractive: {
       type: "boolean",
@@ -73,7 +74,8 @@ export const actInputSchema = {
     },
     serial: {
       type: "string",
-      description: "可选目标设备序列号；未指定时自动使用默认设备或唯一在线设备。",
+      description:
+        "可选目标设备序列号；未指定时自动使用默认设备或唯一在线设备。",
     },
     ref: {
       type: "string",
@@ -99,7 +101,8 @@ export const actInputSchema = {
     text: {
       type: "string",
       maxLength: 65536,
-      description: "input-text 或 clipboard-set 的文本内容（支持中文与 Unicode）。",
+      description:
+        "input-text 或 clipboard-set 的文本内容（支持中文与 Unicode）。",
     },
     paste: {
       type: "boolean",
@@ -132,7 +135,8 @@ export const actInputSchema = {
     },
     remotePath: {
       type: "string",
-      description: "push-file / pull-file 的设备端路径（如 /sdcard/Download/a.txt）。",
+      description:
+        "push-file / pull-file 的设备端路径（如 /sdcard/Download/a.txt）。",
     },
     virtualDisplay: {
       type: "string",
@@ -201,7 +205,8 @@ export function validateAndroidPolicy({ mode, input, config }) {
 }
 
 export function formatTextToolResult(payload, details = {}) {
-  let text = typeof payload === "string" ? payload : JSON.stringify(payload, null, 2)
+  let text =
+    typeof payload === "string" ? payload : JSON.stringify(payload, null, 2)
   if (Buffer.byteLength(text, "utf8") > MAX_TEXT_BYTES) {
     text = `${text.slice(0, MAX_TEXT_BYTES)}\n... [输出超过上限已截断]`
   }

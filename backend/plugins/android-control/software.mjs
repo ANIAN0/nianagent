@@ -42,8 +42,7 @@ const isDir = async (dir) => {
 
 const scrcpyNames =
   process.platform === "win32" ? ["scrcpy.exe", "scrcpy.cmd"] : ["scrcpy"]
-const adbNames =
-  process.platform === "win32" ? ["adb.exe", "adb.cmd"] : ["adb"]
+const adbNames = process.platform === "win32" ? ["adb.exe", "adb.cmd"] : ["adb"]
 
 async function extraSearchDirs() {
   const dirs = []
@@ -178,7 +177,10 @@ async function findScrcpyServer(scrcpyExePath, customDir) {
     const localAppData =
       process.env.LOCALAPPDATA || join(homedir(), "AppData/Local")
     const programData = process.env.ProgramData || "C:\\ProgramData"
-    const scoopServer = join(homedir(), "scoop/apps/scrcpy/current/scrcpy-server")
+    const scoopServer = join(
+      homedir(),
+      "scoop/apps/scrcpy/current/scrcpy-server"
+    )
     if (await isFile(scoopServer)) return resolve(scoopServer)
 
     const chocoTools = join(programData, "chocolatey/lib/scrcpy/tools")
@@ -349,15 +351,22 @@ export function softwareService(run) {
     } else if (scrcpyUsable || adbUsable) {
       state = "partial"
       if (!adbUsable) issues.push("未检测到可用的 adb，设备连接与观察不可用。")
-      if (!scrcpyUsable) issues.push("未检测到可用的 scrcpy，无法拉起原生投屏窗口。")
+      if (!scrcpyUsable)
+        issues.push("未检测到可用的 scrcpy，无法拉起原生投屏窗口。")
       else if (!serverPath)
         issues.push("未找到配套 scrcpy-server，AI 控制将降级为 ADB 输入。")
     } else if (scrcpyHit || adbHit) {
       state = "unavailable"
     } else {
-      issues.push("未检测到 scrcpy 与 adb。请点击「安装」或在下方填写已解压目录。")
+      issues.push(
+        "未检测到 scrcpy 与 adb。请点击「安装」或在下方填写已解压目录。"
+      )
     }
-    if (scrcpyUsable && serverPath && scrcpyVersion !== SCRCPY_CONTROL_VERSION) {
+    if (
+      scrcpyUsable &&
+      serverPath &&
+      scrcpyVersion !== SCRCPY_CONTROL_VERSION
+    ) {
       issues.push(
         `轻量控制通道需要 scrcpy ${SCRCPY_CONTROL_VERSION}，可用的操作将降级为 ADB 输入。`
       )

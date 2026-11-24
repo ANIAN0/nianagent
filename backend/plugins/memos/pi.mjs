@@ -20,7 +20,8 @@ export default function extension(pi, { application, context }) {
       parameters: tool.inputSchema,
       async execute(_id, input, signal) {
         signal?.throwIfAborted()
-        const sessionContext = typeof context === "function" ? await context() : {}
+        const sessionContext =
+          typeof context === "function" ? await context() : {}
         return tool.execute(input, sessionContext, signal)
       },
     })

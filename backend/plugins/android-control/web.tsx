@@ -225,7 +225,9 @@ const manualInstallCommand = (
   return null
 }
 
-const sourceLabel = (source: AndroidControlStatus["installation"]["source"]) => {
+const sourceLabel = (
+  source: AndroidControlStatus["installation"]["source"]
+) => {
   if (source === "custom") return "自定义路径"
   if (source === "path") return "系统 PATH"
   if (source === "package-manager") return "系统包管理器目录"
@@ -275,9 +277,7 @@ function PolicyRow({
         >
           {title}
         </label>
-        {hint && (
-          <span className="text-xs text-muted-foreground">{hint}</span>
-        )}
+        {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
       </div>
       <Switch
         id={controlId}
@@ -354,7 +354,11 @@ export function Page({
     }
 
     const offStatus = subscribePluginEvent(id, "status-changed", refreshStatus)
-    const offDevices = subscribePluginEvent(id, "devices-changed", refreshStatus)
+    const offDevices = subscribePluginEvent(
+      id,
+      "devices-changed",
+      refreshStatus
+    )
     const offMirror = subscribePluginEvent(id, "mirror-changed", refreshStatus)
     const offOperation = subscribePluginEvent(
       id,
@@ -362,9 +366,7 @@ export function Page({
       (payload) => {
         if (controller.signal.aborted) return
         const nextOp =
-          payload &&
-          typeof payload === "object" &&
-          "operation" in payload
+          payload && typeof payload === "object" && "operation" in payload
             ? ((payload as { operation?: AndroidControlOperation | null })
                 .operation ?? null)
             : null
@@ -448,10 +450,7 @@ export function Page({
     }
   }
 
-  const runAction = async (
-    key: string,
-    fn: () => Promise<void>
-  ) => {
+  const runAction = async (key: string, fn: () => Promise<void>) => {
     setPending(key)
     setError("")
     try {
@@ -551,10 +550,10 @@ export function Page({
 
       {/* Card 1 · 设备与连接 */}
       <section className="rounded-xl border bg-card p-4">
-        <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b">
-          <div className="flex items-center gap-2 min-w-0">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
+          <div className="flex min-w-0 items-center gap-2">
             <StatusDot tone={deviceSummaryTone} />
-            <span className="font-medium text-foreground truncate">
+            <span className="truncate font-medium text-foreground">
               {deviceSummaryText}
             </span>
           </div>
@@ -594,7 +593,9 @@ export function Page({
               variant="outline"
               size="sm"
               className="h-8"
-              disabled={!installation?.usable || onlineDevices.length === 0 || busy}
+              disabled={
+                !installation?.usable || onlineDevices.length === 0 || busy
+              }
               onClick={() =>
                 void runAction("probe", async () => {
                   const res = await source.probeDevice()
@@ -611,7 +612,7 @@ export function Page({
         </div>
 
         {wirelessOpen && (
-          <div className="flex flex-col gap-2.5 py-3 border-b">
+          <div className="flex flex-col gap-2.5 border-b py-3">
             <div className="flex flex-wrap items-center gap-2">
               <Input
                 value={connectAddress}
@@ -627,7 +628,9 @@ export function Page({
                 disabled={busy || !connectAddress.trim()}
                 onClick={() =>
                   void runAction("connect-wireless", async () => {
-                    const res = await source.connectWireless(connectAddress.trim())
+                    const res = await source.connectWireless(
+                      connectAddress.trim()
+                    )
                     setConnectAddress("")
                     const latest = await source.read()
                     setValue(latest)
@@ -659,7 +662,10 @@ export function Page({
                 disabled={busy || !pairAddress.trim() || !pairCode.trim()}
                 onClick={() =>
                   void runAction("pair-wireless", async () => {
-                    await source.pairWireless(pairAddress.trim(), pairCode.trim())
+                    await source.pairWireless(
+                      pairAddress.trim(),
+                      pairCode.trim()
+                    )
                     setPairAddress("")
                     setPairCode("")
                     notifyToast("无线调试配对成功，请点击连接", {
@@ -700,7 +706,10 @@ export function Page({
                       <span className="font-medium text-foreground">
                         {device.model || device.serial}
                       </span>
-                      <Badge variant="outline" className="text-[11px] font-normal">
+                      <Badge
+                        variant="outline"
+                        className="text-[11px] font-normal"
+                      >
                         {device.transport === "tcpip" ? "Wi-Fi" : "USB"}
                       </Badge>
                       {device.androidVersion && (
@@ -714,7 +723,7 @@ export function Page({
                         </Badge>
                       )}
                     </div>
-                    <span className="font-mono text-xs text-muted-foreground break-all">
+                    <span className="font-mono text-xs break-all text-muted-foreground">
                       {device.serial}
                       {!online && device.issue ? ` · ${device.issue}` : ""}
                     </span>
@@ -769,11 +778,14 @@ export function Page({
                         className="h-8"
                         disabled={busy}
                         onClick={() =>
-                          void runAction(`disconnect:${device.serial}`, async () => {
-                            await source.disconnectWireless(device.serial)
-                            const latest = await source.read()
-                            setValue(latest)
-                          })
+                          void runAction(
+                            `disconnect:${device.serial}`,
+                            async () => {
+                              await source.disconnectWireless(device.serial)
+                              const latest = await source.read()
+                              setValue(latest)
+                            }
+                          )
                         }
                       >
                         <WifiOff className="size-3.5" />
@@ -790,11 +802,14 @@ export function Page({
                           className="h-8"
                           disabled={busy}
                           onClick={() =>
-                            void runAction(`stop-mirror:${device.serial}`, async () => {
-                              await source.stopMirror(device.serial)
-                              const latest = await source.read()
-                              setValue(latest)
-                            })
+                            void runAction(
+                              `stop-mirror:${device.serial}`,
+                              async () => {
+                                await source.stopMirror(device.serial)
+                                const latest = await source.read()
+                                setValue(latest)
+                              }
+                            )
                           }
                         >
                           <Square className="size-3.5" />
@@ -807,11 +822,16 @@ export function Page({
                           className="h-8"
                           disabled={!installation?.canMirror || busy}
                           onClick={() =>
-                            void runAction(`start-mirror:${device.serial}`, async () => {
-                              await source.startMirror({ serial: device.serial })
-                              const latest = await source.read()
-                              setValue(latest)
-                            })
+                            void runAction(
+                              `start-mirror:${device.serial}`,
+                              async () => {
+                                await source.startMirror({
+                                  serial: device.serial,
+                                })
+                                const latest = await source.read()
+                                setValue(latest)
+                              }
+                            )
                           }
                         >
                           <MonitorPlay className="size-3.5" />
@@ -828,20 +848,20 @@ export function Page({
 
       {/* Card 2 · 投屏偏好 */}
       <section className="rounded-xl border bg-card p-4">
-        <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
           <span className="font-medium text-foreground">投屏分辨率</span>
           <div className="flex flex-wrap items-center gap-1.5">
             {maxSizeOptions.map((opt) => (
               <Button
                 key={opt.value}
                 type="button"
-                variant={cfg.mirrorMaxSize === opt.value ? "secondary" : "outline"}
+                variant={
+                  cfg.mirrorMaxSize === opt.value ? "secondary" : "outline"
+                }
                 size="sm"
                 className="h-8"
                 disabled={busy}
-                onClick={() =>
-                  void updateConfig({ mirrorMaxSize: opt.value })
-                }
+                onClick={() => void updateConfig({ mirrorMaxSize: opt.value })}
               >
                 {opt.label}
               </Button>
@@ -883,7 +903,7 @@ export function Page({
 
       {/* Card 3 · 安全边界 */}
       <section className="rounded-xl border bg-card p-4">
-        <div className="pb-3 border-b font-medium text-foreground">
+        <div className="border-b pb-3 font-medium text-foreground">
           安全边界
         </div>
         <div className="divide-y pt-1">
@@ -893,7 +913,9 @@ export function Page({
             hint="仅允许观察与截图，禁止触控、输入、应用启停与文件写入"
             checked={cfg.readOnly}
             disabled={busy}
-            onCheckedChange={(checked) => void updateConfig({ readOnly: checked })}
+            onCheckedChange={(checked) =>
+              void updateConfig({ readOnly: checked })
+            }
           />
           <PolicyRow
             id="android-clipboard"
@@ -938,8 +960,8 @@ export function Page({
 
       {/* Card 4 · scrcpy 与 ADB 运行环境 */}
       <section className="rounded-xl border bg-card p-4">
-        <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b">
-          <div className="flex items-center gap-2 min-w-0">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
+          <div className="flex min-w-0 items-center gap-2">
             <StatusDot tone={envTone} />
             <span className="font-medium text-foreground">{envSummary}</span>
           </div>
@@ -977,29 +999,29 @@ export function Page({
             {installation?.usable &&
               installation.packageManager &&
               installation.source !== "custom" && (
-              <>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8"
-                  disabled={busy}
-                  onClick={() => void runManage("upgrade")}
-                >
-                  升级
-                </Button>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  size="sm"
-                  className="h-8"
-                  disabled={busy}
-                  onClick={() => void runManage("uninstall")}
-                >
-                  卸载
-                </Button>
-              </>
-            )}
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8"
+                    disabled={busy}
+                    onClick={() => void runManage("upgrade")}
+                  >
+                    升级
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    className="h-8"
+                    disabled={busy}
+                    onClick={() => void runManage("uninstall")}
+                  >
+                    卸载
+                  </Button>
+                </>
+              )}
           </div>
         </div>
 
@@ -1025,7 +1047,7 @@ export function Page({
               {installation?.adbPath || "未检测到"}
             </span>
           </div>
-          <div className="grid gap-1 sm:grid-cols-[72px_minmax(0,1fr)] sm:items-center pt-1">
+          <div className="grid gap-1 pt-1 sm:grid-cols-[72px_minmax(0,1fr)] sm:items-center">
             <span className="text-muted-foreground">自定义目录</span>
             <div className="flex flex-wrap items-center gap-2">
               <Input
@@ -1063,10 +1085,12 @@ export function Page({
               return null
             }
             return (
-              <div className="grid gap-1 sm:grid-cols-[72px_minmax(0,1fr)] sm:items-start pt-1">
-                <span className="text-muted-foreground sm:pt-1.5">终端安装</span>
+              <div className="grid gap-1 pt-1 sm:grid-cols-[72px_minmax(0,1fr)] sm:items-start">
+                <span className="text-muted-foreground sm:pt-1.5">
+                  终端安装
+                </span>
                 <div className="flex flex-wrap items-center gap-2">
-                  <code className="min-w-0 flex-1 break-all rounded-md bg-muted/60 px-2.5 py-1.5 font-mono text-[11px] text-foreground">
+                  <code className="min-w-0 flex-1 rounded-md bg-muted/60 px-2.5 py-1.5 font-mono text-[11px] break-all text-foreground">
                     {cmd}
                   </code>
                   <Button
@@ -1100,7 +1124,7 @@ export function Page({
       {operation && (
         <section className="rounded-xl border bg-card p-4 text-xs">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2 min-w-0">
+            <div className="flex min-w-0 items-center gap-2">
               <StatusDot
                 tone={
                   operation.state === "running"
@@ -1141,7 +1165,7 @@ export function Page({
             (operation.logs && operation.logs.length > 0)) && (
             <pre
               ref={logBoxRef}
-              className="mt-2.5 max-h-56 overflow-y-auto whitespace-pre-wrap break-all rounded-lg bg-muted/50 px-3 py-2 font-mono text-[11px] leading-relaxed text-foreground/90"
+              className="mt-2.5 max-h-56 overflow-y-auto rounded-lg bg-muted/50 px-3 py-2 font-mono text-[11px] leading-relaxed break-all whitespace-pre-wrap text-foreground/90"
             >
               {operation.logs && operation.logs.length > 0
                 ? operation.logs.join("\n")
@@ -1149,7 +1173,9 @@ export function Page({
             </pre>
           )}
           {operation.error && (
-            <p className="mt-2 text-destructive break-words">{operation.error}</p>
+            <p className="mt-2 break-words text-destructive">
+              {operation.error}
+            </p>
           )}
         </section>
       )}

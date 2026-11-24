@@ -183,8 +183,7 @@ export function Page() {
                     // 桌面 WebView 不处理 window.open，走系统浏览器（与模型授权同模式）。
                     if (isTauri())
                       await tauriInvoke("open_local_url", { url: value.url })
-                    else
-                      window.open(value.url, "_blank", "noopener,noreferrer")
+                    else window.open(value.url, "_blank", "noopener,noreferrer")
                   })
                 }
               >

@@ -190,7 +190,9 @@ export function ToolCall({
                 : undefined
           }
         >
-          <TraceIcon className={status === "failed" ? "text-destructive" : undefined}>
+          <TraceIcon
+            className={status === "failed" ? "text-destructive" : undefined}
+          >
             {status === "failed" ? <AlertCircle /> : <Icon />}
           </TraceIcon>
           <span className="shrink-0">{known?.label ?? tool.name}</span>

@@ -272,9 +272,9 @@ export function McpServerEditor({
                     <Select
                       value={value.exposure}
                       disabled={!!busy}
-                      onValueChange={(
-                        exposure: McpConfiguration["exposure"]
-                      ) => patch({ exposure })}
+                      onValueChange={(exposure: McpConfiguration["exposure"]) =>
+                        patch({ exposure })
+                      }
                     >
                       <SelectTrigger id="mcp-exposure">
                         <SelectValue />

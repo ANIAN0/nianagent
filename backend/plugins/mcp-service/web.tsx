@@ -136,7 +136,9 @@ const extractParameters = (
   if (!props || typeof props !== "object" || Array.isArray(props)) return []
   const requiredSet = new Set(
     Array.isArray(inputSchema.required)
-      ? inputSchema.required.filter((item): item is string => typeof item === "string")
+      ? inputSchema.required.filter(
+          (item): item is string => typeof item === "string"
+        )
       : []
   )
   return Object.entries(props as Record<string, unknown>)
@@ -417,10 +419,7 @@ export function Page({
                   仅本机 127.0.0.1 · Bearer 凭据
                 </span>
                 {notice && (
-                  <span
-                    role="status"
-                    className="text-xs text-muted-foreground"
-                  >
+                  <span role="status" className="text-xs text-muted-foreground">
                     · {notice}
                   </span>
                 )}
@@ -626,7 +625,9 @@ export function Page({
                         variant="outline"
                         disabled={pending}
                         onClick={() =>
-                          void run((signal) => copy(issued.token, "issued-token", signal))
+                          void run((signal) =>
+                            copy(issued.token, "issued-token", signal)
+                          )
                         }
                       >
                         复制 token
@@ -795,7 +796,8 @@ export function Page({
                       onClick={() =>
                         void run(async (signal) => {
                           const result = await source.reveal(signal)
-                          if (!signal.aborted) await copy(result.token, "legacy-token", signal)
+                          if (!signal.aborted)
+                            await copy(result.token, "legacy-token", signal)
                         })
                       }
                     >
@@ -822,15 +824,15 @@ export function Page({
                           }
                         })
                       }
-                  >
-                    重置
-                  </Button>
-                </div>
-                <FieldDescription>
-                  仅用于兼容旧客户端，不能访问笔记工作台工具；重置会取消执行中的调用。
-                </FieldDescription>
-              </Field>
-            </div>
+                    >
+                      重置
+                    </Button>
+                  </div>
+                  <FieldDescription>
+                    仅用于兼容旧客户端，不能访问笔记工作台工具；重置会取消执行中的调用。
+                  </FieldDescription>
+                </Field>
+              </div>
             )}
           </section>
 
@@ -951,7 +953,11 @@ export function Page({
                   </EmptyDescription>
                 </EmptyHeader>
                 <EmptyContent>
-                  <Button variant="outline" className="text-xs" onClick={resetFilters}>
+                  <Button
+                    variant="outline"
+                    className="text-xs"
+                    onClick={resetFilters}
+                  >
                     重置筛选
                   </Button>
                 </EmptyContent>

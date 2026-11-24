@@ -298,10 +298,9 @@ function Devices() {
         { id: deviceId }
       )
       setItems(result.value.items)
-      notifyToast(
-        operation === "trust" ? "已信任该设备" : "已移除该设备",
-        { tone: "success" }
-      )
+      notifyToast(operation === "trust" ? "已信任该设备" : "已移除该设备", {
+        tone: "success",
+      })
     } catch (reason) {
       setError(errorMessage(reason, "操作未完成。"))
     } finally {
@@ -503,9 +502,7 @@ export function UploadReservationsView({
                 <p className="text-sm font-medium">{item.name}</p>
                 <p className="text-xs text-muted-foreground tabular-nums">
                   {item.offset ?? "未知"} / {item.bytes ?? "未知"} 字节
-                  {item.uncertain
-                    ? " · 待核对，原副本保留"
-                    : " · 接收未结束"}
+                  {item.uncertain ? " · 待核对，原副本保留" : " · 接收未结束"}
                 </p>
               </div>
               <Button

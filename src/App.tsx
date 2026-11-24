@@ -634,9 +634,7 @@ function SelectedConversation({
                 >
                   <GitBranch />
                   {lineageCount > 1 && (
-                    <span className="tabular-nums text-xs">
-                      {lineageCount}
-                    </span>
+                    <span className="text-xs tabular-nums">{lineageCount}</span>
                   )}
                 </Button>
               </TooltipTrigger>

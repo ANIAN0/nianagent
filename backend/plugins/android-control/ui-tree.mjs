@@ -22,9 +22,7 @@ function parseAttributes(raw) {
 }
 
 function parseBounds(boundsStr) {
-  const match = String(boundsStr || "").match(
-    /\[(\d+),(\d+)\]\[(\d+),(\d+)\]/
-  )
+  const match = String(boundsStr || "").match(/\[(\d+),(\d+)\]\[(\d+),(\d+)\]/)
   if (!match) return null
   const left = Number(match[1])
   const top = Number(match[2])
@@ -62,7 +60,8 @@ export function parseUiTreeXml(xmlText, options = {}) {
     const longClickable = attrs["long-clickable"] === "true"
     const scrollable = attrs.scrollable === "true"
     const editable =
-      cls.includes("EditText") || attrs.focused === "true" && attrs.focusable === "true"
+      cls.includes("EditText") ||
+      (attrs.focused === "true" && attrs.focusable === "true")
     const checkable = attrs.checkable === "true"
     const checked = attrs.checked === "true"
     const enabled = attrs.enabled !== "false"

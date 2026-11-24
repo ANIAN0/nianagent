@@ -37,10 +37,7 @@ export interface LineageGraph {
   ancestorsById: Map<string, Set<string>>
 }
 
-function buildMissingParent(
-  id: string,
-  title: string
-): ConversationSummary {
+function buildMissingParent(id: string, title: string): ConversationSummary {
   return {
     id,
     title: title || "原会话已不可用",
@@ -182,7 +179,8 @@ export function buildLineageGraph(
     if (!item) continue
     const depth = depthMap.get(id) ?? 0
     const x = depth * (LINEAGE_NODE_WIDTH + LAYER_GAP_X)
-    const y = (yCenterMap.get(id) ?? LINEAGE_NODE_HEIGHT / 2) - LINEAGE_NODE_HEIGHT / 2
+    const y =
+      (yCenterMap.get(id) ?? LINEAGE_NODE_HEIGHT / 2) - LINEAGE_NODE_HEIGHT / 2
     maxRight = Math.max(maxRight, x + LINEAGE_NODE_WIDTH)
     maxBottom = Math.max(maxBottom, y + LINEAGE_NODE_HEIGHT)
 

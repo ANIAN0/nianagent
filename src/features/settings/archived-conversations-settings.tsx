@@ -112,8 +112,7 @@ export function ArchivedConversationsSettings({
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
   const currentPage = Math.min(page, totalPages)
   const pageItems = useMemo(
-    () =>
-      filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    () => filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize),
     [filtered, currentPage, pageSize]
   )
 

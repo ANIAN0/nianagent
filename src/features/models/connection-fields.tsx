@@ -126,10 +126,7 @@ export function ConnectionFields({
           </Field>
         )}
         {value.kind === "api" && (
-          <Field
-            data-invalid={!!errors.endpoint}
-            className="sm:col-span-2"
-          >
+          <Field data-invalid={!!errors.endpoint} className="sm:col-span-2">
             <FieldLabel htmlFor="connection-endpoint">服务端点</FieldLabel>
             <Input
               id="connection-endpoint"

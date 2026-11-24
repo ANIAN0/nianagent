@@ -254,7 +254,10 @@ export function McpServerList({
             <Skeleton className="h-56 w-full rounded-lg" />
           </div>
         ) : initialFailure ? null : (
-          <section className="flex flex-col gap-3" aria-label="入站 MCP 服务目录">
+          <section
+            className="flex flex-col gap-3"
+            aria-label="入站 MCP 服务目录"
+          >
             {servers.length > 0 && (
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <InputGroup className="h-8 w-full max-w-xs">
@@ -331,11 +334,15 @@ export function McpServerList({
                     <TableRow className="bg-muted/40 hover:bg-muted/40">
                       <TableHead className="min-w-[140px]">名称</TableHead>
                       <TableHead className="w-[136px]">传输方式</TableHead>
-                      <TableHead className="min-w-[200px]">命令 / 地址</TableHead>
+                      <TableHead className="min-w-[200px]">
+                        命令 / 地址
+                      </TableHead>
                       <TableHead className="w-[116px]">连接状态</TableHead>
                       <TableHead className="w-[160px]">最近测试</TableHead>
                       <TableHead className="w-[68px]">启用</TableHead>
-                      <TableHead className="w-[60px] text-right">操作</TableHead>
+                      <TableHead className="w-[60px] text-right">
+                        操作
+                      </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>

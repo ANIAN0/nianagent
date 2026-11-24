@@ -99,8 +99,7 @@ export async function activate(host) {
     "FileBrowser 凭据"
   )
   let credentials = {
-    username:
-      typeof saved?.username === "string" ? saved.username.trim() : "",
+    username: typeof saved?.username === "string" ? saved.username.trim() : "",
     password: typeof saved?.password === "string" ? saved.password : "",
   }
   const hasCredentials = () =>
@@ -123,7 +122,8 @@ export async function activate(host) {
 
   const ensureAvailable = () => {
     if (closed) throw new Error("FileBrowser 插件已停用。")
-    if (frozen) throw new Error("Moon 正在维护，FileBrowser 插件暂不接受新请求。")
+    if (frozen)
+      throw new Error("Moon 正在维护，FileBrowser 插件暂不接受新请求。")
   }
 
   const toolSpecs = [
@@ -205,9 +205,12 @@ export async function activate(host) {
       description: "将本机文件上传到 FileBrowser 指定远程路径。",
       inputSchema: object(
         {
-          localPath: str("本机源文件路径（会话内可相对工作区，外部调用需绝对路径）", {
-            minLength: 1,
-          }),
+          localPath: str(
+            "本机源文件路径（会话内可相对工作区，外部调用需绝对路径）",
+            {
+              minLength: 1,
+            }
+          ),
           remotePath: str("目标远程文件路径", { minLength: 1 }),
           override: bool("目标已存在时是否覆盖，默认 false"),
         },
@@ -225,13 +228,17 @@ export async function activate(host) {
     },
     {
       name: "download_file",
-      description: "将 FileBrowser 远程文件下载到本机指定路径，传输完成后才覆盖可写的常规文件。",
+      description:
+        "将 FileBrowser 远程文件下载到本机指定路径，传输完成后才覆盖可写的常规文件。",
       inputSchema: object(
         {
           remotePath: str("远程源文件路径", { minLength: 1 }),
-          localPath: str("本机保存路径（会话内可相对工作区，外部调用需绝对路径）", {
-            minLength: 1,
-          }),
+          localPath: str(
+            "本机保存路径（会话内可相对工作区，外部调用需绝对路径）",
+            {
+              minLength: 1,
+            }
+          ),
         },
         ["remotePath", "localPath"]
       ),
@@ -270,7 +277,8 @@ export async function activate(host) {
     },
     {
       name: "delete_path",
-      description: "永久删除 FileBrowser 远程文件或目录（不可恢复，禁止删除根目录）。",
+      description:
+        "永久删除 FileBrowser 远程文件或目录（不可恢复，禁止删除根目录）。",
       inputSchema: object(
         {
           path: str("要删除的远程路径", { minLength: 1 }),
@@ -396,8 +404,7 @@ export async function activate(host) {
       setCredentials: operation("setCredentials", async (input, signal) => {
         const username = String(input.username || "").trim()
         const password = String(input.password || "")
-        if (!username || !password)
-          throw new Error("用户名和密码均不能为空。")
+        if (!username || !password) throw new Error("用户名和密码均不能为空。")
         await replaceJson(credentialsFile, { username, password }, { signal })
         credentials = { username, password }
         client.clearToken()

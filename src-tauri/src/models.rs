@@ -24,8 +24,7 @@ fn log_operation_terminal(
     error_cause: &str,
     error_id: &str,
 ) {
-    let record_as_info =
-        outcome == "committed" && (event.starts_with('$') || duration_ms >= 1000);
+    let record_as_info = outcome == "committed" && (event.starts_with('$') || duration_ms >= 1000);
     let level = if record_as_info {
         "info"
     } else if outcome == "committed" {

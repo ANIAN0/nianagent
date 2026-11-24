@@ -96,10 +96,7 @@ export function ConnectionList({
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / size))
   const currentPage = Math.min(page, totalPages)
-  const pageItems = filtered.slice(
-    (currentPage - 1) * size,
-    currentPage * size
-  )
+  const pageItems = filtered.slice((currentPage - 1) * size, currentPage * size)
 
   return (
     <div className="model-page">

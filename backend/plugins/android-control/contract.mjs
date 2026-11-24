@@ -137,7 +137,11 @@ export const androidControlOperations = {
   "connect-wireless": definition(
     "连接无线 ADB 设备",
     object({ address: str("设备 IP:端口，默认端口 5555") }),
-    object({ ok: bool("是否连接成功"), serial: str("设备标识"), message: str("结果说明") }),
+    object({
+      ok: bool("是否连接成功"),
+      serial: str("设备标识"),
+      message: str("结果说明"),
+    }),
     "执行 adb connect 建立无线 TCP/IP 连接。"
   ),
   "pair-wireless": definition(
@@ -151,7 +155,9 @@ export const androidControlOperations = {
   ),
   "enable-tcpip": definition(
     "USB 设备一键转无线",
-    object({ serial: str("USB 设备序列号"), port: num("TCP/IP 端口") }, ["serial"]),
+    object({ serial: str("USB 设备序列号"), port: num("TCP/IP 端口") }, [
+      "serial",
+    ]),
     object({ ok: bool("是否成功"), address: str("无线连接地址") }),
     "读取设备 Wi-Fi IP，开启 adb tcpip 并自动连接。"
   ),
@@ -171,7 +177,11 @@ export const androidControlOperations = {
       },
       []
     ),
-    object({ serial: str("设备序列号"), pid: num("投屏进程 PID"), mode: str("投屏模式") }),
+    object({
+      serial: str("设备序列号"),
+      pid: num("投屏进程 PID"),
+      mode: str("投屏模式"),
+    }),
     "拉起并托管官方原生 scrcpy 窗口。"
   ),
   "stop-mirror": definition(

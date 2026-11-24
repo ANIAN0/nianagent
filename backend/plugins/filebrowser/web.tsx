@@ -1,12 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import {
-  Check,
-  ChevronRight,
-  Copy,
-  Eye,
-  EyeOff,
-  RefreshCw,
-} from "lucide-react"
+import { Check, ChevronRight, Copy, Eye, EyeOff, RefreshCw } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -236,7 +229,7 @@ export function Page() {
     Number(timeoutSeconds) < 5 ||
     Number(timeoutSeconds) > 300
   const partialCreds =
-    (usernameInput.trim().length > 0) !== (passwordInput.length > 0)
+    usernameInput.trim().length > 0 !== passwordInput.length > 0
   const hasInvalid =
     invalidUrl || invalidExpires || invalidTimeout || partialCreds
 
@@ -374,7 +367,8 @@ export function Page() {
         <AlertTitle>仅用于连接已有 FileBrowser 实例</AlertTitle>
         <AlertDescription>
           <p>
-            上游已归档，停止缺陷与安全修复。已用官方最终版 v2.63.23 验证账号密码登录、目录读取和下载。
+            上游已归档，停止缺陷与安全修复。已用官方最终版 v2.63.23
+            验证账号密码登录、目录读取和下载。
             测试连接只检查登录，无法确认实例版本或各项文件权限。
           </p>
         </AlertDescription>
@@ -388,7 +382,9 @@ export function Page() {
       {conn?.state === "error" && conn.error && (
         <Alert>
           <AlertTitle>连接探测失败</AlertTitle>
-          <AlertDescription className="break-all">{conn.error}</AlertDescription>
+          <AlertDescription className="break-all">
+            {conn.error}
+          </AlertDescription>
         </Alert>
       )}
       {!status ? (
@@ -426,9 +422,7 @@ export function Page() {
                   variant="outline"
                   className="h-8 text-xs"
                   disabled={
-                    pending ||
-                    hasInvalid ||
-                    (!status.configured && !dirty)
+                    pending || hasInvalid || (!status.configured && !dirty)
                   }
                   onClick={() => saveAndOptionallyTest(true)}
                 >

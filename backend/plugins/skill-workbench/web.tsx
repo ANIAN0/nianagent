@@ -189,8 +189,7 @@ export function Page() {
                     if (signal.aborted) return
                     if (isTauri())
                       await tauriInvoke("open_local_url", { url: value.url })
-                    else
-                      window.open(value.url, "_blank", "noopener,noreferrer")
+                    else window.open(value.url, "_blank", "noopener,noreferrer")
                   })
                 }
               >

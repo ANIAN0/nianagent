@@ -14,6 +14,7 @@ export default defineConfig([
     "src-tauri/runtime",
     "src-tauri/target",
     ".dev",
+    "apps/workbench/.next/",
     "apps/workbench/.dev/next/",
     "apps/workbench/.releases/",
     "backend/plugins/notes-workbench/workbench.bundle.mjs",

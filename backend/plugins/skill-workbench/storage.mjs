@@ -163,15 +163,16 @@ export class SkillWorkbenchStore {
 
   listSkills() {
     const rows =
-      this.db
-        ?.prepare("SELECT * FROM skills ORDER BY updated_at DESC")
-        .all() ?? []
+      this.db?.prepare("SELECT * FROM skills ORDER BY updated_at DESC").all() ??
+      []
     return rows.map((row) => this.#mapSkill(row))
   }
 
   /** @param {{ slug: string, name: string, description: string, exportDir?: string, actor: string, reason: string, initialBlocks?: Array<{ heading?: string, content: string }> }} input */
   createSkill(input) {
-    const slug = String(input.slug || "").trim().toLowerCase()
+    const slug = String(input.slug || "")
+      .trim()
+      .toLowerCase()
     if (!slugRegex.test(slug)) {
       throw new SkillStoreError(
         "INVALID_SLUG",
@@ -259,7 +260,10 @@ export class SkillWorkbenchStore {
   updateSkillMeta(skillId, input) {
     const reason = String(input.reason || "").trim()
     if (!reason) {
-      throw new SkillStoreError("REASON_REQUIRED", "修改 Skill 元数据必须填写原因。")
+      throw new SkillStoreError(
+        "REASON_REQUIRED",
+        "修改 Skill 元数据必须填写原因。"
+      )
     }
     return this.tx(() => {
       const skill = this.requireSkill(skillId)
@@ -373,7 +377,16 @@ export class SkillWorkbenchStore {
           `INSERT INTO skill_blocks (id, skill_id, sort_order, heading, content, eval_status, created_version, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`
         )
-        .run(blockId, skillId, insertAt + 1, heading, content, evalStatus, ts, ts)
+        .run(
+          blockId,
+          skillId,
+          insertAt + 1,
+          heading,
+          content,
+          evalStatus,
+          ts,
+          ts
+        )
       newOrder.forEach((id, idx) => {
         this.db
           .prepare("UPDATE skill_blocks SET sort_order = ? WHERE id = ?")
@@ -693,7 +706,10 @@ export class SkillWorkbenchStore {
         actor: input.actor,
         reason: summary,
         beforeSnapshot: { versionNumber: skill.currentVersion },
-        afterSnapshot: { versionNumber: nextVersion, blockCount: blocks.length },
+        afterSnapshot: {
+          versionNumber: nextVersion,
+          blockCount: blocks.length,
+        },
         createdAt: ts,
       })
       return this.getVersion(skillId, nextVersion)
@@ -769,9 +785,7 @@ export class SkillWorkbenchStore {
       beforeSnapshot: row.before_snapshot
         ? JSON.parse(row.before_snapshot)
         : null,
-      afterSnapshot: row.after_snapshot
-        ? JSON.parse(row.after_snapshot)
-        : null,
+      afterSnapshot: row.after_snapshot ? JSON.parse(row.after_snapshot) : null,
       createdAt: row.created_at,
     }))
   }

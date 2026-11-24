@@ -23,7 +23,11 @@ test(
     assert.equal(dirname(directory), dev)
     let server
     t.after(async () => {
-      if (server?.pid && server.exitCode === null && server.signalCode === null) {
+      if (
+        server?.pid &&
+        server.exitCode === null &&
+        server.signalCode === null
+      ) {
         const stopped = once(server, "exit")
         if (process.platform === "win32") {
           await once(
@@ -152,13 +156,8 @@ test(
     assert.equal(migratedDraft.title, "既有草稿")
     assert.equal(migratedDraft.consensusStatus, "discussing")
     assert.equal(
-      (
-        await post(
-          "list_projects",
-          {},
-          { origin: "https://example.invalid" }
-        )
-      ).status,
+      (await post("list_projects", {}, { origin: "https://example.invalid" }))
+        .status,
       403
     )
     assert.equal((await request("/host.mjs")).status, 404)

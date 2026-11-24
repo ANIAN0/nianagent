@@ -8,7 +8,9 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
-      "@": fileURLToPath(new URL("../../../apps/workbench/src", import.meta.url)),
+      "@": fileURLToPath(
+        new URL("../../../apps/workbench/src", import.meta.url)
+      ),
     },
   },
   // 壳层 dev 迭代需转发 API 到本机插件宿主；端口与工作台配置一致，可用环境变量覆盖。

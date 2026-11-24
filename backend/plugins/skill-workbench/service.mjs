@@ -5,7 +5,11 @@ import { SkillStoreError } from "./storage.mjs"
 
 /** @param {string} value */
 const yamlEscape = (value) => {
-  return JSON.stringify(String(value ?? "").replace(/\r?\n/g, " ").trim())
+  return JSON.stringify(
+    String(value ?? "")
+      .replace(/\r?\n/g, " ")
+      .trim()
+  )
 }
 
 /** @param {{ slug: string, name: string, description: string }} skill @param {Array<{ heading: string, content: string }>} blocks */
@@ -33,8 +37,13 @@ export function compileSkillMarkdown(skill, blocks) {
 
 /** @param {unknown} value @param {number} [minimum] */
 function parseVersionNumber(value, minimum = 0) {
-  const version = typeof value === "string" && /^\d+$/.test(value) ? Number(value) : value
-  if (typeof version !== "number" || !Number.isSafeInteger(version) || version < minimum) {
+  const version =
+    typeof value === "string" && /^\d+$/.test(value) ? Number(value) : value
+  if (
+    typeof version !== "number" ||
+    !Number.isSafeInteger(version) ||
+    version < minimum
+  ) {
     throw new SkillStoreError("INVALID_VERSION", "版本号无效。")
   }
   return version
@@ -78,7 +87,11 @@ export function createSkillService(store, host = {}) {
     const activeBlocks = store.listActiveBlocks(skillId)
     const current = activeBlocks.find((b) => b.id === blockId) || null
     if (!current && revisions.length === 0) {
-      throw new SkillStoreError("NOT_FOUND", `段落不存在或无历史记录：${blockId}`, 404)
+      throw new SkillStoreError(
+        "NOT_FOUND",
+        `段落不存在或无历史记录：${blockId}`,
+        404
+      )
     }
     const createdRev = revisions.find((r) => r.action === "add_block")
     const editRevs = revisions.filter((r) => r.action === "update_block")
@@ -98,8 +111,12 @@ export function createSkillService(store, host = {}) {
   const compareVersions = (skillId, fromVersion, toVersion) => {
     const fromSnap = resolveSnapshot(skillId, fromVersion)
     const toSnap = resolveSnapshot(skillId, toVersion)
-    const fromMap = new Map(fromSnap.blocks.map((b, i) => [b.id, { ...b, index: i }]))
-    const toMap = new Map(toSnap.blocks.map((b, i) => [b.id, { ...b, index: i }]))
+    const fromMap = new Map(
+      fromSnap.blocks.map((b, i) => [b.id, { ...b, index: i }])
+    )
+    const toMap = new Map(
+      toSnap.blocks.map((b, i) => [b.id, { ...b, index: i }])
+    )
     const diffs = []
     for (const [id, toBlk] of toMap.entries()) {
       const fromBlk = fromMap.get(id)
@@ -111,14 +128,20 @@ export function createSkillService(store, host = {}) {
       ) {
         diffs.push({
           blockId: id,
-          status: fromBlk.index !== toBlk.index ? "modified_and_moved" : "modified",
+          status:
+            fromBlk.index !== toBlk.index ? "modified_and_moved" : "modified",
           from: fromBlk,
           to: toBlk,
         })
       } else if (fromBlk.index !== toBlk.index) {
         diffs.push({ blockId: id, status: "moved", from: fromBlk, to: toBlk })
       } else {
-        diffs.push({ blockId: id, status: "unchanged", from: fromBlk, to: toBlk })
+        diffs.push({
+          blockId: id,
+          status: "unchanged",
+          from: fromBlk,
+          to: toBlk,
+        })
       }
     }
     for (const [id, fromBlk] of fromMap.entries()) {
@@ -137,14 +160,30 @@ export function createSkillService(store, host = {}) {
 
   /** @param {string} skillId @param {{ versionNumber?: number, targetDir?: string }} [options] */
   const exportSkillDirectory = async (skillId, options = {}) => {
-    const snap = store.tx(() => resolveSnapshot(skillId, options.versionNumber), "read")
+    const snap = store.tx(
+      () => resolveSnapshot(skillId, options.versionNumber),
+      "read"
+    )
     const requestedDir = options.targetDir ?? snap.skill.exportDir
     const baseDir = typeof requestedDir === "string" ? requestedDir.trim() : ""
     if (!baseDir || !isAbsolute(baseDir)) {
-      throw new SkillStoreError("INVALID_EXPORT_DIR", "导出目录必须为有效的绝对路径。")
+      throw new SkillStoreError(
+        "INVALID_EXPORT_DIR",
+        "导出目录必须为有效的绝对路径。"
+      )
     }
-    const result = await exportSkillSnapshot(baseDir, snap.skill.slug, snap.compiledMd, snap.assets)
-    return { skillId, slug: snap.skill.slug, versionNumber: snap.versionNumber, ...result }
+    const result = await exportSkillSnapshot(
+      baseDir,
+      snap.skill.slug,
+      snap.compiledMd,
+      snap.assets
+    )
+    return {
+      skillId,
+      slug: snap.skill.slug,
+      versionNumber: snap.versionNumber,
+      ...result,
+    }
   }
 
   const projectDetail = (detail) => ({
@@ -154,7 +193,8 @@ export function createSkillService(store, host = {}) {
 
   return {
     listSkills: () => store.listSkills(),
-    getSkillDetail: (skillId) => projectDetail(store.tx(() => store.getSkillDetail(skillId), "read")),
+    getSkillDetail: (skillId) =>
+      projectDetail(store.tx(() => store.getSkillDetail(skillId), "read")),
     createSkill: (input) => {
       const res = projectDetail(store.createSkill(input))
       notify()
@@ -208,7 +248,8 @@ export function createSkillService(store, host = {}) {
     getVersion: (skillId, versionNumber) =>
       store.getVersion(skillId, parseVersionNumber(versionNumber, 1)),
     getBlockLineage,
-    compareVersions: (skillId, from, to) => store.tx(() => compareVersions(skillId, from, to), "read"),
+    compareVersions: (skillId, from, to) =>
+      store.tx(() => compareVersions(skillId, from, to), "read"),
     exportSkillDirectory,
   }
 }

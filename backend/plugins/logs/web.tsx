@@ -250,8 +250,7 @@ export function Page({ service: source = service }: { service?: LogsClient }) {
     useState<TransportDraft>(blankTransport)
   const [transportQuery, setTransportQuery] =
     useState<TransportDraft>(blankTransport)
-  const [transportPreset, setTransportPreset] =
-    useState<TransportPreset>("all")
+  const [transportPreset, setTransportPreset] = useState<TransportPreset>("all")
   const [showTransportFilters, setShowTransportFilters] = useState(false)
   const [transportPage, setTransportPage] = useState(1)
   const [transport, setTransport] = useState<TransportLogPage>()
@@ -357,9 +356,9 @@ export function Page({ service: source = service }: { service?: LogsClient }) {
 
   const hasCustomTransportFilter = Boolean(
     transportQuery.traceId ||
-      transportQuery.errorId ||
-      (transportQuery.module && transportPreset !== "startup") ||
-      (transportQuery.level && transportPreset !== "error")
+    transportQuery.errorId ||
+    (transportQuery.module && transportPreset !== "startup") ||
+    (transportQuery.level && transportPreset !== "error")
   )
 
   const exportRecords = () => {
@@ -437,10 +436,10 @@ export function Page({ service: source = service }: { service?: LogsClient }) {
 
   const hasActivityFilter = Boolean(
     query.filter.from ||
-      query.filter.to ||
-      query.filter.plugin ||
-      query.filter.tool ||
-      query.filter.status
+    query.filter.to ||
+    query.filter.plugin ||
+    query.filter.tool ||
+    query.filter.status
   )
 
   const copyText = (text: string, labelText: string) => {
@@ -867,9 +866,7 @@ export function Page({ service: source = service }: { service?: LogsClient }) {
                       : "outline"
                   }
                   className="text-xs"
-                  onClick={() =>
-                    setShowActivityTime((previous) => !previous)
-                  }
+                  onClick={() => setShowActivityTime((previous) => !previous)}
                 >
                   <Filter className="size-3.5" />
                   时间
@@ -1053,7 +1050,10 @@ export function Page({ service: source = service }: { service?: LogsClient }) {
                     query.offset + ACTIVITY_PAGE_SIZE >= value.total
                   }
                   onClick={() =>
-                    loadActivity(query.offset + ACTIVITY_PAGE_SIZE, query.filter)
+                    loadActivity(
+                      query.offset + ACTIVITY_PAGE_SIZE,
+                      query.filter
+                    )
                   }
                 >
                   下一页

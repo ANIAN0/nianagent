@@ -1,6 +1,13 @@
 {
   "apps/workbench/.gitignore": "排除 Next 工作台开发缓存和本地配置。",
   "apps/workbench/AGENTS.md": "记录 Next 工作台的本地开发约定和内置文档入口。",
+  "apps/workbench/README.md": "说明 Next 工作台模板的开发启动方式和框架文档入口。",
+  "apps/workbench/public/file.svg": "提供工作台模板的文件图标静态资源。",
+  "apps/workbench/public/globe.svg": "提供工作台模板的地球图标静态资源。",
+  "apps/workbench/public/next.svg": "提供工作台模板的 Next.js 标志静态资源。",
+  "apps/workbench/public/vercel.svg": "提供工作台模板的 Vercel 标志静态资源。",
+  "apps/workbench/public/window.svg": "提供工作台模板的窗口图标静态资源。",
+  "apps/workbench/src/app/favicon.ico": "提供工作台浏览器标签页图标，由 Next.js 自动发布。",
   "apps/workbench/components.json": "登记工作台共享 shadcn 组件及 Next 主题入口。",
   "apps/workbench/eslint.config.mjs": "配置 Next 工作台的 TypeScript 和 React 静态检查。",
   "apps/workbench/next.config.ts": "配置 Next 工作台的编译根目录和 Tailwind 加载方式。",

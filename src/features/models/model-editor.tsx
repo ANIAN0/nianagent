@@ -89,7 +89,11 @@ export function ModelEditor({
     setAttempted(true)
     const nextErrors = modelErrors(draft, existing, originalId)
     if (Object.keys(nextErrors).length) {
-      if (nextErrors.input || nextErrors.contextWindow || nextErrors.maxTokens) {
+      if (
+        nextErrors.input ||
+        nextErrors.contextWindow ||
+        nextErrors.maxTokens
+      ) {
         setAdvancedOpen(true)
       }
       requestAnimationFrame(() =>
@@ -364,9 +368,7 @@ export function ModelEditor({
                             })
                           }
                         />
-                        {errors[key] && (
-                          <FieldError>{errors[key]}</FieldError>
-                        )}
+                        {errors[key] && <FieldError>{errors[key]}</FieldError>}
                       </Field>
                     ))}
                   </FieldGroup>

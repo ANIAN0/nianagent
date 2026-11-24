@@ -8,7 +8,8 @@ const MAX_READ_TEXT_BYTES = 256 * 1024
 
 export function normalizeBaseUrl(raw) {
   const text = String(raw || "").trim()
-  if (!text) throw new Error("尚未配置 FileBrowser 服务地址，请先在插件页填写。")
+  if (!text)
+    throw new Error("尚未配置 FileBrowser 服务地址，请先在插件页填写。")
   let parsed
   try {
     parsed = new URL(text)
@@ -23,7 +24,9 @@ export function normalizeBaseUrl(raw) {
 }
 
 export function normalizeRootPrefix(raw) {
-  const text = String(raw || "/").trim().replaceAll("\\", "/")
+  const text = String(raw || "/")
+    .trim()
+    .replaceAll("\\", "/")
   if (!text || text === "/") return "/"
   const normalized = posix.normalize(text.startsWith("/") ? text : `/${text}`)
   if (normalized === "/" || normalized === ".") return "/"
@@ -32,7 +35,9 @@ export function normalizeRootPrefix(raw) {
 
 export function resolveRemotePath(rawPath, rootPrefix = "/") {
   const prefix = normalizeRootPrefix(rootPrefix)
-  const text = String(rawPath ?? "/").trim().replaceAll("\\", "/")
+  const text = String(rawPath ?? "/")
+    .trim()
+    .replaceAll("\\", "/")
   const candidate = text ? (text.startsWith("/") ? text : `/${text}`) : "/"
   const segments = candidate.split("/")
   if (segments.includes(".."))
@@ -48,7 +53,10 @@ export function resolveRemotePath(rawPath, rootPrefix = "/") {
 function encodeRemotePath(remotePath, trailingSlash = false) {
   const clean = remotePath === "/" ? "" : remotePath.replace(/^\/+/, "")
   const encoded = clean
-    ? `/${clean.split("/").map((seg) => encodeURIComponent(seg)).join("/")}`
+    ? `/${clean
+        .split("/")
+        .map((seg) => encodeURIComponent(seg))
+        .join("/")}`
     : "/"
   if (trailingSlash && !encoded.endsWith("/")) return `${encoded}/`
   return encoded
@@ -191,7 +199,9 @@ export function createFileBrowserClient({ getConfig, getCredentials }) {
       }
       const nextToken = (await response.text()).trim()
       if (!/^[\w-]+\.[\w-]+\.[\w-]+$/.test(nextToken))
-        throw new Error("FileBrowser 登录未返回预期的 JWT。请检查实例地址和登录方式。")
+        throw new Error(
+          "FileBrowser 登录未返回预期的 JWT。请检查实例地址和登录方式。"
+        )
       token = nextToken
       return nextToken
     })().finally(() => {
