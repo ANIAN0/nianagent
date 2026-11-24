@@ -1,7 +1,7 @@
 {
   "name": "notes-workbench",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "description": "笔记工作台应用：独立于 Moon 的前端工作台，插件（host.mjs）只负责启停服务与托管本包构建产物。",
   "scripts": {
