@@ -50,6 +50,8 @@
   z-index: 1;
   width: 76px;
   height: 80px;
+  /* 弯月视觉重心偏左，水平右移 6px 使其与柔光中心及标题对齐。 */
+  translate: 6px 0;
   background: linear-gradient(
     145deg,
     color-mix(in srgb, var(--startup-primary) 42%, var(--startup-background)),
