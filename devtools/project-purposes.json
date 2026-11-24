@@ -54,7 +54,6 @@
   "apps/workbench/src/workbench/workspace-sidebar.tsx": "按项目和逻辑目录导航草稿，提供筛选、管理及归档入口。",
   "apps/workbench/src/workbench/reader-registry.ts": "定义三类 Reader 输入、选择回报及父层定位请求契约。",
   ".gitattributes": "定义 Git 的文件文本与行尾处理规则。",
-  ".github/workflows/check.yml": "在 CI 中执行项目规定的静态、契约和构建等检查。",
   ".github/workflows/release-windows.yml": "定义 Windows 发行构建、校验与资产发布工作流。",
   ".gitignore": "排除依赖、构建、日志、本地规范和 .dev 开发材料。",
   ".prettierignore": "标记格式化工具应跳过的文件。",
