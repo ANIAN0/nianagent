@@ -21,6 +21,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { createHash, randomUUID } from "node:crypto"
 import { replaceJson, withAcquiredLock } from "./atomic-file.mjs"
 import lockfile from "proper-lockfile"
+import { createWorkbenchSupervisor } from "./loopback-host.mjs"
 import { ActivityLog } from "./activity-log.mjs"
 import { operationError } from "./operation-issue.mjs"
 import { check, identifier, safeError, samePath } from "./plugin-primitives.mjs"
@@ -53,6 +54,11 @@ const bounded = async (
   }
 }
 
+const workbenchModules = new Map([
+  ["notes-workbench", "notes"],
+  ["skill-workbench", "skills"],
+])
+
 /** Generic app/Pi/web assembly. Tool definitions belong to native Pi modules. */
 export class PluginHost {
   constructor(directory, ports, pluginRoot = root) {
@@ -68,6 +74,7 @@ export class PluginHost {
     // 每插件至多一个包任务记录：运行中防并发，终态保留供 packageStatus 查询。
     this.packageTasks = new Map()
     this.logs = new ActivityLog(directory)
+    this.workbench = createWorkbenchSupervisor(this.directory, this.logs)
     // G16 拆分：共享工具网关（②）独立模块；宿主仅保留薄委托
     this.sharedToolGateway = createSharedToolGateway({
       entries: this.entries,
@@ -508,7 +515,13 @@ export class PluginHost {
           const directory = join(this.directory, entry.id)
           await mkdir(directory, { recursive: true })
           if (inactive()) return
+          const workbenchKind = entry.sourceKind === "bundled" &&
+            workbenchModules.get(entry.id)
           activating = module.activate({
+            ...(workbenchKind && {
+              workbench: (operations) =>
+                this.workbench.forModule(workbenchKind, operations),
+            }),
             directory,
             configuration: JSON.parse(configuration),
             generation,
@@ -1567,6 +1580,7 @@ export class PluginHost {
     const results = await Promise.allSettled(
       [...this.entries.values()].reverse().map((entry) => this.stop(entry))
     )
+    results.push(...(await Promise.allSettled([this.workbench.close()])))
     const logging = await Promise.allSettled([this.logs.close()])
     results.push(...logging)
     if (strict && results.some((result) => result.status === "rejected"))

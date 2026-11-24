@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { createV2Service } from "./service.mjs"
+import { createV2Service } from "../../apps/workbench/src/server/notes/service.mjs"
 
 test("领域关闭取消在途导入、等待收尾并拒绝新调用，三入口共用生命周期", async () => {
   let started, finish, observedSignal

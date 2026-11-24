@@ -17,14 +17,12 @@ export default defineConfig([
     "apps/workbench/.next/",
     "apps/workbench/.dev/next/",
     "apps/workbench/.releases/",
-    "backend/plugins/notes-workbench/workbench.bundle.mjs",
   ]),
   {
     files: [
       "backend/**/*.mjs",
       "scripts/**/*.mjs",
-      // notes-workbench 应用构建脚本（package.json type:module，不进发行包白名单）。
-      "backend/plugins/notes-workbench/build.js",
+      "apps/workbench/src/server/**/*.mjs",
     ],
     extends: [js.configs.recommended],
     languageOptions: { globals: globals.node },

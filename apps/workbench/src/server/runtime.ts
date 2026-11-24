@@ -1,3 +1,7 @@
+import { openNotesDomain } from "./notes/domain.mjs"
+import { PreviewInventory } from "./notes/preview-inventory.mjs"
+import * as preview from "./notes/preview.mjs"
+import { validatePluginValue } from "./validate"
 import { mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { getSharedCore, newTraceId } from "./core"
@@ -17,8 +21,7 @@ export type V2Operation = {
   ) => Promise<{ value: unknown }>
 }
 
-type PreviewModule =
-  typeof import("../../../../backend/plugins/notes-workbench/v2/preview.mjs")
+type PreviewModule = typeof import("./notes/preview.mjs")
 type PreviewManifest = { routes: Record<string, string> }
 
 type NotesStore = {
@@ -64,47 +67,8 @@ const globalForRuntime = globalThis as unknown as {
 }
 
 async function createRuntime(): Promise<WorkbenchRuntime> {
-  const core = await getSharedCore()
-  const { backendDir } = core
-  const v2Dir = join(backendDir, "plugins", "notes-workbench", "v2")
-
-  const [
-    { WorkbenchStore },
-    { createV2Service },
-    { PreviewInventory },
-    preview,
-    { validatePluginValue },
-  ] = (await Promise.all([
-    core.importMjs(join(v2Dir, "storage.mjs")),
-    core.importMjs(join(v2Dir, "service.mjs")),
-    core.importMjs(join(v2Dir, "preview-inventory.mjs")),
-    core.importMjs(join(v2Dir, "preview.mjs")),
-    core.importMjs(join(backendDir, "plugin-helpers.mjs")),
-  ])) as [
-    { WorkbenchStore: new (directory: string) => NotesStore },
-    {
-      createV2Service: (
-        store: NotesStore,
-        options: {
-          event: () => void
-          baseUrl: string
-          logger: { append: () => void }
-          changed: () => void
-          openVersionUrl: (
-            draftId: string,
-            versionId: string,
-            compareVersionId?: string
-          ) => string
-          inventory: { forVersion: (versionId: string) => unknown }
-        }
-      ) => WorkbenchRuntime["v2"]
-    },
-    { PreviewInventory: new () => NotesInventory },
-    PreviewModule,
-    Pick<WorkbenchRuntime, "validatePluginValue">,
-  ]
-
-  await mkdir(join(core.dataDir, "v2"), { recursive: true })
+  const core = getSharedCore()
+  await mkdir(join(core.dataDirs.notes, "v2"), { recursive: true })
 
   let dataVersion = Date.now()
   const waiters = new Set<() => void>()
@@ -113,14 +77,11 @@ async function createRuntime(): Promise<WorkbenchRuntime> {
     for (const wake of [...waiters]) wake()
   }
 
-  const store = new WorkbenchStore(join(core.dataDir, "v2"))
-  await store.open()
-
   const previewInventories = new PreviewInventory()
   const previewSessions = new preview.PreviewSessions()
   const baseUrl = `http://127.0.0.1:${core.port}/`
 
-  const v2 = createV2Service(store, {
+  const { store, v2 } = await openNotesDomain(join(core.dataDirs.notes, "v2"), {
     event: () => {},
     baseUrl,
     logger: { append: () => {} },
@@ -159,7 +120,7 @@ async function createRuntime(): Promise<WorkbenchRuntime> {
   }
 
   return {
-    dataDir: core.dataDir,
+    dataDir: core.dataDirs.notes,
     port: core.port,
     store,
     v2,

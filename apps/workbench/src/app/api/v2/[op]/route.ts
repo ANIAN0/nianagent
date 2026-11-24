@@ -62,12 +62,16 @@ export async function POST(
       sourceHeader === "remote"
         ? sourceHeader
         : "local"
+    const traceHeader = request.headers.get("x-moon-trace")
     const { value } = await definition.execute(
       parsed,
       {
         source,
         ...(actorHeader ? { actorId: actorHeader } : {}),
-        traceId: newTraceId(),
+        traceId:
+          traceHeader && /^[A-Za-z0-9_-]{1,128}$/.test(traceHeader)
+            ? traceHeader
+            : newTraceId(),
       },
       request.signal
     )

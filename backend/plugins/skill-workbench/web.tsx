@@ -137,6 +137,7 @@ export function Page() {
                 仅本机 127.0.0.1
               </span>
             </div>
+            <p className="text-xs text-muted-foreground">重启或更改端口会短暂中断笔记和 Skill。</p>
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 variant="outline"
@@ -152,13 +153,13 @@ export function Page() {
                     )
                     if (!signal.aborted) {
                       apply(next)
-                      notifyToast("独立工作台服务已重启", { tone: "success" })
+                      notifyToast("共享工作台已连接", { tone: "success" })
                     }
                   })
                 }
               >
                 <RotateCw className="size-3.5" />
-                重启服务
+                重启共享服务
               </Button>
               <Button
                 variant="outline"
@@ -204,7 +205,7 @@ export function Page() {
               htmlFor="skill-workbench-port"
               className="text-xs font-medium whitespace-nowrap text-muted-foreground"
             >
-              监听端口
+              共享监听端口
             </label>
             <div className="flex flex-wrap items-center gap-2">
               <Input

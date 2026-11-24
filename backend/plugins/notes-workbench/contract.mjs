@@ -54,13 +54,13 @@ export const notesWorkbenchOperations = {
       port: int("固定监听端口", 1024, 65535),
     }),
     serviceStatus,
-    "端口变更先确认新监听可用，再切换监听地址。",
+    "端口变更先确认新监听可用，再一起切换笔记和 Skill 的地址。",
     { revision: 0, port: 19830 }
   ),
   reload: operation(
-    "重载工作台页面资源",
+    "重启或重新连接笔记工作台",
     object(),
-    object({ version: int("重载后的资源文件版本", 0) }),
-    "按文件版本重新读取页面构建产物；监听、配置与笔记数据不受影响，已打开的工作台自动刷新。"
+    object({ version: int("完成重启或连接的时间戳", 0) }),
+    "重启 Moon 启动的工作台，或重新连接匹配的服务。笔记和 Skill 会短暂中断。在线的外部工作台由原启动者重启。"
   ),
 }

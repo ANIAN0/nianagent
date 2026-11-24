@@ -1,7 +1,7 @@
 export {
   classifyPreviewPath,
   previewBridgePath,
-} from "../../../../backend/plugins/notes-workbench/v2/preview-path.mjs"
+} from "./notes/preview-path.mjs"
 
 export const previewPathHeader = "x-moon-preview-path"
 export const previewHostHeader = "x-moon-preview-host"

@@ -14,9 +14,9 @@ import {
   generateReading,
   READING_PIPELINE_VERSION,
   safeUrl,
-} from "./markdown.mjs"
-import { WorkbenchStore, WorkbenchError } from "./storage.mjs"
-import { createV2Service } from "./service.mjs"
+} from "../../apps/workbench/src/server/notes/markdown.mjs"
+import { WorkbenchStore, WorkbenchError } from "../../apps/workbench/src/server/notes/storage.mjs"
+import { createV2Service } from "../../apps/workbench/src/server/notes/service.mjs"
 
 const anchorCode = (error) =>
   error instanceof InvalidAnchorError && error.reason

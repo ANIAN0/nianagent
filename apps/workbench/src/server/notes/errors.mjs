@@ -4,6 +4,7 @@
 
 /** 工作台领域错误：code 为对外明确分类（与 issue-contract 安全摘要同源）。 */
 export class WorkbenchError extends Error {
+  /** @param {string} code @param {string} message */
   constructor(code, message) {
     super(message)
     this.code = code

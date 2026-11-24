@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server"
-import { isPreviewHost } from "../../../backend/plugins/notes-workbench/v2/preview.mjs"
+import { isPreviewHost } from "./server/notes/preview.mjs"
 import {
   classifyPreviewPath,
   previewContentRoute,
@@ -34,7 +34,6 @@ export function proxy(request: NextRequest) {
   }
   if (
     !host ||
-    process.env.MOON_WORKBENCH_APP === "skills" ||
     !isPreviewHost(host, port)
   ) {
     return new NextResponse(null, { status: 404 })

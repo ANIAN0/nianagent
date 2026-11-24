@@ -410,7 +410,9 @@ export async function verifyRuntimeResources(directory) {
     "plugins/agents-md/manifest.json",
     "plugins/logs/manifest.json",
     "plugins/notes-workbench/manifest.json",
+    "plugins/notes-workbench/tool-catalog.mjs",
     "plugins/skill-workbench/manifest.json",
+    "plugins/skill-workbench/tool-catalog.mjs",
   ])
     if (!files.has(name)) throw new Error(`安装包缺少正式运行入口：${name}`)
   if (

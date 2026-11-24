@@ -1,3 +1,4 @@
+import { version } from "../../../../package.json"
 import { NextResponse } from "next/server"
 import { getSharedCore } from "@/server/core"
 
@@ -5,13 +6,14 @@ export const dynamic = "force-dynamic"
 
 export async function GET() {
   try {
-    const core = await getSharedCore()
+    const core = getSharedCore()
     return NextResponse.json({
       ok: true,
-      app: core.appKind,
+      app: "moon-workbench",
       pid: process.pid,
       port: core.port,
-      version: "0.2.0",
+      dataDirs: core.dataDirs,
+      version,
     })
   } catch (error) {
     return NextResponse.json(

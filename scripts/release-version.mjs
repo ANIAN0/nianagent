@@ -23,7 +23,7 @@ if (tagIndex >= 0 && arguments_[tagIndex + 1] !== `v${version}`)
 for (const file of [
   "package.json",
   "backend/package.json",
-  "backend/plugins/notes-workbench/package.json",
+  "apps/workbench/package.json",
 ]) {
   const path = resolve(projectRoot, file)
   const contents = JSON.parse(await readFile(path, "utf8"))

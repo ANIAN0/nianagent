@@ -8,9 +8,9 @@ import { DatabaseSync } from "node:sqlite"
 import { setTimeout as delay } from "node:timers/promises"
 import { fileURLToPath } from "node:url"
 import test from "node:test"
-import { WorkbenchStore } from "./v2/storage.mjs"
+import { WorkbenchStore } from "../../apps/workbench/src/server/notes/storage.mjs"
 
-const root = fileURLToPath(new URL("../../../", import.meta.url))
+const root = fileURLToPath(new URL("../../", import.meta.url))
 const app = join(root, "apps", "workbench")
 
 test(
@@ -97,8 +97,7 @@ test(
         env: {
           ...process.env,
           PORT: String(port),
-          MOON_WORKBENCH_APP: "notes",
-          MOON_WORKBENCH_DATA_DIR: dataDir,
+          MOON_NOTES_DATA_DIR: dataDir,
         },
         stdio: ["ignore", "pipe", "pipe"],
       }
@@ -130,7 +129,9 @@ test(
         signal: AbortSignal.timeout(5_000),
       }).catch(() => null)
       if (response?.ok) {
-        assert.equal((await response.json()).app, "notes")
+        const health = await response.json()
+        assert.equal(health.app, "moon-workbench")
+        assert.equal(health.dataDirs.notes, dataDir)
         ready = true
         break
       }

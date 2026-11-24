@@ -1,10 +1,10 @@
+import { openSkillDomain, SkillStoreError } from "./skills/domain.mjs"
 import { mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { NextResponse } from "next/server"
 import type { SkillDetail, SkillSummary } from "@/skills/api"
 import { getSharedCore } from "./core"
 
-type SkillStore = { open: () => Promise<void> }
 type SkillService = {
   listSkills: () => SkillSummary[]
   getSkillDetail: (id: string) => SkillDetail
@@ -53,47 +53,16 @@ const globalForSkills = globalThis as unknown as {
 }
 
 async function createSkillsRuntime(): Promise<SkillsRuntime> {
-  const core = await getSharedCore()
-  const skillDir = join(core.backendDir, "plugins", "skill-workbench")
-
-  const [
-    { SkillStoreError, SkillWorkbenchStore },
-    { createSkillService },
-    { buildSharedTools },
-  ] = (await Promise.all([
-    core.importMjs(join(skillDir, "storage.mjs")),
-    core.importMjs(join(skillDir, "service.mjs")),
-    core.importMjs(join(skillDir, "tool-catalog.mjs")),
-  ])) as [
-    {
-      SkillStoreError: new (...args: never[]) => Error
-      SkillWorkbenchStore: new (directory: string) => SkillStore
-    },
-    {
-      createSkillService: (
-        store: SkillStore,
-        hooks: { changed: () => void }
-      ) => SkillService
-    },
-    { buildSharedTools: (service: SkillService) => SkillSharedTool[] },
-  ]
-
-  const dataDir = join(core.dataDir, "data")
+  const core = getSharedCore()
+  const dataDir = join(core.dataDirs.skills, "data")
   await mkdir(dataDir, { recursive: true })
-
-  const store = new SkillWorkbenchStore(dataDir)
-  await store.open()
 
   let revision = 0
   const notify = () => {
     revision += 1
   }
 
-  const service = createSkillService(store, {
-    changed: notify,
-  })
-  const sharedTools = buildSharedTools(service)
-  const toolsByName = new Map(sharedTools.map((tool) => [tool.name, tool]))
+  const { service, toolsByName } = await openSkillDomain(dataDir, notify)
 
   const toErrorResponse = (error: unknown) => {
     const isStoreErr = error instanceof SkillStoreError

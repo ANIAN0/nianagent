@@ -3,7 +3,7 @@
 import { mkdir, writeFile, cp, stat, readdir } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { randomUUID } from "node:crypto"
-import { WorkbenchStore } from "../storage.mjs"
+import { WorkbenchStore } from "../../../apps/workbench/src/server/notes/storage.mjs"
 export async function createScaleFixture(directory, fontPath) {
   const root = resolve(directory)
   await mkdir(root, { recursive: true })

@@ -30,8 +30,7 @@ export async function backendSourceFiles(directory) {
       entry.isFile() &&
       (path.endsWith(".mjs") ||
         (kind === "plugins" && basename(path) === "manifest.json")) &&
-      !basename(path).endsWith(".test.mjs") &&
-      basename(path) !== "dev-resources.mjs"
+      !basename(path).endsWith(".test.mjs")
     )
       files.push(local.replaceAll("\\", "/"))
     else if (kind === "extensions" && entry.isFile() && !path.endsWith(".md"))

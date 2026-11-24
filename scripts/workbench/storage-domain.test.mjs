@@ -3,7 +3,7 @@ import assert from "node:assert/strict"
 import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { WorkbenchStore } from "./storage.mjs"
+import { WorkbenchStore } from "../../apps/workbench/src/server/notes/storage.mjs"
 
 async function setup(t) {
   const root = await mkdtemp(join(tmpdir(), "moon-domain-"))

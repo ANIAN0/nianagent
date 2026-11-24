@@ -21,7 +21,7 @@ export async function GET(request: Request) {
     port
   )
   const path = request.headers.get(previewPathHeader)
-  if (!sid || !path || process.env.MOON_WORKBENCH_APP === "skills")
+  if (!sid || !path)
     return missing()
 
   try {

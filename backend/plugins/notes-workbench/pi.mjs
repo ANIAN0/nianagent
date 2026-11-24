@@ -1,4 +1,4 @@
-import { readOnlyTools, toolOperations } from "./v2/tool-catalog.mjs"
+import { readOnlyTools, toolOperations } from "./tool-catalog.mjs"
 
 const prefix = "moon_ext__notes-workbench__"
 const names = new Set(toolOperations.map((pair) => pair.split(":")[1]))

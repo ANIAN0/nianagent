@@ -7,7 +7,7 @@ import {
   isPreviewHost,
   previewHeaders,
   MAX_SESSIONS,
-} from "./preview.mjs"
+} from "../../apps/workbench/src/server/notes/preview.mjs"
 
 test("闲置过期在读取时拒绝，不因读取复活", (t) => {
   let now = 1000

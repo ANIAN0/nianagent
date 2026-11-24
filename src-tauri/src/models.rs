@@ -275,6 +275,9 @@ impl ModelBackend {
         }
         if bridge.is_none() {
             let mut command = Command::new(dunce::simplified(&self.node));
+            if cfg!(debug_assertions) && std::env::var_os("MOON_WORKBENCH_DEV").is_none() {
+                command.env("MOON_WORKBENCH_DEV", "1");
+            }
             command
                 // Tauri's release resource_dir is canonical on Windows. Node
                 // cannot use its verbatim drive prefix as the entry script.
@@ -283,10 +286,6 @@ impl ModelBackend {
                 .env(
                     "MOON_DESKTOP_PACKAGED",
                     if cfg!(debug_assertions) { "0" } else { "1" },
-                )
-                .env(
-                    "MOON_NOTES_DEV",
-                    if cfg!(debug_assertions) { "1" } else { "0" },
                 )
                 .env("MOON_RUNTIME_FILE", self.directory.join("runtime.json"))
                 .env(

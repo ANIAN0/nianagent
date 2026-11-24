@@ -1,22 +1,7 @@
 import { randomUUID } from "node:crypto"
-import { mkdir } from "node:fs/promises"
+import { workbenchDirectories } from "../../../../backend/workbench-settings.mjs"
 import { join, resolve } from "node:path"
-import { pathToFileURL } from "node:url"
 import { workbenchPort } from "./workbench-port"
-
-export type WorkbenchAppKind = "notes" | "skills"
-
-export type SharedCore = {
-  backendDir: string
-  appKind: WorkbenchAppKind
-  dataDir: string
-  port: number
-  importMjs: (filePath: string) => Promise<Record<string, unknown>>
-}
-
-const globalForCore = globalThis as unknown as {
-  __moonWorkbenchCore?: Promise<SharedCore>
-}
 
 export function repoRoot(): string {
   if (process.env.MOON_REPO_ROOT) return resolve(process.env.MOON_REPO_ROOT)
@@ -27,57 +12,28 @@ export function repoRoot(): string {
   return cwd
 }
 
-function resolveAppKind(): WorkbenchAppKind {
-  return process.env.MOON_WORKBENCH_APP === "skills" ? "skills" : "notes"
-}
-
-async function createSharedCore(): Promise<SharedCore> {
-  const root = repoRoot()
-  const appKind = resolveAppKind()
-  const port = workbenchPort()
-
-  const defaultDataDir = join(
-    root,
-    ".dev",
-    "moon",
-    "data",
-    "plugins",
-    appKind === "skills" ? "skill-workbench" : "notes-workbench"
-  )
-  const dataDir =
-    process.env.MOON_WORKBENCH_DATA_DIR ||
-    process.env.MOON_NOTES_DATA_DIR ||
-    defaultDataDir
-
-  await mkdir(dataDir, { recursive: true })
-
-  const importMjs = (filePath: string) =>
-    import(
-      /* webpackIgnore: true */ /* turbopackIgnore: true */ pathToFileURL(
-        filePath
-      ).href
-    ) as Promise<Record<string, unknown>>
-
+export function getSharedCore() {
+  const root =
+    process.env.MOON_DATA_DIR || join(repoRoot(), ".dev", "moon", "data")
+  const dirs = workbenchDirectories(join(root, "plugins"))
+  // 原单模块命令传入的目录只属于被指定的模块。
+  const legacy = process.env.MOON_WORKBENCH_DATA_DIR
+  const legacySkills = process.env.MOON_WORKBENCH_APP === "skills"
   return {
-    backendDir: resolve(
-      /* turbopackIgnore: true */
-      process.env.MOON_WORKBENCH_BACKEND_DIR || join(root, "backend")
-    ),
-    appKind,
-    dataDir,
-    port,
-    importMjs,
+    port: workbenchPort(),
+    dataDirs: {
+      notes: resolve(
+        process.env.MOON_NOTES_DATA_DIR ||
+          (!legacySkills && legacy) ||
+          dirs.notes
+      ),
+      skills: resolve(
+        process.env.MOON_SKILLS_DATA_DIR ||
+          (legacySkills && legacy) ||
+          dirs.skills
+      ),
+    },
   }
-}
-
-export function getSharedCore(): Promise<SharedCore> {
-  if (!globalForCore.__moonWorkbenchCore) {
-    globalForCore.__moonWorkbenchCore = createSharedCore().catch((error) => {
-      globalForCore.__moonWorkbenchCore = undefined
-      throw error
-    })
-  }
-  return globalForCore.__moonWorkbenchCore
 }
 
 export function newTraceId(): string {

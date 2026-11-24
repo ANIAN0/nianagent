@@ -30,9 +30,5 @@
     "src",
     "backend/plugins/**/*.tsx",
     "devtools"
-  ],
-  "exclude": [
-    // notes-workbench 应用自含 tsconfig（独立 @ 别名），由根 typecheck 链单独核对。
-    "backend/plugins/notes-workbench/src"
   ]
 }

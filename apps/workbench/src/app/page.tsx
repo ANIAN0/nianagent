@@ -1,10 +1,33 @@
-import { redirect } from "next/navigation"
+"use client"
 
-export const dynamic = "force-dynamic"
+import { useEffect } from "react"
+import Link from "next/link"
+import { Button } from "@/ui/button"
 
 export default function WorkbenchRootPage() {
-  if (process.env.MOON_WORKBENCH_APP === "skills") {
-    redirect("/skills")
-  }
-  redirect("/notes")
+  useEffect(() => {
+    if (window.location.hash.startsWith("#v2")) {
+      window.location.replace(
+        `/notes${window.location.search}${window.location.hash}`
+      )
+    }
+  }, [])
+
+  return (
+    <main className="mx-auto flex w-full max-w-lg flex-col gap-4 p-6">
+      <h1 className="text-xl font-semibold">Moon 工作台</h1>
+      <nav aria-label="工作台模块" className="flex flex-wrap gap-3">
+        <Button asChild variant="outline">
+          <Link href="/notes" prefetch={false}>
+            笔记
+          </Link>
+        </Button>
+        <Button asChild variant="outline">
+          <Link href="/skills" prefetch={false}>
+            Skill
+          </Link>
+        </Button>
+      </nav>
+    </main>
+  )
 }

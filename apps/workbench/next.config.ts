@@ -25,4 +25,11 @@ const nextConfig: NextConfig = {
   },
 }
 
-export default nextConfig
+// Each local listener needs its own Next dev lock and compiler cache.
+export default function config(phase: string): NextConfig {
+  if (phase !== "phase-development-server") return nextConfig
+  const port = Number(
+    process.env.PORT || process.env.MOON_WORKBENCH_PORT || 19830
+  )
+  return { ...nextConfig, distDir: `.dev/next/${port}` }
+}

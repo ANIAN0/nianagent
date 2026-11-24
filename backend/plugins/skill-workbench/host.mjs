@@ -2,32 +2,17 @@
 // Skill 工作台薄监管插件（opencli 模式）：
 // 负责独立 Next.js 工作台子进程的启停、健康探测和 HTTP 工具转发。
 // 工作台本体（前端页面、API、SQLite 数据）运行在独立进程 apps/workbench 中。
-import { createWorkbenchSupervisor } from "../../loopback-host.mjs"
 import { redactSensitive } from "../../redact.mjs"
 import { skillWorkbenchOperations } from "./contract.mjs"
-import { buildSharedTools } from "./tool-catalog.mjs"
+import { skillTools } from "./tool-catalog.mjs"
 
 export async function activate(host) {
-  const supervisor = await createWorkbenchSupervisor({
-    appKind: "skills",
-    pluginId: "skill-workbench",
-    label: "Skill 工作台",
-    logSource: "skills",
-    defaultPort: 19832,
-    host,
-    operationsSpec: skillWorkbenchOperations,
-  })
+  const supervisor = host.workbench(skillWorkbenchOperations)
 
-  // 仅提取工具元数据与 schema；不打开 SQLite。
-  const toolSpecs = buildSharedTools({})
-  const sharedTools = toolSpecs.map((spec) => ({
-    name: spec.name,
-    shareable: spec.shareable,
-    description: spec.description,
-    inputSchema: spec.inputSchema,
-    annotations: spec.annotations,
+  const sharedTools = skillTools.map((spec) => ({
+    ...spec,
     execute: async (input, context, signal) => {
-      if (!supervisor.running) {
+      if (!(await supervisor.isRunning())) {
         return {
           isError: true,
           content: [
@@ -43,6 +28,7 @@ export async function activate(host) {
           `${supervisor.baseUrl()}/api/skills/tools/${encodeURIComponent(spec.name)}`,
           {
             method: "POST",
+            redirect: "error",
             headers: {
               "content-type": "application/json",
               ...(context?.source

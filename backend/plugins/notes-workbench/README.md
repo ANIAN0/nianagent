@@ -5,8 +5,8 @@
 
 ## 服务可用条件
 
-- 仅 Windows 本机 dev 运行（Moon 桌面宿主激活本插件后自动启动）；本机使用不代表
-  宿主之外自动后台运行。
+- 可以从 Moon 插件页打开，也可从仓库根目录运行 `pnpm --filter @moon/workbench dev` 单独启动。
+  使用 `MOON_NOTES_DATA_DIR` 指向已有插件数据目录。Moon 会复用端口和两个模块目录匹配的工作台。
 - 管理端 `http://127.0.0.1:<port>/`（默认 19830），允许本机程序直接访问。
 - MCP 服务（mcp-service 插件，默认 19826）需在 Moon 插件页启用，并在「Agent 专属
   凭据」区为每个 Agent 登记专属凭据；工具选择需包含 notes-workbench 的共享工具。
@@ -46,7 +46,7 @@
 
 ## 开发与复验
 
-在仓库根目录运行 `pnpm tauri dev`，宿主直接托管本包的 Vite 源码；不需要运行构建。
+在仓库根目录运行 `pnpm tauri dev`，宿主通过本机 HTTP 连接 Next.js 工作台。设置 `MOON_WORKBENCH_DEV=1` 可指定使用 Next.js 开发服务。
 正式回归源码位于对应领域的 `.test.mjs`，运行数据只写入独立临时目录并自行清理。
-固定规模样本生成规则位于 `v2/test-fixtures/scale.mjs`，只接受调用者提供的空隔离目录，
+固定规模样本生成规则位于 `scripts/workbench/test-fixtures/scale.mjs`，只接受调用者提供的空隔离目录，
 不得将真实数据目录作为验收夹具。

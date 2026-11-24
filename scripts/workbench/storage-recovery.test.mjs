@@ -5,7 +5,7 @@ import { tmpdir } from "node:os"
 import { join, dirname } from "node:path"
 import { syncBuiltinESMExports } from "node:module"
 import { DatabaseSync } from "node:sqlite"
-import { WorkbenchStore } from "./storage.mjs"
+import { WorkbenchStore } from "../../apps/workbench/src/server/notes/storage.mjs"
 
 async function fixture(t) {
   const root = await fs.mkdtemp(join(tmpdir(), "moon-recovery-"))

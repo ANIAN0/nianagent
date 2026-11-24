@@ -26,8 +26,7 @@ async function walk(dir, list, filter) {
 const isModuleSource = (p) =>
   /\.(mjs|tsx?|jsx?)$/.test(p) &&
   !p.endsWith(".d.ts") &&
-  !p.endsWith(".d.mts") &&
-  !p.endsWith("workbench.bundle.mjs")
+  !p.endsWith(".d.mts")
 
 await walk(resolve("backend"), files, isModuleSource)
 await walk(resolve("src"), files, isModuleSource)

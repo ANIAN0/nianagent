@@ -54,13 +54,13 @@ export const skillWorkbenchOperations = {
       port: int("固定监听端口", 1024, 65535),
     }),
     serviceStatus,
-    "端口变更先确认新监听可用，再切换监听地址。",
-    { revision: 0, port: 19832 }
+    "端口变更先确认新监听可用，再一起切换笔记和 Skill 的地址。",
+    { revision: 0, port: 19830 }
   ),
   reload: operation(
     "重启 Skill 工作台进程",
     object(),
     object({ version: int("重启后的实例版本", 0) }),
-    "重启独立 Skill 工作台子进程；配置与 Skill 数据不受影响。"
+    "重启 Moon 启动的共享工作台，或重新连接匹配的服务。笔记和 Skill 会短暂中断。在线的外部工作台由原启动者重启。"
   ),
 }

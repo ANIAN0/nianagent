@@ -1,8 +1,8 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 import vm from "node:vm"
-import { bridgeScript } from "./preview.mjs"
-import { PreviewInventory } from "./preview-inventory.mjs"
+import { bridgeScript } from "../../apps/workbench/src/server/notes/preview.mjs"
+import { PreviewInventory } from "../../apps/workbench/src/server/notes/preview-inventory.mjs"
 
 // 执行实际生成的桥代码验证协议分支；浏览器导航/视觉另经正式入口验收。
 function bridge({ loading = false, saved } = {}) {

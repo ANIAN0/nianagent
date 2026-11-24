@@ -99,7 +99,7 @@ test(
         ...process.env,
         MOON_DATA_DIR: directory,
         MOON_RUNTIME_FILE: join(directory, "runtime.json"),
-        MOON_NOTES_DEV: "1",
+        MOON_WORKBENCH_DEV: "notes",
       },
       windowsHide: true,
       stdio: ["pipe", "pipe", "pipe"],
@@ -183,16 +183,18 @@ test(
       await readFile(join(directory, "models.json"), "utf8"),
       "{invalid"
     )
-    const ticketReply = await request("pluginCall", {
+    const statusReply = await request("pluginCall", {
       id: "notes-workbench",
-      operation: "ticket",
+      operation: "status",
       payload: "{}",
     })
-    assert.ok(!ticketReply.error, ticketReply.error)
-    const ticket = JSON.parse(ticketReply.result.payload).value.ticket
-    const page = await fetch(`http://127.0.0.1:${port}/?ticket=${ticket}`)
+    assert.ok(!statusReply.error, statusReply.error)
+    const { running, url } = JSON.parse(statusReply.result.payload).value
+    assert.equal(running, true)
+    assert.equal(url, `http://127.0.0.1:${port}/notes`)
+    const page = await fetch(url)
     assert.equal(page.status, 200)
-    assert.ok((await page.text()).includes("window.__moonNotesWorkbenchToken="))
+    assert.match(page.headers.get("content-type"), /text\/html/)
     const workbenchFailure = await request("pluginCall", {
       id: "notes-workbench",
       operation: "v2_read_version",

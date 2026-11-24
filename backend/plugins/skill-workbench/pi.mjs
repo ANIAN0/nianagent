@@ -1,8 +1,8 @@
 // @ts-check
-import { readOnlyTools, toolOperations } from "./tool-catalog.mjs"
+import { readOnlyTools, skillTools } from "./tool-catalog.mjs"
 
 const prefix = "moon_ext__skill-workbench__"
-const names = new Set(toolOperations.map((pair) => pair.split(":")[1]))
+const names = new Set(skillTools.map((tool) => tool.name))
 
 export const toolPolicy = (name) => {
   const operation = name.startsWith(prefix) ? name.slice(prefix.length) : ""

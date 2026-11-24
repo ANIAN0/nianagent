@@ -3,9 +3,9 @@ import assert from "node:assert/strict"
 import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { WorkbenchStore } from "./storage.mjs"
-import { createV2Service } from "./service.mjs"
-import { validatePluginValue } from "../../../plugin-helpers.mjs"
+import { WorkbenchStore } from "../../apps/workbench/src/server/notes/storage.mjs"
+import { createV2Service } from "../../apps/workbench/src/server/notes/service.mjs"
+import { validatePluginValue } from "../../backend/plugin-helpers.mjs"
 
 async function setup(t, kind = "markdown") {
   const root = await mkdtemp(join(tmpdir(), "moon-discussion-"))
