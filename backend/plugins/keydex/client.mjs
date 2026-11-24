@@ -368,18 +368,23 @@ export function createKeydexClient({ config }) {
 
     async getStatus(signal, forceRefresh = false) {
       const endpoint = await resolveEndpoint(signal, forceRefresh)
-      const [identity, pmAuth] = await Promise.all([
-        request("GET", "/api/modules/identity/status", { signal }).catch(
-          (err) => ({ state: "error", error: err.message })
-        ),
-        request("GET", "/api/modules/project/auth/status", { signal }).catch(
-          (err) => ({ state: "ERROR", error: err.message })
-        ),
+      const [identity, pmAuth] = await Promise.allSettled([
+        request("GET", "/api/modules/identity/status", { signal }),
+        request("GET", "/api/modules/project/auth/status", { signal }),
       ])
+      signal?.throwIfAborted()
+      if (identity.status === "rejected" && pmAuth.status === "rejected")
+        throw identity.reason
       return {
         endpoint,
-        identity,
-        pmAuth,
+        identity:
+          identity.status === "fulfilled"
+            ? identity.value
+            : { state: "error", error: identity.reason.message },
+        pmAuth:
+          pmAuth.status === "fulfilled"
+            ? pmAuth.value
+            : { state: "ERROR", error: pmAuth.reason.message },
       }
     },
 
