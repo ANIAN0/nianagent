@@ -87,6 +87,7 @@ export const clientConfiguration = (url: string) => ({
 const PLUGIN_LABELS: Record<string, string> = {
   opencli: "OpenCLI",
   memos: "Memos",
+  keydex: "Keydex",
   filebrowser: "FileBrowser",
   "notes-workbench": "笔记工作台",
   "file-workbench": "文件工作台",

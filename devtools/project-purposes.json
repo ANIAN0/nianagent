@@ -750,5 +750,11 @@
   "backend/plugins/skill-workbench/tool-catalog.mjs": "定义 Skill 工作台共享工具的契约和效果。",
   "backend/plugins/skill-workbench/web.tsx": "通过 Moon 插件页查询、重启和打开 Skill 工作台。",
   "scripts/workbench-packaging.mjs": "装配可搬移的 Next 工作台入口、静态资源和生产依赖。",
-  "backend/workbench-paths.mjs": "统一独立工作台构建与随包启动的相对路径。"
+  "backend/workbench-paths.mjs": "统一独立工作台构建与随包启动的相对路径。",
+  "backend/plugins/keydex/client.mjs": "自动发现本机 Keydex agent-server 进程端口并封装 PM、知识库、协作、通知与通用 HTTP 接口调用。",
+  "backend/plugins/keydex/contract.mjs": "为 Keydex 插件管理操作提供无副作用的共享契约与说明。",
+  "backend/plugins/keydex/host.mjs": "管理 Keydex 本机连通探测、读写分离语义工具与对外 MCP 共享。",
+  "backend/plugins/keydex/manifest.json": "声明 Keydex 插件的身份、入口、配置架构与外部影响。",
+  "backend/plugins/keydex/pi.mjs": "将 Keydex 共享语义工具注册到 Pi 会话并按读写区分工具审批策略。",
+  "backend/plugins/keydex/web.tsx": "提供 Keydex 本机端口自动发现、连通探测、只读策略与工具清单管理页。"
 }

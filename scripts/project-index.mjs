@@ -212,6 +212,10 @@ export const directoryRules = {
     "Memos 直连插件的宿主、Pi 与网页贡献",
     "直连自托管 Memos HTTP API，分离公开配置与实例凭据，提供读写分离工具。",
   ],
+  "backend/plugins/keydex": [
+    "Keydex 直连插件的宿主、Pi 与网页贡献",
+    "自动发现并直连本机 Keydex agent-server HTTP 接口，提供读写分离的 PM、知识库、协作与通知工具。",
+  ],
   "backend/plugins/filebrowser": [
     "FileBrowser直连插件的宿主、Pi与网页贡献",
     "兼容已归档的 FileBrowser 既有实例，通过 HTTP 提供读写分离工具并在文件完整下载后提交。",

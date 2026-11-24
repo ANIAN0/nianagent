@@ -1,0 +1,67 @@
+{
+  "id": "keydex",
+  "name": "Keydex",
+  "description": "直连本机 Keydex agent-server HTTP 接口，为 Agent 提供 PM 项目管理、知识库、协作事项与通知工具，并支持经 MCP 网关对外共享。",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "defaultEnabled": false,
+  "entries": {
+    "app": "host.mjs",
+    "pi": "pi.mjs",
+    "web": "web.tsx"
+  },
+  "defaultConfiguration": {
+    "installDir": "D:\\tool\\Keydex",
+    "baseUrl": "",
+    "timeoutSeconds": 30,
+    "readOnly": false
+  },
+  "configurationSchema": {
+    "type": "object",
+    "properties": {
+      "installDir": {
+        "type": "string",
+        "title": "Keydex 安装目录",
+        "description": "用于自动识别本机运行的 Keydex agent-server 进程端口，例如 D:\\tool\\Keydex。"
+      },
+      "baseUrl": {
+        "type": "string",
+        "title": "固定服务地址（可选）",
+        "description": "留空时自动发现本机运行中的 Keydex 端口；填写时优先使用该地址，例如 http://127.0.0.1:33684。"
+      },
+      "timeoutSeconds": {
+        "type": "integer",
+        "title": "请求超时（秒）",
+        "minimum": 5,
+        "maximum": 120
+      },
+      "readOnly": {
+        "type": "boolean",
+        "title": "只读模式",
+        "description": "开启后拒绝所有创建、修改、状态流转、评论及其他写入接口调用。"
+      }
+    },
+    "required": [
+      "installDir",
+      "baseUrl",
+      "timeoutSeconds",
+      "readOnly"
+    ],
+    "additionalProperties": false
+  },
+  "contributions": [
+    {
+      "id": "service",
+      "kind": "page",
+      "title": "Keydex 服务",
+      "version": 1,
+      "remote": false
+    }
+  ],
+  "effects": [
+    "检测本机运行的 Keydex agent-server 进程并读取其回环监听端口",
+    "通过本机回环 HTTP 接口访问 Keydex 的 PM 项目管理、知识库、协作事项与站内通知能力",
+    "复用本机 Keydex 已登录会话，不在 Moon 中存储 Keydex 凭据",
+    "通过 Moon 对外 MCP 网关按用户授权共享语义工具"
+  ]
+}

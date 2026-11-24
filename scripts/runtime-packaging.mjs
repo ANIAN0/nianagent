@@ -402,6 +402,7 @@ export async function verifyRuntimeResources(directory) {
     `${workbench}/node_modules/next/package.json`,
     "plugins/file-workbench/manifest.json",
     "plugins/memos/manifest.json",
+    "plugins/keydex/manifest.json",
     "plugins/filebrowser/manifest.json",
     "plugins/opencli/manifest.json",
     "plugins/remote-access/manifest.json",

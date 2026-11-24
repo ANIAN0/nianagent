@@ -39,6 +39,10 @@ import {
   memosModule,
 } from "../backend/plugins/memos/contract.mjs"
 import {
+  keydexOperations,
+  keydexModule,
+} from "../backend/plugins/keydex/contract.mjs"
+import {
   agentsMdOperations,
   agentsMdModule,
 } from "../backend/plugins/agents-md/contract.mjs"
@@ -439,6 +443,9 @@ const pluginCallers = {
   memos: Object.fromEntries(
     Object.keys(memosOperations).map((name) => [name, ["web.tsx"]])
   ),
+  keydex: Object.fromEntries(
+    Object.keys(keydexOperations).map((name) => [name, ["web.tsx"]])
+  ),
   filebrowser: Object.fromEntries(
     Object.keys(filebrowserOperations).map((name) => [name, ["web.tsx"]])
   ),
@@ -571,6 +578,7 @@ export function createApiDocumentation() {
     "mcp-service": [mcpServiceOperations, mcpServiceModule],
     "agents-md": [agentsMdOperations, agentsMdModule],
     memos: [memosOperations, memosModule],
+    keydex: [keydexOperations, keydexModule],
     filebrowser: [filebrowserOperations, filebrowserModule],
     logs: [logsOperations, logsModule],
     "file-workbench": [fileOperations, fileModule],

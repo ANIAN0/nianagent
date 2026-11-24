@@ -93,6 +93,7 @@ const SYSTEM_PLUGIN_IDS = new Set(["logs", "remote-access", "mcp-service"])
 const PLUGIN_ICONS: Record<string, ComponentType<{ className?: string }>> = {
   "file-workbench": FileText,
   filebrowser: FolderOpen,
+  keydex: Network,
   memos: StickyNote,
   "notes-workbench": NotebookPen,
   "example-note": NotebookPen,
