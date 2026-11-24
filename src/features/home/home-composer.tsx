@@ -348,22 +348,8 @@ function HomeComposerView({
           </ComposerPanelProvider>
         </fieldset>
       </form>
-      {!inactive &&
-        !acceptedSubmission &&
-        !models.length &&
-        data.modelCatalog?.status === "ready" && (
-          <Button
-            type="button"
-            variant="link"
-            className="self-start px-2"
-            onClick={data.modelCatalog.onOpenSettings}
-          >
-            配置模型
-          </Button>
-        )}
       {eligibility.hasDraft &&
         eligibility.reasonKind === "model" &&
-        models.length > 0 &&
         !inactive &&
         !acceptedSubmission &&
         !submitting &&
@@ -379,11 +365,25 @@ function HomeComposerView({
         ) && (
           <ComposerNotification
             tone="warning"
-            trigger={draft.model}
+            trigger={!models.length ? "no-models" : draft.model}
             message={
-              draft.model
-                ? "当前所选模型不可用，请在模型菜单中重新选择。"
-                : "尚未选择模型，请先在模型菜单中选择可用模型。"
+              !models.length
+                ? "尚未配置可用模型，请先添加模型连接。"
+                : draft.model
+                  ? "当前所选模型不可用，请在模型菜单中重新选择。"
+                  : "尚未选择模型，请先在模型菜单中选择可用模型。"
+            }
+            actions={
+              !models.length && data.modelCatalog?.onOpenSettings ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  onClick={data.modelCatalog.onOpenSettings}
+                >
+                  添加模型
+                </Button>
+              ) : undefined
             }
           />
         )}

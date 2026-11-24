@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   ChevronDown,
   ChevronRight,
+  Plus,
   Search,
   Settings,
   X,
@@ -199,6 +200,39 @@ export function ModelPicker({
       modelId: item?.modelId,
     })
     groups.set(connection, entries)
+  }
+  const directSetup =
+    !models.length &&
+    !unavailable &&
+    catalog?.status !== "loading" &&
+    catalog?.status !== "error" &&
+    !!catalog?.onOpenSettings
+  if (directSetup) {
+    return (
+      <HoverHint
+        content={disabled ? disabledReason : "前往模型设置添加连接"}
+        disabled={disabled}
+        label="添加模型"
+        onlyWhenTruncated={disabled ? false : ".moon-composer-model-name"}
+      >
+        <Button
+          ref={trigger}
+          disabled={disabled}
+          type="button"
+          variant="composer"
+          size="composer"
+          className="moon-composer-model-trigger"
+          aria-label="添加模型"
+          onClick={() => catalog.onOpenSettings()}
+        >
+          <span className="moon-composer-model-short" aria-hidden="true">
+            模型
+          </span>
+          <span className="moon-composer-model-name">{placeholder}</span>
+          <Plus data-icon="inline-end" />
+        </Button>
+      </HoverHint>
+    )
   }
   const triggerButton = (
     <HoverHint
