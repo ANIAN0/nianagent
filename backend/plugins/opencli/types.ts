@@ -18,6 +18,7 @@ export type OpenCliOperation = {
 export type OpenCliStatus = {
   installation: {
     state: "installed" | "not-installed" | "unavailable"
+    source: "npm-global" | "external" | null
     version: string | null
     path: string | null
     cliPath: string | null

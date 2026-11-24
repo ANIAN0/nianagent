@@ -171,7 +171,6 @@ export async function activate(host) {
   }
   const software = softwareService(run)
   const runnable = (info) => {
-    if (info.issue?.includes("兼容引用")) throw new Error(info.issue)
     if (!info.usable) throw new Error(info.issue || "请先安装官方全局OpenCLI。")
   }
   const cli = async (info, args, options = {}) => {
@@ -426,7 +425,6 @@ export async function activate(host) {
       .then(async () => {
         const info = await software.detect(controller.signal, true)
         current.beforeVersion = info.version
-        if (info.issue?.includes("兼容引用")) throw new Error(info.issue)
         if (action === "install" && info.usable) {
           current.phase = "已检测到现有官方全局安装"
           return
@@ -455,6 +453,10 @@ export async function activate(host) {
         if (["upgrade", "uninstall"].includes(action)) {
           if (info.state !== "installed")
             throw new Error("未检测到可管理的官方全局安装。")
+          if (info.source === "external")
+            throw new Error(
+              `当前OpenCLI由外部目录提供（${info.path}），并非npm全局安装，请通过原安装程序${action === "uninstall" ? "卸载" : "升级"}。`
+            )
           const live = await status()
           if (
             live &&

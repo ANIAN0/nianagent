@@ -46,6 +46,10 @@ const status = object({
       ...str("安装检测状态"),
       enum: ["installed", "not-installed", "unavailable"],
     },
+    source: nullable({
+      ...str("安装来源；external 表示来自外部兼容引用"),
+      enum: ["npm-global", "external"],
+    }),
     ...Object.fromEntries(
       [
         "version",

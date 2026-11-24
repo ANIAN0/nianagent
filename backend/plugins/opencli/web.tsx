@@ -388,6 +388,7 @@ export function OpenCliConnectionView({
   const disabled = !!pending || running || savingConfig || !value
   const configurationDisabled = disabled || !configurationReady
   const installed = installation?.state === "installed"
+  const external = installation?.source === "external"
   const operation = value?.operation
   const version = operation?.targetVersion || installation?.latestVersion
 
@@ -652,6 +653,11 @@ export function OpenCliConnectionView({
                     {installation.license}
                   </span>
                 )}
+                {external && (
+                  <Badge variant="outline" className="font-normal">
+                    外部引用
+                  </Badge>
+                )}
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <Button
@@ -669,7 +675,7 @@ export function OpenCliConnectionView({
                 <Button
                   variant="outline"
                   className="text-xs"
-                  disabled={disabled || !installed}
+                  disabled={disabled || !installed || external}
                   onClick={() => onAction("upgrade")}
                 >
                   升级
@@ -677,7 +683,7 @@ export function OpenCliConnectionView({
                 <Button
                   variant="destructive"
                   className="text-xs"
-                  disabled={disabled || !installed}
+                  disabled={disabled || !installed || external}
                   onClick={() => onAction("uninstall")}
                 >
                   卸载

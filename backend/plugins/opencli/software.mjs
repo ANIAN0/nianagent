@@ -1,4 +1,4 @@
-import { access, lstat, readFile, readlink, realpath } from "node:fs/promises"
+import { access, lstat, readFile, realpath } from "node:fs/promises"
 import {
   delimiter,
   dirname,
@@ -84,19 +84,45 @@ async function npmRuntime() {
   return { node, script, wrapper }
 }
 
-async function compatibilityIssue(packageDirectory) {
+async function inspectPackage(directory) {
+  let manifest
+  try {
+    manifest = JSON.parse(await readFile(join(directory, "package.json"), "utf8"))
+  } catch (error) {
+    if (error.code === "ENOENT") return null
+    throw new Error("全局OpenCLI安装元信息无法读取，请修复安装。", {
+      cause: error,
+    })
+  }
+  if (!manifest || manifest.name !== packageName)
+    throw new Error("全局目录中的程序不是官方OpenCLI包。")
+  const cli = packageEntry(
+    directory,
+    typeof manifest.bin === "string" ? manifest.bin : manifest.bin?.opencli
+  )
+  const entry = await entryState(directory, cli)
+  const usable = entry.state === "available"
+  const daemon = cli ? join(dirname(cli), "daemon.js") : undefined
+  const daemonState = await entryState(directory, daemon)
+  return { directory, manifest, entry, usable, cli, daemon, daemonState }
+}
+
+async function resolveCompatibilityPackage() {
   const link = join(homedir(), ".opencli/node_modules/@jackwener/opencli")
   try {
-    const info = await lstat(link)
-    const target = info.isSymbolicLink()
-      ? resolve(dirname(link), await readlink(link))
-      : await realpath(link)
-    if (!samePath(target, packageDirectory))
-      return "全局OpenCLI兼容引用指向另一安装目录。请先恢复到当前官方全局包，再重新读取；尚未调用官方程序。"
-    return ""
+    const resolved = await realpath(link)
+    return await inspectPackage(resolved)
   } catch (error) {
-    if (error.code === "ENOENT") return ""
-    return "全局OpenCLI兼容引用无法核对，请检查该引用的访问权限。"
+    if (error?.code === "ENOENT") return null
+    if (
+      error?.message?.includes("全局OpenCLI") ||
+      error?.message?.includes("官方OpenCLI")
+    )
+      throw error
+    throw new Error(
+      `全局OpenCLI兼容引用无法核对（${error?.code ?? "error"}：${error?.message ?? "未知错误"}），请检查该引用的访问权限。`,
+      { cause: error }
+    )
   }
 }
 
@@ -168,65 +194,81 @@ export function softwareService(run) {
       reading = (async () => {
         let value
         try {
-          const npm = await npmRuntime()
-          const result = await run(
-            npm.node,
-            [npm.script, "root", "--global", "--json"],
-            { timeoutMs: 15000, label: "读取npm全局目录" }
-          )
-          if (result.code !== 0)
-            throw new Error("npm全局目录读取失败，请检查Node.js/npm。")
-          let root
+          let npm = null
+          let directory = null
+          let found = null
+          let source = null
+          let npmMissingError = null
           try {
-            root = JSON.parse(result.stdout.trim())
-          } catch {
-            root = result.stdout.trim()
-          }
-          if (typeof root !== "string" || !isAbsolute(root))
-            throw new Error("npm未返回有效的全局安装目录。")
-          const directory = resolve(root, packageName)
-          let manifest
-          try {
-            manifest = JSON.parse(
-              await readFile(join(directory, "package.json"), "utf8")
-            )
+            npm = await npmRuntime()
           } catch (error) {
-            if (error.code !== "ENOENT")
-              throw new Error("全局OpenCLI安装元信息无法读取，请修复安装。", {
-                cause: error,
-              })
+            if (!error?.message?.startsWith("未找到npm")) throw error
+            npmMissingError = error
           }
-          if (manifest && manifest.name !== packageName)
-            throw new Error("全局目录中的程序不是官方OpenCLI包。")
-          const cli = packageEntry(
-            directory,
-            typeof manifest?.bin === "string"
-              ? manifest.bin
-              : manifest?.bin?.opencli
-          )
-          const entry = await entryState(directory, cli)
-          const usable = entry.state === "available"
-          const daemon = cli ? join(dirname(cli), "daemon.js") : undefined
-          const daemonState = await entryState(directory, daemon)
+          if (npm) {
+            const result = await run(
+              npm.node,
+              [npm.script, "root", "--global", "--json"],
+              { timeoutMs: 15000, label: "读取npm全局目录" }
+            )
+            if (result.code !== 0)
+              throw new Error("npm全局目录读取失败，请检查Node.js/npm。")
+            let root
+            try {
+              root = JSON.parse(result.stdout.trim())
+            } catch {
+              root = result.stdout.trim()
+            }
+            if (typeof root !== "string" || !isAbsolute(root))
+              throw new Error("npm未返回有效的全局安装目录。")
+            directory = resolve(root, packageName)
+            const globalPkg = await inspectPackage(directory)
+            if (globalPkg) {
+              found = globalPkg
+              source = "npm-global"
+            }
+          }
+          if (!found) {
+            const compatPkg = await resolveCompatibilityPackage()
+            if (compatPkg) {
+              found = compatPkg
+              source = "external"
+            } else if (npmMissingError) {
+              throw npmMissingError
+            }
+          }
+          const nodePath =
+            npm?.node ??
+            (found
+              ? await executable(
+                  process.platform === "win32" ? ["node.exe"] : ["node"]
+                )
+              : null)
+          if (found && !nodePath)
+            throw new Error("未找到运行OpenCLI所需的Node.js程序。")
+          const manifest = found?.manifest
+          const usable = found?.usable ?? false
+          const entry = found?.entry
           value = {
-            state: manifest ? "installed" : "not-installed",
+            state: found ? "installed" : "not-installed",
+            source,
             version:
               typeof manifest?.version === "string" ? manifest.version : null,
-            path: manifest ? directory : null,
-            cliPath: usable ? cli : null,
-            daemonPath: daemonState.state === "available" ? daemon : null,
+            path: found ? found.directory : null,
+            cliPath: usable ? found.cli : null,
+            daemonPath:
+              found?.daemonState.state === "available" ? found.daemon : null,
             license:
               typeof manifest?.license === "string" ? manifest.license : null,
-            npmPath: npm.wrapper,
-            nodePath: npm.node,
+            npmPath: npm?.wrapper ?? null,
+            nodePath: nodePath ?? null,
             usable,
             issue:
-              (await compatibilityIssue(directory)) ||
-              (entry.state === "unavailable"
+              entry?.state === "unavailable"
                 ? `全局OpenCLI程序入口不可探测（${entry.reason}），请检查安装目录权限。`
-                : manifest && !usable
+                : found && !usable
                   ? "全局OpenCLI程序入口缺失或不在实际安装目录，请重新安装官方包。"
-                  : ""),
+                  : "",
             npm,
             directory,
           }
@@ -234,6 +276,7 @@ export function softwareService(run) {
           if (error.name === "AbortError") throw error
           value = {
             state: "unavailable",
+            source: null,
             version: null,
             path: null,
             cliPath: null,
@@ -303,8 +346,15 @@ export function softwareService(run) {
     },
     async mutate(action, info, target, signal) {
       if (!info.npm) throw new Error(info.issue || "npm不可用。")
-      if (info.issue && info.issue.includes("兼容引用"))
-        throw new Error(info.issue)
+      if (
+        (action === "upgrade" || action === "uninstall") &&
+        info.path &&
+        info.directory &&
+        !samePath(info.path, info.directory)
+      )
+        throw new Error(
+          `当前OpenCLI位于外部目录（${info.path}），并非npm全局安装，请通过原安装程序${action === "uninstall" ? "卸载" : "升级"}。`
+        )
       const args =
         action === "uninstall"
           ? ["uninstall", "--global", packageName]
