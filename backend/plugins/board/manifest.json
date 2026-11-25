@@ -1,0 +1,59 @@
+{
+  "id": "board",
+  "name": "Board",
+  "description": "基于 @vercel/board/backend-local 的本机多 Agent 异步协作消息板与任务租约总线，支持经 MCP 网关对外共享。",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "defaultEnabled": false,
+  "entries": {
+    "app": "host.mjs",
+    "pi": "pi.mjs",
+    "web": "web.tsx"
+  },
+  "defaultConfiguration": {
+    "boardName": "moon",
+    "defaultChannel": "general",
+    "defaultActor": "moon",
+    "readOnly": false
+  },
+  "configurationSchema": {
+    "type": "object",
+    "properties": {
+      "boardName": {
+        "type": "string",
+        "title": "本机看板名称",
+        "description": "对应插件数据目录下的 SQLite 看板库名，例如 moon。"
+      },
+      "defaultChannel": {
+        "type": "string",
+        "title": "默认频道",
+        "description": "未显式指定频道时默认读取与发送的频道名称。"
+      },
+      "defaultActor": {
+        "type": "string",
+        "title": "默认发帖身份",
+        "description": "未显式指定 actor 时使用的本机看板身份标识。"
+      },
+      "readOnly": {
+        "type": "boolean",
+        "title": "只读模式",
+        "description": "开启后拒绝所有发帖、回复、建任务与认领/变更状态等写入操作。"
+      }
+    },
+    "required": ["boardName", "defaultChannel", "defaultActor", "readOnly"],
+    "additionalProperties": false
+  },
+  "contributions": [
+    {
+      "id": "service",
+      "kind": "page",
+      "title": "Board 消息板",
+      "version": 1,
+      "remote": false
+    }
+  ],
+  "effects": [
+    "在插件私有数据目录以 SQLite（node:sqlite）持久化频道消息、线程与任务租约",
+    "向 Pi 会话与 Moon MCP 网关暴露本机消息板读写与任务认领工具"
+  ]
+}

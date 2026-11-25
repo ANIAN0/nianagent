@@ -204,6 +204,10 @@ export const directoryRules = {
     "文件工作栏的宿主、Pi与网页贡献",
     "文件预览、Git差异和选区引用共享只读宿主及材料边界。",
   ],
+  "backend/plugins/board": [
+    "本机多 Agent 异步协作消息板与任务租约插件",
+    "共享无副作用契约、宿主 SQLite 落盘、Pi 工具与管理页。",
+  ],
   "backend/plugins/selection-translate": [
     "全局划词翻译插件",
     "插件启停绑定桌面宿主内的快捷键和译文窗口。",

@@ -46,6 +46,10 @@ import {
   agentsMdOperations,
   agentsMdModule,
 } from "../backend/plugins/agents-md/contract.mjs"
+import {
+  boardOperations,
+  boardModule,
+} from "../backend/plugins/board/contract.mjs"
 
 const object = (properties = {}, required = Object.keys(properties)) => ({
   type: "object",
@@ -440,6 +444,9 @@ const pluginCallers = {
   "agents-md": Object.fromEntries(
     Object.keys(agentsMdOperations).map((name) => [name, ["web.tsx"]])
   ),
+  board: Object.fromEntries(
+    Object.keys(boardOperations).map((name) => [name, ["web.tsx"]])
+  ),
   memos: Object.fromEntries(
     Object.keys(memosOperations).map((name) => [name, ["web.tsx"]])
   ),
@@ -577,6 +584,7 @@ export function createApiDocumentation() {
   const plugins = {
     "mcp-service": [mcpServiceOperations, mcpServiceModule],
     "agents-md": [agentsMdOperations, agentsMdModule],
+    board: [boardOperations, boardModule],
     memos: [memosOperations, memosModule],
     keydex: [keydexOperations, keydexModule],
     filebrowser: [filebrowserOperations, filebrowserModule],

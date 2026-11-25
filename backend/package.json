@@ -20,6 +20,7 @@
     "@earendil-works/pi-mcp": "1.6.0",
     "@modelcontextprotocol/node": "2.1.1",
     "@modelcontextprotocol/server": "2.3.1",
+    "@vercel/board": "^0.54.1",
     "noise-handshake": "4.2.0",
     "proper-lockfile": "4.1.2",
     "ws": "8.22.0"

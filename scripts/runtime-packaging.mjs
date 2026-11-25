@@ -408,6 +408,7 @@ export async function verifyRuntimeResources(directory) {
     "plugins/selection-translate/manifest.json",
     "plugins/screen-pin/manifest.json",
     "plugins/screen-pin/ScreenPin.cs",
+    "plugins/board/manifest.json",
     "plugins/remote-access/manifest.json",
     "plugins/mcp-service/manifest.json",
     "plugins/agents-md/manifest.json",
