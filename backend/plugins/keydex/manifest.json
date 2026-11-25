@@ -41,12 +41,7 @@
         "description": "开启后拒绝所有创建、修改、状态流转、评论及其他写入接口调用。"
       }
     },
-    "required": [
-      "installDir",
-      "baseUrl",
-      "timeoutSeconds",
-      "readOnly"
-    ],
+    "required": ["installDir", "baseUrl", "timeoutSeconds", "readOnly"],
     "additionalProperties": false
   },
   "contributions": [

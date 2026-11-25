@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
-import { format, resolveConfig } from "prettier"
+import { format } from "oxfmt"
 import {
   desktopSchemas,
   desktopCommands,
@@ -38,17 +38,29 @@ const mapping = (key) =>
     )
     .join(";\n")
 const target = new URL("../src/contracts/desktop.generated.ts", import.meta.url)
-outputs.set(
-  target,
-  await format(
-    `// Generated from backend/desktop-contract.mjs. Do not edit.\n${types}\nexport type DesktopRequests = {${mapping("input")}}\nexport type DesktopResults = {${mapping("result")}}\nexport type DesktopCommand = keyof DesktopRequests\nexport const desktopCommandMetadata = ${JSON.stringify(desktopCommands)} as const\nexport const desktopSchemaMetadata = ${JSON.stringify(desktopSchemas)} as const\nexport type DesktopEvents = {${Object.entries(
-      desktopEvents
-    )
-      .map(([name, value]) => `${JSON.stringify(name)}: ${value}`)
-      .join(";")}}\n`,
-    { ...(await resolveConfig(fileURLToPath(target))), parser: "typescript" }
+const parseJsonc = (text) =>
+  JSON.parse(
+    text
+      .replace(
+        /\\"|"(?:\\"|[^"])*"|(\/\/.*|\/\*[\s\S]*?\*\/)/g,
+        (match, comment) => (comment ? "" : match)
+      )
+      .replace(/,(\s*[}\]])/g, "$1")
   )
+const oxfmtConfig = parseJsonc(
+  await readFile(new URL("../.oxfmtrc.jsonc", import.meta.url), "utf8")
 )
+const { code: desktopTs, errors } = await format(
+  fileURLToPath(target),
+  `// Generated from backend/desktop-contract.mjs. Do not edit.\n${types}\nexport type DesktopRequests = {${mapping("input")}}\nexport type DesktopResults = {${mapping("result")}}\nexport type DesktopCommand = keyof DesktopRequests\nexport const desktopCommandMetadata = ${JSON.stringify(desktopCommands)} as const\nexport const desktopSchemaMetadata = ${JSON.stringify(desktopSchemas)} as const\nexport type DesktopEvents = {${Object.entries(
+    desktopEvents
+  )
+    .map(([name, value]) => `${JSON.stringify(name)}: ${value}`)
+    .join(";")}}\n`,
+  oxfmtConfig
+)
+if (errors.length) throw new Error(errors.map((e) => e.message).join("\n"))
+outputs.set(target, desktopTs)
 const rust = Object.entries(desktopSchemas)
   .map(([name, schema]) => {
     if (schema.nullable || schema.$ref || schema.type === "array")

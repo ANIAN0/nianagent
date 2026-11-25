@@ -8,7 +8,12 @@ export type Workspace = {
   unavailableReason?: string
 }
 export type ConversationStatus =
-  "idle" | "running" | "stopping" | "waiting" | "completed" | "failed"
+  | "idle"
+  | "running"
+  | "stopping"
+  | "waiting"
+  | "completed"
+  | "failed"
 export type Conversation = {
   pending?: { approvals: number; answers: number }
   runId?: string

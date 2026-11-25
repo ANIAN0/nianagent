@@ -503,7 +503,11 @@ export function Page() {
                     variant={tool.enabled ? "secondary" : "outline"}
                     className="shrink-0 text-[11px]"
                   >
-                    {tool.effect === "read" ? "只读" : tool.enabled ? "写入" : "已禁用"}
+                    {tool.effect === "read"
+                      ? "只读"
+                      : tool.enabled
+                        ? "写入"
+                        : "已禁用"}
                   </Badge>
                 </div>
               ))}

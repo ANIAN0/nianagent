@@ -1,5 +1,9 @@
 export type OpenCliAction =
-  "install" | "uninstall" | "upgrade" | "start" | "stop"
+  | "install"
+  | "uninstall"
+  | "upgrade"
+  | "start"
+  | "stop"
 export type OpenCliInput = {
   expectedDaemonPid?: number
   expectedDaemonVersion?: string

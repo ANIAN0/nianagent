@@ -13,7 +13,10 @@ import {
 } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { WorkbenchStore, WorkbenchError } from "../../apps/workbench/src/server/notes/storage.mjs"
+import {
+  WorkbenchStore,
+  WorkbenchError,
+} from "../../apps/workbench/src/server/notes/storage.mjs"
 
 /** 建立隔离数据根 + 已发布一条 Markdown 版本的 store；返回句柄供用例断言。 */
 async function setup(t, markdown = "# 标题\n\n第一段。\n\n第一段。\n") {

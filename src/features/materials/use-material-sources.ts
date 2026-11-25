@@ -37,7 +37,8 @@ export function useMaterialSources({
     disabled: boolean
     scope: string
     onPasteText:
-      ((text: string, start: number, end: number) => void) | undefined
+      | ((text: string, start: number, end: number) => void)
+      | undefined
   }>
   service: MaterialService | null
   cwd: string

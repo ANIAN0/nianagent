@@ -99,7 +99,11 @@ export type BrowserBootStatus = {
   }[]
 }
 export type FrontendPerfKind =
-  "loaf" | "longtask" | "event-timing" | "render" | "inp"
+  | "loaf"
+  | "longtask"
+  | "event-timing"
+  | "render"
+  | "inp"
 export type FrontendPerfEvent = {
   /**  */
   kind: FrontendPerfKind
@@ -771,7 +775,12 @@ export type ConversationSnapshot = {
   canContinue?: boolean
   /** 真实回复运行状态；completed 仅表示本轮运行结束，不代表用户任务验收成功 */
   phase:
-    "idle" | "running" | "stopping" | "completed" | "failed" | "interrupted"
+    | "idle"
+    | "running"
+    | "stopping"
+    | "completed"
+    | "failed"
+    | "interrupted"
   /** 连接 ID/模型 ID 的选择值 */
   modelId: string
   /** 模型连接 ID */
@@ -898,7 +907,12 @@ export type ConversationMetadata = {
   canContinue?: boolean
   /** 真实回复运行状态；completed 仅表示本轮运行结束，不代表用户任务验收成功 */
   phase:
-    "idle" | "running" | "stopping" | "completed" | "failed" | "interrupted"
+    | "idle"
+    | "running"
+    | "stopping"
+    | "completed"
+    | "failed"
+    | "interrupted"
   /** 连接 ID/模型 ID 的选择值 */
   modelId: string
   /** 模型连接 ID */
@@ -1128,7 +1142,12 @@ export type ConversationControlOperation = {
   sessionId: string
   /** 实际操作结果；unknown必须查询原标识 */
   status:
-    "running" | "cancelling" | "completed" | "cancelled" | "failed" | "unknown"
+    | "running"
+    | "cancelling"
+    | "completed"
+    | "cancelled"
+    | "failed"
+    | "unknown"
   /** 接受时间 */
   createdAt: string
   /** 更新时点 */
@@ -1338,7 +1357,13 @@ export type ModelDefinition = {
   }
   /** 只读；由 Pi 依据模型能力计算，不支持思考时为空。 */
   supportedThinkingLevels?: (
-    "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
+    | "off"
+    | "minimal"
+    | "low"
+    | "medium"
+    | "high"
+    | "xhigh"
+    | "max"
   )[]
   /** 支持的输入模态。 */
   input: ("text" | "image")[]
@@ -1530,7 +1555,11 @@ export type RpcRequests = {
   writeReceiptRead: {
     /** 原操作名 */
     operation:
-      "save" | "remove" | "mcpSave" | "mcpRemove" | "extensionConfigure"
+      | "save"
+      | "remove"
+      | "mcpSave"
+      | "mcpRemove"
+      | "extensionConfigure"
     /** 客户端冻结的原写入身份；同标识不重复执行，结果未知只读原回执 */
     operationRequestId: string
   }

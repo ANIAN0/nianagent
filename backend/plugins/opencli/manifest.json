@@ -27,10 +27,7 @@
         "title": "使用上游后台窗口模式"
       }
     },
-    "required": [
-      "profile",
-      "background"
-    ],
+    "required": ["profile", "background"],
     "additionalProperties": false
   },
   "contributions": [

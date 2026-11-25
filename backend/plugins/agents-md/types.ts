@@ -7,7 +7,10 @@ export type AgentsSnippet = {
 }
 
 export type AgentsProjectStatus =
-  "synced" | "different" | "missing" | "unavailable"
+  | "synced"
+  | "different"
+  | "missing"
+  | "unavailable"
 
 export type AgentsProjectSummary = {
   id: string

@@ -8,7 +8,13 @@ export type RemotePacket =
   | { type: "ping" | "pong" }
   | { type: "cancel"; id: string }
   | { type: "rpc"; id: string; operation: string; input: unknown }
-  | { type: "result"; id: string; error?: string; issue?: unknown; result?: unknown }
+  | {
+      type: "result"
+      id: string
+      error?: string
+      issue?: unknown
+      result?: unknown
+    }
 export function decode(bytes: Uint8Array): RemotePacket
 export function handshake(
   role: "initiator" | "responder",

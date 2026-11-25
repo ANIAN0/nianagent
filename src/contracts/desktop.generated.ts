@@ -1,6 +1,11 @@
 // Generated from backend/desktop-contract.mjs. Do not edit.
 export type BootStage =
-  "profile" | "backend" | "storage" | "frontendProfile" | "workbench" | "ready"
+  | "profile"
+  | "backend"
+  | "storage"
+  | "frontendProfile"
+  | "workbench"
+  | "ready"
 export type BootPhase = "starting" | "waitingFrontend" | "failed" | "ready"
 export type BootHostMode = "desktop"
 export type BootIssue = {
@@ -71,9 +76,16 @@ export type IssueCode =
   | "unknown"
   | "internal"
 export type RecoveryAction =
-  "retry" | "chooseDirectory" | "wait" | "restart" | "none"
+  | "retry"
+  | "chooseDirectory"
+  | "wait"
+  | "restart"
+  | "none"
 export type ActivityKind =
-  "conversation" | "request" | "authorization" | "frontend"
+  | "conversation"
+  | "request"
+  | "authorization"
+  | "frontend"
 export type Activity = {
   id: string
   kind: ActivityKind
@@ -88,7 +100,10 @@ export type DesktopIssue = {
   activities: Activity[]
 }
 export type StorageSource =
-  "installation" | "custom" | "developmentDefault" | "developmentEnvironment"
+  | "installation"
+  | "custom"
+  | "developmentDefault"
+  | "developmentEnvironment"
 export type StorageDirectoryMapping = { sourceRoot: string; targetRoot: string }
 export type StorageInfo = {
   dataDirectory: string

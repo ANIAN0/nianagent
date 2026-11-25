@@ -137,7 +137,9 @@ export function Page() {
                 仅本机 127.0.0.1
               </span>
             </div>
-            <p className="text-xs text-muted-foreground">重启或更改端口会短暂中断笔记和 Skill。</p>
+            <p className="text-xs text-muted-foreground">
+              重启或更改端口会短暂中断笔记和 Skill。
+            </p>
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 variant="outline"

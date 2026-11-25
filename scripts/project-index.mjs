@@ -497,7 +497,7 @@ export function collectProject() {
     )
       file.entries.push("正式运行或开发入口")
     if (
-      /^(?:package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|tsconfig.*\.json|vite\.config\.ts|eslint\.config\.js|components\.json|\.github\/|\.git|\.prettier|src-tauri\/(?:Cargo|tauri|build)|scripts\/release-verifier\/Cargo)/.test(
+      /^(?:package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|tsconfig.*\.json|vite\.config\.ts|eslint\.config\.js|\.oxlintrc\.json|\.oxfmtrc\.jsonc|components\.json|\.github\/|\.git|\.prettier|src-tauri\/(?:Cargo|tauri|build)|scripts\/release-verifier\/Cargo)/.test(
         file.path
       )
     )

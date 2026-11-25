@@ -1,0 +1,14 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "react", "unicorn"],
+  "ignorePatterns": [
+    "dist",
+    "src-tauri/runtime",
+    "src-tauri/target",
+    ".dev",
+    "apps/workbench/.next",
+    "apps/workbench/.dev",
+    "apps/workbench/.releases",
+    "node_modules"
+  ]
+}

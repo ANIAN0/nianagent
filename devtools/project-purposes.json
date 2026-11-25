@@ -58,6 +58,8 @@
   ".gitattributes": "定义 Git 的文件文本与行尾处理规则。",
   ".github/workflows/release-windows.yml": "定义 Windows 发行构建、校验与资产发布工作流。",
   ".gitignore": "排除依赖、构建、日志、本地规范和 .dev 开发材料。",
+  ".oxfmtrc.jsonc": "指定 oxfmt 代码格式化与 Tailwind 类名排序偏好。",
+  ".oxlintrc.json": "配置 oxlint 静态检查插件与忽略目录。",
   ".prettierignore": "标记格式化工具应跳过的文件。",
   ".prettierrc": "指定项目代码格式化偏好。",
   "README.md": "给使用者说明 Moon 的用途、dev 启动、配置、插件、数据与更新方式。",

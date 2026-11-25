@@ -1,8 +1,7 @@
 {
   "name": "@moon/backend",
-  "private": true,
   "version": "0.3.0",
-  "type": "module",
+  "private": true,
   "files": [
     "*.mjs",
     "!*.test.mjs",
@@ -14,6 +13,7 @@
     "plugins/**/manifest.json",
     "plugins/screen-pin/ScreenPin.cs"
   ],
+  "type": "module",
   "dependencies": {
     "@earendil-works/pi-ai": "1.6.0",
     "@earendil-works/pi-coding-agent": "1.6.0",

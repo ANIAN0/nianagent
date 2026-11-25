@@ -24,9 +24,7 @@ async function walk(dir, list, filter) {
 }
 
 const isModuleSource = (p) =>
-  /\.(mjs|tsx?|jsx?)$/.test(p) &&
-  !p.endsWith(".d.ts") &&
-  !p.endsWith(".d.mts")
+  /\.(mjs|tsx?|jsx?)$/.test(p) && !p.endsWith(".d.ts") && !p.endsWith(".d.mts")
 
 await walk(resolve("backend"), files, isModuleSource)
 await walk(resolve("src"), files, isModuleSource)
@@ -106,12 +104,14 @@ for (const file of files) {
       !n.isTypeOnly
     ) {
       allStaticImports.push(n.moduleSpecifier.text)
-      if (!(
-        n.exportClause &&
-        ts.isNamedExports(n.exportClause) &&
-        n.exportClause.elements.length &&
-        n.exportClause.elements.every((e) => e.isTypeOnly)
-      ))
+      if (
+        !(
+          n.exportClause &&
+          ts.isNamedExports(n.exportClause) &&
+          n.exportClause.elements.length &&
+          n.exportClause.elements.every((e) => e.isTypeOnly)
+        )
+      )
         runtimeImports.push(n.moduleSpecifier.text)
     } else if (
       ts.isCallExpression(n) &&

@@ -5,7 +5,7 @@ import {
   operations,
   transportRecoveryByOperation,
 } from "../backend/contract.mjs"
-import { format, resolveConfig } from "prettier"
+import { format } from "oxfmt"
 function type(schema) {
   if (schema.$ref) return schema.$ref
   if (schema.anyOf) return schema.anyOf.map(type).join(" | ")
@@ -33,11 +33,24 @@ const output = `// Generated from backend/schema.mjs and backend/contract.mjs. D
   .map(([name, op]) => `${name}: ${type(op.response)}`)
   .join("\n")}\n}\nexport type ModelOperation = keyof RpcRequests\n`
 const url = new URL("../src/contracts/rpc.generated.ts", import.meta.url)
-const formatted = await format(output, {
-  ...(await resolveConfig(fileURLToPath(url))),
-  parser: "typescript",
-  semi: false,
-})
+const parseJsonc = (text) =>
+  JSON.parse(
+    text
+      .replace(
+        /\\"|"(?:\\"|[^"])*"|(\/\/.*|\/\*[\s\S]*?\*\/)/g,
+        (match, comment) => (comment ? "" : match)
+      )
+      .replace(/,(\s*[}\]])/g, "$1")
+  )
+const oxfmtConfig = parseJsonc(
+  await readFile(new URL("../.oxfmtrc.jsonc", import.meta.url), "utf8")
+)
+const { code: formatted, errors } = await format(
+  fileURLToPath(url),
+  output,
+  oxfmtConfig
+)
+if (errors.length) throw new Error(errors.map((e) => e.message).join("\n"))
 if (process.argv.includes("--check")) {
   if ((await readFile(url, "utf8")) !== formatted)
     throw new Error("模型契约类型已漂移，请运行 pnpm contract:generate。")

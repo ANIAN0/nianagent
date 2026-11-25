@@ -168,10 +168,12 @@ export class NoiseTransport {
   constructor(sendKey, receiveKey, sendDirection, receiveDirection) {
     requireBytes(sendKey, 32, "Noise send key")
     requireBytes(receiveKey, 32, "Noise receive key")
-    if (!(
-      (sendDirection === 1 && receiveDirection === 2) ||
-      (sendDirection === 2 && receiveDirection === 1)
-    )) {
+    if (
+      !(
+        (sendDirection === 1 && receiveDirection === 2) ||
+        (sendDirection === 2 && receiveDirection === 1)
+      )
+    ) {
       throw new NoiseChannelError(
         "invalid_configuration",
         "Noise transport 方向无效。"

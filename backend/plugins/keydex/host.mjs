@@ -70,7 +70,9 @@ function formatToolResult(payload) {
 
 function formatToolError(error) {
   const message = redactSensitive(
-    error instanceof Error ? error.message : String(error || "Keydex 调用失败。")
+    error instanceof Error
+      ? error.message
+      : String(error || "Keydex 调用失败。")
   )
   return {
     isError: true,
@@ -88,7 +90,9 @@ function summarizeProjects(pmAuth) {
 
 export async function activate(host) {
   const config = {
-    installDir: String(host.configuration?.installDir || "D:\\tool\\Keydex").trim(),
+    installDir: String(
+      host.configuration?.installDir || "D:\\tool\\Keydex"
+    ).trim(),
     baseUrl: String(host.configuration?.baseUrl || "").trim(),
     timeoutSeconds: Number(host.configuration?.timeoutSeconds) || 30,
     readOnly: Boolean(host.configuration?.readOnly),
@@ -141,7 +145,8 @@ export async function activate(host) {
     },
     {
       name: "pm_list_projects",
-      description: "列出当前用户在 Keydex PM 平台已加入的所有项目（含 projectKey 与名称）。",
+      description:
+        "列出当前用户在 Keydex PM 平台已加入的所有项目（含 projectKey 与名称）。",
       inputSchema: object(),
       run: (_input, _ctx, signal) => client.pmListProjects(signal),
     },
@@ -150,9 +155,12 @@ export async function activate(host) {
       description:
         "跨项目查询个人工作台中的事项、待办或风险（按 start/doing/done 状态分组）。",
       inputSchema: object({
-        stateCategory: str("状态大类：start（待开始）、doing（进行中）、done（已完成）", {
-          enum: ["start", "doing", "done"],
-        }),
+        stateCategory: str(
+          "状态大类：start（待开始）、doing（进行中）、done（已完成）",
+          {
+            enum: ["start", "doing", "done"],
+          }
+        ),
         keyword: str("关键词模糊搜索", { maxLength: 128 }),
         projectKeys: {
           type: "array",
@@ -192,7 +200,9 @@ export async function activate(host) {
         {
           projectKey: str("项目标识 key，例如 yongcepro", { minLength: 1 }),
           includeMembers: bool("是否同时获取项目成员列表（默认 true）"),
-          includeFieldMetadata: bool("是否同时获取事项字段元数据（默认 false）"),
+          includeFieldMetadata: bool(
+            "是否同时获取事项字段元数据（默认 false）"
+          ),
         },
         ["projectKey"]
       ),
@@ -215,7 +225,8 @@ export async function activate(host) {
           },
           sorts: {
             type: "array",
-            description: "排序规则数组，每项为 { field, direction: 'asc'|'desc' }",
+            description:
+              "排序规则数组，每项为 { field, direction: 'asc'|'desc' }",
             items: { type: "object" },
             maxItems: 6,
           },
@@ -324,14 +335,20 @@ export async function activate(host) {
     },
     {
       name: "pm_create_issue",
-      description: "在指定 PM 项目中创建新事项（需求、任务或缺陷），属于写入操作。",
+      description:
+        "在指定 PM 项目中创建新事项（需求、任务或缺陷），属于写入操作。",
       inputSchema: object(
         {
           projectKey: str("项目标识 key", { minLength: 1 }),
           issueType: str("事项类型", { enum: ["requirement", "task", "bug"] }),
-          title: str("事项标题（2-100 字符）", { minLength: 2, maxLength: 100 }),
+          title: str("事项标题（2-100 字符）", {
+            minLength: 2,
+            maxLength: 100,
+          }),
           iterationId: int("迭代 ID", 1),
-          priority: str("优先级", { enum: ["urgent", "high", "medium", "low"] }),
+          priority: str("优先级", {
+            enum: ["urgent", "high", "medium", "low"],
+          }),
           parentId: int("父事项 ID", 1),
           assigneeUserId: int("负责人用户 ID", 1),
           contentText: str("事项正文内容", { maxLength: 20000 }),
@@ -348,20 +365,31 @@ export async function activate(host) {
     },
     {
       name: "pm_update_issue",
-      description: "更新指定 PM 事项的标题、优先级、负责人、日期或工时等字段，属于写入操作。",
+      description:
+        "更新指定 PM 事项的标题、优先级、负责人、日期或工时等字段，属于写入操作。",
       inputSchema: object(
         {
           projectKey: str("项目标识 key", { minLength: 1 }),
           issueId: int("事项数字 ID", 1),
           title: str("新标题（2-100 字符）", { minLength: 2, maxLength: 100 }),
-          priority: str("优先级", { enum: ["urgent", "high", "medium", "low"] }),
+          priority: str("优先级", {
+            enum: ["urgent", "high", "medium", "low"],
+          }),
           assigneeUserId: { anyOf: [int("负责人 ID", 1), { type: "null" }] },
-          fixerUserId: { anyOf: [int("修复人 ID（仅 bug）", 1), { type: "null" }] },
-          verifierUserId: { anyOf: [int("验证人 ID（仅 bug）", 1), { type: "null" }] },
+          fixerUserId: {
+            anyOf: [int("修复人 ID（仅 bug）", 1), { type: "null" }],
+          },
+          verifierUserId: {
+            anyOf: [int("验证人 ID（仅 bug）", 1), { type: "null" }],
+          },
           startDate: { anyOf: [str("开始日期 YYYY-MM-DD"), { type: "null" }] },
           endDate: { anyOf: [str("截止日期 YYYY-MM-DD"), { type: "null" }] },
-          estimateHours: { anyOf: [{ type: "number", minimum: 0 }, { type: "null" }] },
-          actualHours: { anyOf: [{ type: "number", minimum: 0 }, { type: "null" }] },
+          estimateHours: {
+            anyOf: [{ type: "number", minimum: 0 }, { type: "null" }],
+          },
+          actualHours: {
+            anyOf: [{ type: "number", minimum: 0 }, { type: "null" }],
+          },
           customFields: {
             type: "object",
             description: "可选自定义字段键值对象",
@@ -378,7 +406,10 @@ export async function activate(host) {
         {
           projectKey: str("项目标识 key", { minLength: 1 }),
           issueId: int("事项数字 ID", 1),
-          toStateId: int("目标状态数字 ID（可先通过 pm_get_project_metadata 查询）", 1),
+          toStateId: int(
+            "目标状态数字 ID（可先通过 pm_get_project_metadata 查询）",
+            1
+          ),
         },
         ["projectKey", "issueId", "toStateId"]
       ),
@@ -456,7 +487,8 @@ export async function activate(host) {
         page: int("页码", 1, 1000),
         pageSize: int("每页条数（1-100）", 1, 100),
       }),
-      run: (input, _ctx, signal) => client.collaborationQueryItems(input, signal),
+      run: (input, _ctx, signal) =>
+        client.collaborationQueryItems(input, signal),
     },
     {
       name: "notice_list",
@@ -475,9 +507,12 @@ export async function activate(host) {
       inputSchema: object(
         {
           method: str("HTTP 方法，默认 GET", { enum: ["GET", "POST"] }),
-          path: str("以 /api/ 开头的接口路径，例如 /api/modules/project/projects/yongcepro/roles", {
-            minLength: 5,
-          }),
+          path: str(
+            "以 /api/ 开头的接口路径，例如 /api/modules/project/projects/yongcepro/roles",
+            {
+              minLength: 5,
+            }
+          ),
           query: {
             type: "object",
             description: "可选 URL 查询参数键值对象",
@@ -497,7 +532,9 @@ export async function activate(host) {
         "调用 Keydex 本地写入 HTTP 接口（用于专用工具未覆盖的写入/变更操作，允许 /api/... 的 POST/PUT/PATCH/DELETE，受只读模式限制）。",
       inputSchema: object(
         {
-          method: str("HTTP 方法", { enum: ["POST", "PUT", "PATCH", "DELETE"] }),
+          method: str("HTTP 方法", {
+            enum: ["POST", "PUT", "PATCH", "DELETE"],
+          }),
           path: str("以 /api/ 开头的接口路径", { minLength: 5 }),
           query: {
             type: "object",

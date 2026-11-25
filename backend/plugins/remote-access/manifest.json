@@ -21,9 +21,7 @@
         "description": "公网使用HTTPS；本地联调可使用127.0.0.1的HTTP地址。"
       }
     },
-    "required": [
-      "origin"
-    ],
+    "required": ["origin"],
     "additionalProperties": false
   },
   "contributions": [

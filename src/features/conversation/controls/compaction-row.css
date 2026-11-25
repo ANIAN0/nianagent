@@ -56,11 +56,13 @@
   opacity: 0;
 }
 
-.conversation-compaction-trigger:not(:disabled):is(:hover, :focus-visible) .conversation-compaction-context-icon {
+.conversation-compaction-trigger:not(:disabled):is(:hover, :focus-visible)
+  .conversation-compaction-context-icon {
   opacity: 0;
 }
 
-.conversation-compaction-trigger:not(:disabled):is(:hover, :focus-visible) .conversation-compaction-disclosure-icon {
+.conversation-compaction-trigger:not(:disabled):is(:hover, :focus-visible)
+  .conversation-compaction-disclosure-icon {
   opacity: 1;
 }
 
@@ -91,7 +93,10 @@
   color: var(--destructive);
 }
 
-.conversation-compaction-row:has(.conversation-compaction-body[data-state="open"]) > .conversation-compaction-trigger {
+.conversation-compaction-row:has(
+    .conversation-compaction-body[data-state="open"]
+  )
+  > .conversation-compaction-trigger {
   position: sticky;
   top: 0;
   z-index: 7;
@@ -120,15 +125,23 @@
   line-height: 24px;
 }
 
-.conversation-compaction-body .conversation-markdown :is(h1, h2, h3, h4, h5, h6) strong {
+.conversation-compaction-body
+  .conversation-markdown
+  :is(h1, h2, h3, h4, h5, h6)
+  strong {
   font-weight: inherit;
 }
 
-.conversation-compaction-body .conversation-markdown :is(h4, h5, h6):has(+ :is(ul, ol)) {
+.conversation-compaction-body
+  .conversation-markdown
+  :is(h4, h5, h6):has(+ :is(ul, ol)) {
   margin-bottom: 8px;
 }
 
-.conversation-compaction-body .conversation-markdown :is(h4, h5, h6) + :is(ul, ol) {
+.conversation-compaction-body
+  .conversation-markdown
+  :is(h4, h5, h6)
+  + :is(ul, ol) {
   margin-top: 8px;
 }
 
@@ -154,7 +167,10 @@
 }
 
 .conversation-compaction-body .conversation-markdown > :last-child,
-.conversation-compaction-body .conversation-markdown li > :last-child:not(.conversation-code-block) {
+.conversation-compaction-body
+  .conversation-markdown
+  li
+  > :last-child:not(.conversation-code-block) {
   margin-bottom: 0;
 }
 

@@ -15,7 +15,10 @@ import {
   READING_PIPELINE_VERSION,
   safeUrl,
 } from "../../apps/workbench/src/server/notes/markdown.mjs"
-import { WorkbenchStore, WorkbenchError } from "../../apps/workbench/src/server/notes/storage.mjs"
+import {
+  WorkbenchStore,
+  WorkbenchError,
+} from "../../apps/workbench/src/server/notes/storage.mjs"
 import { createV2Service } from "../../apps/workbench/src/server/notes/service.mjs"
 
 const anchorCode = (error) =>

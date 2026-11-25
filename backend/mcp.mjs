@@ -483,11 +483,13 @@ export class McpService {
   }
   async removeConfiguration(name, revision, signal, commit) {
     await this.mutate((document) => {
-      if (!(
-        document.mcpServers[name] &&
-        revision ===
-          this.record(name, document.mcpServers[name], document).revision
-      ))
+      if (
+        !(
+          document.mcpServers[name] &&
+          revision ===
+            this.record(name, document.mcpServers[name], document).revision
+        )
+      )
         throw operationError(
           "mcp_revision_conflict",
           "MCP 服务不存在或版本已变化，请重新读取。",

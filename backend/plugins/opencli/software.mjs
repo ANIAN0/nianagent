@@ -87,7 +87,9 @@ async function npmRuntime() {
 async function inspectPackage(directory) {
   let manifest
   try {
-    manifest = JSON.parse(await readFile(join(directory, "package.json"), "utf8"))
+    manifest = JSON.parse(
+      await readFile(join(directory, "package.json"), "utf8")
+    )
   } catch (error) {
     if (error.code === "ENOENT") return null
     throw new Error("全局OpenCLI安装元信息无法读取，请修复安装。", {

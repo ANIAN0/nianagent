@@ -1,6 +1,10 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { parseCanvas, diffCanvas, boardTargets } from "../../../apps/workbench/src/server/notes/readers/board.mjs"
+import {
+  parseCanvas,
+  diffCanvas,
+  boardTargets,
+} from "../../../apps/workbench/src/server/notes/readers/board.mjs"
 
 const node = (id, x = 10) => ({
   id,

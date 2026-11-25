@@ -72,7 +72,11 @@ export function reconcileDrafts(
   return next
 }
 export type PluginStatusTone =
-  "active" | "muted" | "destructive" | "warning" | "pending"
+  | "active"
+  | "muted"
+  | "destructive"
+  | "warning"
+  | "pending"
 
 export type NormalizedPluginStatus = {
   label: string

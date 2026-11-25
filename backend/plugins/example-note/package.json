@@ -1,13 +1,8 @@
 {
   "name": "moon-example-note",
   "version": "1.0.0",
-  "type": "module",
   "description": "通过Pi工具生成短记录，并在轮次末尾交付。",
-  "pi": {
-    "extensions": [
-      "./pi.mjs"
-    ]
-  },
+  "type": "module",
   "moon": {
     "apiVersion": 1,
     "pi": "pi.mjs",
@@ -41,6 +36,11 @@
         "version": 1,
         "remote": true
       }
+    ]
+  },
+  "pi": {
+    "extensions": [
+      "./pi.mjs"
     ]
   }
 }

@@ -26,14 +26,10 @@
         "maxLength": 24
       }
     },
-    "required": [
-      "prefix"
-    ],
+    "required": ["prefix"],
     "additionalProperties": false
   },
-  "effects": [
-    "根据工具输入生成记录；不读取或修改用户文件"
-  ],
+  "effects": ["根据工具输入生成记录；不读取或修改用户文件"],
   "contributions": [
     {
       "id": "note",

@@ -1,6 +1,9 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { parseManifest, validPreviewRoute } from "../../../apps/workbench/src/server/notes/readers/ui.mjs"
+import {
+  parseManifest,
+  validPreviewRoute,
+} from "../../../apps/workbench/src/server/notes/readers/ui.mjs"
 import { classifyPreviewPath } from "../../../apps/workbench/src/server/notes/preview-path.mjs"
 
 test("预览路由必须与浏览器路径一致且不能切换来源或携带查询片段", () => {

@@ -72,7 +72,10 @@ export function normalizeApiPath(rawPath) {
   } catch {
     throw new Error(`接口路径无效：${trimmed}`)
   }
-  if (parsed.origin !== "http://127.0.0.1" || !parsed.pathname.startsWith("/api/")) {
+  if (
+    parsed.origin !== "http://127.0.0.1" ||
+    !parsed.pathname.startsWith("/api/")
+  ) {
     throw new Error("仅允许访问 /api/ 开头的 Keydex 本地接口路径。")
   }
   return `${parsed.pathname}${parsed.search}`
@@ -209,7 +212,9 @@ function extractErrorMessage(status, payload, rawText) {
       return `Keydex HTTP ${status}：${payload.message.trim()}`
     }
   }
-  const snippet = String(rawText || "").trim().slice(0, 300)
+  const snippet = String(rawText || "")
+    .trim()
+    .slice(0, 300)
   return snippet
     ? `Keydex HTTP ${status}：${snippet}`
     : `Keydex 请求失败（HTTP ${status}）。`
@@ -280,7 +285,10 @@ export function createKeydexClient({ config }) {
   ) => {
     const path = normalizeApiPath(rawPath)
     const upperMethod = String(method || "GET").toUpperCase()
-    const timeoutMs = Math.max(5000, (Number(config.timeoutSeconds) || 30) * 1000)
+    const timeoutMs = Math.max(
+      5000,
+      (Number(config.timeoutSeconds) || 30) * 1000
+    )
 
     const buildRequestUrl = (baseUrl) => {
       const target = new URL(path, baseUrl)
@@ -301,7 +309,11 @@ export function createKeydexClient({ config }) {
 
       const headers = { Accept: "application/json" }
       let payloadBody
-      if (body !== undefined && upperMethod !== "GET" && upperMethod !== "HEAD") {
+      if (
+        body !== undefined &&
+        upperMethod !== "GET" &&
+        upperMethod !== "HEAD"
+      ) {
         headers["Content-Type"] = "application/json"
         payloadBody = JSON.stringify(body)
       }
