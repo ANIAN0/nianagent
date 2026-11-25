@@ -1,0 +1,20 @@
+{
+  "id": "screen-pin",
+  "name": "截图贴图",
+  "description": "在 Windows 桌面按 F1，拖选区域后松开即可置顶贴图。拖动贴图可移动，双击关闭，框选时按 Esc 取消。",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "defaultEnabled": false,
+  "entries": { "app": "host.mjs" },
+  "defaultConfiguration": {},
+  "configurationSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  },
+  "contributions": [],
+  "effects": [
+    "启用期间占用 Windows 全局快捷键 F1",
+    "截图仅在本机内存中显示，停用插件或退出 Moon 时关闭全部贴图"
+  ]
+}

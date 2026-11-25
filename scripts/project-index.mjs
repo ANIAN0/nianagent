@@ -208,6 +208,10 @@ export const directoryRules = {
     "全局划词翻译插件",
     "插件启停绑定桌面宿主内的快捷键和译文窗口。",
   ],
+  "backend/plugins/screen-pin": [
+    "Windows 全局截图与置顶贴图",
+    "插件管理快捷键和桌面窗口生命周期。",
+  ],
   "backend/plugins/opencli": [
     "OpenCLI安装管理和显式浏览器绑定",
     "官方软件与后台由插件拥有，可信共享契约不激活连接。",

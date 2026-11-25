@@ -29,7 +29,8 @@ export async function backendSourceFiles(directory) {
     } else if (
       entry.isFile() &&
       (path.endsWith(".mjs") ||
-        (kind === "plugins" && basename(path) === "manifest.json")) &&
+        (kind === "plugins" && basename(path) === "manifest.json") ||
+        path === join(root, "plugins", "screen-pin", "ScreenPin.cs")) &&
       !basename(path).endsWith(".test.mjs")
     )
       files.push(local.replaceAll("\\", "/"))

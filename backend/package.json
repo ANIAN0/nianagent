@@ -11,7 +11,8 @@
     "plugins/**/*.mjs",
     "!plugins/**/*.test.mjs",
     "!plugins/**/test-fixtures/**",
-    "plugins/**/manifest.json"
+    "plugins/**/manifest.json",
+    "plugins/screen-pin/ScreenPin.cs"
   ],
   "dependencies": {
     "@earendil-works/pi-ai": "1.6.0",
