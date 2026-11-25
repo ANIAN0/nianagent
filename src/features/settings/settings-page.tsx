@@ -9,6 +9,7 @@ import type { LeaveGuard } from "@/lib/navigation/leave-guard"
 import type { Conversation } from "@/lib/composer/types"
 import { SettingsShell, type SettingsSection } from "./settings-shell"
 import { ArchivedConversationsSettings } from "./archived-conversations-settings"
+import { ArchitectureSettings } from "./architecture-settings"
 import { StorageSettings } from "./storage-settings"
 import { DesignGuidelinesSettings } from "./design-guidelines-settings"
 import { UpdateSettings } from "./update-settings"
@@ -80,6 +81,7 @@ export function SettingsPage({
       )}
       {section === "storage" && <StorageSettings registerLeave={register} />}
       {section === "guidelines" && <DesignGuidelinesSettings />}
+      {section === "architecture" && <ArchitectureSettings />}
       {section === "updates" && <UpdateSettings registerLeave={register} />}
     </SettingsShell>
   )

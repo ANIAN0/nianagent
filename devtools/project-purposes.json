@@ -649,6 +649,7 @@
   "src/features/plugins/plugin-workspace.tsx": "由宿主提供会话右侧标签、Pi交互与轮次交付容器，不向插件传递会话树。",
   "src/features/plugins/plugins.css": "定义插件管理和插件贡献区域的布局。",
   "src/features/session/session-service.ts": "封装会话工具、指令范围等配置读取和应用服务。",
+  "src/features/settings/architecture-settings.tsx": "展示 Pi 核心、内置插件与外置工作台的代码目录和运行边界。",
   "src/features/settings/archived-conversations-settings.tsx": "在设置中展示、筛选和恢复已归档会话。",
   "src/features/settings/design-guidelines-settings.tsx": "在设置中展示应用 UI 设计与开发验收规范。",
   "src/features/settings/desktop-diagnostics.tsx": "打开当前日志目录，复制和导出白名单桌面诊断信息。",

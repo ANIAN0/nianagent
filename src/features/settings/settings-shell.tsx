@@ -17,6 +17,7 @@ export type SettingsSection =
   | "mcp"
   | "storage"
   | "guidelines"
+  | "architecture"
   | "updates"
 const groups = [
   {
@@ -36,6 +37,7 @@ const groups = [
       { id: "archived", label: "已归档会话" },
       { id: "storage", label: "数据与存储" },
       { id: "guidelines", label: "应用开发规范" },
+      { id: "architecture", label: "应用解耦设计" },
       { id: "updates", label: "关于与更新" },
     ],
   },
