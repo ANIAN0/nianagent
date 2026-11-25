@@ -9,7 +9,11 @@ mod models;
 mod native_directory;
 mod native_files;
 mod profile;
+#[cfg(windows)]
+mod selection_translate;
 mod storage;
+#[cfg(windows)]
+mod translation_text;
 mod window_lifecycle;
 mod windows_guard;
 pub use managed_child::entry as managed_child_entry;

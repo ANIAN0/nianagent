@@ -204,6 +204,10 @@ export const directoryRules = {
     "文件工作栏的宿主、Pi与网页贡献",
     "文件预览、Git差异和选区引用共享只读宿主及材料边界。",
   ],
+  "backend/plugins/selection-translate": [
+    "全局划词翻译插件",
+    "插件启停绑定桌面宿主内的快捷键和译文窗口。",
+  ],
   "backend/plugins/opencli": [
     "OpenCLI安装管理和显式浏览器绑定",
     "官方软件与后台由插件拥有，可信共享契约不激活连接。",

@@ -1,0 +1,20 @@
+{
+  "id": "selection-translate",
+  "name": "划词翻译",
+  "description": "在任意应用选中文字后按 Alt+1 查看译文。含汉字的选区译成英文，其他选区按英文译成简体中文。",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "defaultEnabled": false,
+  "entries": { "app": "host.mjs" },
+  "defaultConfiguration": {},
+  "configurationSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  },
+  "contributions": [],
+  "effects": [
+    "在 Windows 桌面注册 Alt+1，停用时释放快捷键并关闭浮窗",
+    "按键时将选区发往 Google 翻译网页接口；无法直接读取选区时尝试模拟复制"
+  ]
+}

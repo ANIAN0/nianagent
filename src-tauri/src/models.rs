@@ -340,8 +340,42 @@ impl ModelBackend {
             let host_app = self.app.clone();
             let picker_busy = self.directory_picker_busy.clone();
             std::thread::spawn(move || {
+                #[cfg(windows)]
+                let translation = crate::selection_translate::Controller::new();
                 for line in BufReader::new(output).lines().map_while(Result::ok) {
                     if let Ok(value) = serde_json::from_str::<Value>(&line) {
+                        if value["operation"] == "$selectionTranslate" {
+                            let id = value["id"].clone();
+                            #[cfg(windows)]
+                            {
+                                let reply_input = host_input.clone();
+                                translation.configure(
+                                    value["enabled"].as_bool() == Some(true),
+                                    move |result| {
+                                        let _ = write_message(
+                                            &reply_input,
+                                            &json!({
+                                                "operation": "$selectionTranslateReply",
+                                                "id": id,
+                                                "error": result.err()
+                                            }),
+                                        );
+                                    },
+                                );
+                            }
+                            #[cfg(not(windows))]
+                            {
+                                let _ = write_message(
+                                    &host_input,
+                                    &json!({
+                                        "operation": "$selectionTranslateReply",
+                                        "id": id,
+                                        "error": "划词翻译需要 Windows 桌面。"
+                                    }),
+                                );
+                            }
+                            continue;
+                        }
                         if value["operation"] == "$hostRequest" {
                             native_directory::handle_request(
                                 host_app.as_ref(),

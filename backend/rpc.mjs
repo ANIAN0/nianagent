@@ -1,3 +1,8 @@
+import {
+  connectTranslationHost,
+  closeTranslationHost,
+  acceptTranslationReply,
+} from "./native-translation.mjs"
 import { createDiagnosticQuery } from "./diagnostic-query.mjs"
 import { createInterface } from "node:readline"
 import { randomUUID } from "node:crypto"
@@ -261,6 +266,7 @@ function send(value) {
   process.stdout.write(JSON.stringify(value) + "\n")
 }
 connectDirectoryHost(send)
+connectTranslationHost(send)
 input.on("line", (line) => {
   if (line.length > 16 * 1024 * 1024) return
   let request
@@ -269,7 +275,7 @@ input.on("line", (line) => {
   } catch {
     return
   }
-  if (acceptDirectoryReply(request)) return
+  if (acceptTranslationReply(request) || acceptDirectoryReply(request)) return
   if (
     !["materialUpload", "pluginCall"].includes(request.operation) &&
     line.length > 1024 * 1024
@@ -334,6 +340,7 @@ input.on("line", (line) => {
 input.on("close", async () => {
   closing = true
   closeDirectoryHost()
+  closeTranslationHost()
   for (const controller of pending.values()) controller.abort()
   await service?.close()
   await closeRuntime()

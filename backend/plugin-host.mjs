@@ -1,3 +1,4 @@
+import { setTranslationEnabled } from "./native-translation.mjs"
 import { loadPiSdk } from "./pi-sdk.mjs"
 import { existsSync } from "node:fs"
 import {
@@ -515,9 +516,11 @@ export class PluginHost {
           const directory = join(this.directory, entry.id)
           await mkdir(directory, { recursive: true })
           if (inactive()) return
-          const workbenchKind = entry.sourceKind === "bundled" &&
-            workbenchModules.get(entry.id)
+          const workbenchKind =
+            entry.sourceKind === "bundled" && workbenchModules.get(entry.id)
           activating = module.activate({
+            ...(entry.sourceKind === "bundled" &&
+              entry.id === "selection-translate" && { setTranslationEnabled }),
             ...(workbenchKind && {
               workbench: (operations) =>
                 this.workbench.forModule(workbenchKind, operations),

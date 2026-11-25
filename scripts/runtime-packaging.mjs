@@ -405,6 +405,7 @@ export async function verifyRuntimeResources(directory) {
     "plugins/keydex/manifest.json",
     "plugins/filebrowser/manifest.json",
     "plugins/opencli/manifest.json",
+    "plugins/selection-translate/manifest.json",
     "plugins/remote-access/manifest.json",
     "plugins/mcp-service/manifest.json",
     "plugins/agents-md/manifest.json",
