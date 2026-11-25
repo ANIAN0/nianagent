@@ -1,43 +1,47 @@
 "use client"
 
 import * as React from "react"
-import { cn } from "cn"
-import { Dialog as DialogPrimitive } from "radix-ui"
+import {
+  Dialog as DialogPrimitive,
+  DialogBackdrop as DialogBackdropPrimitive,
+  DialogClose as DialogClosePrimitive,
+  DialogContent as DialogContentPrimitive,
+  DialogDescription as DialogDescriptionPrimitive,
+  DialogTitle as DialogTitlePrimitive,
+  DialogTrigger as DialogTriggerPrimitive,
+} from "@ui-sdk/react/dialog"
 import { cva, type VariantProps } from "class-variance-authority"
-
-import { Button } from "./button"
+import { cn } from "cn"
 import { XIcon } from "lucide-react"
 
-function Dialog({
-  ...props
-}: React.ComponentProps<typeof DialogPrimitive.Root>) {
-  return <DialogPrimitive.Root data-slot="dialog" {...props} />
+import { Button } from "./button"
+
+function Dialog({ ...props }: React.ComponentProps<typeof DialogPrimitive>) {
+  return <DialogPrimitive data-slot="dialog" {...props} />
 }
 
 function DialogTrigger({
   ...props
-}: React.ComponentProps<typeof DialogPrimitive.Trigger>) {
-  return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />
+}: React.ComponentProps<typeof DialogTriggerPrimitive>) {
+  return <DialogTriggerPrimitive data-slot="dialog-trigger" {...props} />
 }
 
-function DialogPortal({
-  ...props
-}: React.ComponentProps<typeof DialogPrimitive.Portal>) {
-  return <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />
+function DialogPortal({ children }: { children?: React.ReactNode }) {
+  return <>{children}</>
 }
 
 function DialogClose({
   ...props
-}: React.ComponentProps<typeof DialogPrimitive.Close>) {
-  return <DialogPrimitive.Close data-slot="dialog-close" {...props} />
+}: React.ComponentProps<typeof DialogClosePrimitive>) {
+  return <DialogClosePrimitive data-slot="dialog-close" {...props} />
 }
 
 function DialogOverlay({
   className,
   ...props
-}: React.ComponentProps<typeof DialogPrimitive.Overlay>) {
+}: React.ComponentProps<typeof DialogBackdropPrimitive>) {
   return (
-    <DialogPrimitive.Overlay
+    <DialogBackdropPrimitive
       data-slot="dialog-overlay"
       className={cn(
         "fixed inset-0 isolate z-50 bg-black/30 duration-100 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
@@ -69,32 +73,36 @@ function DialogContent({
   showCloseButton = true,
   variant = "default",
   ...props
-}: React.ComponentProps<typeof DialogPrimitive.Content> & {
+}: Omit<React.ComponentProps<typeof DialogContentPrimitive>, "children"> & {
+  children?: React.ReactNode
   showCloseButton?: boolean
 } & VariantProps<typeof dialogContentVariants>) {
   return (
-    <DialogPortal>
+    <>
       <DialogOverlay />
-      <DialogPrimitive.Content
+      <DialogContentPrimitive
         data-slot="dialog-content"
         className={cn(dialogContentVariants({ variant }), className)}
         {...props}
       >
         {children}
         {showCloseButton && (
-          <DialogPrimitive.Close data-slot="dialog-close" asChild>
-            <Button
-              variant="ghost"
-              className="absolute top-2 right-2"
-              size="icon-sm"
-            >
-              <XIcon />
-              <span className="sr-only">关闭</span>
-            </Button>
-          </DialogPrimitive.Close>
+          <DialogClosePrimitive
+            data-slot="dialog-close"
+            render={
+              <Button
+                variant="ghost"
+                className="absolute top-2 right-2"
+                size="icon-sm"
+              />
+            }
+          >
+            <XIcon />
+            <span className="sr-only">关闭</span>
+          </DialogClosePrimitive>
         )}
-      </DialogPrimitive.Content>
-    </DialogPortal>
+      </DialogContentPrimitive>
+    </>
   )
 }
 
@@ -127,9 +135,9 @@ function DialogFooter({
     >
       {children}
       {showCloseButton && (
-        <DialogPrimitive.Close asChild>
-          <Button variant="outline">关闭</Button>
-        </DialogPrimitive.Close>
+        <DialogClosePrimitive render={<Button variant="outline" />}>
+          关闭
+        </DialogClosePrimitive>
       )}
     </div>
   )
@@ -138,9 +146,9 @@ function DialogFooter({
 function DialogTitle({
   className,
   ...props
-}: React.ComponentProps<typeof DialogPrimitive.Title>) {
+}: React.ComponentProps<typeof DialogTitlePrimitive>) {
   return (
-    <DialogPrimitive.Title
+    <DialogTitlePrimitive
       data-slot="dialog-title"
       className={cn(
         "font-heading text-base leading-none font-medium",
@@ -154,9 +162,9 @@ function DialogTitle({
 function DialogDescription({
   className,
   ...props
-}: React.ComponentProps<typeof DialogPrimitive.Description>) {
+}: React.ComponentProps<typeof DialogDescriptionPrimitive>) {
   return (
-    <DialogPrimitive.Description
+    <DialogDescriptionPrimitive
       data-slot="dialog-description"
       className={cn(
         "text-sm text-muted-foreground *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground",

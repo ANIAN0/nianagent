@@ -131,15 +131,17 @@ export const NavigationSidebar = memo(function NavigationSidebar(
             </Button>
           )}
           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                className="opacity-70 hover:opacity-100"
-                aria-label={`管理目录${directory.name}`}
-              >
-                <MoreHorizontal />
-              </Button>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="opacity-70 hover:opacity-100"
+                  aria-label={`管理目录${directory.name}`}
+                />
+              }
+            >
+              <MoreHorizontal />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               {props.onCreateDraft && (
@@ -421,15 +423,17 @@ function DraftRow(
           </span>
         </Button>
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
-              aria-label={`${draft.title}的操作`}
-            >
-              <MoreHorizontal />
-            </Button>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-open:opacity-100"
+                aria-label={`${draft.title}的操作`}
+              />
+            }
+          >
+            <MoreHorizontal />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem
