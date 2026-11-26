@@ -98,6 +98,9 @@ export function UpdateNotifier({
     update?.phase === "error" && update.error?.code === "activeSessions"
       ? update.error
       : null
+  const hasActiveSessions = Boolean(
+    activeSessionsError && activeSessionsError.activeSessions.length > 0
+  )
 
   async function handleForceInstall() {
     if (!service || !release || stopping) return
@@ -127,27 +130,36 @@ export function UpdateNotifier({
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>
-            停止运行中的会话并更新至 Moon {release?.version}？
+            {hasActiveSessions
+              ? `停止运行中的会话并更新至 Moon ${release?.version ?? ""}？`
+              : `无法确认当前工作已保存，仍要更新至 Moon ${release?.version ?? ""}？`}
           </AlertDialogTitle>
           <AlertDialogDescription>
-            以下会话仍在运行，重启更新会先停止这些会话并保存已生成内容。
+            {hasActiveSessions
+              ? "以下会话仍在运行，重启更新会先停止这些会话并保存已生成内容。"
+              : (activeSessionsError?.message ??
+                "当前无法确认会话与草稿已保存。你可以稍后重试，或选择仍然重启更新。")}
           </AlertDialogDescription>
         </AlertDialogHeader>
-        {activeSessionsError &&
-          activeSessionsError.activeSessions.length > 0 && (
-            <ul className="max-h-40 space-y-1.5 overflow-auto rounded-lg border bg-muted/40 px-3 py-2 text-[13px] leading-5">
-              {activeSessionsError.activeSessions.map((session) => (
-                <li key={session.id} className="truncate">
-                  {session.title}
-                </li>
-              ))}
-            </ul>
-          )}
+        {hasActiveSessions && activeSessionsError && (
+          <ul className="max-h-40 space-y-1.5 overflow-auto rounded-lg border bg-muted/40 px-3 py-2 text-[13px] leading-5">
+            {activeSessionsError.activeSessions.map((session) => (
+              <li key={session.id} className="truncate">
+                {session.title}
+              </li>
+            ))}
+          </ul>
+        )}
+        {!hasActiveSessions && activeSessionsError?.detail && (
+          <p className="max-h-32 overflow-auto rounded-lg border bg-muted/40 px-3 py-2 text-xs break-all whitespace-pre-wrap text-muted-foreground">
+            {activeSessionsError.detail}
+          </p>
+        )}
         <AlertDialogFooter>
           <AlertDialogCancel disabled={stopping}>稍后</AlertDialogCancel>
           <Button disabled={stopping} onClick={() => void handleForceInstall()}>
             {stopping && <Spinner data-icon="inline-start" />}
-            停止会话并重启更新
+            {hasActiveSessions ? "停止会话并重启更新" : "仍然重启更新"}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>

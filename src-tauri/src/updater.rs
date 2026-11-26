@@ -132,17 +132,24 @@ pub fn init_update_state(paths: &StoragePaths, unavailable_reason: Option<String
     }
 }
 
-fn load_matching_staged_bytes(
+fn load_verified_staged_bytes(
     paths: &StoragePaths,
-    version: &str,
-    signature: &str,
+    update: &tauri_plugin_updater::Update,
 ) -> Option<Vec<u8>> {
     let meta = storage::read_json(&staged_meta_path(paths)).ok()?;
-    if meta["version"].as_str() != Some(version) || meta["signature"].as_str() != Some(signature) {
+    if meta["version"].as_str() != Some(update.version.as_str())
+        || meta["signature"].as_str() != Some(update.signature.as_str())
+    {
         return None;
     }
     let payload = std::fs::read(staged_payload_path(paths)).ok()?;
     if payload.is_empty() {
+        cleanup_staged(paths);
+        return None;
+    }
+    if let Err(error) = update.verify(&payload) {
+        log::warn!("staged update verification failed, removing staged payload: {error}");
+        cleanup_staged(paths);
         return None;
     }
     Some(payload)
@@ -306,8 +313,7 @@ pub fn check_update(app: &AppHandle, silent: bool) -> DesktopResult<UpdateState>
                     release_url: release_tag_url(&update.version),
                 };
 
-                let staged =
-                    load_matching_staged_bytes(&service.paths, &update.version, &update.signature);
+                let staged = load_verified_staged_bytes(&service.paths, &update);
 
                 if !service.change_update(&handle, &operation, |state| {
                     *service
@@ -431,10 +437,8 @@ pub fn download_update(app: &AppHandle, release_id: &str) -> DesktopResult<Updat
             )
         })?;
 
-    // 若磁盘已有匹配暂存包，直接进入就绪状态
-    if let Some(staged) =
-        load_matching_staged_bytes(&service.paths, &update.version, &update.signature)
-    {
+    // 若磁盘已有匹配且验签通过的暂存包，直接进入就绪状态
+    if let Some(staged) = load_verified_staged_bytes(&service.paths, &update) {
         let size = staged.len() as u64;
         *service
             .bytes
@@ -660,18 +664,171 @@ pub fn install_update(app: AppHandle, input: UpdateInstallInput) -> DesktopResul
             .unwrap_or_else(|poison| poison.into_inner());
         guard.clone()
     }
-    .or_else(|| load_matching_staged_bytes(&service.paths, &update.version, &update.signature))
+    .or_else(|| load_verified_staged_bytes(&service.paths, &update))
     .ok_or_else(|| {
         issue(
             IssueCode::Validation,
-            "更新包尚未就绪，请重新下载。",
+            "更新包尚未就绪或已损坏，请重新下载。",
             RecoveryAction::Retry,
         )
     })?;
 
-    // 1. 仅检查真正的活跃用户会话/授权，并执行轻量级排空关闭
+    // 在关闭任何后端会话前先做一次完整性与签名核验，损坏则清理暂存并保留当前会话
+    if let Err(error) = update.verify(&bytes) {
+        log::warn!("update payload verification failed before shutdown: {error}");
+        service
+            .bytes
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .take();
+        cleanup_staged(&service.paths);
+        service.change(&app, |state| {
+            state.update.phase = UpdatePhase::Error;
+            state.update.downloaded_bytes = 0;
+            state.update.total_bytes = None;
+            state.update.error = Some(map_updater_error(error));
+        });
+        return Ok(service.snapshot().update);
+    }
+
     let operation_id = uuid::Uuid::new_v4().to_string();
     let backend = app.state::<ModelBackend>();
+
+    // 1. 普通更新先只读检查活跃会话（不关闭后端），有问题直接暂停并返回原工作区
+    if !input.force_stop {
+        match backend.internal(
+            "$maintenance",
+            json!({
+                "action": "inspect",
+                "operationId": operation_id,
+            }),
+            Duration::from_secs(5),
+        ) {
+            Ok(value) if value["closed"] == true => {
+                service.change(&app, |state| {
+                    state.update.phase = UpdatePhase::Error;
+                    state.update.error = Some(UpdateError {
+                        code: UpdateErrorCode::ActiveSessions,
+                        message:
+                            "后台服务已进入关闭状态，请重启应用后再继续工作，或选择仍然重启更新。"
+                                .into(),
+                        detail: None,
+                        active_sessions: vec![],
+                    });
+                });
+                return Ok(service.snapshot().update);
+            }
+            Ok(value) => {
+                let active_sessions: Vec<UpdateActiveSession> = value["activities"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter(|activity| {
+                        matches!(
+                            activity["kind"].as_str(),
+                            Some("conversation" | "authorization")
+                        )
+                    })
+                    .map(|activity| UpdateActiveSession {
+                        id: activity["sessionId"]
+                            .as_str()
+                            .or_else(|| activity["id"].as_str())
+                            .unwrap_or_default()
+                            .to_string(),
+                        title: activity["label"]
+                            .as_str()
+                            .unwrap_or("运行中的会话")
+                            .to_string(),
+                    })
+                    .collect();
+                if !active_sessions.is_empty() {
+                    service.change(&app, |state| {
+                        state.update.phase = UpdatePhase::Error;
+                        state.update.error = Some(UpdateError {
+                            code: UpdateErrorCode::ActiveSessions,
+                            message: "当前有会话正在运行，停止后即可重启更新。".into(),
+                            detail: None,
+                            active_sessions,
+                        });
+                    });
+                    return Ok(service.snapshot().update);
+                }
+            }
+            Err(error) => {
+                log::warn!("update backend inspect failed before flush: {error}");
+                service.change(&app, |state| {
+                    state.update.phase = UpdatePhase::Error;
+                    state.update.error = Some(UpdateError {
+                        code: UpdateErrorCode::ActiveSessions,
+                        message: "无法确认当前会话是否已安全结束，已暂停更新以保护正在进行的工作。你可以稍后重试，或选择仍然重启更新。".into(),
+                        detail: Some(error),
+                        active_sessions: vec![],
+                    });
+                });
+                return Ok(service.snapshot().update);
+            }
+        }
+    }
+
+    // 2. 在后端仍可用时请求前端保存草稿（非强制模式下未确认保存则中止，后端保持在线且前端解冻）
+    let nonce = uuid::Uuid::new_v4().to_string();
+    let (sender, receiver) = mpsc::channel();
+    *service
+        .flush
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner()) = Some(FlushWait {
+        operation_id: operation_id.clone(),
+        nonce: nonce.clone(),
+        sender,
+    });
+    let flush_result = match app.emit(
+        "moon://maintenance-flush",
+        FlushRequest {
+            operation_id: operation_id.clone(),
+            nonce,
+            reason: FlushReason::Update,
+            timeout_milliseconds: 3_000,
+        },
+    ) {
+        Ok(()) => match receiver.recv_timeout(Duration::from_secs(3)) {
+            Ok(ack) if ack.saved && ack.blockers.is_empty() => Ok(()),
+            Ok(ack) => Err(if ack.blockers.is_empty() {
+                "前端未能确认草稿保存完成。".to_string()
+            } else {
+                ack.blockers
+                    .into_iter()
+                    .map(|item| item.label)
+                    .collect::<Vec<_>>()
+                    .join("；")
+            }),
+            Err(_) => Err("等待前端保存草稿超时（3 秒）。".to_string()),
+        },
+        Err(error) => Err(format!("无法通知前端保存草稿：{error}")),
+    };
+    service
+        .flush
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+        .take();
+
+    if let Err(detail) = flush_result {
+        if !input.force_stop {
+            log::warn!("update frontend flush did not confirm before shutdown: {detail}");
+            service.change(&app, |state| {
+                state.update.phase = UpdatePhase::Error;
+                state.update.error = Some(UpdateError {
+                    code: UpdateErrorCode::ActiveSessions,
+                    message: "未能确认前端草稿已保存，已暂停更新以保护当前内容。你可以稍后重试，或选择仍然重启更新。".into(),
+                    detail: Some(detail),
+                    active_sessions: vec![],
+                });
+            });
+            return Ok(service.snapshot().update);
+        }
+        log::warn!("update frontend flush skipped during forced shutdown: {detail}");
+    }
+
+    // 3. 草稿保存确认后，再由后端做最终活跃会话复核并执行轻量级排空关闭
     let drain_result = backend.internal(
         "$maintenance",
         json!({
@@ -698,8 +855,23 @@ pub fn install_update(app: AppHandle, input: UpdateInstallInput) -> DesktopResul
             return Ok(service.snapshot().update);
         }
         Ok(_) => {}
+        Err(error) if !input.force_stop => {
+            log::warn!("update backend drain failed during final shutdown: {error}");
+            service.change(&app, |state| {
+                state.update.phase = UpdatePhase::Error;
+                state.update.error = Some(UpdateError {
+                    code: UpdateErrorCode::ActiveSessions,
+                    message:
+                        "未能确认后台服务是否已关闭。后台可能仍在退出，请重启 Moon 后再继续工作。"
+                            .into(),
+                    detail: Some(error),
+                    active_sessions: vec![],
+                });
+            });
+            return Ok(service.snapshot().update);
+        }
         Err(error) => {
-            log::warn!("update backend drain returned error (continuing shutdown): {error}");
+            log::warn!("update backend drain returned error during forced shutdown: {error}");
         }
     }
 
@@ -707,37 +879,6 @@ pub fn install_update(app: AppHandle, input: UpdateInstallInput) -> DesktopResul
         state.update.phase = UpdatePhase::Installing;
         state.update.error = None;
     });
-
-    // 2. 尽力保存前端草稿（最多等待 3 秒，不因超时死锁）
-    let nonce = uuid::Uuid::new_v4().to_string();
-    let (sender, receiver) = mpsc::channel();
-    *service
-        .flush
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner()) = Some(FlushWait {
-        operation_id: operation_id.clone(),
-        nonce: nonce.clone(),
-        sender,
-    });
-    if app
-        .emit(
-            "moon://maintenance-flush",
-            FlushRequest {
-                operation_id: operation_id.clone(),
-                nonce,
-                reason: FlushReason::Update,
-                timeout_milliseconds: 3_000,
-            },
-        )
-        .is_ok()
-    {
-        let _ = receiver.recv_timeout(Duration::from_secs(3));
-    }
-    service
-        .flush
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner())
-        .take();
 
     // 3. 确保 Node 后端及子进程完全退出，释放所有文件锁（避免 Windows NSIS 覆盖失败）
     backend.shutdown();

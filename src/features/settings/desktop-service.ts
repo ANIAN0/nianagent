@@ -161,9 +161,11 @@ export function createDesktopService(): DesktopService {
                     saved: blockers.length === 0,
                     blockers,
                   })
-                })().catch(() => {
-                  void refresh()
-                })
+                })()
+                  .catch(() => {})
+                  .finally(() => {
+                    if (!disposed) void refresh()
+                  })
               }
             )
           )
