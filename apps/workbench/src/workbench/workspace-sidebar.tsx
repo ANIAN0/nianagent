@@ -67,6 +67,8 @@ export type SidebarProps = {
     },
     requestKey: string
   ) => Promise<boolean>
+  onDeleteDraft?: (draftId: string, requestKey: string) => Promise<boolean>
+  onCopyDraftLink?: (draft: V2Draft) => Promise<void>
   onRefresh: () => Promise<void>
   onCreateDraft?: (directoryId: string, projectId: string) => void
 }
@@ -363,9 +365,11 @@ function DraftRow(
   }
 ) {
   const [renaming, setRenaming] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [title, setTitle] = useState(props.draft.title)
   const [saving, setSaving] = useState(false)
   const request = useRef({ signature: "", key: "" })
+  const deleteRequestKey = useRef("")
   const { draft } = props
   const KindIcon = kindIcons[draft.kind as keyof typeof kindIcons] ?? FileText
   const patch = async (body: {
@@ -395,12 +399,27 @@ function DraftRow(
       setSaving(false)
     }
   }
+  const confirmDelete = async () => {
+    if (saving || !props.onDeleteDraft) return
+    if (!deleteRequestKey.current) deleteRequestKey.current = newRequestKey()
+    setSaving(true)
+    try {
+      const ok = await props.onDeleteDraft(draft.id, deleteRequestKey.current)
+      if (ok) {
+        deleteRequestKey.current = ""
+        setDeleting(false)
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
   const projectDirs = props.directories.filter(
     (directory) => directory.projectId === draft.projectId && !directory.archivedAt
   )
   const parentArchived =
     props.archivedDrafts.some((item) => item.id === draft.id) &&
     !draft.archivedAt
+  const isArchived = Boolean(draft.archivedAt) || parentArchived
 
   return (
     <div>
@@ -436,6 +455,13 @@ function DraftRow(
             <MoreHorizontal />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            {props.onCopyDraftLink && (
+              <DropdownMenuItem
+                onClick={() => void props.onCopyDraftLink?.(draft)}
+              >
+                复制链接
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem
               onClick={() => {
                 setTitle(draft.title)
@@ -470,6 +496,17 @@ function DraftRow(
                 onClick={() => void patch({ archived: !draft.archivedAt })}
               >
                 {draft.archivedAt ? "恢复" : "归档"}
+              </DropdownMenuItem>
+            )}
+            {isArchived && props.onDeleteDraft && (
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                onClick={() => {
+                  deleteRequestKey.current = ""
+                  setDeleting(true)
+                }}
+              >
+                永久删除
               </DropdownMenuItem>
             )}
           </DropdownMenuContent>
@@ -515,6 +552,36 @@ function DraftRow(
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={deleting} onOpenChange={(open) => !open && !saving && setDeleting(false)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>永久删除草稿</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm leading-relaxed text-muted-foreground">
+            确定永久删除「{draft.title}」？该草稿的所有版本与讨论将被彻底清除，无法恢复。
+          </p>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={saving}
+              onClick={() => setDeleting(false)}
+            >
+              取消
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              disabled={saving}
+              onClick={() => void confirmDelete()}
+            >
+              {saving ? "删除中…" : "确认删除"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

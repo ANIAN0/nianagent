@@ -303,6 +303,16 @@ export const v2Api = {
       metadataRevision: number
       replayed: boolean
     }>("update_draft", input, signal),
+  deleteDraft: (
+    input: { draftId: string; requestKey: string },
+    signal?: AbortSignal
+  ) =>
+    request<{
+      draftId: string
+      deletedVersions: number
+      deletedThreads: number
+      replayed: boolean
+    }>("delete_draft", input, signal),
   updateProject: (
     input: {
       projectId: string
@@ -405,6 +415,36 @@ export const v2Api = {
     signal?: AbortSignal
   ) =>
     request<{ replyId: string; replayed: boolean }>("add_reply", input, signal),
+  updateReply: (
+    input: { replyId: string; body: string; requestKey: string },
+    signal?: AbortSignal
+  ) =>
+    request<{
+      replyId: string
+      threadId: string
+      body: string
+      replayed: boolean
+    }>("update_reply", input, signal),
+  deleteReply: (
+    input: { replyId: string; requestKey: string },
+    signal?: AbortSignal
+  ) =>
+    request<{
+      replyId: string
+      threadId: string
+      threadDeleted: boolean
+      replayed: boolean
+    }>("delete_reply", input, signal),
+  deleteThread: (
+    input: { threadId: string; requestKey: string },
+    signal?: AbortSignal
+  ) =>
+    request<{
+      threadId: string
+      draftId: string
+      deletedReplies: number
+      replayed: boolean
+    }>("delete_thread", input, signal),
   setThreadStatus: (
     threadId: string,
     status: "open" | "resolved",

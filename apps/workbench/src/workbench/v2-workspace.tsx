@@ -34,6 +34,9 @@ import {
   Moon as MoonIcon,
   Pencil,
   Plus,
+  Link2,
+  Trash2,
+  Check,
 } from "lucide-react"
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import {
@@ -73,6 +76,7 @@ import {
 } from "./readers/markdown"
 import { BoardReader } from "./readers/board"
 import { UiReader } from "./readers/ui"
+import { CommentMarkdown } from "./comment-markdown"
 
 const syncLocation = (
   draftId: string,
@@ -94,6 +98,9 @@ const authorLabel = (actor: string) =>
     : actor === "internal-pi"
       ? "内部 Agent"
       : `Agent ${actor.slice(0, 8)}`
+
+const formatMarkdownLink = (title: string, url: string) =>
+  `[${title.replace(/([[\]])/g, "\\$1")}](${url})`
 
 const anchorTitle = (anchor: V2Anchor) => {
   if (anchor.kind === "document") return "整篇评论"
@@ -257,6 +264,18 @@ export function V2Workspace() {
   )
   const [error, setError] = useState("")
   const [copiedReference, setCopiedReference] = useState("")
+  const [copiedLink, setCopiedLink] = useState("")
+  const [autoNotice, setAutoNotice] = useState("")
+  const [selectionConfirm, setSelectionConfirm] = useState<{
+    scope: PendingComment["scope"]
+    target: Record<string, unknown>
+    x: number
+    y: number
+  } | null>(null)
+  const selectionBubbleRef = useRef<HTMLDivElement>(null)
+  const autoNoticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined
+  )
   const [loading, setLoading] = useState(true)
   const [contentLoading, setContentLoading] = useState(false)
   const readerRef = useRef<HTMLDivElement>(null)
@@ -276,6 +295,12 @@ export function V2Workspace() {
 
   const draft =
     [...drafts, ...archivedDrafts].find((item) => item.id === draftId) ?? null
+  const draftProject = draft
+    ? (projects.find((item) => item.id === draft.projectId) ?? null)
+    : null
+  const draftDirectory = draft
+    ? (directories.find((item) => item.id === draft.directoryId) ?? null)
+    : null
   const referenceVersion = compare ? compare.right : version
   const referenceParams =
     draft && referenceVersion
@@ -284,7 +309,17 @@ export function V2Workspace() {
           version: referenceVersion.versionId,
           ...(compare ? { compare: compare.left.versionId } : {}),
         })
-      : null
+      : draft
+        ? new URLSearchParams({ draft: draft.id })
+        : null
+  const currentOpenUrl =
+    draft && referenceParams
+      ? `${window.location.origin}${window.location.pathname}#v2?${referenceParams}`
+      : ""
+  const markdownLinkText =
+    draft && currentOpenUrl
+      ? formatMarkdownLink(draft.title, currentOpenUrl)
+      : ""
   const referenceText =
     draft && referenceVersion && referenceParams
       ? JSON.stringify(
@@ -295,12 +330,23 @@ export function V2Workspace() {
             versionId: referenceVersion.versionId,
             sequence: referenceVersion.sequence,
             ...(compare ? { compareVersionId: compare.left.versionId } : {}),
-            openUrl: `${window.location.origin}/#v2?${referenceParams}`,
+            openUrl: currentOpenUrl,
           },
           null,
           2
         )
       : ""
+  const flashNotice = useCallback((message: string) => {
+    setAutoNotice(message)
+    if (autoNoticeTimer.current) clearTimeout(autoNoticeTimer.current)
+    autoNoticeTimer.current = setTimeout(() => setAutoNotice(""), 4000)
+  }, [])
+  useEffect(
+    () => () => {
+      if (autoNoticeTimer.current) clearTimeout(autoNoticeTimer.current)
+    },
+    []
+  )
   const [staleNotice, setStaleNotice] = useState(false)
   const [syncIssue, setSyncIssue] = useState("")
   const [navigationOpen, setNavigationOpen] = useState(false)
@@ -376,6 +422,7 @@ export function V2Workspace() {
           canvas: data.canvas,
           manifest: data.manifest,
         })
+        setStaleNotice(false)
         return data
       } catch (cause) {
         if (revision !== navigationRevision.current) return null
@@ -386,6 +433,39 @@ export function V2Workspace() {
     },
     []
   )
+
+  const fetchNavigationTree = useCallback(async () => {
+    const [projectItems, draftItems, archivedItems] = await Promise.all([
+      Promise.all(
+        [false, true].map((archived) =>
+          collectAll((cursor) => v2Api.listProjects({ cursor, archived }))
+        )
+      ).then((pages) => pages.flat()),
+      collectAll((cursor) => v2Api.listDrafts({ cursor })),
+      collectAll((cursor) => v2Api.listDrafts({ cursor, archived: true })),
+    ])
+    const directoryPages = await Promise.all(
+      projectItems.map((project) =>
+        Promise.all(
+          [false, true].map((archived) =>
+            collectAll((cursor) =>
+              v2Api.listDirectories({
+                projectId: project.id,
+                cursor,
+                archived,
+              })
+            )
+          )
+        ).then((pages) => pages.flat())
+      )
+    )
+    return {
+      projects: projectItems,
+      drafts: draftItems,
+      archivedDrafts: archivedItems,
+      directories: directoryPages.flat(),
+    }
+  }, [])
 
   // 首次进入：草稿列表 + 深链（openUrl：#v2?draft=&version=&compare=）
   useEffect(() => {
@@ -401,38 +481,18 @@ export function V2Workspace() {
         const baseline = await v2Api.syncVersion().catch(() => null)
         if (baseline) syncCursor.current = baseline.version
         // AC18：项目/草稿/目录全量分页（默认仅未归档）；归档草稿另取一列供恢复浏览与深链解析
-        const [projectItems, draftItems, archivedItems] = await Promise.all([
-          Promise.all(
-            [false, true].map((archived) =>
-              collectAll((cursor) => v2Api.listProjects({ cursor, archived }))
-            )
-          ).then((pages) => pages.flat()),
-          collectAll((cursor) => v2Api.listDrafts({ cursor })),
-          collectAll((cursor) => v2Api.listDrafts({ cursor, archived: true })),
-        ])
-        const directoryPages = await Promise.all(
-          projectItems.map(async (project) =>
-            Promise.all(
-              [false, true].map((archived) =>
-                collectAll((cursor) =>
-                  v2Api.listDirectories({
-                    projectId: project.id,
-                    cursor,
-                    archived,
-                  })
-                )
-              )
-            ).then((pages) => pages.flat())
-          )
-        )
+        const navigationTree = await fetchNavigationTree()
         if (organizationRevision === organizationQueryRevision.current) {
-          setProjects(projectItems)
-          setDrafts(draftItems)
-          setArchivedDrafts(archivedItems)
-          setDirectories(directoryPages.flat())
+          setProjects(navigationTree.projects)
+          setDrafts(navigationTree.drafts)
+          setArchivedDrafts(navigationTree.archivedDrafts)
+          setDirectories(navigationTree.directories)
         }
         // 深链精确定位：链接草稿在未归档与归档两列中解析；不存在则显式报错，绝不静默换草稿
-        const allDrafts = [...draftItems, ...archivedItems]
+        const allDrafts = [
+          ...navigationTree.drafts,
+          ...navigationTree.archivedDrafts,
+        ]
         const linked = linkedDraft
           ? allDrafts.find((item) => item.id === linkedDraft)
           : undefined
@@ -723,6 +783,62 @@ export function V2Workspace() {
       : { segments: touched }
   }
 
+  const proposeSelectionComment = (scope: PendingComment["scope"]) => {
+    const container =
+      scope === "reading"
+        ? readerRef.current
+        : scope === "left"
+          ? leftRef.current
+          : rightRef.current
+    const sideBlocks =
+      scope === "left"
+        ? (compare?.left.blocks ?? [])
+        : scope === "right"
+          ? (compare?.right.blocks ?? [])
+          : (version?.blocks ?? [])
+    const target = selectionTarget(container, sideBlocks)
+    if (!target) {
+      setSelectionConfirm(null)
+      return
+    }
+    const selection = window.getSelection()
+    if (!selection || selection.rangeCount === 0) {
+      setSelectionConfirm(null)
+      return
+    }
+    const rect = selection.getRangeAt(0).getBoundingClientRect()
+    const x = Math.min(
+      Math.max(rect.left + rect.width / 2, 72),
+      window.innerWidth - 72
+    )
+    const y = rect.top > 56 ? rect.top - 10 : rect.bottom + 42
+    setSelectionConfirm({ scope, target, x, y })
+  }
+
+  useEffect(() => {
+    if (!selectionConfirm) return
+    const onMouseDown = (event: MouseEvent) => {
+      if (
+        selectionBubbleRef.current &&
+        selectionBubbleRef.current.contains(event.target as Node)
+      )
+        return
+      setSelectionConfirm(null)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSelectionConfirm(null)
+    }
+    const onScroll = () => setSelectionConfirm(null)
+    window.addEventListener("mousedown", onMouseDown)
+    window.addEventListener("keydown", onKeyDown)
+    window.addEventListener("scroll", onScroll, true)
+    return () => {
+      window.removeEventListener("mousedown", onMouseDown)
+      window.removeEventListener("keydown", onKeyDown)
+      window.removeEventListener("scroll", onScroll, true)
+    }
+  }, [selectionConfirm])
+
   const beginComment = (
     scope: PendingComment["scope"],
     overrideTarget?: Record<string, unknown>,
@@ -851,6 +967,86 @@ export function V2Workspace() {
     }
   }
 
+  const updateReply = async (
+    threadId: string,
+    replyId: string,
+    body: string
+  ) => {
+    const revision = navigationRevision.current
+    try {
+      await v2Api.updateReply({
+        replyId,
+        body,
+        requestKey: newRequestKey(),
+      })
+      const detail = await v2Api.readThread(threadId)
+      if (revision !== navigationRevision.current) return
+      setDetails((prev) => ({
+        ...prev,
+        [threadId]: {
+          replies: detail.replies.items,
+          complete: detail.replies.complete,
+          nextCursor: detail.replies.nextCursor,
+        },
+      }))
+      if (draftId) await refreshThreads(draftId, revision)
+    } catch (err) {
+      if (revision === navigationRevision.current) setError(v2Message(err))
+      throw err
+    }
+  }
+
+  const deleteReply = async (threadId: string, replyId: string) => {
+    const revision = navigationRevision.current
+    try {
+      const result = await v2Api.deleteReply({
+        replyId,
+        requestKey: newRequestKey(),
+      })
+      if (revision !== navigationRevision.current) return
+      if (result.threadDeleted) {
+        setDetails((prev) => {
+          const next = { ...prev }
+          delete next[threadId]
+          return next
+        })
+      } else {
+        const detail = await v2Api.readThread(threadId)
+        if (revision !== navigationRevision.current) return
+        setDetails((prev) => ({
+          ...prev,
+          [threadId]: {
+            replies: detail.replies.items,
+            complete: detail.replies.complete,
+            nextCursor: detail.replies.nextCursor,
+          },
+        }))
+      }
+      if (draftId) await refreshThreads(draftId, revision)
+    } catch (err) {
+      if (revision === navigationRevision.current) setError(v2Message(err))
+    }
+  }
+
+  const deleteThread = async (thread: V2Thread) => {
+    const revision = navigationRevision.current
+    try {
+      await v2Api.deleteThread({
+        threadId: thread.id,
+        requestKey: newRequestKey(),
+      })
+      if (revision !== navigationRevision.current) return
+      setDetails((prev) => {
+        const next = { ...prev }
+        delete next[thread.id]
+        return next
+      })
+      if (draftId) await refreshThreads(draftId, revision)
+    } catch (err) {
+      if (revision === navigationRevision.current) setError(v2Message(err))
+    }
+  }
+
   const loadMoreThreads = async () => {
     if (!draftId || threadPages.nextCursor === null) return
     const revision = navigationRevision.current
@@ -893,43 +1089,40 @@ export function V2Workspace() {
   const reloadNavigation = useCallback(async () => {
     const revision = ++organizationQueryRevision.current
     try {
-      const [projectItems, draftItems, archivedItems] = await Promise.all([
-        Promise.all(
-          [false, true].map((archived) =>
-            collectAll((cursor) => v2Api.listProjects({ cursor, archived }))
-          )
-        ).then((pages) => pages.flat()),
-        collectAll((cursor) => v2Api.listDrafts({ cursor })),
-        collectAll((cursor) => v2Api.listDrafts({ cursor, archived: true })),
-      ])
-      const directoryPages = await Promise.all(
-        projectItems.map((project) =>
-          Promise.all(
-            [false, true].map((archived) =>
-              collectAll((cursor) =>
-                v2Api.listDirectories({
-                  projectId: project.id,
-                  cursor,
-                  archived,
-                })
-              )
-            )
-          ).then((pages) => pages.flat())
-        )
-      )
+      const navigationTree = await fetchNavigationTree()
       if (revision !== organizationQueryRevision.current) return
-      setProjects(projectItems)
-      setDrafts(draftItems)
-      setArchivedDrafts(archivedItems)
-      setDirectories(directoryPages.flat())
+      setProjects(navigationTree.projects)
+      setDrafts(navigationTree.drafts)
+      setArchivedDrafts(navigationTree.archivedDrafts)
+      setDirectories(navigationTree.directories)
     } catch (err) {
       if (revision !== organizationQueryRevision.current) return
       throw err
     }
-  }, [])
+  }, [fetchNavigationTree])
+
+  const liveStateRef = useRef({
+    draftId,
+    version,
+    versions,
+    editingContent,
+    compare,
+    reviewRevision,
+  })
+  useEffect(() => {
+    liveStateRef.current = {
+      draftId,
+      version,
+      versions,
+      editingContent,
+      compare,
+      reviewRevision,
+    }
+  })
 
   // 复用宿主长轮询通知：首屏加载完成后基于服务端基线游标启动；
   // 连接异常由 syncIssue 负责指数退避重连，数据读取错误统一归口到 error，不伪装成断网重试。
+  // 阅读最新版时自动无感更新正文、版本与评论；编辑态或查看历史版本时不打断，仅轻提示。
   useEffect(() => {
     if (loading) return
     const controller = new AbortController()
@@ -964,10 +1157,53 @@ export function V2Workspace() {
         try {
           await reloadNavigation()
           if (controller.signal.aborted) return
-          if (draftId) {
-            const page = await v2Api.listThreads(draftId)
-            if (controller.signal.aborted) return
-            if (page.reviewRevision > reviewRevision) setStaleNotice(true)
+          const snap = liveStateRef.current
+          if (snap.draftId) {
+            const revision = navigationRevision.current
+            const [latestVersions, threadPage] = await Promise.all([
+              collectAllVersions(snap.draftId),
+              v2Api.listThreads(snap.draftId, threadQuery.current),
+            ])
+            if (
+              controller.signal.aborted ||
+              revision !== navigationRevision.current
+            )
+              return
+            setVersions(latestVersions)
+            if (threadPage.reviewRevision !== snap.reviewRevision) {
+              setDetails((previous) => {
+                const next = { ...previous }
+                for (const item of threadPage.items) delete next[item.id]
+                return next
+              })
+              setThreads(threadPage.items)
+              setThreadAuthors(threadPage.authorActors)
+              setThreadPages({
+                complete: threadPage.complete,
+                nextCursor: threadPage.nextCursor,
+              })
+              setReviewRevision(threadPage.reviewRevision)
+            }
+            const newest = latestVersions[0]
+            const prevNewest = snap.versions[0]
+            const wasViewingLatest =
+              !snap.version ||
+              !prevNewest ||
+              snap.version.versionId === prevNewest.id
+            if (newest && newest.id !== snap.version?.versionId) {
+              if (!snap.editingContent && !snap.compare && wasViewingLatest) {
+                await loadVersion(snap.draftId, newest.id, revision)
+                if (
+                  !controller.signal.aborted &&
+                  revision === navigationRevision.current
+                ) {
+                  setStaleNotice(false)
+                  flashNotice(`已自动更新至 V${newest.sequence}`)
+                }
+              } else {
+                setStaleNotice(true)
+              }
+            }
           }
         } catch (cause) {
           if (controller.signal.aborted) return
@@ -982,7 +1218,7 @@ export function V2Workspace() {
       controller.abort()
       if (timer) clearTimeout(timer)
     }
-  }, [loading, draftId, reviewRevision, reloadNavigation])
+  }, [loading, reloadNavigation, loadVersion, flashNotice])
 
   const patchDraft = useCallback(
     async (
@@ -1007,6 +1243,20 @@ export function V2Workspace() {
       }
     },
     [reloadNavigation]
+  )
+
+  const copyDraftLink = useCallback(
+    async (targetDraft: V2Draft) => {
+      const url = `${window.location.origin}${window.location.pathname}#v2?draft=${encodeURIComponent(targetDraft.id)}`
+      const text = formatMarkdownLink(targetDraft.title, url)
+      try {
+        await navigator.clipboard.writeText(text)
+        flashNotice(`已复制链接：${targetDraft.title}`)
+      } catch {
+        setError("无法写入剪贴板，请允许浏览器访问剪贴板后重试。")
+      }
+    },
+    [flashNotice]
   )
 
   const saveInlineVersion = useCallback(
@@ -1089,11 +1339,29 @@ export function V2Workspace() {
       setVersion(null)
       setCompare(null)
       setPending(null)
+      setSelectionConfirm(null)
       setCompareWith("")
       setFocusRequest(null)
       if (next) void reloadDraft(next)
     },
     [pending, reloadDraft]
+  )
+
+  const deleteDraft = useCallback(
+    async (targetDraftId: string, requestKey: string) => {
+      setError("")
+      try {
+        await v2Api.deleteDraft({ draftId: targetDraftId, requestKey })
+        if (draftId === targetDraftId) selectDraft(null)
+        await reloadNavigation()
+        flashNotice("草稿已永久删除")
+        return true
+      } catch (err) {
+        setError(v2Message(err))
+        return false
+      }
+    },
+    [draftId, selectDraft, reloadNavigation, flashNotice]
   )
 
   const loadCompare = async (leftVersionId: string, rightVersionId: string) => {
@@ -1261,6 +1529,8 @@ export function V2Workspace() {
           onSearch={setSearch}
           onSelectDraft={selectDraft}
           onPatchDraft={patchDraft}
+          onDeleteDraft={deleteDraft}
+          onCopyDraftLink={copyDraftLink}
           onRefresh={reloadNavigation}
           onCreateDraft={(directoryId, projectId) =>
             setCreateDraftTarget({ directoryId, projectId })
@@ -1269,9 +1539,18 @@ export function V2Workspace() {
       </div>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-auto">
         <header className="flex min-h-14 flex-wrap items-center gap-2 border-b bg-card px-5 py-2.5">
-          <strong className="mr-auto max-w-72 truncate text-base font-semibold">
-            {draft ? draft.title : "工作台"}
-          </strong>
+          <div className="mr-auto flex max-w-md min-w-0 flex-col">
+            {draft && (draftProject || draftDirectory) && (
+              <span className="truncate text-[11px] leading-tight text-muted-foreground">
+                {[draftProject?.name, draftDirectory?.name]
+                  .filter(Boolean)
+                  .join(" / ")}
+              </span>
+            )}
+            <strong className="truncate text-base leading-tight font-semibold">
+              {draft ? draft.title : "工作台"}
+            </strong>
+          </div>
           {draft && !compare && !editingContent && (
             <Select
               value={draft.consensusStatus ?? "discussing"}
@@ -1420,10 +1699,37 @@ export function V2Workspace() {
               整篇评论
             </Button>
           )}
-          {referenceText && (
+          {markdownLinkText && (
             <Button
               variant="outline"
               size="sm"
+              onClick={async () => {
+                const revision = navigationRevision.current
+                try {
+                  await navigator.clipboard.writeText(markdownLinkText)
+                  if (revision === navigationRevision.current) {
+                    setCopiedLink(markdownLinkText)
+                    flashNotice(`已复制链接：${draft?.title ?? ""}`)
+                  }
+                } catch {
+                  if (revision === navigationRevision.current)
+                    setError("无法写入剪贴板，请允许浏览器访问剪贴板后重试。")
+                }
+              }}
+            >
+              {copiedLink === markdownLinkText ? (
+                <Check data-icon="inline-start" />
+              ) : (
+                <Link2 data-icon="inline-start" />
+              )}
+              {copiedLink === markdownLinkText ? "已复制链接" : "复制链接"}
+            </Button>
+          )}
+          {referenceText && (
+            <Button
+              variant="ghost"
+              size="sm"
+              title="复制供 Agent 使用的结构化引用 JSON"
               onClick={async () => {
                 const revision = navigationRevision.current
                 try {
@@ -1445,16 +1751,23 @@ export function V2Workspace() {
               正在读取…
             </span>
           )}
+          {autoNotice && (
+            <span
+              role="status"
+              className="rounded-md bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-400"
+            >
+              {autoNotice}
+            </span>
+          )}
           {staleNotice && (
             <Button
               variant="outline"
               size="sm"
               onClick={() =>
-                draftId &&
-                void reloadDraft(draftId, version?.versionId, compare)
+                draftId && void reloadDraft(draftId, undefined, compare)
               }
             >
-              有更新，点击刷新
+              有新版本，点击刷新
             </Button>
           )}
           <Button
@@ -1569,7 +1882,7 @@ export function V2Workspace() {
             replyDrafts={replyDrafts}
             leftRef={leftRef}
             rightRef={rightRef}
-            onSelect={(scope) => beginComment(scope)}
+            onSelect={(scope) => proposeSelectionComment(scope)}
             onCommentDocument={(scope) =>
               beginComment(scope, { kind: "document" })
             }
@@ -1609,6 +1922,9 @@ export function V2Workspace() {
               }))
             }
             onReply={submitReply}
+            onUpdateReply={updateReply}
+            onDeleteReply={deleteReply}
+            onDeleteThread={deleteThread}
             onToggle={toggleStatus}
             onJump={jumpToThread}
             pending={pending}
@@ -1654,7 +1970,7 @@ export function V2Workspace() {
                   version={version}
                   threads={versionThreads}
                   containerRef={readerRef}
-                  onSelect={() => beginComment("reading")}
+                  onSelect={() => proposeSelectionComment("reading")}
                   // AC01：普通阅读模式的白板节点/边与 UI 元素评论接线——目标绑定当前阅读
                   // 版本身份（beginComment 在点击时刻取 version?.versionId 固化到 pending）
                   onTargetSelect={(target) => beginComment("reading", target)}
@@ -1693,11 +2009,39 @@ export function V2Workspace() {
                 }))
               }
               onReply={submitReply}
+              onUpdateReply={updateReply}
+              onDeleteReply={deleteReply}
+              onDeleteThread={deleteThread}
               onToggle={toggleStatus}
               onJump={jumpToThread}
               onLoadMore={loadMoreThreads}
               onLoadReplies={loadMoreReplies}
             />
+          </div>
+        )}
+        {selectionConfirm && (
+          <div
+            ref={selectionBubbleRef}
+            role="toolbar"
+            aria-label="划词操作"
+            className="fixed z-30 flex -translate-x-1/2 -translate-y-full items-center gap-1 rounded-lg border bg-popover p-1 shadow-lg"
+            style={{ left: selectionConfirm.x, top: selectionConfirm.y }}
+          >
+            <Button
+              type="button"
+              size="sm"
+              variant="default"
+              className="h-7 px-2.5 text-xs"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                const picked = selectionConfirm
+                setSelectionConfirm(null)
+                beginComment(picked.scope, picked.target)
+              }}
+            >
+              <MessageSquare className="size-3.5" />
+              添加评论
+            </Button>
           </div>
         )}
         {pending && !compare && (
@@ -1928,6 +2272,13 @@ function CompareView(props: {
   onCancel: () => void
   onReplyDraft: (threadId: string, body: string) => void
   onReply: (thread: V2Thread) => Promise<void>
+  onUpdateReply: (
+    threadId: string,
+    replyId: string,
+    body: string
+  ) => Promise<void>
+  onDeleteReply: (threadId: string, replyId: string) => Promise<void>
+  onDeleteThread: (thread: V2Thread) => Promise<void>
   onToggle: (thread: V2Thread) => Promise<void>
   onJump: (thread: V2Thread) => Promise<void>
   pending: PendingComment | null
@@ -2053,6 +2404,9 @@ function CompareView(props: {
                 replyDraft={props.replyDrafts[thread.id]?.body ?? ""}
                 onReplyDraft={props.onReplyDraft}
                 onReply={props.onReply}
+                onUpdateReply={props.onUpdateReply}
+                onDeleteReply={props.onDeleteReply}
+                onDeleteThread={props.onDeleteThread}
                 onToggle={props.onToggle}
                 showVersion={false}
                 onJump={props.onJump}
@@ -2160,6 +2514,13 @@ function ThreadPanel(props: {
   pages: { complete: boolean; nextCursor: string | null }
   onReplyDraft: (threadId: string, body: string) => void
   onReply: (thread: V2Thread) => Promise<void>
+  onUpdateReply: (
+    threadId: string,
+    replyId: string,
+    body: string
+  ) => Promise<void>
+  onDeleteReply: (threadId: string, replyId: string) => Promise<void>
+  onDeleteThread: (thread: V2Thread) => Promise<void>
   onToggle: (thread: V2Thread) => Promise<void>
   onJump: (thread: V2Thread) => Promise<void>
   onLoadMore: () => Promise<void>
@@ -2172,7 +2533,7 @@ function ThreadPanel(props: {
   return (
     <aside
       aria-label="讨论"
-      className="max-h-[35vh] w-full shrink-0 overflow-auto border-t bg-card p-5 lg:max-h-none lg:w-80 lg:border-t-0 lg:border-l xl:w-88"
+      className="max-h-[35vh] w-full shrink-0 overflow-auto border-t bg-card p-5 lg:max-h-none lg:w-96 lg:border-t-0 lg:border-l xl:w-[420px]"
     >
       <div className="mb-4 flex items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 text-sm font-semibold">
@@ -2259,6 +2620,9 @@ function ThreadPanel(props: {
           replyDraft={props.replyDrafts[thread.id]?.body ?? ""}
           onReplyDraft={props.onReplyDraft}
           onReply={props.onReply}
+          onUpdateReply={props.onUpdateReply}
+          onDeleteReply={props.onDeleteReply}
+          onDeleteThread={props.onDeleteThread}
           onToggle={props.onToggle}
           onJump={props.onJump}
         />
@@ -2280,6 +2644,9 @@ function ThreadPanel(props: {
               replyDraft={props.replyDrafts[thread.id]?.body ?? ""}
               onReplyDraft={props.onReplyDraft}
               onReply={props.onReply}
+              onUpdateReply={props.onUpdateReply}
+              onDeleteReply={props.onDeleteReply}
+              onDeleteThread={props.onDeleteThread}
               onToggle={props.onToggle}
               onJump={props.onJump}
             />
@@ -2308,12 +2675,23 @@ function ThreadCard(props: {
   showVersion?: boolean
   onReplyDraft: (threadId: string, body: string) => void
   onReply: (thread: V2Thread) => Promise<void>
+  onUpdateReply: (
+    threadId: string,
+    replyId: string,
+    body: string
+  ) => Promise<void>
+  onDeleteReply: (threadId: string, replyId: string) => Promise<void>
+  onDeleteThread: (thread: V2Thread) => Promise<void>
   onToggle: (thread: V2Thread) => Promise<void>
   onJump?: (thread: V2Thread) => Promise<void>
   onLoadReplies?: (thread: V2Thread) => Promise<void>
 }) {
   const { thread } = props
   const [sending, setSending] = useState(false)
+  const [editingReplyId, setEditingReplyId] = useState<string | null>(null)
+  const [editingBody, setEditingBody] = useState("")
+  const [busyReplyId, setBusyReplyId] = useState<string | null>(null)
+  const [deletingThread, setDeletingThread] = useState(false)
   const send = async () => {
     if (sending || !props.replyDraft.trim()) return
     setSending(true)
@@ -2323,20 +2701,70 @@ function ThreadCard(props: {
       setSending(false)
     }
   }
+  const saveEdit = async (replyId: string) => {
+    if (busyReplyId || !editingBody.trim()) return
+    setBusyReplyId(replyId)
+    try {
+      await props.onUpdateReply(thread.id, replyId, editingBody)
+      setEditingReplyId(null)
+      setEditingBody("")
+    } finally {
+      setBusyReplyId(null)
+    }
+  }
+  const removeReply = async (replyId: string) => {
+    if (busyReplyId) return
+    if (!window.confirm("确定删除这条评论？")) return
+    setBusyReplyId(replyId)
+    try {
+      await props.onDeleteReply(thread.id, replyId)
+      if (editingReplyId === replyId) {
+        setEditingReplyId(null)
+        setEditingBody("")
+      }
+    } finally {
+      setBusyReplyId(null)
+    }
+  }
+  const removeThread = async () => {
+    if (deletingThread) return
+    if (!window.confirm("确定删除整条讨论及其全部回复？此操作不可撤销。"))
+      return
+    setDeletingThread(true)
+    try {
+      await props.onDeleteThread(thread)
+    } finally {
+      setDeletingThread(false)
+    }
+  }
   return (
     <div className="mb-5 border-b border-border/60 pb-5 text-sm last:border-0">
-      <div className="flex items-center justify-between gap-2">
+      <div className="group/thread flex items-center justify-between gap-2">
         <span className="font-medium">{authorLabel(thread.authorActor)}</span>
-        <Badge
-          variant={thread.status === "resolved" ? "secondary" : "outline"}
-          className={
-            thread.status === "resolved"
-              ? "text-emerald-600 dark:text-emerald-400"
-              : "text-amber-600 dark:text-amber-400"
-          }
-        >
-          {thread.status === "resolved" ? "已解决" : "未解决"}
-        </Badge>
+        <div className="flex items-center gap-1.5">
+          <Badge
+            variant={thread.status === "resolved" ? "secondary" : "outline"}
+            className={
+              thread.status === "resolved"
+                ? "text-emerald-600 dark:text-emerald-400"
+                : "text-amber-600 dark:text-amber-400"
+            }
+          >
+            {thread.status === "resolved" ? "已解决" : "未解决"}
+          </Badge>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            className="text-muted-foreground opacity-60 hover:text-destructive hover:opacity-100"
+            aria-label="删除讨论"
+            title="删除整条讨论"
+            disabled={deletingThread}
+            onClick={() => void removeThread()}
+          >
+            <Trash2 className="size-3.5" />
+          </Button>
+        </div>
       </div>
       <p className="my-3 border-l-2 border-primary/40 bg-primary/5 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
         {thread.anchor.kind === "unresolved"
@@ -2367,23 +2795,109 @@ function ThreadCard(props: {
           )}
         </div>
       )}
-      {(props.detail?.replies ?? []).map((reply) => (
-        <div key={reply.id} className="mt-3 py-1">
-          <span className="text-xs text-muted-foreground">
-            {authorLabel(reply.authorActor)}
-          </span>
-          <p className="mt-1 leading-relaxed break-words whitespace-pre-wrap">
-            {reply.body}
-          </p>
-          {reply.relatedVersionId && (
-            <span className="text-xs text-blue-700">
-              关联 V
-              {props.versions.find((item) => item.id === reply.relatedVersionId)
-                ?.sequence ?? "?"}
-            </span>
-          )}
-        </div>
-      ))}
+      {(props.detail?.replies ?? []).map((reply) => {
+        const isEditing = editingReplyId === reply.id
+        const isBusy = busyReplyId === reply.id
+        return (
+          <div key={reply.id} className="group/reply mt-3 py-1">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs text-muted-foreground">
+                {authorLabel(reply.authorActor)}
+              </span>
+              {!isEditing && (
+                <div className="flex items-center gap-0.5 opacity-60 transition-opacity group-hover/reply:opacity-100 focus-within:opacity-100">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label="编辑评论"
+                    title="编辑"
+                    disabled={Boolean(busyReplyId)}
+                    onClick={() => {
+                      setEditingReplyId(reply.id)
+                      setEditingBody(reply.body)
+                    }}
+                  >
+                    <Pencil className="size-3" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    className="hover:text-destructive"
+                    aria-label="删除评论"
+                    title="删除"
+                    disabled={Boolean(busyReplyId)}
+                    onClick={() => void removeReply(reply.id)}
+                  >
+                    <Trash2 className="size-3" />
+                  </Button>
+                </div>
+              )}
+            </div>
+            {isEditing ? (
+              <div className="mt-1.5 flex flex-col gap-2">
+                <Textarea
+                  autoFocus
+                  aria-label="编辑评论内容"
+                  className="max-h-56 min-h-20 w-full resize-y text-sm leading-relaxed"
+                  disabled={isBusy}
+                  value={editingBody}
+                  onChange={(event) => setEditingBody(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (isBusy || event.nativeEvent.isComposing) return
+                    if (event.key === "Escape") {
+                      event.preventDefault()
+                      setEditingReplyId(null)
+                      setEditingBody("")
+                    }
+                    if (
+                      event.key === "Enter" &&
+                      (event.ctrlKey || event.metaKey) &&
+                      editingBody.trim()
+                    ) {
+                      event.preventDefault()
+                      void saveEdit(reply.id)
+                    }
+                  }}
+                />
+                <div className="flex items-center justify-end gap-1.5">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={isBusy}
+                    onClick={() => {
+                      setEditingReplyId(null)
+                      setEditingBody("")
+                    }}
+                  >
+                    取消
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={isBusy || !editingBody.trim()}
+                    onClick={() => void saveEdit(reply.id)}
+                  >
+                    {isBusy ? "保存中…" : "保存"}
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <CommentMarkdown content={reply.body} className="mt-1" />
+            )}
+            {reply.relatedVersionId && (
+              <span className="text-xs text-blue-700 dark:text-blue-400">
+                关联 V
+                {props.versions.find(
+                  (item) => item.id === reply.relatedVersionId
+                )?.sequence ?? "?"}
+              </span>
+            )}
+          </div>
+        )
+      })}
       {props.detail && !props.detail.complete && (
         <Button
           variant="outline"
@@ -2395,32 +2909,47 @@ function ThreadCard(props: {
         </Button>
       )}
       {thread.status === "open" && (
-        <div className="mt-4 flex flex-wrap gap-2">
-          <Input
-            className="min-w-0 flex-1"
-            placeholder="回复…"
+        <div className="mt-4 flex flex-col gap-2">
+          <Textarea
+            className="max-h-56 min-h-24 w-full resize-y text-sm leading-relaxed"
+            aria-label="回复内容"
+            placeholder="输入回复，支持 Markdown（Ctrl+Enter 发送）…"
             disabled={sending}
             value={props.replyDraft}
             onChange={(event) =>
               props.onReplyDraft(thread.id, event.target.value)
             }
+            onKeyDown={(event) => {
+              if (
+                sending ||
+                event.nativeEvent.isComposing ||
+                !props.replyDraft.trim()
+              )
+                return
+              if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+                event.preventDefault()
+                void send()
+              }
+            }}
           />
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={sending || !props.replyDraft.trim()}
-            onClick={() => void send()}
-          >
-            {sending ? "发送中…" : "发送"}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className=""
-            onClick={() => void props.onToggle(thread)}
-          >
-            解决
-          </Button>
+          <div className="flex items-center justify-between gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={sending}
+              onClick={() => void props.onToggle(thread)}
+            >
+              解决
+            </Button>
+            <Button
+              variant="default"
+              size="sm"
+              disabled={sending || !props.replyDraft.trim()}
+              onClick={() => void send()}
+            >
+              {sending ? "发送中…" : "发送"}
+            </Button>
+          </div>
         </div>
       )}
       {thread.status === "resolved" && (
@@ -2474,7 +3003,7 @@ function CommentComposer(props: {
     <div
       role="dialog"
       aria-labelledby={titleId}
-      className="fixed bottom-6 left-1/2 z-20 w-[min(560px,calc(100vw-48px))] -translate-x-1/2 rounded-xl border bg-card p-5 shadow-xl"
+      className="fixed bottom-6 left-1/2 z-50 w-[min(560px,calc(100vw-48px))] -translate-x-1/2 rounded-xl border bg-card p-5 shadow-xl"
       onKeyDown={(event) => {
         if (submitting) return
         if (event.key === "Escape") {
@@ -2484,6 +3013,7 @@ function CommentComposer(props: {
         if (
           event.key === "Enter" &&
           (event.ctrlKey || event.metaKey) &&
+          !event.nativeEvent.isComposing &&
           props.pending.body.trim()
         ) {
           event.preventDefault()
@@ -2511,10 +3041,10 @@ function CommentComposer(props: {
       )}
       <Textarea
         autoFocus
-        className="h-20 w-full"
+        className="max-h-64 min-h-28 w-full resize-y text-sm leading-relaxed"
         aria-label="评论内容"
         disabled={submitting}
-        placeholder="评论内容…"
+        placeholder="输入评论内容，支持 Markdown（Ctrl+Enter 提交）…"
         value={props.pending.body}
         onChange={(event) => props.onBody(event.target.value)}
       />

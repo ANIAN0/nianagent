@@ -266,6 +266,23 @@ export const noteOperations = {
     effect:
       "写入：改名/移动/归档/恢复/共识状态；metadataRevision 过期明确冲突。",
   },
+  v2_delete_draft: {
+    title: "永久删除已归档草稿",
+    owner: "workbench",
+    input: obj({
+      draftId: str("草稿标识", { minLength: 1 }),
+      requestKey: str("请求键（幂等）", { minLength: 1, maxLength: 128 }),
+    }),
+    output: obj({
+      value: obj({
+        draftId: str("草稿标识"),
+        deletedVersions: int("删除的版本数"),
+        deletedThreads: int("删除的讨论线程数"),
+        replayed: bool("是否为重放结果"),
+      }),
+    }),
+    effect: "写入：仅本地用户可永久删除已归档草稿，级联清理其版本、产物与讨论。",
+  },
   v2_list_drafts: {
     title: "查找工作台草稿",
     owner: "workbench",
@@ -603,6 +620,58 @@ export const noteOperations = {
       }),
     }),
     effect: "写入：回复可关联修改版本。",
+  },
+  v2_update_reply: {
+    title: "编辑评论回复",
+    owner: "workbench",
+    input: obj({
+      replyId: str("回复标识", { minLength: 1 }),
+      body: str("新的回复正文", { maxLength: 8000 }),
+      requestKey: str("请求键（幂等）", { minLength: 1, maxLength: 128 }),
+    }),
+    output: obj({
+      value: obj({
+        replyId: str("回复标识"),
+        threadId: str("所属线程标识"),
+        body: str("更新后的正文"),
+        replayed: bool("是否为重放结果"),
+      }),
+    }),
+    effect: "写入：更新指定回复正文；用户可编辑任意回复，Agent 仅可编辑自己发布的回复。",
+  },
+  v2_delete_reply: {
+    title: "删除评论回复",
+    owner: "workbench",
+    input: obj({
+      replyId: str("回复标识", { minLength: 1 }),
+      requestKey: str("请求键（幂等）", { minLength: 1, maxLength: 128 }),
+    }),
+    output: obj({
+      value: obj({
+        replyId: str("回复标识"),
+        threadId: str("所属线程标识"),
+        threadDeleted: bool("是否因最后一条回复被删除而一并移除线程"),
+        replayed: bool("是否为重放结果"),
+      }),
+    }),
+    effect: "写入：删除指定回复；若为线程最后一条回复则一并删除线程。",
+  },
+  v2_delete_thread: {
+    title: "删除讨论线程",
+    owner: "workbench",
+    input: obj({
+      threadId: str("线程标识", { minLength: 1 }),
+      requestKey: str("请求键（幂等）", { minLength: 1, maxLength: 128 }),
+    }),
+    output: obj({
+      value: obj({
+        threadId: str("线程标识"),
+        draftId: str("所属草稿标识"),
+        deletedReplies: int("删除的回复数"),
+        replayed: bool("是否为重放结果"),
+      }),
+    }),
+    effect: "写入：删除讨论线程及其全部回复与状态事件。",
   },
   v2_set_thread_status: {
     title: "设置讨论状态",

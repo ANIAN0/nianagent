@@ -2162,6 +2162,220 @@ export class WorkbenchStore {
     )
   }
 
+  updateReply(replyId, body, actor, { isUser, requestKey }) {
+    assertId(replyId, "回复标识")
+    assertText(body, "回复正文", 8000)
+    assertText(actor, "actor", 64)
+    assertText(requestKey, "requestKey", 128)
+    const previous = this.readReceipt("update_reply", actor, {
+      replyId,
+      body,
+      requestKey,
+    })
+    if (previous) return { ...previous, replayed: true }
+    const row = this.db
+      .prepare(
+        `SELECT r.id, r.thread_id AS threadId, r.author_actor AS authorActor, t.draft_id AS draftId
+         FROM replies r JOIN threads t ON t.id = r.thread_id
+         WHERE r.id = ?`
+      )
+      .get(replyId)
+    if (!row) throw new WorkbenchError("not_found", "评论回复不存在。")
+    if (!isUser && row.authorActor !== actor)
+      throw new WorkbenchError(
+        "identity_denied",
+        "只能编辑自己发布的评论回复。"
+      )
+    return this.writeReceipt(
+      "update_reply",
+      actor,
+      replyId,
+      { replyId, body, requestKey },
+      () => {
+        this.db
+          .prepare("UPDATE replies SET body = ? WHERE id = ?")
+          .run(body, replyId)
+        this.db
+          .prepare(
+            "UPDATE drafts SET review_revision = review_revision + 1 WHERE id = ?"
+          )
+          .run(row.draftId)
+        return { replyId, threadId: row.threadId, body }
+      }
+    )
+  }
+
+  deleteReply(replyId, actor, { isUser, requestKey }) {
+    assertId(replyId, "回复标识")
+    assertText(actor, "actor", 64)
+    assertText(requestKey, "requestKey", 128)
+    const previous = this.readReceipt("delete_reply", actor, {
+      replyId,
+      requestKey,
+    })
+    if (previous) return { ...previous, replayed: true }
+    const row = this.db
+      .prepare(
+        `SELECT r.id, r.thread_id AS threadId, r.author_actor AS authorActor, t.draft_id AS draftId
+         FROM replies r JOIN threads t ON t.id = r.thread_id
+         WHERE r.id = ?`
+      )
+      .get(replyId)
+    if (!row) throw new WorkbenchError("not_found", "评论回复不存在。")
+    if (!isUser && row.authorActor !== actor)
+      throw new WorkbenchError(
+        "identity_denied",
+        "只能删除自己发布的评论回复。"
+      )
+    return this.writeReceipt(
+      "delete_reply",
+      actor,
+      replyId,
+      { replyId, requestKey },
+      () => {
+        this.db.prepare("DELETE FROM replies WHERE id = ?").run(replyId)
+        const remaining = this.db
+          .prepare("SELECT COUNT(*) AS count FROM replies WHERE thread_id = ?")
+          .get(row.threadId).count
+        let threadDeleted = false
+        if (remaining === 0) {
+          this.db
+            .prepare("DELETE FROM status_events WHERE thread_id = ?")
+            .run(row.threadId)
+          this.db.prepare("DELETE FROM threads WHERE id = ?").run(row.threadId)
+          threadDeleted = true
+        }
+        this.db
+          .prepare(
+            "UPDATE drafts SET review_revision = review_revision + 1 WHERE id = ?"
+          )
+          .run(row.draftId)
+        return { replyId, threadId: row.threadId, threadDeleted }
+      }
+    )
+  }
+
+  deleteThread(threadId, actor, { isUser, requestKey }) {
+    assertId(threadId, "线程标识")
+    assertText(actor, "actor", 64)
+    assertText(requestKey, "requestKey", 128)
+    const previous = this.readReceipt("delete_thread", actor, {
+      threadId,
+      requestKey,
+    })
+    if (previous) return { ...previous, replayed: true }
+    const thread = this.db
+      .prepare(
+        "SELECT id, draft_id AS draftId, author_actor AS authorActor FROM threads WHERE id = ?"
+      )
+      .get(threadId)
+    if (!thread) throw new WorkbenchError("not_found", "讨论线程不存在。")
+    if (!isUser && thread.authorActor !== actor)
+      throw new WorkbenchError(
+        "identity_denied",
+        "Agent 只能删除自己发起的讨论线程。"
+      )
+    return this.writeReceipt(
+      "delete_thread",
+      actor,
+      threadId,
+      { threadId, requestKey },
+      () => {
+        const deletedReplies = this.db
+          .prepare("SELECT COUNT(*) AS count FROM replies WHERE thread_id = ?")
+          .get(threadId).count
+        this.db
+          .prepare("DELETE FROM status_events WHERE thread_id = ?")
+          .run(threadId)
+        this.db.prepare("DELETE FROM replies WHERE thread_id = ?").run(threadId)
+        this.db.prepare("DELETE FROM threads WHERE id = ?").run(threadId)
+        this.db
+          .prepare(
+            "UPDATE drafts SET review_revision = review_revision + 1 WHERE id = ?"
+          )
+          .run(thread.draftId)
+        return { threadId, draftId: thread.draftId, deletedReplies }
+      }
+    )
+  }
+
+  async deleteDraft(draftId, actor, { isUser, requestKey }) {
+    assertId(draftId, "草稿标识")
+    assertText(actor, "actor", 64)
+    assertText(requestKey, "requestKey", 128)
+    if (!isUser)
+      throw new WorkbenchError(
+        "identity_denied",
+        "仅本地用户可永久删除已归档草稿。"
+      )
+    const previous = this.readReceipt("delete_draft", actor, {
+      draftId,
+      requestKey,
+    })
+    if (previous) return { ...previous, replayed: true }
+    const draft = this.db
+      .prepare(
+        `SELECT d.id, d.archived_at AS archivedAt,
+                dir.archived_at AS dirArchivedAt,
+                p.archived_at AS projectArchivedAt
+         FROM drafts d
+         JOIN directories dir ON dir.id = d.directory_id
+         JOIN projects p ON p.id = dir.project_id
+         WHERE d.id = ?`
+      )
+      .get(draftId)
+    if (!draft) throw new WorkbenchError("not_found", "草稿不存在。")
+    if (!draft.archivedAt && !draft.dirArchivedAt && !draft.projectArchivedAt)
+      throw new WorkbenchError(
+        "validation_failed",
+        "仅已归档草稿支持永久删除，请先归档。"
+      )
+    const artifactIds = []
+    const receipt = this.writeReceipt(
+      "delete_draft",
+      actor,
+      draftId,
+      { draftId, requestKey },
+      () => {
+        const versions = this.db
+          .prepare("SELECT id, artifact_id AS artifactId FROM versions WHERE draft_id = ?")
+          .all(draftId)
+        const threads = this.db
+          .prepare("SELECT id FROM threads WHERE draft_id = ?")
+          .all(draftId)
+        for (const t of threads) {
+          this.db
+            .prepare("DELETE FROM status_events WHERE thread_id = ?")
+            .run(t.id)
+          this.db.prepare("DELETE FROM replies WHERE thread_id = ?").run(t.id)
+        }
+        this.db.prepare("DELETE FROM threads WHERE draft_id = ?").run(draftId)
+        this.db.prepare("DELETE FROM versions WHERE draft_id = ?").run(draftId)
+        this.db.prepare("DELETE FROM drafts WHERE id = ?").run(draftId)
+        for (const v of versions) {
+          artifactIds.push(v.artifactId)
+          this.db
+            .prepare("DELETE FROM artifacts WHERE id = ?")
+            .run(v.artifactId)
+        }
+        return {
+          draftId,
+          deletedVersions: versions.length,
+          deletedThreads: threads.length,
+        }
+      }
+    )
+    if (!receipt.replayed) {
+      for (const artifactId of artifactIds) {
+        await rm(join(this.root, "artifacts", artifactId), {
+          recursive: true,
+          force: true,
+        }).catch(() => {})
+      }
+    }
+    return receipt
+  }
+
   setThreadStatus(threadId, status, actor, { isUser, requestKey }) {
     assertId(threadId, "线程标识")
     if (!["open", "resolved"].includes(status))

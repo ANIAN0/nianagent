@@ -46,6 +46,7 @@
   "apps/workbench/src/ui/textarea.tsx": "提供 Next 工作台复用的 shadcn textarea 基础组件。",
   "apps/workbench/src/ui/toggle-group.tsx": "提供 Next 工作台复用的 shadcn toggle-group 基础组件。",
   "apps/workbench/src/ui/toggle.tsx": "提供 Next 工作台复用的 shadcn toggle 基础组件。",
+  "apps/workbench/src/workbench/comment-markdown.tsx": "渲染评论与白板卡片的 Markdown 正文，过滤链接与图片地址。",
   "apps/workbench/src/workbench/editors/board-editor.tsx": "交互式白板画布编辑器（拖拽节点、连线、分组与属性着色并发布新版本）。",
   "apps/workbench/src/workbench/editors/markdown-editor.tsx": "Markdown 文档编辑器，支持编辑正文并发布不可变新版本。",
   "apps/workbench/src/workbench/organization-editor.tsx": "项目、目录及草稿元数据编辑与归档恢复表单。",

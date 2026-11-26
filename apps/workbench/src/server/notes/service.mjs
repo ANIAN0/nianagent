@@ -278,6 +278,18 @@ export function createV2Service(
         input.metadataRevision
       )
     }),
+    v2_delete_draft: wrap(
+      noteOperations.v2_delete_draft,
+      async (input, context) => {
+        const who = actor(context)
+        const result = await store.deleteDraft(input.draftId, who.actorId, {
+          isUser: who.isUser,
+          requestKey: input.requestKey,
+        })
+        log("delete_draft", `actor=${who.actorId} draft=${input.draftId.slice(0, 8)}`)
+        return result
+      }
+    ),
     v2_list_drafts: wrap(noteOperations.v2_list_drafts, async (input) =>
       store.listDrafts(
         {
@@ -713,6 +725,44 @@ export function createV2Service(
       log("add_reply", `actor=${actorId} thread=${input.threadId.slice(0, 8)}`)
       return result
     }),
+    v2_update_reply: wrap(
+      noteOperations.v2_update_reply,
+      async (input, context) => {
+        const who = actor(context)
+        const result = store.updateReply(
+          input.replyId,
+          input.body,
+          who.actorId,
+          { isUser: who.isUser, requestKey: input.requestKey }
+        )
+        log("update_reply", `actor=${who.actorId} reply=${input.replyId.slice(0, 8)}`)
+        return result
+      }
+    ),
+    v2_delete_reply: wrap(
+      noteOperations.v2_delete_reply,
+      async (input, context) => {
+        const who = actor(context)
+        const result = store.deleteReply(input.replyId, who.actorId, {
+          isUser: who.isUser,
+          requestKey: input.requestKey,
+        })
+        log("delete_reply", `actor=${who.actorId} reply=${input.replyId.slice(0, 8)}`)
+        return result
+      }
+    ),
+    v2_delete_thread: wrap(
+      noteOperations.v2_delete_thread,
+      async (input, context) => {
+        const who = actor(context)
+        const result = store.deleteThread(input.threadId, who.actorId, {
+          isUser: who.isUser,
+          requestKey: input.requestKey,
+        })
+        log("delete_thread", `actor=${who.actorId} thread=${input.threadId.slice(0, 8)}`)
+        return result
+      }
+    ),
     v2_set_thread_status: wrap(
       noteOperations.v2_set_thread_status,
       async (input, context) => {

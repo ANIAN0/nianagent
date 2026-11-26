@@ -361,3 +361,132 @@ test("错误类型目标、缺失对象及无身份不能写入评论", async (t
   )
   assert.equal(store.db.prepare("SELECT COUNT(*) AS n FROM threads").get().n, 0)
 })
+
+test("评论编辑/删除、删除线程及永久删除已归档草稿的权限与边界", async (t) => {
+  const { call, draft, versions, store } = await setup(t)
+  const created = await call(
+    "create_thread",
+    {
+      versionId: versions[0],
+      target: { kind: "document" },
+      body: "初始意见",
+      requestKey: "t-edit-1",
+    },
+    { source: "mcp", actorId: "B" }
+  )
+  const added = await call(
+    "add_reply",
+    {
+      threadId: created.threadId,
+      body: "跟进回复",
+      requestKey: "r-edit-1",
+    },
+    { source: "local" }
+  )
+  // Agent 不能编辑他人回复
+  await assert.rejects(
+    () =>
+      call(
+        "update_reply",
+        {
+          replyId: added.replyId,
+          body: "越权改写",
+          requestKey: "upd-deny",
+        },
+        { source: "mcp", actorId: "B" }
+      ),
+    { code: "identity_denied" }
+  )
+  // 本地用户可编辑任意回复并支持幂等重放
+  const updated = await call(
+    "update_reply",
+    {
+      replyId: created.replyId,
+      body: "已修订的**初始意见**",
+      requestKey: "upd-ok",
+    },
+    { source: "local" }
+  )
+  assert.equal(updated.body, "已修订的**初始意见**")
+  assert.equal(
+    (
+      await call(
+        "update_reply",
+        {
+          replyId: created.replyId,
+          body: "已修订的**初始意见**",
+          requestKey: "upd-ok",
+        },
+        { source: "local" }
+      )
+    ).replayed,
+    true
+  )
+  // 删除单条回复（线程仍有剩余回复，不删除线程）
+  const delOne = await call(
+    "delete_reply",
+    { replyId: added.replyId, requestKey: "del-r1" },
+    { source: "local" }
+  )
+  assert.equal(delOne.threadDeleted, false)
+  // 删除最后一条回复，自动移除线程
+  const delLast = await call(
+    "delete_reply",
+    { replyId: created.replyId, requestKey: "del-r2" },
+    { source: "local" }
+  )
+  assert.equal(delLast.threadDeleted, true)
+  assert.equal(store.db.prepare("SELECT COUNT(*) AS n FROM threads").get().n, 0)
+
+  // 删除整条线程
+  const second = await call(
+    "create_thread",
+    {
+      versionId: versions[0],
+      target: { kind: "document" },
+      body: "待删线程",
+      requestKey: "t-del-2",
+    },
+    { source: "local" }
+  )
+  const delThread = await call(
+    "delete_thread",
+    { threadId: second.threadId, requestKey: "del-t2" },
+    { source: "local" }
+  )
+  assert.equal(delThread.deletedReplies, 1)
+  assert.equal(store.db.prepare("SELECT COUNT(*) AS n FROM threads").get().n, 0)
+
+  // 未归档草稿拒绝永久删除；MCP 身份也拒绝永久删除
+  await assert.rejects(
+    () =>
+      call(
+        "delete_draft",
+        { draftId: draft.id, requestKey: "del-d-unarchived" },
+        { source: "local" }
+      ),
+    { code: "validation_failed" }
+  )
+  await call(
+    "update_draft",
+    { draftId: draft.id, archived: true, requestKey: "arch-d" },
+    { source: "local" }
+  )
+  await assert.rejects(
+    () =>
+      call(
+        "delete_draft",
+        { draftId: draft.id, requestKey: "del-d-mcp" },
+        { source: "mcp", actorId: "A" }
+      ),
+    { code: "identity_denied" }
+  )
+  const deleted = await call(
+    "delete_draft",
+    { draftId: draft.id, requestKey: "del-d-ok" },
+    { source: "local" }
+  )
+  assert.equal(deleted.deletedVersions, 2)
+  assert.equal(store.db.prepare("SELECT COUNT(*) AS n FROM drafts").get().n, 0)
+  assert.equal(store.db.prepare("SELECT COUNT(*) AS n FROM versions").get().n, 0)
+})
