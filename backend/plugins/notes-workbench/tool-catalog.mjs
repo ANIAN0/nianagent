@@ -281,7 +281,8 @@ export const noteOperations = {
         replayed: bool("是否为重放结果"),
       }),
     }),
-    effect: "写入：仅本地用户可永久删除已归档草稿，级联清理其版本、产物与讨论。",
+    effect:
+      "写入：仅本地用户可永久删除已归档草稿，级联清理其版本、产物与讨论。",
   },
   v2_list_drafts: {
     title: "查找工作台草稿",
@@ -637,7 +638,8 @@ export const noteOperations = {
         replayed: bool("是否为重放结果"),
       }),
     }),
-    effect: "写入：更新指定回复正文；用户可编辑任意回复，Agent 仅可编辑自己发布的回复。",
+    effect:
+      "写入：更新指定回复正文；用户可编辑任意回复，Agent 仅可编辑自己发布的回复。",
   },
   v2_delete_reply: {
     title: "删除评论回复",

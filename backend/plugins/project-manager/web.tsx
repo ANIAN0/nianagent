@@ -95,12 +95,15 @@ function Page() {
   async function discard() {
     return !dirty || (await confirm("放弃尚未保存的项目指令？"))
   }
-  async function navigate(id: string) {
-    if (!(await discard())) return
+  function selectProject(id: string) {
     setProjectId(id)
     setDetail(undefined)
     setEditing(false)
     resetChange()
+  }
+  async function navigate(id: string) {
+    if (!(await discard())) return
+    selectProject(id)
   }
   useEffect(() => {
     const controller = new AbortController()
@@ -145,9 +148,7 @@ function Page() {
       if (picked.cancelled) return
       const rows = await invoke<Project[]>("listProjects")
       setProjects(rows)
-      setEditing(false)
-      setDetail(undefined)
-      setProjectId(rows.find((p) => p.path === picked.path)?.id ?? "")
+      selectProject(rows.find((p) => p.path === picked.path)?.id ?? "")
       setVersion((v) => v + 1)
       setQuery("")
     })
@@ -179,6 +180,13 @@ function Page() {
           )}
           {loading && (
             <Skeleton aria-label="正在读取项目" className="h-12 w-full" />
+          )}
+          {!loading && !listError && !projects.length && !query && (
+            <Empty>
+              <EmptyHeader>
+                <EmptyTitle>尚未登记项目</EmptyTitle>
+              </EmptyHeader>
+            </Empty>
           )}
           {!visible.length && query && (
             <Button variant="ghost" onClick={() => setQuery("")}>
@@ -243,9 +251,7 @@ function Page() {
                     )
                       void run(async () => {
                         await invoke("unregister", { projectId })
-                        setProjectId("")
-                        setDetail(undefined)
-                        setEditing(false)
+                        selectProject("")
                         setVersion((v) => v + 1)
                       })
                   }}

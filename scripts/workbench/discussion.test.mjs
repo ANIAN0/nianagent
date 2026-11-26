@@ -488,5 +488,8 @@ test("评论编辑/删除、删除线程及永久删除已归档草稿的权限�
   )
   assert.equal(deleted.deletedVersions, 2)
   assert.equal(store.db.prepare("SELECT COUNT(*) AS n FROM drafts").get().n, 0)
-  assert.equal(store.db.prepare("SELECT COUNT(*) AS n FROM versions").get().n, 0)
+  assert.equal(
+    store.db.prepare("SELECT COUNT(*) AS n FROM versions").get().n,
+    0
+  )
 })
