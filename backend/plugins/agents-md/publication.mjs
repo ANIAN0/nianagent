@@ -118,6 +118,7 @@ export function createPublications({
   composeAgentsContent,
   pathKey,
   ensureOpen,
+  saveComposition,
 }) {
   const receiptDirectory = join(directory, "publications")
   const receiptPath = (id) => join(receiptDirectory, `${id}.json`)
@@ -198,7 +199,10 @@ export function createPublications({
     withStateLock(async () => {
       const state = await readState()
       checkTemplate(state, input.revision)
-      if (!composeAgentsContent(state.baseContent, state.snippets).trim()) {
+      if (
+        !input.edit &&
+        !composeAgentsContent(state.baseContent, state.snippets).trim()
+      ) {
         throw reject(
           "agents_template_empty",
           "统一 AGENTS.md 内容为空，请先编辑正文或开启附加说明。"
@@ -232,10 +236,18 @@ export function createPublications({
           remaining
         )
         await directorySnapshot(entry.path, pathKey, directory)
+        if (
+          input.edit &&
+          (Boolean(snapshot) !== input.edit.exists ||
+            Buffer.from(snapshot?.content ?? "", "base64").toString("utf8") !==
+              input.edit.original)
+        )
+          throw conflict()
         if (snapshot) remaining -= Buffer.byteLength(snapshot.content, "base64")
         targets.push({
           path: entry.path,
           name: entry.name,
+          composed: !!state.projectBindings?.[entry.id],
           directory,
           snapshot,
         })
@@ -245,6 +257,12 @@ export function createPublications({
       await save({
         version: 1,
         publicationId,
+        ...(input.edit
+          ? {
+              proposedContent: input.edit.content,
+              composition: input.edit.composition,
+            }
+          : {}),
         revision: state.revision,
         expiresAt: Date.now() + previewLifetime,
         state: "previewed",
@@ -252,7 +270,8 @@ export function createPublications({
       })
       return {
         publicationId,
-        targets: targets.map(({ path, name, snapshot }) => ({
+        targets: targets.map(({ path, name, snapshot, composed }) => ({
+          composed,
           path,
           name,
           exists: snapshot !== null,
@@ -307,6 +326,7 @@ export function createPublications({
         committed ? "" : unknown
       )
     }
+    await saveComposition?.(receipt)
     receipt.state = "finished"
     await save(receipt)
     return receiptResult(receipt)
@@ -336,6 +356,8 @@ export function createPublications({
           identity: identity(await handle.stat({ bigint: true })),
           outcome,
         }
+        if (target.snapshot)
+          await handle.chmod(Number((await lstat(targetFile)).mode))
         await handle.writeFile(content)
       } finally {
         await handle.close()
@@ -402,7 +424,9 @@ export function createPublications({
       }
       const state = await readState()
       checkTemplate(state, receipt.revision)
-      const content = composeAgentsContent(state.baseContent, state.snippets)
+      const content =
+        receipt.proposedContent ??
+        composeAgentsContent(state.baseContent, state.snippets)
       const entries = await registered(state, signal)
       ensureOpen(signal)
       receipt.state = "running"
@@ -419,6 +443,7 @@ export function createPublications({
             signal
           )
       }
+      await saveComposition?.(receipt)
       receipt.state = "finished"
       await save(receipt)
       return receiptResult(receipt)

@@ -30,6 +30,7 @@ const UI_PORTS = new Set([
   "src/lib/rpc/remote-ports",
   "src/lib/rpc/remote-transport",
   "src/components/read-only-patch",
+  "src/components/markdown-editor",
 ])
 
 // Explicit P1/P2 legacy cross-boundary edges. Adding new edges is forbidden;

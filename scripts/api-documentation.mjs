@@ -43,6 +43,10 @@ import {
   keydexModule,
 } from "../backend/plugins/keydex/contract.mjs"
 import {
+  projectManagerOperations,
+  projectManagerModule,
+} from "../backend/plugins/project-manager/contract.mjs"
+import {
   agentsMdOperations,
   agentsMdModule,
 } from "../backend/plugins/agents-md/contract.mjs"
@@ -441,8 +445,42 @@ const pluginCallers = {
   "mcp-service": Object.fromEntries(
     Object.keys(mcpServiceOperations).map((name) => [name, ["web.tsx"]])
   ),
+  "project-manager": {
+    listSkills: ["skills-dialog.tsx"],
+    listLibrary: ["agents-compose-dialog.tsx"],
+    saveTemplate: ["agents-compose-dialog.tsx"],
+    ...Object.fromEntries(
+      ["listProjects", "chooseDirectory", "unregister", "inspectProject"].map(
+        (name) => [name, ["web.tsx"]]
+      )
+    ),
+    ...Object.fromEntries(
+      ["previewChange", "applyChange", "getReceipt"].map((name) => [
+        name,
+        ["use-project-change.ts"],
+      ])
+    ),
+    ...Object.fromEntries(
+      [
+        "inheritedMcp",
+        "importMcp",
+        "projectTrust",
+        "verifyMcp",
+        "listDefinitions",
+        "saveDefinition",
+        "readDefinition",
+      ].map((name) => [name, ["mcp-panel.tsx"]])
+    ),
+  },
   "agents-md": Object.fromEntries(
-    Object.keys(agentsMdOperations).map((name) => [name, ["web.tsx"]])
+    Object.keys(agentsMdOperations).map((name) => [
+      name,
+      ["previewProjectEdit", "projectLibrary", "saveProjectTemplate"].includes(
+        name
+      )
+        ? ["../project-manager/host.mjs"]
+        : ["web.tsx"],
+    ])
   ),
   board: Object.fromEntries(
     Object.keys(boardOperations).map((name) => [name, ["web.tsx"]])
@@ -583,6 +621,7 @@ export function createApiDocumentation() {
   }
   const plugins = {
     "mcp-service": [mcpServiceOperations, mcpServiceModule],
+    "project-manager": [projectManagerOperations, projectManagerModule],
     "agents-md": [agentsMdOperations, agentsMdModule],
     board: [boardOperations, boardModule],
     memos: [memosOperations, memosModule],

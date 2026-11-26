@@ -169,11 +169,11 @@ export async function createPiSession(
   signal?.throwIfAborted()
   const mcpSnapshot = mcp
     ? await ports.measure("create.mcpSessionEntries", () =>
-        mcp.sessionEntries(toolIds)
+        mcp.sessionEntries(toolIds, cwd)
       )
     : { servers: [], errors: [] }
   const mcpTools = mcp
-    ? await ports.measure("create.mcpCatalog", () => mcp.catalog())
+    ? await ports.measure("create.mcpCatalog", () => mcp.catalog(cwd))
     : []
   const extensionSnapshot = ports.models.extensions
     ? await ports.measure("create.extensions", () =>
@@ -181,6 +181,7 @@ export async function createPiSession(
       )
     : { entries: [], descriptors: [], fingerprint: "" }
   const instructionState = {
+    cwd,
     files: instructions,
     toolIds: toolIds ? [...toolIds] : undefined,
     mcpSnapshot,
@@ -265,34 +266,49 @@ export async function createPiSession(
                         generation === instructionState.generation,
                       "会话已关闭，不再启动 MCP 服务。"
                     )
-                    instructionState.mcpStatuses.set(entry.name, {
-                      state: "connecting",
-                      error: "",
-                    })
+                    instructionState.mcpStatuses.set(
+                      entry.scope === "project"
+                        ? JSON.stringify([entry.source, entry.name])
+                        : entry.name,
+                      {
+                        state: "connecting",
+                        error: "",
+                      }
+                    )
                     let transport
                     try {
                       transport = createMcpTransport(
                         mcpSdk,
                         entry,
                         sessionCwd,
-                        authProvider,
+                        entry.scope === "project" ? undefined : authProvider,
                         (status) => {
                           if (
                             generation === instructionState.generation &&
                             !instructionState.disposed
                           )
-                            instructionState.mcpStatuses.set(entry.name, status)
+                            instructionState.mcpStatuses.set(
+                              entry.scope === "project"
+                                ? JSON.stringify([entry.source, entry.name])
+                                : entry.name,
+                              status
+                            )
                         }
                       )
                     } catch (error) {
-                      instructionState.mcpStatuses.set(entry.name, {
-                        state: "failed",
-                        error: safeMcpError(
-                          error,
-                          entry.config,
-                          mcpSdk?.McpAuthRequiredError
-                        ),
-                      })
+                      instructionState.mcpStatuses.set(
+                        entry.scope === "project"
+                          ? JSON.stringify([entry.source, entry.name])
+                          : entry.name,
+                        {
+                          state: "failed",
+                          error: safeMcpError(
+                            error,
+                            entry.config,
+                            mcpSdk?.McpAuthRequiredError
+                          ),
+                        }
+                      )
                       throw error
                     }
                     instructionState.transports.add(transport)

@@ -1,3 +1,4 @@
+import { loadPiSdk, loadPiMcpConfig } from "./pi-sdk.mjs"
 import { settleResources } from "./close-resources.mjs"
 import { mkdir, readFile, realpath, stat } from "node:fs/promises"
 import { compactWriteReceipts } from "./write-receipt-archive.mjs"
@@ -503,7 +504,7 @@ export class McpService {
     this.tests.delete(name)
     return null
   }
-  async test(configuration, cwd, signal) {
+  async test(configuration, cwd, signal, projectRecord) {
     check(!this.closed, "MCP 服务已关闭。")
     signal?.throwIfAborted()
     const config = configurationToPi(configuration)
@@ -572,6 +573,16 @@ export class McpService {
     }
     signal?.throwIfAborted()
     check(!this.closed, "MCP 服务已关闭。")
+    if (projectRecord) {
+      await this.mutate((document) => {
+        document.moonProjectDiscovery ??= {}
+        document.moonProjectDiscovery[projectRecord.cacheKey] = {
+          hash: fingerprint(projectRecord.entry.config),
+          result,
+        }
+      }, signal)
+      return result
+    }
     this.tests.set(configuration.name, { hash: fingerprint(config), result })
     await this.rememberDiscovery(configuration.name, config, result, signal)
     return result
@@ -586,26 +597,205 @@ export class McpService {
         current.moonDiscovery[name] = { hash: fingerprint(config), result }
     }, signal)
   }
-  async sessionEntries(toolIds) {
-    const records = await this.list()
+  async listDefinitions() {
+    const document = await this.document()
+    return Object.values(document.moonDefinitions ?? {})
+  }
+  async saveDefinition(definition, signal) {
+    const { name, command, args, url } = definition
+    check(
+      typeof command === "string" &&
+        typeof url === "string" &&
+        Array.isArray(args) &&
+        args.every((arg) => typeof arg === "string"),
+      "服务定义参数无效。"
+    )
+    check(
+      /^[A-Za-z0-9_-]+$/.test(name) &&
+        !["__proto__", "prototype", "constructor"].includes(name),
+      "服务名称无效。"
+    )
+    check(Boolean(command.trim()) !== Boolean(url.trim()), "请指定命令或 URL。")
+    if (url) {
+      const address = new URL(url)
+      check(
+        ["http:", "https:"].includes(address.protocol) &&
+          !address.username &&
+          !address.password &&
+          !address.search &&
+          !address.hash &&
+          !args.length,
+        "服务地址不能包含凭据、查询参数或片段。"
+      )
+    }
+    const { envRefs = {}, headerRefs = {}, expectedRevision } = definition
+    for (const [field, refs] of [
+      ["env", envRefs],
+      ["headers", headerRefs],
+    ]) {
+      for (const [key, variable] of Object.entries(refs)) {
+        check(
+          /^[A-Za-z_][A-Za-z0-9_]*$/.test(variable) &&
+            !["__proto__", "constructor", "prototype"].includes(key),
+          "请填写环境变量名称。"
+        )
+        check(
+          field === "env"
+            ? command && /^[a-z_][a-z0-9_]*$/i.test(key)
+            : url && /^[a-z0-9-]+$/i.test(key),
+          "凭据引用与当前传输不兼容。"
+        )
+      }
+    }
+    await this.mutate((document) => {
+      document.moonDefinitions ??= {}
+      const prior = document.moonDefinitions[name]
+      const revision = prior ? (prior.revision ?? 1) : 0
+      check(
+        revision === (expectedRevision ?? 0),
+        "定义已存在或版本变化，请重新读取。"
+      )
+      document.moonDefinitions[name] = {
+        name,
+        command,
+        args,
+        url,
+        envRefs,
+        headerRefs,
+        revision: revision + 1,
+      }
+    }, signal)
+    return name
+  }
+  async projectTrust(cwd, decision) {
+    const { ProjectTrustStore } = await loadPiSdk()
+    const store = new ProjectTrustStore(this.directory)
+    const canonical = await realpath(cwd)
+    if (typeof decision === "boolean") store.set(canonical, decision)
+    return store.get(canonical) === true
+  }
+  async effective(cwd) {
+    if (!cwd)
+      return {
+        records: await this.list(),
+        errors: [],
+        autoEnableCodemode: true,
+      }
+    const canonical = await realpath(cwd)
+    const trusted = await this.projectTrust(canonical)
+    const loaded = await loadPiMcpConfig({
+      agentDir: this.directory,
+      cwd: canonical,
+      projectTrusted: trusted,
+    })
+    const document = await this.document()
+    const records = []
+    for (const entry of loaded.servers) {
+      if (entry.scope === "global" && !entry.override) {
+        const raw = document.mcpServers[entry.name]
+        if (raw)
+          records.push({ ...this.record(entry.name, raw, document), entry })
+        continue
+      }
+      const cacheKey = JSON.stringify([canonical, entry.source, entry.name])
+      const stamp = document.moonProjectDiscovery?.[cacheKey]
+      try {
+        records.push({
+          configuration: fromPi(entry.name, entry.config),
+          source: entry.override || entry.source,
+          entry,
+          cacheKey,
+          test:
+            stamp?.hash === fingerprint(entry.config)
+              ? stamp.result
+              : undefined,
+        })
+      } catch {
+        loaded.errors.push("该项目服务含 Moon 暂不支持的配置。")
+      }
+    }
+    return {
+      records,
+      errors: loaded.errors.map(() => "MCP 配置无效，请检查服务定义。"),
+      autoEnableCodemode: loaded.autoEnableCodemode,
+    }
+  }
+  async cleanupEvidence(cwd, name) {
+    const records = (await this.effective(cwd)).records
+    const item = records.find((row) => row.configuration.name === name)
+    check(
+      item?.entry?.scope === "project" && item.test?.state === "connected",
+      "请先在本项目验证独立的 Pi 服务。"
+    )
+    const projectFile = join(await realpath(cwd), ".pi", "mcp.json")
+    const [personal, target] = await Promise.all([
+      stat(this.file, { bigint: true }),
+      stat(projectFile, { bigint: true }),
+    ])
+    check(
+      (await realpath(projectFile)) === projectFile &&
+        !(personal.dev === target.dev && personal.ino === target.ino),
+      "项目文件与个人文件须独立。"
+    )
+    const document = await this.document()
+    check(Object.hasOwn(document.mcpServers, name), "个人配置中无同名项。")
+    return {
+      testedAt: item.test.testedAt,
+      projectRevision: fingerprint(item.entry.config),
+      personalRevision: this.record(name, document.mcpServers[name], document)
+        .revision,
+    }
+  }
+  async removeVerified(cwd, name, proof, token, signal) {
+    await this.mutate(async (document) => {
+      document.moonCleanupReceipts ??= {}
+      if (document.moonCleanupReceipts[token]) return
+      const actual = await this.cleanupEvidence(cwd, name)
+      check(
+        JSON.stringify(actual) === JSON.stringify(proof),
+        "服务或验证记录已变化，请重新预览。"
+      )
+      delete document.mcpServers[name]
+      delete document.moonRevisions[name]
+      delete document.moonDiscovery[name]
+      document.moonCleanupReceipts[token] = true
+    }, signal)
+    this.tests.delete(name)
+  }
+  async verifyProject(cwd, name, signal) {
+    const effective = await this.effective(cwd)
+    const item = effective.records.find(
+      (row) => row.configuration.name === name && row.cacheKey
+    )
+    check(item, "请先信任项目并检查项目服务定义。")
+    check(item.configuration.enabled, "此服务已停用。")
+    return this.test(item.configuration, cwd, signal, item)
+  }
+  async sessionEntries(toolIds, cwd) {
+    const { records, errors, autoEnableCodemode } = await this.effective(cwd)
     const selected = new Set(toolIds || [])
     const entries = records.map((record) => {
-      const config = configurationToPi(record.configuration)
-      const exposure = config.exposure
+      const config =
+        record.entry?.config ?? configurationToPi(record.configuration)
+      const exposure = config.exposure ?? "codemode"
       // Deny by default, including unknown or newly announced tools. Pi's exact
       // toolExposure lookup keeps unselected tools unreachable in every path.
       const toolExposure = Object.fromEntries(
         (record.test?.tools || [])
           .filter((tool) => selected.has(tool.id))
-          .map((tool) => [tool.name, exposure])
+          .map((tool) => [
+            tool.name,
+            config.toolExposure?.[tool.name] ?? exposure,
+          ])
       )
       return {
         name: record.configuration.name,
         source: record.source,
-        scope: "global",
+        scope: record.entry?.scope ?? "global",
         config: {
           ...config,
-          enabled: config.enabled && Object.keys(toolExposure).length > 0,
+          enabled:
+            config.enabled !== false && Object.keys(toolExposure).length > 0,
           exposure: "hidden",
           toolExposure,
         },
@@ -613,13 +803,13 @@ export class McpService {
     })
     return {
       servers: entries,
-      errors: [],
-      autoEnableCodemode: true,
-      fingerprint: fingerprint(entries),
+      errors,
+      autoEnableCodemode: autoEnableCodemode !== false,
+      fingerprint: fingerprint([cwd, entries, errors, autoEnableCodemode]),
     }
   }
-  async catalog() {
-    const records = await this.list()
+  async catalog(cwd) {
+    const { records } = await this.effective(cwd)
     return records.flatMap((record) =>
       (record.test?.tools || []).map((tool) => ({
         id: tool.id,

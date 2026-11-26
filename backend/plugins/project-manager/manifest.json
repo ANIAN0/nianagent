@@ -1,0 +1,29 @@
+{
+  "id": "project-manager",
+  "name": "项目管理",
+  "description": "查看已登记项目的 Skills、MCP 与项目指令。",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "defaultEnabled": true,
+  "entries": {
+    "app": "host.mjs",
+    "web": "web.tsx"
+  },
+  "defaultConfiguration": {},
+  "configurationSchema": {
+    "type": "object",
+    "properties": {},
+    "required": [],
+    "additionalProperties": false
+  },
+  "contributions": [
+    {
+      "id": "manager",
+      "kind": "page",
+      "title": "项目管理",
+      "version": 1,
+      "remote": false
+    }
+  ],
+  "effects": ["读取已登记项目配置", "按确认的预览更新项目文件"]
+}

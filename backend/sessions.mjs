@@ -287,7 +287,7 @@ export class SessionService {
       this.measure("catalog.instructions", () => this.instructions(cwd)),
       this.measure(
         "catalog.mcpCatalog",
-        async () => this.models.mcp?.catalog() ?? []
+        async () => this.models.mcp?.catalog(cwd) ?? []
       ),
     ])
     signal?.throwIfAborted()
@@ -535,9 +535,9 @@ export class SessionService {
         ))
     )
       return false
-    const mcp = await this.models.mcp?.sessionEntries(toolIds)
+    const mcp = await this.models.mcp?.sessionEntries(toolIds, resource.cwd)
     if (mcp?.fingerprint !== resource.mcpSnapshot.fingerprint) return false
-    const mcpTools = await this.models.mcp?.catalog()
+    const mcpTools = await this.models.mcp?.catalog(resource.cwd)
     const mcpIds = new Set(
       mcpTools?.filter((tool) => tool.available).map((tool) => tool.id)
     )
@@ -707,9 +707,12 @@ export class SessionService {
             oldAvailable = resource.mcpAvailable
             oldExtensions = resource.extensionSnapshot
             resource.toolIds = [...toolIds]
-            resource.mcpSnapshot = await this.models.mcp.sessionEntries(toolIds)
+            resource.mcpSnapshot = await this.models.mcp.sessionEntries(
+              toolIds,
+              resource.cwd
+            )
             resource.mcpAvailable = new Set(
-              (await this.models.mcp.catalog())
+              (await this.models.mcp.catalog(resource.cwd))
                 .filter((tool) => tool.available)
                 .map((tool) => tool.id)
             )
@@ -779,10 +782,10 @@ export class SessionService {
     signal?.throwIfAborted()
     const resource = this.resources.get(live.session)
     const snapshot = this.models.mcp
-      ? await this.models.mcp.sessionEntries(resource.toolIds)
+      ? await this.models.mcp.sessionEntries(resource.toolIds, resource.cwd)
       : { servers: [], errors: [], fingerprint: "" }
     const available = new Set(
-      (this.models.mcp ? await this.models.mcp.catalog() : [])
+      (this.models.mcp ? await this.models.mcp.catalog(resource.cwd) : [])
         .filter((tool) => tool.available)
         .map((tool) => tool.id)
     )

@@ -50,7 +50,7 @@ type AgentsReplaceTarget = { path: string; name: string }
 
 export type AgentsReplacePreview = {
   publicationId: string
-  targets: Array<AgentsReplaceTarget & { exists: boolean }>
+  targets: Array<AgentsReplaceTarget & { exists: boolean; composed: boolean }>
 }
 
 export type AgentsReplaceResult = {

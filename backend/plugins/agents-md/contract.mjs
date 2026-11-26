@@ -212,6 +212,58 @@ export const agentsMdOperations = {
     "读取已登记项目的 AGENTS.md 全文及与当前统一版本的差异。",
     { path: "C:\\workspace\\demo" }
   ),
+  projectLibrary: operation(
+    "项目规则库",
+    object({ projectId: str("项目 ID") }),
+    object({
+      snippets: { type: "array", items: snippetSchema },
+      templates: {
+        type: "array",
+        items: object({
+          id: str("模板 ID"),
+          name: str("模板名"),
+          ids: { type: "array", items: str("片段 ID") },
+        }),
+      },
+      selected: { type: "array", items: str("片段 ID") },
+    }),
+    "读取项目的有序片段与模板。"
+  ),
+  saveProjectTemplate: operation(
+    "保存片段模板",
+    object({
+      name: str("模板名称", { minLength: 1, maxLength: 120 }),
+      ids: {
+        type: "array",
+        items: str("片段 ID"),
+        minItems: 1,
+        uniqueItems: true,
+      },
+    }),
+    str("模板 ID"),
+    "保存一组有序引用。"
+  ),
+  previewProjectEdit: operation(
+    "预览项目指令编辑",
+    object(
+      {
+        projectId: str("项目 ID"),
+        original: str("打开时原文"),
+        exists: { type: "boolean" },
+        content: str("拟写入正文", { maxLength: 500000 }),
+        snippetIds: { type: "array", items: str("片段 ID"), uniqueItems: true },
+        resolution: str("手工合并全文", { maxLength: 500000 }),
+      },
+      ["projectId", "original", "exists", "content"]
+    ),
+    object({
+      publicationId,
+      revision: int("配置版本"),
+      path: str("项目路径"),
+      diff: str("正文差异"),
+    }),
+    "记录磁盘基线与项目草稿。"
+  ),
   previewReplace: operation(
     "预览 AGENTS.md 发布目标",
     object(publicationInput),
@@ -219,7 +271,11 @@ export const agentsMdOperations = {
       publicationId,
       targets: {
         type: "array",
-        items: object({ ...publicationTarget, exists: { type: "boolean" } }),
+        items: object({
+          ...publicationTarget,
+          exists: { type: "boolean" },
+          composed: { type: "boolean" },
+        }),
       },
     }),
     "记录预览时的模板版本与目标文件状态。预览保留 30 分钟，每批目标文件总大小最多 64 MiB。",

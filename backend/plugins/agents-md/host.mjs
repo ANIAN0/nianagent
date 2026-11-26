@@ -1,10 +1,11 @@
-import { access, mkdir, readFile, realpath, stat } from "node:fs/promises"
+import { access, mkdir, readFile, stat } from "node:fs/promises"
 import { constants } from "node:fs"
-import { basename, isAbsolute, join, parse, resolve } from "node:path"
+import { join, resolve } from "node:path"
 import { randomUUID } from "node:crypto"
 import lockfile from "proper-lockfile"
 import { replaceJson, withAcquiredLock } from "../../atomic-file.mjs"
 import { agentsMdOperations } from "./contract.mjs"
+import { composeProject } from "./composition.mjs"
 import { createPublications } from "./publication.mjs"
 
 const AGENTS_FILENAME = "AGENTS.md"
@@ -138,28 +139,6 @@ function sanitizeSnippets(snippets) {
   })
 }
 
-async function resolveDirectory(inputPath, signal) {
-  signal?.throwIfAborted()
-  check(
-    typeof inputPath === "string" &&
-      inputPath.trim().length > 0 &&
-      inputPath.length <= 4096 &&
-      isAbsolute(inputPath.trim()),
-    "请输入有效的绝对目录路径。"
-  )
-  try {
-    const canonical = await realpath(inputPath.trim())
-    const info = await stat(canonical)
-    check(info.isDirectory(), "所选路径不是目录。")
-    await access(canonical, constants.R_OK)
-    signal?.throwIfAborted()
-    return canonical
-  } catch (error) {
-    if (error?.message === "所选路径不是目录。") throw error
-    throw new Error("目标目录不存在或不可访问，请重新选择。", { cause: error })
-  }
-}
-
 export async function activate(host) {
   const stateFile = join(host.directory, "state.json")
   let closed = false
@@ -211,46 +190,12 @@ export async function activate(host) {
     }, signal)
   }
 
-  async function collectRegisteredProjects(state, signal) {
-    const entries = []
-    const seen = new Set()
-
-    if (host.workspaces?.list) {
-      try {
-        const listed = await host.workspaces.list(signal)
-        for (const item of listed?.items || []) {
-          const key = pathKey(item.path)
-          if (seen.has(key)) continue
-          seen.add(key)
-          entries.push({
-            id: item.id,
-            name: item.name || basename(item.path) || parse(item.path).root,
-            path: item.path,
-            source: "workspace",
-            knownUnavailable: item.available === false,
-            unavailableReason: item.unavailableReason || "",
-          })
-        }
-      } catch {
-        // 工作区列表读取失败时不阻断手动登记目录展示
-      }
-    }
-
-    for (const item of state.customProjects || []) {
-      const key = pathKey(item.path)
-      if (seen.has(key)) continue
-      seen.add(key)
-      entries.push({
-        id: item.id,
-        name: item.name || basename(item.path) || parse(item.path).root,
-        path: item.path,
-        source: "custom",
-        knownUnavailable: false,
-        unavailableReason: "",
-      })
-    }
-
-    return entries
+  async function collectRegisteredProjects(_state, signal) {
+    return (await host.projects.list(signal)).map((project) => ({
+      ...project,
+      source: project.sources.includes("custom") ? "custom" : "workspace",
+      knownUnavailable: !project.available,
+    }))
   }
 
   async function inspectProject(entry, composedContent, signal) {
@@ -366,28 +311,8 @@ export async function activate(host) {
   }
 
   async function addDirectoryPath(inputPath, signal) {
-    const canonical = await resolveDirectory(inputPath, signal)
-    const { state } = await mutateState(async (current) => {
-      const registered = await collectRegisteredProjects(current, signal)
-      const key = pathKey(canonical)
-      if (registered.some((item) => pathKey(item.path) === key)) {
-        return { next: current, changed: false }
-      }
-      const next = {
-        ...current,
-        revision: current.revision + 1,
-        customProjects: [
-          ...current.customProjects,
-          {
-            id: randomUUID(),
-            name: basename(canonical) || parse(canonical).root,
-            path: canonical,
-          },
-        ],
-      }
-      return { next, changed: true }
-    }, signal)
-    return { canonical, status: await buildStatus(state, signal) }
+    const canonical = await host.projects.register(inputPath, signal)
+    return { canonical, status: await buildStatus(await readState(), signal) }
   }
 
   const operation = (name, execute) => ({
@@ -405,6 +330,29 @@ export async function activate(host) {
     composeAgentsContent,
     pathKey,
     ensureOpen,
+    async saveComposition(receipt) {
+      const composition = receipt.composition
+      if (
+        !composition ||
+        !receipt.targets.some((t) =>
+          ["created", "replaced"].includes(t.outcome)
+        )
+      )
+        return
+      const state = await readState()
+      state.projectBindings ??= {}
+      if (
+        state.projectBindings[composition.projectId]?.publicationId ===
+        receipt.publicationId
+      )
+        return
+      state.projectBindings[composition.projectId] = {
+        publicationId: receipt.publicationId,
+        segments: composition.segments,
+        baseline: receipt.proposedContent,
+      }
+      await replaceJson(stateFile, state, { pretty: true })
+    },
   })
 
   return {
@@ -484,25 +432,9 @@ export async function activate(host) {
       removeDirectory: operation("removeDirectory", async (input, signal) => {
         ensureOpen(signal)
         check(typeof input.id === "string" && input.id.trim(), "目录标识无效。")
-        const { state } = await mutateState((current) => {
-          check(
-            input.revision === current.revision,
-            "配置已被其他操作更新，请刷新后重试。"
-          )
-          const remaining = current.customProjects.filter(
-            (item) => item.id !== input.id
-          )
-          check(
-            remaining.length !== current.customProjects.length,
-            "只能移除手动登记的目录。"
-          )
-          const next = {
-            ...current,
-            revision: current.revision + 1,
-            customProjects: remaining,
-          }
-          return { next, changed: true }
-        }, signal)
+        const state = await readState()
+        check(input.revision === state.revision, "配置已更新，请刷新后重试。")
+        await host.projects.unregister(input.id, signal)
         return buildStatus(state, signal)
       }),
       readProject: operation("readProject", async (input, signal) => {
@@ -553,6 +485,82 @@ export async function activate(host) {
           diff: buildLineDiff(normalized, composedContent),
         }
       }),
+      projectLibrary: operation(
+        "projectLibrary",
+        async ({ projectId }, signal) => {
+          const state = await readState()
+          const project = (await host.projects.list(signal)).find((p) =>
+            p.aliases.includes(projectId)
+          )
+          check(project, "项目已取消登记。")
+          return {
+            snippets: state.snippets,
+            templates: state.templates ?? [],
+            selected: (state.projectBindings?.[project.id]?.segments ?? []).map(
+              (s) => s.id
+            ),
+          }
+        }
+      ),
+      saveProjectTemplate: operation(
+        "saveProjectTemplate",
+        async ({ name, ids }, signal) => {
+          const { result } = await mutateState((current) => {
+            check(
+              ids.every((id) => current.snippets.some((s) => s.id === id)),
+              "片段已删除。"
+            )
+            const templates = current.templates ?? []
+            check(!templates.some((t) => t.name === name), "同名模板已存在。")
+            const id = randomUUID()
+            return {
+              next: {
+                ...current,
+                revision: current.revision + 1,
+                templates: [...templates, { id, name, ids }],
+              },
+              changed: true,
+              result: id,
+            }
+          }, signal)
+          return result
+        }
+      ),
+      previewProjectEdit: operation(
+        "previewProjectEdit",
+        async (input, signal) => {
+          const state = await readState()
+          const project = (await host.projects.list(signal)).find((row) =>
+            row.aliases.includes(input.projectId)
+          )
+          check(project?.available, "项目已失联或取消登记。")
+          const edit = { ...input }
+          if (input.snippetIds) {
+            const selection = composeProject(
+              input.original,
+              state.projectBindings?.[project.id],
+              state.snippets,
+              input.snippetIds,
+              input.resolution
+            )
+            edit.content = selection.content
+            edit.composition = {
+              projectId: project.id,
+              segments: selection.segments,
+            }
+          }
+          const preview = await publications.preview(
+            { revision: state.revision, paths: [project.path], edit },
+            signal
+          )
+          return {
+            publicationId: preview.publicationId,
+            revision: state.revision,
+            path: project.path,
+            diff: buildLineDiff(input.original, edit.content),
+          }
+        }
+      ),
       previewReplace: operation("previewReplace", publications.preview),
       replaceProjects: operation("replaceProjects", publications.publish),
       replaceResult: operation("replaceResult", publications.result),

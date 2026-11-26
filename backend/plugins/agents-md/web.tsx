@@ -67,7 +67,7 @@ import {
 } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ReadOnlyPatch } from "@/components/read-only-patch"
-import { MarkdownEditor } from "./markdown-editor"
+import { MarkdownEditor } from "@/components/markdown-editor"
 import { callPlugin } from "@/features/plugins/plugin-service"
 import type { PluginWebModule } from "@/features/plugins/plugin-api"
 import { profileLocalStorage } from "@/lib/rpc/profile-storage"
@@ -1445,7 +1445,11 @@ export function Page() {
                     </div>
                   </div>
                   <span className="shrink-0 text-[11px] text-muted-foreground">
-                    {item.exists ? "覆盖" : "新建"}
+                    {item.composed
+                      ? "覆盖已有项目组合"
+                      : item.exists
+                        ? "覆盖"
+                        : "新建"}
                   </span>
                 </li>
               ))}

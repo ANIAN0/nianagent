@@ -4,10 +4,19 @@
 // 工作台本体（前端页面、API、SQLite 数据）运行在独立进程 apps/workbench 中。
 import { redactSensitive } from "../../redact.mjs"
 import { skillWorkbenchOperations } from "./contract.mjs"
+import { createProjectSkills } from "./project-skills.mjs"
 import { skillTools } from "./tool-catalog.mjs"
 
 export async function activate(host) {
   const supervisor = host.workbench(skillWorkbenchOperations)
+
+  const projects = createProjectSkills(host, supervisor)
+  const projectOperation = (name, fn) => ({
+    ...skillWorkbenchOperations[name],
+    execute: async (input, _context, signal) => ({
+      value: await fn(input, signal),
+    }),
+  })
 
   const sharedTools = skillTools.map((spec) => ({
     ...spec,
@@ -67,7 +76,23 @@ export async function activate(host) {
 
   return {
     sharedTools,
-    operations: supervisor.baseOperations,
+    operations: {
+      ...supervisor.baseOperations,
+      sharedSources: projectOperation("sharedSources", () =>
+        projects.sharedSources()
+      ),
+      listProjectSkills: projectOperation(
+        "listProjectSkills",
+        (_input, signal) => projects.list(signal)
+      ),
+      previewInstall: projectOperation("previewInstall", projects.prepare),
+      applyInstall: projectOperation("applyInstall", ({ previewId }, signal) =>
+        projects.apply(previewId, signal)
+      ),
+      installResult: projectOperation("installResult", ({ previewId }) =>
+        projects.result(previewId)
+      ),
+    },
     status: supervisor.statusText,
     quiesce: supervisor.quiesce,
     resume: supervisor.resume,

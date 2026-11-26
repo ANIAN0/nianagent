@@ -100,6 +100,21 @@ export class MoonServices {
         identity: (value) => self.sessions.identity(value),
         cwd: (value) => self.sessions.cwd(value),
       },
+      projectMcp: {
+        personal: async () => ({
+          path: this.mcp.file,
+          names: Object.keys((await this.mcp.document()).mcpServers),
+        }),
+        cleanupEvidence: (cwd, name) => this.mcp.cleanupEvidence(cwd, name),
+        removeVerified: (cwd, name, proof, token, signal) =>
+          this.mcp.removeVerified(cwd, name, proof, token, signal),
+        definitions: () => this.mcp.listDefinitions(),
+        saveDefinition: (input, signal) =>
+          this.mcp.saveDefinition(input, signal),
+        trust: (path, decision) => this.mcp.projectTrust(path, decision),
+        verify: (path, name, signal) =>
+          this.mcp.verifyProject(path, name, signal),
+      },
       workspaces: {
         list: (signal) => self.workspaces.list(signal),
         pickDirectory: (signal) => pickNativeDirectory(signal),

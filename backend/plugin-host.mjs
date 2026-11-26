@@ -1,3 +1,4 @@
+import { createProjectRegistry } from "./project-registry.mjs"
 import { setTranslationEnabled } from "./native-translation.mjs"
 import { loadPiSdk } from "./pi-sdk.mjs"
 import { existsSync } from "node:fs"
@@ -67,6 +68,7 @@ export class PluginHost {
     this.file = join(this.directory, "configuration.json")
     this.root = pluginRoot
     this.ports = ports
+    this.projects = createProjectRegistry(directory, ports.workspaces)
     this.entries = new Map()
     this.toolOwners = new Map()
     this.closed = false
@@ -533,6 +535,15 @@ export class PluginHost {
             materials: this.ports.materials,
             sessions: this.ports.sessions,
             workspaces: this.ports.workspaces,
+            ...(entry.sourceKind === "bundled" && entry.id === "project-manager"
+              ? { mcp: this.ports.projectMcp }
+              : {}),
+            ...(entry.sourceKind === "bundled" &&
+            ["agents-md", "project-manager", "skill-workbench"].includes(
+              entry.id
+            )
+              ? { projects: this.projects }
+              : {}),
             registerRemoteContextResolver,
             isActive: () =>
               entry.generation === generation &&
