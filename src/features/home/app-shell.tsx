@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/sheet"
 import { notifyToast } from "@/components/ui/notification-toast"
 import { HomeSidebar } from "./home-sidebar"
+import type { SidebarUpdateIndicator } from "./user-menu"
 import type { PrimaryNavigationActive } from "./primary-navigation"
 import { ConversationSearch } from "./conversation-search"
 import type { ConversationRowActions } from "./conversation-row-menu"
@@ -76,6 +77,7 @@ export function AppShell({
   onNew,
   onSelectConversation,
   onSettings,
+  updateIndicator,
   onPlugins,
   rowActions,
   activeNav,
@@ -91,6 +93,7 @@ export function AppShell({
   onNew: (workspaceId?: string) => void
   onSelectConversation: (conversation: Conversation) => void
   onSettings?: () => void
+  updateIndicator?: SidebarUpdateIndicator
   onPlugins?: () => void
   rowActions?: ConversationRowActions
   activeNav?: PrimaryNavigationActive
@@ -245,6 +248,17 @@ export function AppShell({
             setMobileOpen(false)
             onSettings()
           })
+        }
+      : undefined,
+    updateIndicator: updateIndicator
+      ? {
+          ...updateIndicator,
+          onAction: () => {
+            runNavigation(() => {
+              setMobileOpen(false)
+              updateIndicator.onAction()
+            })
+          },
         }
       : undefined,
     onPlugins: onPlugins

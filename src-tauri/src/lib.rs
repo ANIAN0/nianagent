@@ -14,6 +14,7 @@ mod selection_translate;
 mod storage;
 #[cfg(windows)]
 mod translation_text;
+mod updater;
 mod window_lifecycle;
 mod windows_guard;
 pub use managed_child::entry as managed_child_entry;
@@ -86,6 +87,8 @@ pub fn run() -> Result<(), String> {
             desktop_commands::update_cancel,
             desktop_commands::update_set_preferences,
             desktop_commands::update_install,
+            desktop_commands::update_dismiss_error,
+            desktop_commands::update_acknowledge_updated,
             boot::boot_get_state,
             boot::boot_retry,
             boot::boot_acknowledge_frontend,

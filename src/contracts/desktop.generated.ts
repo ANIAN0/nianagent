@@ -148,7 +148,7 @@ export type MigrationPlan = {
   expiresAt: string
   activities: Activity[]
 }
-export type MaintenanceKind = "none" | "migration" | "update"
+export type MaintenanceKind = "none" | "migration"
 export type MaintenancePhase =
   | "idle"
   | "preparing"
@@ -181,21 +181,33 @@ export type UpdateRelease = {
   version: string
   notes: string
   publishedAt: string | null
+  releaseUrl: string
 }
 export type UpdatePhase =
   | "unavailable"
   | "idle"
   | "checking"
-  | "current"
+  | "upToDate"
   | "available"
   | "downloading"
-  | "verifying"
   | "ready"
-  | "preparing"
-  | "handedOff"
-  | "succeeded"
-  | "failed"
-  | "unknown"
+  | "installing"
+  | "error"
+export type UpdateErrorCode =
+  | "offline"
+  | "signature"
+  | "compatibility"
+  | "activeSessions"
+  | "installFailed"
+  | "cancelled"
+  | "unavailable"
+export type UpdateActiveSession = { id: string; title: string }
+export type UpdateError = {
+  code: UpdateErrorCode
+  message: string
+  detail: string | null
+  activeSessions: UpdateActiveSession[]
+}
 export type UpdateState = {
   operationId: string | null
   revision: number
@@ -204,7 +216,8 @@ export type UpdateState = {
   downloadedBytes: number
   totalBytes: number | null
   checkedAt: string | null
-  issue: DesktopIssue | null
+  error: UpdateError | null
+  justUpdatedFrom: string | null
 }
 export type DesktopSnapshot = {
   revision: number
@@ -240,8 +253,7 @@ export type FlushAcknowledgeInput = {
   blockers: Activity[]
 }
 export type ReleaseInput = { releaseId: string }
-export type UpdateInstallInput = { releaseId: string; stopActive: boolean }
-export type CancelInput = { operationId: string }
+export type UpdateInstallInput = { releaseId: string; forceStop: boolean }
 export type RetainedCopyInput = { index: number }
 export type FileOpenInput = { path: string; program: string | null }
 export type FileExportInput = { path: string; name: string }
@@ -272,9 +284,11 @@ export type DesktopRequests = {
   desktop_restart: undefined
   update_check: undefined
   update_download: ReleaseInput
-  update_cancel: CancelInput
+  update_cancel: undefined
   update_set_preferences: UpdatePreferences
   update_install: UpdateInstallInput
+  update_dismiss_error: undefined
+  update_acknowledge_updated: undefined
 }
 export type DesktopResults = {
   file_editors: InstalledEditors
@@ -303,7 +317,9 @@ export type DesktopResults = {
   update_download: UpdateState
   update_cancel: UpdateState
   update_set_preferences: UpdatePreferences
-  update_install: MaintenanceState
+  update_install: UpdateState
+  update_dismiss_error: UpdateState
+  update_acknowledge_updated: null
 }
 export type DesktopCommand = keyof DesktopRequests
 export const desktopCommandMetadata = {
@@ -496,7 +512,7 @@ export const desktopCommandMetadata = {
     title: "检查更新",
     input: null,
     result: "UpdateState",
-    effect: "固定GitHub stable来源；不自动安装。",
+    effect: "从 GitHub Releases 稳定通道检查更新，不自动安装。",
     source: "src-tauri/src/desktop_commands.rs",
   },
   update_download: {
@@ -504,15 +520,15 @@ export const desktopCommandMetadata = {
     title: "下载并验证更新",
     input: "ReleaseInput",
     result: "UpdateState",
-    effect: "后台官方download，签名验证后才可安装。",
+    effect: "后台下载并校验 Ed25519 签名，验证通过后暂存至本地磁盘。",
     source: "src-tauri/src/desktop_commands.rs",
   },
   update_cancel: {
     module: "关于与更新",
     title: "取消检查或下载",
-    input: "CancelInput",
+    input: null,
     result: "UpdateState",
-    effect: "只能取消当前网络阶段。",
+    effect: "取消当前检查或下载任务。",
     source: "src-tauri/src/desktop_commands.rs",
   },
   update_set_preferences: {
@@ -520,15 +536,32 @@ export const desktopCommandMetadata = {
     title: "保存更新偏好",
     input: "UpdatePreferences",
     result: "UpdatePreferences",
-    effect: "保存到当前数据根，默认自动检查开/自动下载关。",
+    effect: "保存到当前数据根，默认自动检查开、自动下载开。",
     source: "src-tauri/src/desktop_commands.rs",
   },
   update_install: {
     module: "关于与更新",
     title: "安装并重启",
     input: "UpdateInstallInput",
-    result: "MaintenanceState",
-    effect: "明确确认、冻结、保存、严格drain后官方install。",
+    result: "UpdateState",
+    effect:
+      "检查活跃会话、保存草稿并优雅关闭后端后交由安装程序完成更新并重启。",
+    source: "src-tauri/src/desktop_commands.rs",
+  },
+  update_dismiss_error: {
+    module: "关于与更新",
+    title: "清除更新错误",
+    input: null,
+    result: "UpdateState",
+    effect: "清除当前更新错误提示并恢复可用状态。",
+    source: "src-tauri/src/desktop_commands.rs",
+  },
+  update_acknowledge_updated: {
+    module: "关于与更新",
+    title: "确认更新成功提示",
+    input: null,
+    result: null,
+    effect: "清除新版本首次启动的更新成功标记。",
     source: "src-tauri/src/desktop_commands.rs",
   },
 } as const
@@ -759,7 +792,7 @@ export const desktopSchemaMetadata = {
       activities: { type: "array", items: { $ref: "Activity" } },
     },
   },
-  MaintenanceKind: { type: "string", enum: ["none", "migration", "update"] },
+  MaintenanceKind: { type: "string", enum: ["none", "migration"] },
   MaintenancePhase: {
     type: "string",
     enum: [
@@ -807,6 +840,7 @@ export const desktopSchemaMetadata = {
       version: { type: "string" },
       notes: { type: "string" },
       publishedAt: { nullable: { type: "string" } },
+      releaseUrl: { type: "string" },
     },
   },
   UpdatePhase: {
@@ -815,17 +849,38 @@ export const desktopSchemaMetadata = {
       "unavailable",
       "idle",
       "checking",
-      "current",
+      "upToDate",
       "available",
       "downloading",
-      "verifying",
       "ready",
-      "preparing",
-      "handedOff",
-      "succeeded",
-      "failed",
-      "unknown",
+      "installing",
+      "error",
     ],
+  },
+  UpdateErrorCode: {
+    type: "string",
+    enum: [
+      "offline",
+      "signature",
+      "compatibility",
+      "activeSessions",
+      "installFailed",
+      "cancelled",
+      "unavailable",
+    ],
+  },
+  UpdateActiveSession: {
+    type: "object",
+    properties: { id: { type: "string" }, title: { type: "string" } },
+  },
+  UpdateError: {
+    type: "object",
+    properties: {
+      code: { $ref: "UpdateErrorCode" },
+      message: { type: "string" },
+      detail: { nullable: { type: "string" } },
+      activeSessions: { type: "array", items: { $ref: "UpdateActiveSession" } },
+    },
   },
   UpdateState: {
     type: "object",
@@ -837,7 +892,8 @@ export const desktopSchemaMetadata = {
       downloadedBytes: { type: "integer" },
       totalBytes: { nullable: { type: "integer" } },
       checkedAt: { nullable: { type: "string" } },
-      issue: { nullable: { $ref: "DesktopIssue" } },
+      error: { nullable: { $ref: "UpdateError" } },
+      justUpdatedFrom: { nullable: { type: "string" } },
     },
   },
   DesktopSnapshot: {
@@ -899,12 +955,8 @@ export const desktopSchemaMetadata = {
     type: "object",
     properties: {
       releaseId: { type: "string" },
-      stopActive: { type: "boolean" },
+      forceStop: { type: "boolean" },
     },
-  },
-  CancelInput: {
-    type: "object",
-    properties: { operationId: { type: "string" } },
   },
   RetainedCopyInput: {
     type: "object",

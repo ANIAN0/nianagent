@@ -199,6 +199,24 @@ export function useDesktopView() {
     service.getSnapshot
   )
 }
+const emptyDesktopView: DesktopView = {
+  snapshot: null,
+  issue: null,
+  listening: false,
+}
+const noopSubscribe = () => () => {}
+const getEmptyDesktopView = () => emptyDesktopView
+export function useOptionalDesktopService() {
+  return useContext(DesktopContext)
+}
+export function useOptionalDesktopView(): DesktopView {
+  const service = useContext(DesktopContext)
+  return useSyncExternalStore(
+    service ? service.subscribe : noopSubscribe,
+    service ? service.getSnapshot : getEmptyDesktopView,
+    service ? service.getSnapshot : getEmptyDesktopView
+  )
+}
 export function useDesktopLifecycle() {
   const [service] = useState(createDesktopService)
   useEffect(() => service.start(), [service])

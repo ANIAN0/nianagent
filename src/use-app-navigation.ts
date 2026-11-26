@@ -63,6 +63,10 @@ export function useAppNavigation(
     enterView("settings", "archived")
   }, [enterView])
 
+  const openUpdateSettings = useCallback(() => {
+    enterView("settings", "updates")
+  }, [enterView])
+
   const openPlugins = useCallback(() => {
     enterView(view === "plugins" ? "conversation" : "plugins")
   }, [enterView, view])
@@ -109,6 +113,7 @@ export function useAppNavigation(
     openSettings,
     openGeneralSettings,
     openArchivedSettings,
+    openUpdateSettings,
     openPlugins,
     leaveSettings,
     selectConversation,

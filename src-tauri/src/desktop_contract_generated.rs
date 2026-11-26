@@ -310,8 +310,6 @@ pub enum MaintenanceKind {
     None,
     #[serde(rename = "migration")]
     Migration,
-    #[serde(rename = "update")]
-    Update,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -372,6 +370,7 @@ pub struct UpdateRelease {
     pub version: String,
     pub notes: String,
     pub published_at: Option<String>,
+    pub release_url: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -382,26 +381,52 @@ pub enum UpdatePhase {
     Idle,
     #[serde(rename = "checking")]
     Checking,
-    #[serde(rename = "current")]
-    Current,
+    #[serde(rename = "upToDate")]
+    UpToDate,
     #[serde(rename = "available")]
     Available,
     #[serde(rename = "downloading")]
     Downloading,
-    #[serde(rename = "verifying")]
-    Verifying,
     #[serde(rename = "ready")]
     Ready,
-    #[serde(rename = "preparing")]
-    Preparing,
-    #[serde(rename = "handedOff")]
-    HandedOff,
-    #[serde(rename = "succeeded")]
-    Succeeded,
-    #[serde(rename = "failed")]
-    Failed,
-    #[serde(rename = "unknown")]
-    Unknown,
+    #[serde(rename = "installing")]
+    Installing,
+    #[serde(rename = "error")]
+    Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum UpdateErrorCode {
+    #[serde(rename = "offline")]
+    Offline,
+    #[serde(rename = "signature")]
+    Signature,
+    #[serde(rename = "compatibility")]
+    Compatibility,
+    #[serde(rename = "activeSessions")]
+    ActiveSessions,
+    #[serde(rename = "installFailed")]
+    InstallFailed,
+    #[serde(rename = "cancelled")]
+    Cancelled,
+    #[serde(rename = "unavailable")]
+    Unavailable,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UpdateActiveSession {
+    pub id: String,
+    pub title: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UpdateError {
+    pub code: UpdateErrorCode,
+    pub message: String,
+    pub detail: Option<String>,
+    pub active_sessions: Vec<UpdateActiveSession>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -414,7 +439,8 @@ pub struct UpdateState {
     pub downloaded_bytes: u64,
     pub total_bytes: Option<u64>,
     pub checked_at: Option<String>,
-    pub issue: Option<DesktopIssue>,
+    pub error: Option<UpdateError>,
+    pub just_updated_from: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -490,13 +516,7 @@ pub struct ReleaseInput {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct UpdateInstallInput {
     pub release_id: String,
-    pub stop_active: bool,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct CancelInput {
-    pub operation_id: String,
+    pub force_stop: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

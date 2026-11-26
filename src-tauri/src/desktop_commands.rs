@@ -1,6 +1,6 @@
 use crate::{
     desktop_contract_generated::*,
-    desktop_runtime::{self, DesktopResult, DesktopRuntime, issue},
+    desktop_runtime::{DesktopResult, DesktopRuntime, issue},
     migration,
     models::ModelBackend,
     storage::{self, DataMarker},
@@ -139,7 +139,7 @@ pub async fn desktop_export_diagnostics(
         "maintenancePhase": snapshot.maintenance.phase,
         "maintenanceIssueCode": snapshot.maintenance.issue.map(|issue| issue.code),
         "updatePhase": snapshot.update.phase,
-        "updateIssueCode": snapshot.update.issue.map(|issue| issue.code),
+        "updateIssueCode": snapshot.update.error.map(|error| error.code),
     });
     tauri::async_runtime::spawn_blocking(move || {
         let Some(path) = rfd::FileDialog::new()
@@ -216,7 +216,7 @@ fn validate_migration_environment(snapshot: &DesktopSnapshot) -> DesktopResult<(
     if snapshot.maintenance.writes_frozen
         || matches!(
             snapshot.update.phase,
-            UpdatePhase::Downloading | UpdatePhase::Verifying | UpdatePhase::Preparing
+            UpdatePhase::Downloading | UpdatePhase::Installing
         )
     {
         return Err(issue(
@@ -674,7 +674,7 @@ pub fn desktop_acknowledge_startup(
 ) -> DesktopResult<()> {
     let service = app.state::<DesktopRuntime>();
     service.acknowledge_startup(&app, input)?;
-    desktop_runtime::automatic_check(&app);
+    crate::updater::schedule_background_checks(&app);
     Ok(())
 }
 #[tauri::command]
@@ -696,59 +696,23 @@ pub fn desktop_restart(app: AppHandle, service: State<'_, DesktopRuntime>) -> De
 }
 #[tauri::command]
 pub fn update_check(app: AppHandle) -> DesktopResult<UpdateState> {
-    desktop_runtime::check_update(&app)
+    crate::updater::check_update(&app, false)
 }
 #[tauri::command]
 pub fn update_download(app: AppHandle, input: ReleaseInput) -> DesktopResult<UpdateState> {
-    desktop_runtime::download_update(&app, &input.release_id)
+    crate::updater::download_update(&app, &input.release_id)
 }
 #[tauri::command]
-pub fn update_cancel(app: AppHandle, input: CancelInput) -> DesktopResult<UpdateState> {
-    let service = app.state::<DesktopRuntime>();
-    let _action = service
-        .actions
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner());
-    let snapshot = service.snapshot();
-    if snapshot.update.operation_id.as_deref() != Some(&input.operation_id)
-        || !matches!(
-            snapshot.update.phase,
-            UpdatePhase::Checking | UpdatePhase::Downloading | UpdatePhase::Verifying
-        )
-    {
-        return Err(issue(
-            IssueCode::Busy,
-            "当前阶段不能取消，请读取最新状态。",
-            RecoveryAction::None,
-        ));
-    }
-    service.change(&app, |state| {
-        state.update.operation_id = None;
-        state.update.phase = if state.update.release.is_some() {
-            UpdatePhase::Available
-        } else {
-            UpdatePhase::Idle
-        };
-        state.update.issue = Some(issue(
-            IssueCode::Cancelled,
-            "检查或下载已取消，重试会重新下载。",
-            RecoveryAction::Retry,
-        ));
-    });
-    if let Some((_, task)) = service
-        .network
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner())
-        .take()
-    {
-        task.abort();
-    }
-    service
-        .bytes
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner())
-        .take();
-    Ok(service.snapshot().update)
+pub fn update_cancel(app: AppHandle) -> DesktopResult<UpdateState> {
+    crate::updater::cancel_update(&app)
+}
+#[tauri::command]
+pub fn update_dismiss_error(app: AppHandle) -> DesktopResult<UpdateState> {
+    crate::updater::dismiss_error(&app)
+}
+#[tauri::command]
+pub fn update_acknowledge_updated(app: AppHandle) -> DesktopResult<()> {
+    crate::updater::acknowledge_updated(&app)
 }
 #[tauri::command]
 pub async fn update_set_preferences(
@@ -777,7 +741,7 @@ fn save_update_preferences(
     if service.snapshot().maintenance.writes_frozen {
         return Err(issue(
             IssueCode::Busy,
-            "正在维护，稍后保存更新设置。",
+            "正在执行数据迁移，稍后保存更新设置。",
             RecoveryAction::Wait,
         ));
     }
@@ -790,122 +754,14 @@ fn save_update_preferences(
 pub async fn update_install(
     app: AppHandle,
     input: UpdateInstallInput,
-) -> DesktopResult<MaintenanceState> {
-    tauri::async_runtime::spawn_blocking(move || install_update(app, input))
+) -> DesktopResult<UpdateState> {
+    tauri::async_runtime::spawn_blocking(move || crate::updater::install_update(app, input))
         .await
         .map_err(|_| {
             issue(
                 IssueCode::Internal,
-                "更新启动结果未确认，请读取当前状态。",
+                "更新安装未能启动，请重试。",
                 RecoveryAction::Retry,
             )
         })?
-}
-fn install_update(app: AppHandle, input: UpdateInstallInput) -> DesktopResult<MaintenanceState> {
-    let service = app.state::<DesktopRuntime>();
-    let _request = service
-        .maintenance_requests
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner());
-    let snapshot = service.snapshot();
-    if snapshot.maintenance.writes_frozen
-        && matches!(snapshot.maintenance.kind, MaintenanceKind::Update)
-        && snapshot
-            .update
-            .release
-            .as_ref()
-            .is_some_and(|release| release.release_id == input.release_id)
-    {
-        return Ok(snapshot.maintenance);
-    }
-    if !snapshot.capabilities.install_updates {
-        return Err(issue(
-            IssueCode::Unavailable,
-            "开发模式或未配置发行公钥，不能安装正式更新。",
-            RecoveryAction::None,
-        ));
-    }
-    if snapshot
-        .update
-        .release
-        .as_ref()
-        .map(|release| release.release_id.as_str())
-        != Some(&input.release_id)
-        || !matches!(snapshot.update.phase, UpdatePhase::Ready)
-    {
-        return Err(issue(
-            IssueCode::Validation,
-            "当前版本尚未完成下载与签名校验。",
-            RecoveryAction::Retry,
-        ));
-    }
-    let id = uuid::Uuid::new_v4().to_string();
-    let release = snapshot.update.release.unwrap();
-    service.begin(
-        &app,
-        MaintenanceKind::Update,
-        id.clone(),
-        Some(storage::text(&service.paths.data)),
-        None,
-    )?;
-    service.change(&app, |state| state.update.phase = UpdatePhase::Preparing);
-    let handle = app.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let service = handle.state::<DesktopRuntime>();
-        let mut record = json!({"operationId":id,"kind":"update","sourceDirectory":storage::text(&service.paths.data),"dataSetId":service.paths.marker.data_set_id,"generation":service.paths.bootstrap.generation,"oldVersion":env!("CARGO_PKG_VERSION"),"targetVersion":release.version,"releaseId":release.release_id,"shutdownStarted":false,"phase":"preparing","committed":false});
-        let result = (|| -> DesktopResult<()> {
-            service.persist(&record)?;
-            storage::private_directory(&service.paths.control, false)
-                .map_err(|message| issue(IssueCode::Permission, message, RecoveryAction::Retry))?;
-            storage::private_directory(&service.paths.data, false)
-                .map_err(|message| issue(IssueCode::Permission, message, RecoveryAction::Retry))?;
-            service.prepare_shutdown(&handle, &mut record, input.stop_active)?;
-            let update = service
-                .update
-                .lock()
-                .unwrap_or_else(|poison| poison.into_inner())
-                .clone()
-                .ok_or_else(|| {
-                    issue(
-                        IssueCode::Unknown,
-                        "更新元数据已失效，请重启恢复。",
-                        RecoveryAction::Restart,
-                    )
-                })?;
-            let bytes = service
-                .bytes
-                .lock()
-                .unwrap_or_else(|poison| poison.into_inner())
-                .take()
-                .ok_or_else(|| {
-                    issue(
-                        IssueCode::Unknown,
-                        "更新字节已失效，请重启后重新下载。",
-                        RecoveryAction::Restart,
-                    )
-                })?;
-            record["phase"] = json!("handedOff");
-            service.persist(&record)?;
-            service.change(&handle, |state| {
-                state.maintenance.phase = MaintenancePhase::HandedOff;
-                state.update.phase = UpdatePhase::HandedOff;
-            });
-            // 此前已经严格drain并确认Node真实退出；on_before_exit只是同步最后保障。
-            update.install(bytes).map_err(|_| {
-                issue(
-                    IssueCode::Unknown,
-                    "安装准备或启动未完成，请重新启动Moon恢复服务并核对版本；不会自动重试安装。",
-                    RecoveryAction::Restart,
-                )
-            })?;
-            Ok(())
-        })();
-        if let Err(error) = result {
-            record["phase"] = json!("failed");
-            record["message"] = json!(error.message);
-            let _ = service.persist(&record);
-            service.fail(&handle, error);
-        }
-    });
-    Ok(service.snapshot().maintenance)
 }

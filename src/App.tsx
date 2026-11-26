@@ -11,6 +11,11 @@ import {
 import { AppProviders } from "@/app-providers"
 import { useAppNavigation, type AppNavigationHooks } from "@/use-app-navigation"
 import { MaintenanceStatus } from "@/features/settings/maintenance-status"
+import { UpdateNotifier } from "@/features/settings/update-notifier"
+import {
+  useOptionalDesktopService,
+  useOptionalDesktopView,
+} from "@/features/settings/desktop-service"
 import {
   frontendBlocker,
   useMaintenanceSave,
@@ -130,6 +135,7 @@ export default function App() {
     openSettings,
     openGeneralSettings,
     openArchivedSettings,
+    openUpdateSettings,
     openPlugins,
     leaveSettings,
     selectConversation,
@@ -332,6 +338,38 @@ export default function App() {
     }
   }
 
+  const desktopService = useOptionalDesktopService()
+  const { snapshot: desktopSnapshot } = useOptionalDesktopView()
+  const updateIndicator = useMemo(() => {
+    const update = desktopSnapshot?.update
+    const release = update?.release
+    if (
+      !release ||
+      (update?.phase !== "ready" && update?.phase !== "available")
+    )
+      return undefined
+    return {
+      phase: update.phase,
+      version: release.version,
+      onAction: () => {
+        if (
+          update.phase === "ready" &&
+          desktopSnapshot?.capabilities.installUpdates &&
+          desktopService
+        ) {
+          void desktopService
+            .call("update_install", {
+              releaseId: release.releaseId,
+              forceStop: false,
+            })
+            .catch(() => navigation.run(openUpdateSettings))
+          return
+        }
+        navigation.run(openUpdateSettings)
+      },
+    }
+  }, [desktopSnapshot, desktopService, navigation, openUpdateSettings])
+
   return (
     <AppProviders
       permissionService={permissionService}
@@ -349,6 +387,7 @@ export default function App() {
         historyIssue={catalog.historyIssue}
         onHistoryRetry={() => void catalog.refresh()}
         onSettings={() => navigation.run(openGeneralSettings)}
+        updateIndicator={updateIndicator}
         onPlugins={() => navigation.run(openPlugins)}
         onSelectConversation={(item) =>
           leaveSettings(() => selectConversation(item.id))
@@ -363,6 +402,10 @@ export default function App() {
         hideNavigation={settingsOpen}
       >
         <MaintenanceStatus />
+        <UpdateNotifier
+          onOpenUpdates={() => navigation.run(openUpdateSettings)}
+          viewingUpdates={settingsOpen && settingsSection === "updates"}
+        />
         {notice && (
           <div className="shrink-0 px-4 py-2">
             <OperationFeedback

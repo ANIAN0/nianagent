@@ -14,7 +14,7 @@ import {
   ConversationHistory,
   type ConversationHistoryPosition,
 } from "./conversation-history"
-import { UserMenu } from "./user-menu"
+import { UserMenu, type SidebarUpdateIndicator } from "./user-menu"
 import type { ConversationRowActions } from "./conversation-row-menu"
 import type {
   ComposerData,
@@ -33,6 +33,7 @@ export type HomeSidebarProps = {
   onSearch: () => void
   onSearchWorkspace?: (workspace: Workspace) => void
   onSettings?: () => void
+  updateIndicator?: SidebarUpdateIndicator
   onPlugins?: () => void
   onNotice: (message: string) => void
   /** 当前主导航视图；导航行据此高亮。 */
@@ -56,6 +57,7 @@ export function HomeSidebar({
   onSearchWorkspace,
   onNotice,
   onSettings,
+  updateIndicator,
   onPlugins,
   activeNav,
   shortcuts = true,
@@ -162,6 +164,7 @@ export function HomeSidebar({
                   onSettings ??
                   (() => onNotice("当前为独立组件预览，请从正式页面打开设置。"))
                 }
+                updateIndicator={updateIndicator}
               />
             </div>
           )}
@@ -175,6 +178,7 @@ export function HomeSidebar({
               onSettings ??
               (() => onNotice("当前为独立组件预览，请从正式页面打开设置。"))
             }
+            updateIndicator={updateIndicator}
           />
         </div>
       )}

@@ -1,9 +1,14 @@
 import { useState } from "react"
+import { invoke, isTauri } from "@tauri-apps/api/core"
+import {
+  ChevronDown,
+  Download,
+  ExternalLink,
+  RefreshCw,
+  RotateCcw,
+} from "lucide-react"
 import type { LeaveGuard } from "@/lib/navigation/leave-guard"
-import { SettingsConfirmDialog } from "@/components/operations/settings-confirmation"
-import { useDesktopSettingsLeave } from "./use-desktop-settings-leave"
-import { RefreshCw } from "lucide-react"
-import type { DesktopIssue, UpdatePhase } from "@/contracts/desktop.generated"
+import type { DesktopIssue } from "@/contracts/desktop.generated"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -11,304 +16,387 @@ import {
   CardAction,
   CardContent,
   CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
+import { Progress } from "@/components/ui/progress"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Progress } from "@/components/ui/progress"
-import {
-  AlertDialog,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogDescription,
-  AlertDialogFooter,
-} from "@/components/ui/alert-dialog"
 import { useDesktopService, useDesktopView } from "./desktop-service"
-import {
-  ActivityList,
-  DesktopFeedback,
-  desktopIssue,
-  formatBytes,
-} from "./settings-feedback"
+import { DesktopFeedback, desktopIssue, formatBytes } from "./settings-feedback"
+import { useDesktopSettingsLeave } from "./use-desktop-settings-leave"
 
-const phaseLabels: Record<UpdatePhase, string> = {
-  unavailable: "当前环境无法更新",
-  idle: "尚未检查更新",
-  checking: "正在检查更新…",
-  current: "已是最新版本",
-  available: "发现新版本",
-  downloading: "正在下载更新…",
-  verifying: "正在验证更新签名…",
-  ready: "更新已下载并验证",
-  preparing: "正在准备安装…",
-  handedOff: "已交给安装程序，等待重新启动确认",
-  succeeded: "更新成功",
-  failed: "更新未完成",
-  unknown: "上次更新结果待核对",
+function formatCheckedAt(iso: string) {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return ""
+  const diffMinutes = Math.floor((Date.now() - date.getTime()) / 60_000)
+  if (diffMinutes < 1) return "刚刚"
+  if (diffMinutes < 60) return `${diffMinutes} 分钟前`
+  const diffHours = Math.floor(diffMinutes / 60)
+  if (diffHours < 24) return `${diffHours} 小时前`
+  return date.toLocaleDateString()
 }
+
+function formatPlatform(platform: string, arch: string) {
+  const osLabel =
+    platform === "windows"
+      ? "Windows"
+      : platform === "macos"
+        ? "macOS"
+        : platform
+  const archLabel = arch === "x86_64" ? "x64" : arch
+  return `${osLabel} · ${archLabel}`
+}
+
 export function UpdateSettings({
   registerLeave,
 }: {
   registerLeave?: (guard: LeaveGuard | null) => void
 }) {
   const service = useDesktopService()
-  const { snapshot, issue: stateIssue, listening } = useDesktopView()
-  const [issue, setIssue] = useState<DesktopIssue | null>(null)
+  const { snapshot, issue: stateIssue } = useDesktopView()
+  const [commandIssue, setCommandIssue] = useState<DesktopIssue | null>(null)
   const [busy, setBusy] = useState(false)
-  const [confirm, setConfirm] = useState(false)
-  const [stopActive, setStopActive] = useState(false)
-  const [resultUnknown, setResultUnknown] = useState(false)
+  const [detailOpen, setDetailOpen] = useState(false)
+
   const update = snapshot?.update
   const release = update?.release
   const frozen = snapshot?.maintenance.writesFrozen ?? false
-  const mutationDisabled = busy || resultUnknown || frozen
-  const networkBusy =
-    update && ["checking", "downloading", "verifying"].includes(update.phase)
-  const { discard, cancelDiscard } = useDesktopSettingsLeave(
-    registerLeave,
-    busy ? "busy" : resultUnknown ? "unknown" : confirm ? "draft" : "ready"
-  )
+  const disabled = busy || frozen
+
+  useDesktopSettingsLeave(registerLeave, "ready")
+
   async function run(action: () => Promise<unknown>) {
-    if (busy || resultUnknown) return
+    if (busy) return
     setBusy(true)
-    setIssue(null)
+    setCommandIssue(null)
     try {
       await action()
     } catch (error) {
-      const failure = desktopIssue(error)
-      const unknown = failure.code === "unknown" || failure.code === "internal"
-      setResultUnknown(unknown)
-      setIssue(unknown ? { ...failure, code: "unknown" } : failure)
+      setCommandIssue(desktopIssue(error))
     } finally {
       setBusy(false)
     }
   }
-  async function checkResult() {
-    if (busy) return
-    setBusy(true)
-    try {
-      await service.refresh()
-      const current = service.getSnapshot()
-      if (current.issue) {
-        setIssue(current.issue)
-        return
-      }
-      setResultUnknown(false)
-      setIssue(null)
-      if (current.snapshot?.update.phase !== "ready") setConfirm(false)
-    } finally {
-      setBusy(false)
+
+  function openExternalUrl(url: string) {
+    if (isTauri()) {
+      void invoke("open_authorization_url", { url }).catch(() => {})
+    } else {
+      window.open(url, "_blank", "noopener,noreferrer")
     }
   }
-  async function install() {
-    if (!release) return
-    await run(async () => {
-      await service.call("update_install", {
-        releaseId: release.releaseId,
-        stopActive,
-      })
-      setConfirm(false)
-    })
+
+  const downloadPercent =
+    update?.phase === "downloading" &&
+    update.totalBytes &&
+    update.totalBytes > 0
+      ? Math.min(
+          100,
+          Math.round((update.downloadedBytes / update.totalBytes) * 100)
+        )
+      : null
+
+  const visibleError =
+    update?.phase === "error" &&
+    update.error &&
+    update.error.code !== "activeSessions"
+      ? update.error
+      : null
+
+  function statusSummary() {
+    if (!update) return ""
+    const checked = update.checkedAt ? formatCheckedAt(update.checkedAt) : ""
+    switch (update.phase) {
+      case "unavailable":
+        return update.error?.message ?? "当前环境不支持自动更新"
+      case "checking":
+        return "正在检查更新…"
+      case "upToDate":
+        return checked ? `已是最新版本 · 上次检查 ${checked}` : "已是最新版本"
+      case "available":
+        return release ? `发现新版本 ${release.version}` : "发现新版本"
+      case "downloading":
+        return release ? `正在下载 Moon ${release.version}…` : "正在下载更新…"
+      case "ready":
+        return release
+          ? `Moon ${release.version} 已就绪，重启后生效`
+          : "更新已就绪，重启后生效"
+      case "installing":
+        return "正在准备重启更新…"
+      case "error":
+        if (update.error?.code === "activeSessions") {
+          return release
+            ? `Moon ${release.version} 已就绪，等待确认停止会话`
+            : "等待确认停止会话"
+        }
+        return "更新未完成"
+      case "idle":
+      default:
+        return checked ? `上次检查 ${checked}` : "尚未检查更新"
+    }
   }
+
+  function renderPrimaryAction() {
+    if (!snapshot || !update) return null
+    if (update.phase === "unavailable") return null
+
+    if (update.phase === "checking" || update.phase === "downloading") {
+      return (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8"
+          disabled={disabled}
+          onClick={() =>
+            void run(() => service.call("update_cancel", undefined))
+          }
+        >
+          取消
+        </Button>
+      )
+    }
+
+    if (update.phase === "available" && release) {
+      return (
+        <Button
+          type="button"
+          size="sm"
+          className="h-8"
+          disabled={disabled || !snapshot.capabilities.checkUpdates}
+          onClick={() =>
+            void run(() =>
+              service.call("update_download", {
+                releaseId: release.releaseId,
+              })
+            )
+          }
+        >
+          <Download data-icon="inline-start" />
+          下载更新
+        </Button>
+      )
+    }
+
+    if (update.phase === "ready" && release) {
+      return (
+        <Button
+          type="button"
+          size="sm"
+          className="h-8"
+          disabled={disabled || !snapshot.capabilities.installUpdates}
+          onClick={() =>
+            void run(() =>
+              service.call("update_install", {
+                releaseId: release.releaseId,
+                forceStop: false,
+              })
+            )
+          }
+        >
+          <RefreshCw data-icon="inline-start" />
+          重启并更新
+        </Button>
+      )
+    }
+
+    if (update.phase === "installing") {
+      return (
+        <Button type="button" size="sm" className="h-8" disabled>
+          <Spinner data-icon="inline-start" />
+          正在重启…
+        </Button>
+      )
+    }
+
+    return (
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="h-8"
+        disabled={disabled || !snapshot.capabilities.checkUpdates}
+        onClick={() => void run(() => service.call("update_check", undefined))}
+      >
+        检查更新
+      </Button>
+    )
+  }
+
   return (
     <div className="settings-page">
       <div className="settings-page-inner">
         <header>
           <h2>关于与更新</h2>
         </header>
+
         {stateIssue && (
           <DesktopFeedback
             issue={stateIssue}
             onRefresh={() => void service.refresh()}
           />
         )}
+
         {snapshot && update && (
           <>
             <Card>
               <CardHeader>
                 <div className="flex flex-wrap items-center gap-2">
-                  <CardTitle>moon {snapshot.version}</CardTitle>
+                  <CardTitle>Moon {snapshot.version}</CardTitle>
+                  <Badge variant="outline">
+                    {formatPlatform(snapshot.platform, snapshot.architecture)}
+                  </Badge>
                   {snapshot.development && (
                     <Badge variant="secondary">开发模式</Badge>
                   )}
-                  <Badge variant="outline">
-                    {snapshot.platform} · {snapshot.architecture}
-                  </Badge>
                 </div>
                 <CardDescription
                   role="status"
                   className="flex items-center gap-1.5"
                 >
-                  {networkBusy && <Spinner />}
-                  <span>{phaseLabels[update.phase]}</span>
-                  {update.checkedAt && (
-                    <span>
-                      · 上次检查 {new Date(update.checkedAt).toLocaleString()}
-                    </span>
-                  )}
+                  {(update.phase === "checking" ||
+                    update.phase === "downloading" ||
+                    update.phase === "installing") && <Spinner />}
+                  <span>{statusSummary()}</span>
                 </CardDescription>
                 <CardAction className="self-center">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-8"
-                    disabled={busy}
-                    onClick={() =>
-                      void (resultUnknown ? checkResult() : service.refresh())
-                    }
-                  >
-                    <RefreshCw data-icon="inline-start" />
-                    刷新状态
-                  </Button>
+                  {renderPrimaryAction()}
                 </CardAction>
               </CardHeader>
-              {((!snapshot.capabilities.checkUpdates &&
-                snapshot.capabilities.unavailableReason) ||
-                (snapshot.development &&
-                  !snapshot.capabilities.installUpdates)) && (
-                <CardContent className="flex flex-col gap-1 text-xs text-muted-foreground">
-                  {!snapshot.capabilities.checkUpdates &&
-                    snapshot.capabilities.unavailableReason && (
-                      <p>{snapshot.capabilities.unavailableReason}</p>
+
+              {update.phase === "downloading" && (
+                <CardContent className="space-y-2 pt-0">
+                  <Progress
+                    className="h-1.5"
+                    aria-label="更新下载进度"
+                    value={downloadPercent}
+                  />
+                  <div className="flex items-center justify-between text-xs text-muted-foreground tabular-nums">
+                    <span>
+                      {formatBytes(update.downloadedBytes)}
+                      {update.totalBytes !== null
+                        ? ` / ${formatBytes(update.totalBytes)}`
+                        : ""}
+                    </span>
+                    {downloadPercent !== null && (
+                      <span>{downloadPercent}%</span>
                     )}
-                  {snapshot.development &&
-                    !snapshot.capabilities.installUpdates && (
-                      <p>当前为开发模式，请在正式发行版本中安装更新。</p>
-                    )}
+                  </div>
                 </CardContent>
               )}
-              <CardFooter className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8"
-                  disabled={
-                    mutationDisabled ||
-                    !!networkBusy ||
-                    !snapshot.capabilities.checkUpdates
-                  }
-                  onClick={() =>
-                    void run(() => service.call("update_check", undefined))
-                  }
-                >
-                  {networkBusy && <Spinner data-icon="inline-start" />}
-                  检查更新
-                </Button>
-                {networkBusy &&
-                  update.operationId &&
-                  update.phase !== "verifying" && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-8"
-                      disabled={mutationDisabled}
-                      onClick={() =>
-                        void run(() =>
-                          service.call("update_cancel", {
-                            operationId: update.operationId!,
-                          })
-                        )
-                      }
-                    >
-                      取消{update.phase === "checking" ? "检查" : "下载"}
-                    </Button>
+
+              {visibleError && (
+                <CardContent className="space-y-3 border-t pt-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-[13px] text-foreground">
+                      {visibleError.message}
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8"
+                        disabled={disabled}
+                        onClick={() => {
+                          if (
+                            visibleError.code === "installFailed" &&
+                            release
+                          ) {
+                            void run(() =>
+                              service.call("update_install", {
+                                releaseId: release.releaseId,
+                                forceStop: false,
+                              })
+                            )
+                          } else if (release) {
+                            void run(() =>
+                              service.call("update_download", {
+                                releaseId: release.releaseId,
+                              })
+                            )
+                          } else {
+                            void run(() =>
+                              service.call("update_check", undefined)
+                            )
+                          }
+                        }}
+                      >
+                        <RotateCcw data-icon="inline-start" />
+                        重试
+                      </Button>
+                      {release?.releaseUrl && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8"
+                          onClick={() => openExternalUrl(release.releaseUrl)}
+                        >
+                          <ExternalLink data-icon="inline-start" />
+                          浏览器下载
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                  {visibleError.detail && (
+                    <Collapsible open={detailOpen} onOpenChange={setDetailOpen}>
+                      <CollapsibleTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="xs"
+                          className="-ml-2 text-muted-foreground"
+                        >
+                          {detailOpen ? "收起详情" : "查看详情"}
+                          <ChevronDown data-icon="inline-end" />
+                        </Button>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <pre className="mt-2 max-h-32 overflow-auto rounded-md bg-muted/50 p-2.5 text-xs [overflow-wrap:anywhere] whitespace-pre-wrap text-muted-foreground">
+                          {visibleError.detail}
+                        </pre>
+                      </CollapsibleContent>
+                    </Collapsible>
                   )}
-              </CardFooter>
+                </CardContent>
+              )}
+
+              {snapshot.development &&
+                !snapshot.capabilities.installUpdates &&
+                update.phase === "ready" && (
+                  <CardContent className="border-t pt-3 text-xs text-muted-foreground">
+                    当前为开发模式，请在正式发行版本中安装更新。
+                  </CardContent>
+                )}
             </Card>
+
             {release && (
               <Card>
                 <CardHeader>
-                  <CardTitle>moon {release.version}</CardTitle>
+                  <div className="flex items-baseline justify-between gap-4">
+                    <CardTitle>Moon {release.version}</CardTitle>
+                    {release.publishedAt && (
+                      <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                        {new Date(release.publishedAt).toLocaleDateString()}
+                      </span>
+                    )}
+                  </div>
                 </CardHeader>
-                <CardContent className="flex flex-col gap-3">
-                  {release.publishedAt && (
-                    <p>
-                      发布于{" "}
-                      {new Date(release.publishedAt).toLocaleDateString()}
-                    </p>
-                  )}
-                  {release.notes && (
+                {release.notes.trim() && (
+                  <CardContent>
                     <p className="settings-notes">{release.notes}</p>
-                  )}
-                  {update.phase === "downloading" && (
-                    <div className="space-y-2">
-                      {update.totalBytes ? (
-                        <Progress
-                          className="h-2"
-                          aria-label="更新下载进度"
-                          value={Math.min(
-                            100,
-                            (update.downloadedBytes / update.totalBytes) * 100
-                          )}
-                        />
-                      ) : (
-                        <Progress
-                          className="h-2"
-                          aria-label="正在下载更新，等待包大小"
-                          value={null}
-                        />
-                      )}
-                      <p>
-                        {formatBytes(update.downloadedBytes)}
-                        {update.totalBytes !== null
-                          ? ` / ${formatBytes(update.totalBytes)}`
-                          : " · 正在读取包大小"}
-                      </p>
-                    </div>
-                  )}
-                  {["available", "failed"].includes(update.phase) && (
-                    <Button
-                      className="self-start"
-                      disabled={
-                        mutationDisabled || !snapshot.capabilities.checkUpdates
-                      }
-                      onClick={() =>
-                        void run(() =>
-                          service.call("update_download", {
-                            releaseId: release.releaseId,
-                          })
-                        )
-                      }
-                    >
-                      下载并验证更新
-                    </Button>
-                  )}
-                  {update.phase === "ready" && (
-                    <>
-                      <p>
-                        更新包仅保留在本次运行中。退出 moon
-                        后需要重新下载；关闭本设置页不会开始安装。
-                      </p>
-                      <Button
-                        type="button"
-                        size="sm"
-                        className="h-8 self-start"
-                        disabled={
-                          mutationDisabled ||
-                          !listening ||
-                          !snapshot.capabilities.installUpdates
-                        }
-                        onClick={() => {
-                          setConfirm(true)
-                          setStopActive(false)
-                          setIssue(null)
-                        }}
-                      >
-                        安装并重启
-                      </Button>
-                    </>
-                  )}
-                </CardContent>
+                  </CardContent>
+                )}
               </Card>
             )}
+
             <Card>
               <CardHeader>
                 <CardTitle>更新偏好</CardTitle>
@@ -322,14 +410,12 @@ export function UpdateSettings({
                     >
                       自动检查更新
                     </label>
-                    <p>正常启动后检查，每 24 小时最多一次。</p>
+                    <p>启动后及每 6 小时静默检查新版本。</p>
                   </div>
                   <Switch
                     id="auto-check"
                     checked={snapshot.updatePreferences.autoCheck}
-                    disabled={
-                      mutationDisabled || !snapshot.capabilities.checkUpdates
-                    }
+                    disabled={disabled || !snapshot.capabilities.checkUpdates}
                     onCheckedChange={(value) =>
                       void run(() =>
                         service.call("update_set_preferences", {
@@ -348,14 +434,12 @@ export function UpdateSettings({
                     >
                       自动下载更新
                     </label>
-                    <p>发现更新后自动下载并验证，安装前始终需要确认。</p>
+                    <p>发现新版本后后台下载并校验，准备好后提醒重启。</p>
                   </div>
                   <Switch
                     id="auto-download"
                     checked={snapshot.updatePreferences.autoDownload}
-                    disabled={
-                      mutationDisabled || !snapshot.capabilities.checkUpdates
-                    }
+                    disabled={disabled || !snapshot.capabilities.checkUpdates}
                     onCheckedChange={(value) =>
                       void run(() =>
                         service.call("update_set_preferences", {
@@ -368,97 +452,15 @@ export function UpdateSettings({
                 </div>
               </CardContent>
             </Card>
-            {update.issue && (
-              <DesktopFeedback
-                issue={update.issue}
-                onRefresh={() => void service.refresh()}
-              />
-            )}
           </>
         )}
-        {issue && !confirm && (
+
+        {commandIssue && (
           <DesktopFeedback
-            issue={issue}
-            onRefresh={() =>
-              void (resultUnknown ? checkResult() : service.refresh())
-            }
+            issue={commandIssue}
+            onRefresh={() => void service.refresh()}
           />
         )}
-        <AlertDialog
-          open={confirm}
-          onOpenChange={(open) => {
-            if (!busy && !resultUnknown) setConfirm(open)
-          }}
-        >
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>
-                安装 moon {release?.version}？
-              </AlertDialogTitle>
-              <AlertDialogDescription>
-                moon
-                会保存草稿、结束当前服务并退出，安装完成后重新启动。数据和保留的旧副本继续保留。
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <ActivityList activities={issue?.activities ?? []} />
-            {issue?.activities.some((item) => item.stoppable) && (
-              <label className="flex items-start gap-2 text-[13px]">
-                <Checkbox
-                  checked={stopActive}
-                  onCheckedChange={(value) => setStopActive(value === true)}
-                  disabled={busy}
-                />
-                停止列出的运行会话后安装
-              </label>
-            )}
-            {issue && (
-              <DesktopFeedback
-                issue={{ ...issue, activities: [] }}
-                onRefresh={() =>
-                  void (resultUnknown ? checkResult() : service.refresh())
-                }
-              />
-            )}
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={busy || resultUnknown}>
-                稍后安装
-              </AlertDialogCancel>
-              <Button
-                disabled={
-                  busy ||
-                  resultUnknown ||
-                  frozen ||
-                  !!issue?.activities.some((item) => !item.stoppable) ||
-                  (!!issue?.activities.some((item) => item.stoppable) &&
-                    !stopActive)
-                }
-                onClick={() => void install()}
-              >
-                {busy
-                  ? "正在准备…"
-                  : stopActive
-                    ? "停止会话并安装"
-                    : "安装并重启"}
-              </Button>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-        <SettingsConfirmDialog
-          value={
-            discard && {
-              title: "放弃安装确认？",
-              description: "可以稍后回到更新设置继续确认安装。",
-              label: "离开设置",
-              action: discard,
-            }
-          }
-          onCancel={cancelDiscard}
-          onConfirm={() => {
-            cancelDiscard()
-            setConfirm(false)
-            discard?.()
-          }}
-        />
       </div>
     </div>
   )

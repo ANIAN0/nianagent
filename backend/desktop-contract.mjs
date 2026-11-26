@@ -164,7 +164,7 @@ export const desktopSchemas = {
     expiresAt: str,
     activities: array(ref("Activity")),
   }),
-  MaintenanceKind: enumeration("none", "migration", "update"),
+  MaintenanceKind: enumeration("none", "migration"),
   MaintenancePhase: enumeration(
     "idle",
     "preparing",
@@ -198,22 +198,38 @@ export const desktopSchemas = {
     version: str,
     notes: str,
     publishedAt: nullable(str),
+    releaseUrl: str,
   }),
   UpdatePhase: enumeration(
     "unavailable",
     "idle",
     "checking",
-    "current",
+    "upToDate",
     "available",
     "downloading",
-    "verifying",
     "ready",
-    "preparing",
-    "handedOff",
-    "succeeded",
-    "failed",
-    "unknown"
+    "installing",
+    "error"
   ),
+  UpdateErrorCode: enumeration(
+    "offline",
+    "signature",
+    "compatibility",
+    "activeSessions",
+    "installFailed",
+    "cancelled",
+    "unavailable"
+  ),
+  UpdateActiveSession: object({
+    id: str,
+    title: str,
+  }),
+  UpdateError: object({
+    code: ref("UpdateErrorCode"),
+    message: str,
+    detail: nullable(str),
+    activeSessions: array(ref("UpdateActiveSession")),
+  }),
   UpdateState: object({
     operationId: nullable(str),
     revision: num,
@@ -222,7 +238,8 @@ export const desktopSchemas = {
     downloadedBytes: num,
     totalBytes: nullable(num),
     checkedAt: nullable(str),
-    issue: nullable(ref("DesktopIssue")),
+    error: nullable(ref("UpdateError")),
+    justUpdatedFrom: nullable(str),
   }),
   DesktopSnapshot: object({
     revision: num,
@@ -258,8 +275,7 @@ export const desktopSchemas = {
     blockers: array(ref("Activity")),
   }),
   ReleaseInput: object({ releaseId: str }),
-  UpdateInstallInput: object({ releaseId: str, stopActive: bool }),
-  CancelInput: object({ operationId: str }),
+  UpdateInstallInput: object({ releaseId: str, forceStop: bool }),
   RetainedCopyInput: object({ index: num }),
   FileOpenInput: object({ path: str, program: nullable(str) }),
   FileExportInput: object({ path: str, name: str }),
@@ -449,35 +465,49 @@ export const desktopCommands = {
     "检查更新",
     null,
     "UpdateState",
-    "固定GitHub stable来源；不自动安装。"
+    "从 GitHub Releases 稳定通道检查更新，不自动安装。"
   ),
   update_download: command(
     "关于与更新",
     "下载并验证更新",
     "ReleaseInput",
     "UpdateState",
-    "后台官方download，签名验证后才可安装。"
+    "后台下载并校验 Ed25519 签名，验证通过后暂存至本地磁盘。"
   ),
   update_cancel: command(
     "关于与更新",
     "取消检查或下载",
-    "CancelInput",
+    null,
     "UpdateState",
-    "只能取消当前网络阶段。"
+    "取消当前检查或下载任务。"
   ),
   update_set_preferences: command(
     "关于与更新",
     "保存更新偏好",
     "UpdatePreferences",
     "UpdatePreferences",
-    "保存到当前数据根，默认自动检查开/自动下载关。"
+    "保存到当前数据根，默认自动检查开、自动下载开。"
   ),
   update_install: command(
     "关于与更新",
     "安装并重启",
     "UpdateInstallInput",
-    "MaintenanceState",
-    "明确确认、冻结、保存、严格drain后官方install。"
+    "UpdateState",
+    "检查活跃会话、保存草稿并优雅关闭后端后交由安装程序完成更新并重启。"
+  ),
+  update_dismiss_error: command(
+    "关于与更新",
+    "清除更新错误",
+    null,
+    "UpdateState",
+    "清除当前更新错误提示并恢复可用状态。"
+  ),
+  update_acknowledge_updated: command(
+    "关于与更新",
+    "确认更新成功提示",
+    null,
+    null,
+    "清除新版本首次启动的更新成功标记。"
   ),
 }
 export const desktopEvents = {

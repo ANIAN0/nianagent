@@ -468,7 +468,7 @@ impl BootRuntime {
                             };
                             inner.snapshot.issue = None;
                         });
-                        desktop_runtime::automatic_check(app);
+                        crate::updater::schedule_background_checks(app);
                     }
                 }
             }

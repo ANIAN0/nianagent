@@ -50,16 +50,83 @@ export class DesktopMaintenance {
     if (
       !input ||
       !/^[A-Za-z0-9_-]{1,128}$/.test(input.operationId || "") ||
-      !["inspect", "freeze", "resume", "prepareShutdown"].includes(input.action)
+      ![
+        "inspect",
+        "freeze",
+        "resume",
+        "prepareShutdown",
+        "prepareUpdateShutdown",
+      ].includes(input.action)
     )
       throw operationError("maintenance_unconfirmed", "维护请求无效。")
     if (input.action === "inspect") return this.state(input.operationId)
+    if (input.action === "prepareUpdateShutdown") {
+      const change = this.changes.then(() => this.prepareUpdateShutdown(input))
+      this.changes = change.then(
+        () => {},
+        () => {}
+      )
+      return change
+    }
     const change = this.changes.then(() => this.change(input))
     this.changes = change.then(
       () => {},
       () => {}
     )
     return change
+  }
+  async prepareUpdateShutdown(input) {
+    const ready = this.service()
+    const blocking = [
+      ...(ready?.conversations.maintenanceActivities() ?? []),
+      ...(ready?.jobs.maintenanceActivities() ?? []),
+    ].filter(
+      (activity) =>
+        activity.kind === "conversation" || activity.kind === "authorization"
+    )
+    if (blocking.length > 0 && !input.stopActive) {
+      return {
+        operationId: input.operationId,
+        ready: false,
+        closed: false,
+        activeSessions: blocking.map((activity) => ({
+          id: activity.sessionId || activity.id,
+          title: activity.label,
+        })),
+      }
+    }
+    if (input.stopActive) {
+      await ready?.conversations.stopForMaintenance()
+      await ready?.jobs.stopForMaintenance()
+    }
+    this.draining = true
+    const inFlight = [...this.requests.entries()]
+      .filter(([, request]) => request.operation !== "$maintenance")
+      .map(([, request]) => request.done)
+    if (inFlight.length > 0) {
+      await Promise.race([
+        Promise.allSettled(inFlight),
+        new Promise((resolve) => setTimeout(resolve, 2000)),
+      ])
+    }
+    try {
+      const verifySaved = ready?.conversations.maintenanceCheckpoint()
+      verifySaved?.()
+    } catch {
+      /* 更新前尽力落盘，不阻断重启安装。 */
+    }
+    this.closed = true
+    try {
+      await ready?.close({ strict: false })
+    } catch {
+      /* 宿主随后会强制终止子进程以释放文件锁。 */
+    }
+    return {
+      operationId: input.operationId,
+      ready: true,
+      closed: true,
+      activeSessions: [],
+    }
   }
   async change(input) {
     if (this.operationId && this.operationId !== input.operationId)

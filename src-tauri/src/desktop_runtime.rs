@@ -3,6 +3,7 @@ use crate::{
     migration,
     models::ModelBackend,
     storage::{self, StoragePaths},
+    updater,
 };
 use serde_json::{Value, json};
 use std::{
@@ -10,7 +11,7 @@ use std::{
     time::Duration,
 };
 use tauri::{AppHandle, Emitter, Manager};
-use tauri_plugin_updater::{Update, UpdaterExt};
+use tauri_plugin_updater::Update;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 pub type DesktopResult<T> = Result<T, DesktopIssue>;
 pub fn issue(
@@ -37,12 +38,10 @@ fn maintenance_record(paths: &StoragePaths) -> Result<Option<Value>, String> {
     } else {
         None
     };
-    if latest.as_ref().is_some_and(|record| {
-        committed_startup_operation(paths, record)
-            || (record["kind"] == "update"
-                && record["dataSetId"] == paths.marker.data_set_id
-                && record["generation"] == paths.bootstrap.generation)
-    }) {
+    if latest
+        .as_ref()
+        .is_some_and(|record| committed_startup_operation(paths, record))
+    {
         return Ok(latest);
     }
     // 首次legacy导入可能在bootstrap写穿后、last-maintenance首次落盘前崩溃。
@@ -60,14 +59,14 @@ fn maintenance_record(paths: &StoragePaths) -> Result<Option<Value>, String> {
         }
     }
     Ok(latest.filter(|record| {
-        record["dataSetId"] == paths.marker.data_set_id
+        record["kind"] != "update"
+            && record["dataSetId"] == paths.marker.data_set_id
             && record["generation"] == paths.bootstrap.generation
-            && (record["kind"] == "update"
-                || record["sourceDirectory"].as_str().is_some_and(|root| {
-                    dunce::canonicalize(root).is_ok_and(|root| {
-                        storage::text(&root).eq_ignore_ascii_case(&storage::text(&paths.data))
-                    })
-                }))
+            && record["sourceDirectory"].as_str().is_some_and(|root| {
+                dunce::canonicalize(root).is_ok_and(|root| {
+                    storage::text(&root).eq_ignore_ascii_case(&storage::text(&paths.data))
+                })
+            })
     }))
 }
 fn committed_startup_operation(paths: &StoragePaths, record: &Value) -> bool {
@@ -165,13 +164,7 @@ impl DesktopRuntime {
         } else {
             None
         };
-        let preferences = storage::read_json(&paths.data.join("updates/preferences.json"))
-            .ok()
-            .and_then(|value| serde_json::from_value(value).ok())
-            .unwrap_or(UpdatePreferences {
-                auto_check: true,
-                auto_download: false,
-            });
+        let preferences = updater::load_preferences(&paths);
         let mut maintenance = MaintenanceState {
             operation_id: None,
             revision: 0,
@@ -185,30 +178,11 @@ impl DesktopRuntime {
             total_files: 0,
             issue: None,
         };
-        let mut update = UpdateState {
-            operation_id: None,
-            revision: 0,
-            phase: if reason.is_some() {
-                UpdatePhase::Unavailable
-            } else {
-                UpdatePhase::Idle
-            },
-            release: None,
-            downloaded_bytes: 0,
-            total_bytes: None,
-            checked_at: storage::read_json(&paths.data.join("updates/check.json"))
-                .ok()
-                .and_then(|value| value["checkedAt"].as_str().map(str::to_owned)),
-            issue: reason
-                .clone()
-                .map(|message| issue(IssueCode::Unavailable, message, RecoveryAction::None)),
-        };
+        let update = updater::init_update_state(&paths, reason.clone());
         if let Ok(Some(record)) = maintenance_record(&paths) {
             maintenance.operation_id = record["operationId"].as_str().map(str::to_owned);
             maintenance.kind = if record["kind"] == "migration" {
                 MaintenanceKind::Migration
-            } else if record["kind"] == "update" {
-                MaintenanceKind::Update
             } else {
                 MaintenanceKind::None
             };
@@ -229,11 +203,6 @@ impl DesktopRuntime {
                     "程序已启动，但业务数据尚不能恢复，请核对原记录；不会切回旧副本。",
                     RecoveryAction::None,
                 ));
-            }
-            if matches!(maintenance.kind, MaintenanceKind::Update)
-                && !matches!(maintenance.phase, MaintenancePhase::Succeeded)
-            {
-                update.phase = UpdatePhase::Unknown;
             }
         }
         if !backend_readable {
@@ -356,7 +325,7 @@ impl DesktopRuntime {
         if state.maintenance.writes_frozen
             || matches!(
                 state.update.phase,
-                UpdatePhase::Checking | UpdatePhase::Downloading | UpdatePhase::Verifying
+                UpdatePhase::Checking | UpdatePhase::Downloading | UpdatePhase::Installing
             )
         {
             return Err(issue(
@@ -386,11 +355,7 @@ impl DesktopRuntime {
         self.change(app, |state| {
             state.maintenance.phase = MaintenancePhase::Failed;
             state.maintenance.writes_frozen = state.maintenance.shutdown_started;
-            state.maintenance.issue = Some(error.clone());
-            if matches!(state.maintenance.kind, MaintenanceKind::Update) {
-                state.update.phase = UpdatePhase::Failed;
-                state.update.issue = Some(error);
-            }
+            state.maintenance.issue = Some(error);
         });
     }
     pub fn prepare_shutdown(
@@ -590,11 +555,8 @@ impl DesktopRuntime {
         if record["phase"] == "succeeded" {
             return Ok(());
         }
-        let version_matches = record["kind"] == "migration"
-            || record["targetVersion"].as_str() == Some(env!("CARGO_PKG_VERSION"));
         if input.profile_ready
             && self.backend_readable
-            && version_matches
             && record["dataSetId"] == self.paths.marker.data_set_id
             && record["generation"] == self.paths.bootstrap.generation
             && (!["migration", "initialize"]
@@ -609,18 +571,12 @@ impl DesktopRuntime {
                 state.maintenance.phase = MaintenancePhase::Succeeded;
                 state.maintenance.writes_frozen = false;
                 state.maintenance.issue = None;
-                if matches!(state.maintenance.kind, MaintenanceKind::Update) {
-                    state.update.phase = UpdatePhase::Succeeded;
-                    state.update.issue = None;
-                }
             });
         } else {
             let message = if !input.profile_ready {
                 input
                     .message
                     .unwrap_or("桌面恢复状态未能读取，原数据保留。".into())
-            } else if !version_matches {
-                "安装尚未完成或已取消，仍是原程序版本；不会自动重试安装。".into()
             } else {
                 "维护后的数据恢复未确认，保留同一权威根与诊断。".into()
             };
@@ -635,277 +591,5 @@ impl DesktopRuntime {
             });
         }
         Ok(())
-    }
-}
-fn network_issue(error: tauri_plugin_updater::Error) -> DesktopIssue {
-    use tauri_plugin_updater::Error::*;
-    match error {
-        Minisign(_)
-        | Base64(_)
-        | SignatureUtf8(_)
-        | SignedVersionMismatch { .. }
-        | MissingSignedVersion => issue(
-            IssueCode::Signature,
-            "更新包签名或签名版本无效，不能安装。",
-            RecoveryAction::Retry,
-        ),
-        TargetNotFound(_) | TargetsNotFound(_) | UnsupportedArch | UnsupportedOs
-        | Serialization(_) | Semver(_) => issue(
-            IssueCode::Compatibility,
-            "发行清单不兼容当前Windows x64 NSIS程序。",
-            RecoveryAction::Retry,
-        ),
-        _ => issue(
-            IssueCode::Offline,
-            "无法连接GitHub或获取完整发行资源，请稍后重试。",
-            RecoveryAction::Retry,
-        ),
-    }
-}
-pub fn check_update(app: &AppHandle) -> DesktopResult<UpdateState> {
-    let service = app.state::<DesktopRuntime>();
-    let _action = service
-        .actions
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner());
-    let snapshot = service.snapshot();
-    if !snapshot.capabilities.check_updates {
-        return Err(issue(
-            IssueCode::Unavailable,
-            snapshot
-                .capabilities
-                .unavailable_reason
-                .unwrap_or("更新不可用。".into()),
-            RecoveryAction::None,
-        ));
-    }
-    if snapshot.maintenance.writes_frozen
-        || matches!(
-            snapshot.update.phase,
-            UpdatePhase::Checking
-                | UpdatePhase::Downloading
-                | UpdatePhase::Verifying
-                | UpdatePhase::Ready
-        )
-    {
-        return Err(issue(
-            IssueCode::Busy,
-            "当前已有更新任务，请完成或取消后再检查。",
-            RecoveryAction::Wait,
-        ));
-    }
-    let id = uuid::Uuid::new_v4().to_string();
-    let checked_at = now();
-    storage::atomic_json(
-        &service.paths.data.join("updates/check.json"),
-        &json!({"checkedAt":checked_at}),
-    )
-    .map_err(|message| issue(IssueCode::Permission, message, RecoveryAction::Retry))?;
-    service.change(app, |state| {
-        state.update.operation_id = Some(id.clone());
-        state.update.phase = UpdatePhase::Checking;
-        state.update.checked_at = Some(checked_at);
-        state.update.issue = None;
-        state.update.release = None;
-        state.update.downloaded_bytes = 0;
-        state.update.total_bytes = None;
-    });
-    let handle = app.clone();
-    let operation = id.clone();
-    let task = tauri::async_runtime::spawn(async move {
-        let service = handle.state::<DesktopRuntime>();
-        let before_exit = handle.clone();
-        let result = match handle
-            .updater_builder()
-            .timeout(Duration::from_secs(45))
-            .on_before_exit(move || {
-                if let Some(backend) = before_exit.try_state::<ModelBackend>() {
-                    backend.shutdown();
-                }
-            })
-            .build()
-        {
-            Ok(updater) => updater.check().await,
-            Err(error) => Err(error),
-        };
-        if service.snapshot().update.operation_id.as_deref() != Some(&operation) {
-            return;
-        }
-        match result {
-            Ok(Some(update)) => {
-                let prefix = format!("/ANIAN0/nianagent/releases/download/v{}/", update.version);
-                if update.download_url.scheme() != "https"
-                    || update.download_url.host_str() != Some("github.com")
-                    || !update.download_url.path().starts_with(&prefix)
-                {
-                    service.change_update(&handle, &operation, |state| {
-                        state.update.phase = UpdatePhase::Failed;
-                        state.update.issue = Some(issue(
-                            IssueCode::Compatibility,
-                            "发行资产必须固定到同一版本的Moon GitHub Release。",
-                            RecoveryAction::Retry,
-                        ));
-                    });
-                    return;
-                }
-                let release = UpdateRelease {
-                    release_id: uuid::Uuid::new_v4().to_string(),
-                    version: update.version.clone(),
-                    notes: update.body.clone().unwrap_or_default(),
-                    published_at: update.date.and_then(|date| date.format(&Rfc3339).ok()),
-                };
-                if !service.change_update(&handle, &operation, |state| {
-                    *service
-                        .update
-                        .lock()
-                        .unwrap_or_else(|poison| poison.into_inner()) = Some(update);
-                    state.update.phase = UpdatePhase::Available;
-                    state.update.release = Some(release.clone());
-                }) {
-                    return;
-                }
-                if service.snapshot().update_preferences.auto_download {
-                    let _ = download_update(&handle, &release.release_id);
-                }
-            }
-            Ok(None) => {
-                service.change_update(&handle, &operation, |state| {
-                    state.update.phase = UpdatePhase::Current
-                });
-            }
-            Err(error) => {
-                service.change_update(&handle, &operation, |state| {
-                    state.update.phase = UpdatePhase::Failed;
-                    state.update.issue = Some(network_issue(error));
-                });
-            }
-        }
-    });
-    *service
-        .network
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner()) = Some((id, task));
-    Ok(service.snapshot().update)
-}
-pub fn download_update(app: &AppHandle, release_id: &str) -> DesktopResult<UpdateState> {
-    let service = app.state::<DesktopRuntime>();
-    let _action = service
-        .actions
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner());
-    let snapshot = service.snapshot();
-    if snapshot
-        .update
-        .release
-        .as_ref()
-        .map(|release| release.release_id.as_str())
-        != Some(release_id)
-    {
-        return Err(issue(
-            IssueCode::Validation,
-            "检查到的版本身份已失效，请重新检查。",
-            RecoveryAction::Retry,
-        ));
-    }
-    if matches!(
-        snapshot.update.phase,
-        UpdatePhase::Downloading | UpdatePhase::Verifying | UpdatePhase::Ready
-    ) {
-        return Ok(snapshot.update);
-    }
-    if snapshot.maintenance.writes_frozen {
-        return Err(issue(
-            IssueCode::Busy,
-            "正在维护，请稍后下载。",
-            RecoveryAction::Wait,
-        ));
-    }
-    let update = service
-        .update
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner())
-        .clone()
-        .ok_or_else(|| {
-            issue(
-                IssueCode::Validation,
-                "发行信息已失效，请重新检查。",
-                RecoveryAction::Retry,
-            )
-        })?;
-    let id = uuid::Uuid::new_v4().to_string();
-    let operation = id.clone();
-    service.change(app, |state| {
-        state.update.operation_id = Some(id.clone());
-        state.update.phase = UpdatePhase::Downloading;
-        state.update.downloaded_bytes = 0;
-        state.update.total_bytes = None;
-        state.update.issue = None;
-    });
-    let handle = app.clone();
-    let task = tauri::async_runtime::spawn(async move {
-        let chunks = handle.clone();
-        let finished = handle.clone();
-        let chunks_id = operation.clone();
-        let finished_id = operation.clone();
-        let result = update
-            .download(
-                move |bytes, total| {
-                    let service = chunks.state::<DesktopRuntime>();
-                    service.change_update(&chunks, &chunks_id, |state| {
-                        state.update.downloaded_bytes += bytes as u64;
-                        state.update.total_bytes = total;
-                    });
-                },
-                move || {
-                    let service = finished.state::<DesktopRuntime>();
-                    service.change_update(&finished, &finished_id, |state| {
-                        state.update.phase = UpdatePhase::Verifying
-                    });
-                },
-            )
-            .await;
-        let service = handle.state::<DesktopRuntime>();
-        if service.snapshot().update.operation_id.as_deref() != Some(&operation) {
-            return;
-        }
-        match result {
-            Ok(bytes) => {
-                service.change_update(&handle, &operation, |state| {
-                    *service
-                        .bytes
-                        .lock()
-                        .unwrap_or_else(|poison| poison.into_inner()) = Some(bytes);
-                    state.update.phase = UpdatePhase::Ready;
-                });
-            }
-            Err(error) => {
-                service.change_update(&handle, &operation, |state| {
-                    state.update.phase = UpdatePhase::Failed;
-                    state.update.issue = Some(network_issue(error));
-                });
-            }
-        }
-    });
-    *service
-        .network
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner()) = Some((id, task));
-    Ok(service.snapshot().update)
-}
-pub fn automatic_check(app: &AppHandle) {
-    let service = app.state::<DesktopRuntime>();
-    let snapshot = service.snapshot();
-    let due = snapshot
-        .update
-        .checked_at
-        .as_deref()
-        .and_then(|value| OffsetDateTime::parse(value, &Rfc3339).ok())
-        .is_none_or(|date| OffsetDateTime::now_utc() - date >= time::Duration::hours(24));
-    if snapshot.update_preferences.auto_check
-        && snapshot.capabilities.check_updates
-        && due
-        && !snapshot.maintenance.writes_frozen
-    {
-        let _ = check_update(app);
     }
 }

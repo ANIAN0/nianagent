@@ -20,7 +20,7 @@ function diagnosticsText(snapshot: DesktopSnapshot) {
     `维护状态：${snapshot.maintenance.kind} / ${snapshot.maintenance.phase}`,
     `更新状态：${snapshot.update.phase}`,
     `维护错误代码：${snapshot.maintenance.issue?.code ?? "无"}`,
-    `更新错误代码：${snapshot.update.issue?.code ?? "无"}`,
+    `更新错误代码：${snapshot.update.error?.code ?? "无"}`,
   ].join("\n")
 }
 

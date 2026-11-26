@@ -24,7 +24,8 @@ export function MaintenanceStatus() {
   const [issue, setIssue] = useState<DesktopIssue | null>(null)
   const [busy, setBusy] = useState(false)
   const state = snapshot?.maintenance
-  if (!state || state.kind === "none" || state.phase === "idle") return null
+  if (!state || state.kind !== "migration" || state.phase === "idle")
+    return null
   const restart =
     state.shutdownStarted && ["failed", "unknown"].includes(state.phase)
   return (
@@ -33,8 +34,7 @@ export function MaintenanceStatus() {
       aria-label="桌面维护状态"
     >
       <p role="status">
-        {state.kind === "migration" ? "数据迁移" : "版本更新"} ·{" "}
-        {labels[state.phase]}
+        数据迁移 · {labels[state.phase]}
         {state.totalFiles > 0
           ? ` ${state.completedFiles}/${state.totalFiles}`
           : ""}
